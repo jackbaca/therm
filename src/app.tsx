@@ -588,6 +588,16 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
             })
             .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
           return
+        case "reload-skills":
+          gw.request<{ output: string; result: { added?: unknown[]; removed?: unknown[]; total?: number } }>(
+            "skills.reload", {})
+            .then(r => {
+              dispatch({ kind: "system", text: r.output })
+              const n = Number(r.result?.total ?? 0)
+              toast.show({ variant: "success", message: `Skills reloaded (${n} available)` })
+            })
+            .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
+          return
         case "save":
           gw.request<{ file: string }>("session.save")
             .then(r => toast.show({ variant: "success", message: `Saved → ${r.file}` }))
