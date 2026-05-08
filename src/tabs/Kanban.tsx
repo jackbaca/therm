@@ -315,8 +315,10 @@ const SidePane = memo((p: { pane: Pane; on: boolean; sel: number }) => {
     )
   }
   // Multi-line row — used for body/result where we want markdown
-  // rendering in view mode and plain text in edit. No height cap here;
-  // the outer pane is a column flex so each row takes what it needs.
+  // rendering in view mode and plain text in edit. The label row
+  // doubles as the row's focus target; content flows in a box
+  // indented to the label's 10-col gutter so long lines wrap inside
+  // the value column instead of back to the left margin.
   const mrow = (f: PaneField, label: string, content: React.ReactNode, hint?: string) => {
     const active = cur === f
     return (
@@ -326,11 +328,11 @@ const SidePane = memo((p: { pane: Pane; on: boolean; sel: number }) => {
           <box width={10} flexShrink={0}>
             <text fg={active ? theme.accent : theme.textMuted}>{label}</text>
           </box>
-          {hint ? <box flexGrow={1}>
+          {hint ? <box flexGrow={1} overflow="hidden">
             <text fg={theme.textMuted}>{hint}</text>
           </box> : null}
         </box>
-        <box paddingLeft={10} minHeight={1}>{content}</box>
+        <box paddingLeft={10} flexShrink={0}>{content}</box>
       </box>
     )
   }
@@ -348,87 +350,86 @@ const SidePane = memo((p: { pane: Pane; on: boolean; sel: number }) => {
           <span fg={theme.textMuted}>{`  ·  ${p.pane.slug}  ·  ${d.status}  ·  ${ago(d.updated_at)}`}</span>
         </text>
       </box>
-      <box height={1} />
-      {srow("title", "Title", d.title,
-        p.on && cur === "title" ? "Enter edit" : undefined)}
-      {mrow("body", "Body",
-        d.body
-          ? cur === "body"
-            ? <text wrapMode="word" fg={theme.text}>{d.body}</text>
-            : <markdown content={d.body} fg={theme.markdownText} syntaxStyle={syntaxStyle} />
-          : <text fg={theme.textMuted}>—</text>,
-        p.on && cur === "body" ? "Enter edit (raw)" : undefined)}
-      <box height={1} />
-      {srow("assignee", "Assignee", d.assignee ?? "—",
-        p.on && cur === "assignee" ? "Enter pick" : undefined)}
-      {srow("priority", "Priority", d.priority ? `P${d.priority}` : "—",
-        p.on && cur === "priority" ? "↑↓ / Enter" : undefined)}
-      {srow("status", "Status", d.status,
-        p.on && cur === "status" ? "Enter change" : undefined)}
-      {srow("parents", "Parents", d.parents.length ? d.parents.join(", ") : "—",
-        p.on && cur === "parents" ? "Enter add/remove" : undefined)}
-      {d.children.length
-        ? <box height={1} flexDirection="row" paddingLeft={1}>
-            <box width={10} flexShrink={0}><text fg={theme.textMuted}>Children</text></box>
-            <box flexGrow={1} minWidth={0} overflow="hidden">
-              <text fg={theme.textMuted}>{d.children.join(", ")}</text>
-            </box>
-          </box>
-        : null}
-      {d.workspace_kind
-        ? <box height={1} flexDirection="row" paddingLeft={1}>
-            <box width={10} flexShrink={0}><text fg={theme.textMuted}>Workspace</text></box>
-            <box flexGrow={1} minWidth={0} overflow="hidden">
-              <text fg={theme.textMuted}>
-                {d.workspace_kind}{d.workspace_path ? ` @ ${d.workspace_path}` : ""}
-              </text>
-            </box>
-          </box>
-        : null}
-      {d.skills.length
-        ? <box height={1} flexDirection="row" paddingLeft={1}>
-            <box width={10} flexShrink={0}><text fg={theme.textMuted}>Skills</text></box>
-            <box flexGrow={1} minWidth={0} overflow="hidden">
-              <text fg={theme.textMuted}>{d.skills.join(", ")}</text>
-            </box>
-          </box>
-        : null}
-      {d.pid
-        ? <box height={1} flexDirection="row" paddingLeft={1}>
-            <box width={10} flexShrink={0}><text fg={theme.textMuted}>PID</text></box>
-            <box flexGrow={1} minWidth={0} overflow="hidden">
-              <text fg={theme.textMuted}>{String(d.pid)}</text>
-            </box>
-          </box>
-        : null}
-      {d.error
-        ? <box flexDirection="column" paddingLeft={1}>
-            <box height={1}><text fg={theme.error}>Error</text></box>
-            <box paddingLeft={2}>
-              <text fg={theme.error} wrapMode="word">{d.error}</text>
-            </box>
-          </box>
-        : null}
-      {d.status === "done"
-        ? mrow("result", "Result",
-            resultText
-              ? cur === "result"
-                ? <text wrapMode="word" fg={theme.text}>{resultText}</text>
-                : <markdown content={resultText} fg={theme.markdownText} syntaxStyle={syntaxStyle} />
-              : <text fg={theme.textMuted}>—</text>,
-            p.on && cur === "result" ? "Enter edit" : undefined)
-        : null}
-      <box height={1} />
       <scrollbox scrollY flexGrow={1}>
         <box flexDirection="column" width="100%">
+          {srow("title", "Title", d.title,
+            p.on && cur === "title" ? "Enter edit" : undefined)}
+          {mrow("body", "Body",
+            d.body
+              ? cur === "body"
+                ? <text wrapMode="word" fg={theme.text}>{d.body}</text>
+                : <markdown content={d.body} fg={theme.markdownText} syntaxStyle={syntaxStyle} />
+              : <text fg={theme.textMuted}>—</text>,
+            p.on && cur === "body" ? "Enter edit (raw)" : undefined)}
+          {srow("assignee", "Assignee", d.assignee ?? "—",
+            p.on && cur === "assignee" ? "Enter pick" : undefined)}
+          {srow("priority", "Priority", d.priority ? `P${d.priority}` : "—",
+            p.on && cur === "priority" ? "↑↓ / Enter" : undefined)}
+          {srow("status", "Status", d.status,
+            p.on && cur === "status" ? "Enter change" : undefined)}
+          {srow("parents", "Parents", d.parents.length ? d.parents.join(", ") : "—",
+            p.on && cur === "parents" ? "Enter add/remove" : undefined)}
+          {d.children.length
+            ? <box height={1} flexDirection="row" paddingLeft={1}>
+                <box width={10} flexShrink={0}><text fg={theme.textMuted}>Children</text></box>
+                <box flexGrow={1} minWidth={0} overflow="hidden">
+                  <text fg={theme.textMuted}>{d.children.join(", ")}</text>
+                </box>
+              </box>
+            : null}
+          {d.workspace_kind
+            ? <box height={1} flexDirection="row" paddingLeft={1}>
+                <box width={10} flexShrink={0}><text fg={theme.textMuted}>Workspace</text></box>
+                <box flexGrow={1} minWidth={0} overflow="hidden">
+                  <text fg={theme.textMuted}>
+                    {d.workspace_kind}{d.workspace_path ? ` @ ${d.workspace_path}` : ""}
+                  </text>
+                </box>
+              </box>
+            : null}
+          {d.skills.length
+            ? <box height={1} flexDirection="row" paddingLeft={1}>
+                <box width={10} flexShrink={0}><text fg={theme.textMuted}>Skills</text></box>
+                <box flexGrow={1} minWidth={0} overflow="hidden">
+                  <text fg={theme.textMuted}>{d.skills.join(", ")}</text>
+                </box>
+              </box>
+            : null}
+          {d.pid
+            ? <box height={1} flexDirection="row" paddingLeft={1}>
+                <box width={10} flexShrink={0}><text fg={theme.textMuted}>PID</text></box>
+                <box flexGrow={1} minWidth={0} overflow="hidden">
+                  <text fg={theme.textMuted}>{String(d.pid)}</text>
+                </box>
+              </box>
+            : null}
+          {d.error
+            ? <box flexDirection="column" paddingLeft={1}>
+                <box height={1}><text fg={theme.error}>Error</text></box>
+                <box paddingLeft={2}>
+                  <text fg={theme.error} wrapMode="word">{d.error}</text>
+                </box>
+              </box>
+            : null}
+          {d.status === "done"
+            ? mrow("result", "Result",
+                resultText
+                  ? cur === "result"
+                    ? <text wrapMode="word" fg={theme.text}>{resultText}</text>
+                    : <markdown content={resultText} fg={theme.markdownText} syntaxStyle={syntaxStyle} />
+                  : <text fg={theme.textMuted}>—</text>,
+                p.on && cur === "result" ? "Enter edit" : undefined)
+            : null}
           {d.runs.length > 0 ? <>
-            <box height={1}><text fg={theme.textMuted}>{`Runs (${d.runs.length})`}</text></box>
+            <box height={1} marginTop={1}>
+              <text fg={theme.textMuted}>{`Runs (${d.runs.length})`}</text>
+            </box>
             {d.runs.map(r => {
               const outcome = r.outcome || r.status || (r.ended_at ? "ended" : "active")
               const elapsed = r.ended_at
                 ? `${Math.max(0, r.ended_at - r.started_at)}s` : "active"
               return (
-                <box key={r.id} flexDirection="column" marginTop={1}>
+                <box key={r.id} flexDirection="column">
                   <box height={1}><text>
                     <span fg={theme.primary}>{`#${r.id} `}</span>
                     <span fg={theme.text}>{outcome}</span>
@@ -445,8 +446,9 @@ const SidePane = memo((p: { pane: Pane; on: boolean; sel: number }) => {
             })}
           </> : null}
           {d.events.length > 0 ? <>
-            <box height={1} />
-            <box height={1}><text fg={theme.textMuted}>{`Events (${d.events.length})`}</text></box>
+            <box height={1} marginTop={1}>
+              <text fg={theme.textMuted}>{`Events (${d.events.length})`}</text>
+            </box>
             {d.events.map(e => (
               <box key={e.id} height={1}><text>
                 <span fg={theme.textMuted}>{`${ago(e.created_at).padEnd(10)} `}</span>
@@ -458,10 +460,11 @@ const SidePane = memo((p: { pane: Pane; on: boolean; sel: number }) => {
             ))}
           </> : null}
           {d.comments.length > 0 ? <>
-            <box height={1} />
-            <box height={1}><text fg={theme.textMuted}>{`Comments (${d.comments.length})`}</text></box>
+            <box height={1} marginTop={1}>
+              <text fg={theme.textMuted}>{`Comments (${d.comments.length})`}</text>
+            </box>
             {d.comments.map((c, i) => (
-              <box key={i} flexDirection="column" marginTop={1}>
+              <box key={i} flexDirection="column">
                 <box height={1}><text fg={theme.textMuted}>{`${c.author}  ·  ${ago(c.at)}`}</text></box>
                 <text wrapMode="word">{c.body}</text>
               </box>
