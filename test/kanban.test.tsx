@@ -17,13 +17,25 @@ const schema = (db: Database) => {
     id TEXT PRIMARY KEY, title TEXT, body TEXT, assignee TEXT,
     status TEXT, priority INTEGER DEFAULT 0, tenant TEXT,
     created_at INTEGER, started_at INTEGER, completed_at INTEGER,
-    result TEXT, last_spawn_error TEXT, worker_pid INTEGER
+    result TEXT, last_spawn_error TEXT, worker_pid INTEGER,
+    workspace_kind TEXT, workspace_path TEXT,
+    skills TEXT, max_runtime_seconds INTEGER
   )`)
   db.run(`CREATE TABLE IF NOT EXISTS task_links (
     parent_id TEXT, child_id TEXT, PRIMARY KEY (parent_id, child_id))`)
   db.run(`CREATE TABLE IF NOT EXISTS task_comments (
     id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT,
     author TEXT, body TEXT, created_at INTEGER)`)
+  // Append-only audit tables. kanban_db.py writes to these on every
+  // write; herm reads them for the detail pane's Runs/Events sections
+  // and the patchTask event-row sibling INSERTs.
+  db.run(`CREATE TABLE IF NOT EXISTS task_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT, run_id INTEGER,
+    kind TEXT, payload TEXT, created_at INTEGER)`)
+  db.run(`CREATE TABLE IF NOT EXISTS task_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT, profile TEXT,
+    status TEXT, outcome TEXT, started_at INTEGER, ended_at INTEGER,
+    summary TEXT, error TEXT, worker_pid INTEGER)`)
 }
 
 beforeAll(() => {
@@ -489,5 +501,146 @@ describe("Kanban tab", () => {
       rmSync(hermesPath("kanban/boards/tall"), { recursive: true, force: true })
       resetKanban()
     }
+  })
+})
+
+// ─── Direct-write path (bun:sqlite, matches dashboard PATCH) ─────────
+describe("patchTask direct writes", () => {
+  const read = (id: string): Record<string, unknown> | null => {
+    const db = new Database(hermesPath("kanban.db"), { readonly: true })
+    try {
+      return db.query("SELECT * FROM tasks WHERE id = ?").get(id) as Record<string, unknown> | null
+    } finally { db.close() }
+  }
+  const events = (id: string): Array<{ kind: string; payload: string | null }> => {
+    const db = new Database(hermesPath("kanban.db"), { readonly: true })
+    try {
+      return db.query(
+        "SELECT kind, payload FROM task_events WHERE task_id = ? ORDER BY id",
+      ).all(id) as Array<{ kind: string; payload: string | null }>
+    } finally { db.close() }
+  }
+
+  test("title + body in one txn ⇒ single 'edited' event", async () => {
+    const { patchTask } = await import("../src/utils/hermes-kanban")
+    // Seed by re-using t4 (done) so we have a stable target.
+    expect(patchTask("default", "t4", {
+      title: "draft memo v2", body: "revised body",
+    })).toBe(true)
+    const row = read("t4")!
+    expect(row.title).toBe("draft memo v2")
+    expect(row.body).toBe("revised body")
+    const es = events("t4").filter(e => e.kind === "edited")
+    expect(es.length).toBeGreaterThanOrEqual(1)
+    expect(es[es.length - 1].payload).toBeNull()
+  })
+
+  test("priority ⇒ 'reprioritized' event with JSON payload", async () => {
+    const { patchTask } = await import("../src/utils/hermes-kanban")
+    expect(patchTask("default", "t4", { priority: 7 })).toBe(true)
+    expect(read("t4")!.priority).toBe(7)
+    const es = events("t4").filter(e => e.kind === "reprioritized")
+    expect(es.length).toBeGreaterThanOrEqual(1)
+    expect(JSON.parse(es[es.length - 1].payload!)).toEqual({ priority: 7 })
+    // Clamp: negative collapses to 0, 10+ collapses to 9.
+    expect(patchTask("default", "t4", { priority: 42 })).toBe(true)
+    expect(read("t4")!.priority).toBe(9)
+    expect(patchTask("default", "t4", { priority: -3 })).toBe(true)
+    expect(read("t4")!.priority).toBe(0)
+  })
+
+  test("empty title rejected, unknown id returns false", async () => {
+    const { patchTask } = await import("../src/utils/hermes-kanban")
+    expect(() => patchTask("default", "t4", { title: "   " })).toThrow(/empty/)
+    expect(patchTask("default", "does-not-exist", { title: "x" })).toBe(false)
+  })
+})
+
+// ─── Tab-into-pane nav + field editors ───────────────────────────────
+describe("Kanban detail pane", () => {
+  test("Tab with pane open enters pane; Tab inside pane walks fields", async () => {
+    const t = await mountNode(<Kanban focused />, { width: 180, height: 48 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    // → → to 'ready' (t1), Enter opens detail.
+    act(() => t.keys.pressArrow("right")); await t.settle()
+    act(() => t.keys.pressArrow("right")); await t.settle()
+    act(() => t.keys.pressEnter())
+    await until(t, () => /Assignee\s+researcher/.test(t.frame()))
+    // Hint while grid-tier + pane open: "Tab into pane".
+    expect(t.frame()).toContain("Tab into pane")
+    // Tab → pane tier. Title is the first field, gets the edit hint.
+    act(() => t.keys.pressTab()); await t.settle()
+    await until(t, () => t.frame().includes("Enter edit"))
+    // First Esc → back to grid (pane stays open).
+    act(() => t.keys.pressEscape()); await t.settle()
+    await until(t, () => t.frame().includes("Tab into pane"))
+    expect(t.frame()).toMatch(/Assignee\s+researcher/)  // pane still open
+    // Second Esc → pane closes.
+    act(() => t.keys.pressEscape()); await t.settle()
+    await until(t, () => !/Assignee\s+researcher/.test(t.frame()))
+    t.destroy()
+  })
+
+  test("Enter on priority row in pane → DialogSelect → direct write", async () => {
+    // Re-seed t1's priority so we have a known starting value.
+    const db = new Database(hermesPath("kanban.db"))
+    db.run("UPDATE tasks SET priority = 3 WHERE id = 't1'")
+    db.close()
+    resetKanban()
+    const t = await mountNode(<Kanban focused />, { width: 180, height: 48 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    act(() => t.keys.pressArrow("right")); await t.settle()
+    act(() => t.keys.pressArrow("right")); await t.settle()
+    act(() => t.keys.pressEnter())
+    await until(t, () => /Assignee\s+researcher/.test(t.frame()))
+    // Tab in, then Tab twice more (title → body → assignee → priority).
+    act(() => t.keys.pressTab()); await t.settle()
+    act(() => t.keys.pressTab()); await t.settle()
+    act(() => t.keys.pressTab()); await t.settle()
+    act(() => t.keys.pressTab()); await t.settle()
+    // Priority row shows its hint when focused.
+    await until(t, () => t.frame().includes("↑↓ / Enter"))
+    // ↑ bumps priority directly (patchTask path, no dialog).
+    act(() => t.keys.pressArrow("up")); await t.settle()
+    // Read back via a fresh RO handle — herm's internal cache is RW/RO
+    // split and the write went through the RW handle.
+    const check = new Database(hermesPath("kanban.db"), { readonly: true })
+    const row = check.query("SELECT priority FROM tasks WHERE id = 't1'")
+      .get() as { priority: number }
+    check.close()
+    expect(row.priority).toBe(4)
+    t.destroy()
+  })
+})
+
+// ─── Persistence (filter masks + open boards) ────────────────────────
+describe("Kanban preferences round-trip", () => {
+  test("filter chip toggle persists across remount", async () => {
+    const prefsMod = await import("../src/utils/preferences")
+    prefsMod.reset()
+    // Start clean — no saved kanban prefs.
+    prefsMod.set("kanban", undefined as never)
+
+    const t1 = await mountNode(<Kanban focused />, { width: 180, height: 44 })
+    await until(t1, () => t1.frame().includes("Kanban · 3 boards"))
+    // Flip 'analyst' chip to include via the filter tier.
+    act(() => t1.keys.pressArrow("up")); await t1.settle()
+    act(() => t1.keys.pressKey(" "))
+    await until(t1, () => t1.frame().includes("1/5 task"))
+    t1.destroy()
+
+    // Saved?
+    prefsMod.reset()
+    const saved = prefsMod.load().kanban
+    expect(saved?.masks?.default?.who).toEqual([["analyst", "in"]])
+
+    // Remount — mask rehydrates without user input.
+    const t2 = await mountNode(<Kanban focused />, { width: 180, height: 44 })
+    await until(t2, () => t2.frame().includes("1/5 task"))
+    expect(t2.frame()).toContain("synthesize")
+    expect(t2.frame()).not.toContain("research cost")
+    // Cleanup for the rest of the suite.
+    t2.destroy()
+    prefsMod.set("kanban", undefined as never)
   })
 })
