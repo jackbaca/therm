@@ -17,17 +17,11 @@ const TextPrompt = (props: Props) => {
   const theme = useTheme().theme
   const [value, setValue] = useState(props.initial ?? "")
 
+  // Native <input> owns text/paste/cursor; global bus only handles Esc
+  // (DialogProvider also clears on Esc, but it doesn't resolve the
+  // promise — onCancel does).
   useKeyboard((key) => {
     if (key.name === "escape") return props.onCancel()
-    if (key.name === "return") {
-      const v = value.trim()
-      if (v) props.onSubmit(v)
-      return
-    }
-    if (key.name === "backspace") return setValue(v => v.slice(0, -1))
-    if (key.ctrl && key.name === "u") return setValue("")
-    if (!key.ctrl && !key.meta && key.raw && key.raw.length === 1 && key.raw >= " ")
-      return setValue(v => v + key.raw)
   })
 
   return (
@@ -38,10 +32,15 @@ const TextPrompt = (props: Props) => {
       <box height={1} flexDirection="row" overflow="hidden">
         <box flexShrink={0}><text fg={theme.accent}>{"┃ "}</text></box>
         <box flexGrow={1} minWidth={0} height={1} overflow="hidden">
-          <text>
-            <span fg={theme.text}>{value}</span>
-            <span fg={theme.accent}>█</span>
-          </text>
+          <input
+            value={value}
+            onInput={setValue}
+            onSubmit={() => { const v = value.trim(); if (v) props.onSubmit(v) }}
+            focused
+            textColor={theme.text}
+            backgroundColor={theme.backgroundElement}
+            focusedBackgroundColor={theme.backgroundElement}
+          />
         </box>
       </box>
       <box height={1} />

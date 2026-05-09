@@ -1,43 +1,30 @@
-// Goal-completion hook. Polls state_meta['goal:<sid>'] after each turn
-// and, on transition to status=done, performs the onGoalDone pref
-// action. The judge that *writes* that status lives in stock
-// tui_gateway/server.py (the post-turn Ralph loop); this module is the
-// reactor, not the driver.
-//
-// Setting/controlling the goal goes through the slash-worker
-// (slash.exec → HermesCLI._handle_goal_command → GoalManager), NOT via
-// shell.exec + `python3 -c` — that pattern is on tools/approval.py's
-// DANGEROUS_PATTERNS list and tui_gateway's shell.exec handler hard-
-// rejects it with a 4005 before it ever runs.
+// Goal-completion reactor. Polls state_meta['goal:<sid>'] after each
+// turn and, on transition to status=done, performs the onGoalDone
+// pref action. The judge that *writes* that status and the
+// continuation loop itself live in stock tui_gateway/server.py (post-
+// turn Ralph hook in _run_prompt_submit); setting/controlling the
+// goal goes through the standard slash.exec → command.dispatch
+// fallback in app.tsx's slash() — tui_gateway rejects /goal from the
+// slash-worker (_PENDING_INPUT_COMMANDS) and command.dispatch's
+// handler drives GoalManager directly, including returning
+// {type:"send", notice, message: goal} on set so herm renders the
+// notice and submits the kickoff prompt. Nothing to do here except
+// react to completion.
 
 import type { DialogContext } from "../ui/dialog"
-import type { Gateway } from "./gateway"
 import * as prefs from "../utils/preferences"
 import { openCountdown } from "../dialogs/countdown"
 import { io } from "../io"
 
 type Toast = { show: (o: { variant: "success"; title?: string; message: string; duration?: number }) => void }
-type ShellResult = { stdout: string; stderr: string; code: number }
-type SlashResult = { output?: string; warning?: string }
 
 export type GoalHook = {
   /** Called from onTurnComplete. Reads goal state, fires if done. */
   check: (sid: string) => void
-  /** Route /goal through the slash-worker. Returns cleaned output for
-   *  the transcript plus whether this was a fresh set (caller kicks
-   *  off the loop by sending the goal text as a prompt — parity with
-   *  the CLI's _pending_input.put(goal)). */
-  cmd: (arg: string) => Promise<{ line: string; kick: string | null }>
 }
 
 const SECONDS = 10
 const SUSPEND = process.platform === "darwin" ? "pmset sleepnow" : "systemctl suspend"
-const VERBS = new Set(["status", "pause", "resume", "clear", "stop", "done"])
-
-// _handle_goal_command prints via _cprint with _DIM/_RST interpolated
-// into the string before the worker's lambda swap, so the ANSI bytes
-// are in the captured buffer. Strip them for the transcript.
-const ANSI = /\x1b\[[0-9;]*m/g
 
 const run = (cmd: string) =>
   Bun.spawn(["sh", "-c", cmd], { stdout: "ignore", stderr: "ignore" })
@@ -47,7 +34,7 @@ const run = (cmd: string) =>
 // switch calls rehome() which starts a fresh sid anyway.
 const fired = new Map<string, string>()
 
-export function makeGoalHook(gw: Gateway, dialog: DialogContext, toast: Toast): GoalHook {
+export function makeGoalHook(dialog: DialogContext, toast: Toast): GoalHook {
   const act = (goal: string) => {
     const pref = (prefs.get("onGoalDone") ?? "toast").trim()
     const head = goal.length > 60 ? goal.slice(0, 57) + "…" : goal
@@ -74,21 +61,5 @@ export function makeGoalHook(gw: Gateway, dialog: DialogContext, toast: Toast): 
         act(s.goal)
       }).catch(() => {})
     },
-    cmd: async (arg: string) => {
-      const trimmed = arg.trim()
-      const first = trimmed.split(/\s+/, 1)[0]?.toLowerCase() ?? ""
-      // Non-verb (and non-empty) first token ⇒ this is a fresh goal
-      // set; the caller should kick the loop off by submitting the
-      // goal text as the first prompt. Verbs + bare `/goal` just
-      // report/mutate state.
-      const kick = trimmed && !VERBS.has(first) ? trimmed : null
-      const r = await gw.request<SlashResult>("slash.exec",
-        { command: `/goal${trimmed ? " " + trimmed : ""}` })
-      const line = (r.output ?? "").replace(ANSI, "").trim() || "ok"
-      return { line, kick }
-    },
   }
 }
-
-// Exposed for tests — keep type surface minimal.
-export type { ShellResult }

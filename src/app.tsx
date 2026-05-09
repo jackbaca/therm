@@ -96,7 +96,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const renderer = useRenderer()
   const session = useSession()
   const dims = useTerminalDimensions()
-  const goalHook = useMemo(() => makeGoalHook(gw, dialog, toast), [gw, dialog, toast])
+  const goalHook = useMemo(() => makeGoalHook(dialog, toast), [dialog, toast])
 
   const [turn, dispatch] = useReducer(turnReducer, initialTurn)
   const [ready, setReady] = useState(false)
@@ -441,20 +441,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
             .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
           return
         }
-        case "goal": {
-          goalHook.cmd(arg)
-            .then(r => {
-              dispatch({ kind: "system", text: r.line })
-              // CLI's _handle_goal_command kicks the loop off via
-              // _pending_input.put(goal); the slash-worker's CLI has
-              // no input loop, so herm does the equivalent: submit
-              // the goal text as the first prompt. tui_gateway's
-              // post-turn Ralph hook takes over from there.
-              if (r.kick) void sendRef.current(r.kick)
-            })
-            .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
-          return
-        }
         // ── parity: session-mutating (slash-worker can't service these) ──
         case "resume":
           if (arg) { void switchSession(arg); return }
@@ -609,9 +595,17 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
         if (res?.output) dispatch({ kind: "system", text: res.output })
       })
       .catch(() => {
-        type Dispatch = { type?: string; output?: string; target?: string; message?: string; name?: string }
+        type Dispatch = {
+          type?: string; output?: string; target?: string
+          message?: string; notice?: string; name?: string
+        }
         gw.request<Dispatch>("command.dispatch", { name: c.name, arg })
           .then(d => {
+            // `notice` is an optional system line attached to a `send`
+            // payload — e.g. /goal set returns {type:send, notice:"⊙
+            // Goal set (…)", message: goal} so the user sees the set
+            // confirmation before the kickoff prompt fires.
+            if (d.notice) dispatch({ kind: "system", text: d.notice })
             if (d.type === "exec" || d.type === "plugin")
               return dispatch({ kind: "system", text: d.output || "(no output)" })
             if (d.type === "alias" && d.target)

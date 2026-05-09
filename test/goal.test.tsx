@@ -1,12 +1,11 @@
-import { describe, test, expect, beforeAll } from "bun:test"
+import { describe, test, expect, beforeAll, afterAll } from "bun:test"
 import { act } from "react"
 import { useEffect } from "react"
 import { Database } from "bun:sqlite"
 import { join } from "path"
-import { mkdirSync } from "fs"
-import { mountNode, until, MockGateway } from "./harness"
+import { mkdirSync, rmSync } from "fs"
+import { mount, mountNode, until, MockGateway } from "./harness"
 import { openCountdown } from "../src/dialogs/countdown"
-import { makeGoalHook } from "../src/app/goalHook"
 import { useDialog } from "../src/ui/dialog"
 import { goalState, resetDb } from "../src/utils/sessions-db"
 
@@ -28,6 +27,15 @@ describe("sessions-db.goalState", () => {
     ])
     db.close()
     resetDb() // drop any cached handle so q() reopens against the now-seeded file
+  })
+
+  // The fixture db has state_meta only — enough for goalState() but
+  // not for roots()/lastReal() (COLS references messages). Drop it
+  // before the /goal routing block below does full mount()s, so
+  // stateDb() returns null and the readers short-circuit to [].
+  afterAll(() => {
+    resetDb()
+    rmSync(join(HH, "state.db"), { force: true })
   })
 
   test("parses done + active; null on missing", () => {
@@ -77,63 +85,64 @@ describe("countdown dialog", () => {
   })
 })
 
-// ─── goalHook.cmd → slash.exec dispatch ──────────────────────────────
+// ─── /goal slash → command.dispatch path ─────────────────────────────
+// Stock tui_gateway rejects /goal from slash.exec (it's a
+// _PENDING_INPUT_COMMANDS entry — the slash-worker CLI has no input
+// loop to kick off with) and handles it in command.dispatch instead,
+// where it drives GoalManager directly and returns {type:"send",
+// notice, message: goal}. herm must route it as target=gateway so the
+// generic slash.exec-catch → command.dispatch fallback fires.
 
-describe("goalHook.cmd", () => {
-  const mk = () => {
-    const calls: string[] = []
+describe("/goal slash routing", () => {
+  test("slash.exec reject → command.dispatch; notice + kickoff prompt", async () => {
+    const slashes: string[] = []
+    const dispatches: Array<{ name: string; arg: string }> = []
+    const submits: string[] = []
     const gw = new MockGateway({
-      "slash.exec": (p) => { calls.push(String(p.command)); return { output: "  ⊙ Goal set (20-turn budget): x\n  \x1b[2mAfter each turn…\x1b[22m" } },
+      "slash.exec": (p) => {
+        slashes.push(String(p.command))
+        throw new Error("pending-input command: use command.dispatch for /goal")
+      },
+      "command.dispatch": (p) => {
+        dispatches.push({ name: String(p.name), arg: String(p.arg ?? "") })
+        return p.arg
+          ? { type: "send", notice: "⊙ Goal set (20-turn budget): x", message: String(p.arg) }
+          : { type: "exec", output: "No active goal." }
+      },
+      "prompt.submit": (p) => { submits.push(String(p.text)); return {} },
     })
-    const dialog = { replace: () => {}, clear: () => {}, stack: [] as const, open: () => false }
-    const toast = { show: () => {} }
-    const hook = makeGoalHook(gw, dialog, toast)
-    return { hook, calls }
-  }
+    const t = await mount({ gw, width: 140, height: 30 })
+    await until(t, () => t.frame().includes("Ready"))
 
-  test("verbs pass through to /goal <verb>; no kick", async () => {
-    const { hook, calls } = mk()
-    for (const v of ["status", "pause", "resume", "clear", "done"]) {
-      const r = await hook.cmd(v)
-      expect(r.kick).toBeNull()
-    }
-    expect(calls).toEqual([
-      "/goal status", "/goal pause", "/goal resume", "/goal clear", "/goal done",
-    ])
+    await act(async () => { await t.keys.typeText("/goal ship it") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => submits.length === 1)
+
+    expect(slashes[0]).toBe("/goal ship it")
+    expect(dispatches[0]).toEqual({ name: "goal", arg: "ship it" })
+    expect(submits[0]).toBe("ship it")
+    // notice rendered as a system line before the kickoff.
+    expect(t.frame()).toContain("⊙ Goal set")
+    t.destroy()
   })
 
-  test("bare /goal → status; no kick", async () => {
-    const { hook, calls } = mk()
-    const r = await hook.cmd("")
-    expect(calls[0]).toBe("/goal")
-    expect(r.kick).toBeNull()
-  })
-
-  test("free text → set; kick = goal text; ANSI stripped from output", async () => {
-    const { hook, calls } = mk()
-    const r = await hook.cmd("ship the $(thing)")
-    expect(calls[0]).toBe("/goal ship the $(thing)")
-    expect(r.kick).toBe("ship the $(thing)")
-    // _DIM/_RST stripped; lines trimmed.
-    expect(r.line).toContain("⊙ Goal set")
-    expect(r.line).not.toContain("\x1b[")
-  })
-
-  // Regression guard: the original implementation smuggled goal text
-  // through shell.exec → `python3 -c '…'`, which tui_gateway's
-  // shell.exec handler hard-rejects via detect_dangerous_command
-  // ("script execution via -e/-c flag"). No shell.exec, ever.
-  test("never dispatches shell.exec", async () => {
-    let touched = false
+  test("verbs → {type: exec, output}; no prompt.submit", async () => {
+    const submits: string[] = []
     const gw = new MockGateway({
-      "slash.exec": () => ({ output: "ok" }),
-      "shell.exec": () => { touched = true; return { stdout: "", stderr: "", code: 0 } },
+      "slash.exec": () => { throw new Error("pending-input command") },
+      "command.dispatch": () => ({ type: "exec", output: "⏸ Goal paused: x" }),
+      "prompt.submit": (p) => { submits.push(String(p.text)); return {} },
     })
-    const hook = makeGoalHook(gw,
-      { replace: () => {}, clear: () => {}, stack: [] as const, open: () => false },
-      { show: () => {} })
-    await hook.cmd("anything")
-    await hook.cmd("done")
-    expect(touched).toBe(false)
+    const t = await mount({ gw, width: 140, height: 30 })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("/goal pause") })
+    // First Enter accepts the subcommand-popover completion ("/goal
+    // pause "); second dispatches.
+    act(() => t.keys.pressEnter()); await t.settle()
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("⏸ Goal paused"))
+    expect(submits.length).toBe(0)
+    t.destroy()
   })
 })
