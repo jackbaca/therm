@@ -5,10 +5,14 @@ import { useDialog } from "../src/ui/dialog"
 import { openTextPrompt } from "../src/dialogs/text-prompt"
 import { useEffect } from "react"
 
+let resolved: string | null | undefined
+
 const Opener = () => {
   const dialog = useDialog()
   useEffect(() => {
+    resolved = undefined
     void openTextPrompt(dialog, { title: "Rename Thing", label: "Title", initial: "hello" })
+      .then(v => { resolved = v })
   }, [])
   return null
 }
@@ -44,6 +48,31 @@ describe("TextPrompt", () => {
     // Hint row still intact directly after.
     const valY = lines.findIndex(l => l.includes("┃"))
     expect(lines[valY + 2]).toContain("Enter confirm")
+    t.destroy()
+  })
+
+  test("bracketed-paste lands in the buffer", async () => {
+    const t = await mountNode(<Opener />)
+    await until(t, () => t.frame().includes("┃ hello"))
+    await act(async () => { await t.keys.pasteBracketedText("-sk-abc123") })
+    await until(t, () => t.frame().includes("hello-sk-abc123"))
+    const lines = t.frame().split("\n")
+    const valY = lines.findIndex(l => l.includes("┃"))
+    expect(lines[valY]).toContain("hello-sk-abc123")
+    t.destroy()
+  })
+
+  test("← moves cursor: char inserts before end; Enter resolves", async () => {
+    const t = await mountNode(<Opener />)
+    await until(t, () => t.frame().includes("┃ hello"))
+    // "hello" cursor at end → ←← → type X → "helXlo"
+    await act(async () => { t.keys.pressArrow("left") })
+    await act(async () => { t.keys.pressArrow("left") })
+    await act(async () => { await t.keys.typeText("X") })
+    await until(t, () => t.frame().includes("helXlo"))
+    await act(async () => { t.keys.pressEnter() })
+    await until(t, () => resolved !== undefined)
+    expect(resolved).toBe("helXlo")
     t.destroy()
   })
 })
