@@ -55,7 +55,10 @@ export function openCreateTask(
 ): Promise<Draft | null> {
   return new Promise(resolve => {
     const done = (r: Draft | null) => { dialog.clear(); resolve(r) }
-    dialog.replace(<Form pool={opts.assignees} parent={opts.parent} done={done} />)
+    // ownCancel: the Form owns Esc — first press backs out of an open
+    // sub-picker, only an Esc on the bare form cancels creation.
+    dialog.replace(<Form pool={opts.assignees} parent={opts.parent} done={done} />,
+      undefined, { ownCancel: true })
   })
 }
 
@@ -150,9 +153,12 @@ const Form = (p: {
 
   useKeyboard((key) => {
     // Picker owns the keyboard while open; DialogSelect has its own
-    // useKeyboard. We only need Esc here to close it without resolving.
+    // useKeyboard. Esc backs out one level: dirPath → workspace picker
+    // → form; any other picker → form.
     if (picker) {
-      if (key.name === "escape") setPicker(null)
+      if (key.name === "escape") {
+        setPicker(picker.kind === "dirPath" ? { kind: "workspace" } : null)
+      }
       return
     }
 

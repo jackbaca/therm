@@ -487,6 +487,54 @@ describe("Kanban tab", () => {
     t.destroy()
   })
 
+  test("create form: Esc in a picker returns to the form, not out", async () => {
+    const t = await mountNode(<Kanban focused />, { width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    await act(async () => { await t.keys.typeText("n") })
+    await until(t, () => t.frame().includes("New Task"))
+    await act(async () => { await t.keys.typeText("keep me") })
+    await t.settle()
+    act(() => t.keys.pressArrow("down")); await t.settle() // body
+    act(() => t.keys.pressArrow("down")); await t.settle() // assignee
+    await until(t, () => /▸ Assignee/.test(t.frame()))
+    await act(async () => { await t.keys.typeText(" ") })   // open assignee picker
+    await until(t, () => /Search profiles/.test(t.frame()))
+    act(() => t.keys.pressEscape()); await t.settle()       // Esc → back to form
+    expect(t.frame()).toContain("New Task")                 // form still open
+    expect(t.frame()).not.toMatch(/Search profiles/)        // picker closed
+    expect(t.frame()).toContain("keep me")                  // title preserved
+    // Esc again on the bare form → closes creation.
+    act(() => t.keys.pressEscape())
+    await until(t, () => !t.frame().includes("New Task"))
+    t.destroy()
+  })
+
+  test("create form: Esc in dir-path prompt backs to the workspace picker", async () => {
+    const t = await mountNode(<Kanban focused />, { width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    await act(async () => { await t.keys.typeText("n") })
+    await until(t, () => t.frame().includes("New Task"))
+    await act(async () => { await t.keys.typeText("nested esc") })
+    await t.settle()
+    for (let i = 0; i < 5; i++) { act(() => t.keys.pressArrow("down")); await t.settle() } // → More
+    await act(async () => { await t.keys.typeText(" ") })   // expand
+    await until(t, () => /Workspace/.test(t.frame()))
+    act(() => t.keys.pressArrow("down")); await t.settle() // tenant
+    act(() => t.keys.pressArrow("down")); await t.settle() // workspace
+    await act(async () => { await t.keys.typeText(" ") })   // open workspace picker
+    await until(t, () => /Pick a workspace kind/.test(t.frame()))
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    act(() => t.keys.pressArrow("down")); await t.settle() // → dir:…
+    act(() => t.keys.pressEnter()); await t.settle()       // → dir-path prompt
+    await until(t, () => /Directory path/.test(t.frame()))
+    act(() => t.keys.pressEscape()); await t.settle()      // Esc → back to workspace picker
+    expect(t.frame()).toMatch(/Pick a workspace kind/)
+    act(() => t.keys.pressEscape()); await t.settle()      // Esc → back to form
+    expect(t.frame()).toContain("New Task")
+    expect(t.frame()).not.toMatch(/Pick a workspace kind/)
+    t.destroy()
+  })
+
   test("D → confirm → dispatch", async () => {
     const cmds: string[] = []
     const gw = new MockGateway({

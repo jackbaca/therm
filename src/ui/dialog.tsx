@@ -19,10 +19,14 @@ import { useTheme } from "../theme"
 type DialogEntry = {
   readonly element: ReactNode
   readonly onClose?: () => void
+  /** When true, DialogProvider does NOT auto-close this entry on the
+   *  cancel key — the dialog owns Esc itself (e.g. a multi-view form
+   *  where Esc first backs out of a sub-picker). */
+  readonly ownCancel?: boolean
 }
 
 export type DialogContext = {
-  readonly replace: (element: ReactNode, onClose?: () => void) => void
+  readonly replace: (element: ReactNode, onClose?: () => void, opts?: { ownCancel?: boolean }) => void
   readonly clear: () => void
   readonly stack: ReadonlyArray<DialogEntry>
   /** Scheduling-independent open probe. `stack.length > 0` is only
@@ -45,9 +49,9 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
   // setters so callers observing through open() never see a gap.
   const gate = useRef(false)
 
-  const replace = useCallback((element: ReactNode, onClose?: () => void) => {
+  const replace = useCallback((element: ReactNode, onClose?: () => void, opts?: { ownCancel?: boolean }) => {
     gate.current = true
-    setStack([{ element, onClose }])
+    setStack([{ element, onClose, ownCancel: opts?.ownCancel }])
   }, [])
 
   const clear = useCallback(() => {
@@ -64,6 +68,8 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
   const keys = useKeys()
   useKeyboard((key) => {
     if (stack.length === 0) return
+    const top = stack[stack.length - 1]
+    if (top?.ownCancel) return // dialog handles its own Esc
     if (keys.match("dialog.cancel", key)) clear()
   })
 
