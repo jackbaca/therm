@@ -707,14 +707,21 @@ export const Kanban = memo((props: { focused?: boolean }) => {
       parent: parent ? { id: parent.id, title: parent.title } : undefined,
     }).then(d => {
       if (!d) return
+      const ws = d.workspace.kind === "scratch" ? ""
+        : d.workspace.kind === "worktree" ? "--workspace worktree"
+          : `--workspace ${q(`dir:${d.workspace.path}`)}`
       const flags = [
         d.assignee ? `--assignee ${q(d.assignee)}` : "",
         d.body ? `--body ${q(d.body)}` : "",
         d.priority ? `--priority ${d.priority}` : "",
         d.parent ? `--parent ${q(d.parent)}` : "",
+        d.triage ? "--triage" : "",
+        d.tenant ? `--tenant ${q(d.tenant)}` : "",
+        ws,
+        d.maxRuntime ? `--max-runtime ${q(d.maxRuntime)}` : "",
       ].filter(Boolean).join(" ")
       return sh(`create ${q(d.title)} ${flags}`.trim(),
-        `Created${d.assignee ? ` → ${d.assignee}` : ""}`)
+        `Created${d.triage ? " (triage)" : ""}${d.assignee ? ` → ${d.assignee}` : ""}`)
     }), [dialog, sh])
 
   const assign = useCallback((t: Task) => {
