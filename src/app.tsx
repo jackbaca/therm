@@ -115,6 +115,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const [status, setStatus] = useState("")
   const [eikon, setEikon] = useState<ParsedEikon | undefined>(undefined)
   const [queue, setQueue] = useState<string[]>([])
+  const [busy, setBusy] = useState<"queue" | "steer" | "interrupt">("queue")
   // ── Splash ────────────────────────────────────────────────────────
   // Welcome-state chrome over an empty transcript. Composer stays live
   // underneath; first send dismisses. `/splash` re-summons mid-session
@@ -206,7 +207,25 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     setForce(next)
   }, [cloud])
   const closeCloud = useCallback(() => { setForce(false); setPick(undefined) }, [])
-  const onEnqueue = useCallback((t: string) => setQueue(q => [...q, t]), [])
+  const intr = useRef<() => void>(() => {})
+  // Plain text submitted while streaming (Composer routes slash-shaped
+  // input to onSend instead). `interrupt` prepends so the drain effect
+  // fires this text first once turn.streaming flips.
+  const onEnqueue = useCallback((t: string) => {
+    if (busy === "steer") {
+      gw.request<{ status: string }>("session.steer", { text: t })
+        .then(r => {
+          if (r.status === "queued")
+            return toast.show({ variant: "success", message: "steered — lands on next tool result" })
+          setQueue(q => [...q, t])
+          toast.show({ variant: "info", message: "steer rejected — queued for next turn" })
+        })
+        .catch(() => setQueue(q => [...q, t]))
+      return
+    }
+    if (busy === "interrupt") { intr.current(); return setQueue(q => [t, ...q]) }
+    setQueue(q => [...q, t])
+  }, [busy, gw, toast])
   const onAttach = useCallback((r: ImageAttachResponse) => setAttachments(a => [...a, r]), [])
 
   // ── Session reset / lifecycle ─────────────────────────────────────
@@ -526,8 +545,8 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
           return
         case "steer": {
           const fire = (text: string) =>
-            gw.request<{ accepted: boolean }>("session.steer", { text })
-              .then(r => toast.show(r.accepted
+            gw.request<{ status?: string; text?: string }>("session.steer", { text })
+              .then(r => toast.show(r.status === "queued"
                 ? { variant: "success", message: "Queued — lands on next tool result" }
                 : { variant: "info", message: "No turn running; send as a normal message" }))
               .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
@@ -775,6 +794,10 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
           setTitle(r.title ?? "")
           if (r.session_key) preferences.set("lastSessionId", r.session_key)
         }).catch(() => {})
+        gw.request<{ value?: string }>("config.get", { key: "busy" }).then(r => {
+          const m = r.value
+          if (m === "queue" || m === "steer" || m === "interrupt") setBusy(m)
+        }).catch(() => {})
       },
       onUsage: (u) => setUsage(u),
       onTurnComplete: () => {
@@ -866,6 +889,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     d.text = ""; d.think = ""
     session.interrupt()
   }, [session])
+  intr.current = doInterrupt
 
   // ── Keyboard ──────────────────────────────────────────────────────
   useAppKeys({
