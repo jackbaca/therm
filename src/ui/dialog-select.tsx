@@ -30,9 +30,14 @@ type Props = {
   readonly placeholder?: string
   readonly current?: string
   readonly footer?: ReactNode
+  /** Show the type-to-filter input. Default true. Set false for small
+   *  fixed-choice lists (priority, status, …) where filtering is noise
+   *  and Space/Enter should be the only way to pick. */
+  readonly filterable?: boolean
 }
 
 export const DialogSelect = (props: Props) => {
+  const filterable = props.filterable ?? true
   const [filter, setFilter] = useState("")
   const [cursor, setCursor] = useState(0)
   const sb = useRef<ScrollBoxRenderable | null>(null)
@@ -82,7 +87,9 @@ export const DialogSelect = (props: Props) => {
     if (key.name === "down") return move(1)
     if (key.name === "pageup") return move(-10)
     if (key.name === "pagedown") return move(10)
-    if (key.name === "return") {
+    // Space selects too when there's no filter input to type into.
+    const isSpace = key.name === "space" || key.name === " "
+    if (key.name === "return" || (!filterable && isSpace)) {
       const item = filtered[cursor]
       if (item) props.onSelect(item)
       return
@@ -100,20 +107,25 @@ export const DialogSelect = (props: Props) => {
         <strong>{props.title}</strong>
       </text>
       <box height={1} />
-      <input
-        value={filter}
-        onInput={setFilter}
-        placeholder={props.placeholder ?? "Type to filter..."}
-        focused={true}
-        textColor={theme.text}
-        placeholderColor={theme.textMuted}
-        backgroundColor={theme.backgroundElement}
-        focusedBackgroundColor={theme.backgroundElement}
-      />
-      <box height={1} />
+      {filterable ? (
+        <>
+          <input
+            value={filter}
+            onInput={setFilter}
+            placeholder={props.placeholder ?? "Type to filter..."}
+            focused={true}
+            textColor={theme.text}
+            placeholderColor={theme.textMuted}
+            backgroundColor={theme.backgroundElement}
+            focusedBackgroundColor={theme.backgroundElement}
+          />
+          <box height={1} />
+        </>
+      ) : null}
       {/* ScrollBox root is flex-row ([wrapper, v-scrollbar]); column stacking
-          belongs on the content box, not here. */}
-      <scrollbox ref={sb} scrollY maxHeight={16}
+          belongs on the content box, not here. With no filter input the
+          scrollbox itself takes focus so ↑↓ and Space/Enter work. */}
+      <scrollbox ref={sb} scrollY maxHeight={16} focused={!filterable}
         contentOptions={{ flexDirection: "column" }} paddingRight={1}>
         {filtered.length === 0 ? (
           <text fg={theme.textMuted}>{"No results found"}</text>

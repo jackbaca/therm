@@ -208,7 +208,7 @@ const Form = (p: {
     }))
     return (
       <DialogSelect
-        title="Priority" options={opts} placeholder="0–9…"
+        title="Priority" options={opts} filterable={false}
         current={String(priority)}
         onSelect={o => { setPriority(Number(o.value)); setPicker(null) }}
       />
@@ -225,7 +225,7 @@ const Form = (p: {
     ]
     return (
       <DialogSelect
-        title="Workspace" options={opts} placeholder="Pick a workspace kind…"
+        title="Workspace" options={opts} filterable={false}
         current={workspace.kind}
         onSelect={o => {
           if (o.value === "scratch") { setWorkspace({ kind: "scratch" }); return setPicker(null) }

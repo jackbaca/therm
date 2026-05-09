@@ -806,7 +806,7 @@ export const Kanban = memo((props: { focused?: boolean }) => {
     }))
     dialog.replace(
       <DialogSelect title={`Priority for ${t.id}`} options={opts}
-        current={String(t.priority)} placeholder="0–9…"
+        current={String(t.priority)} filterable={false}
         onSelect={o => {
           dialog.clear()
           patchDirect(t.id, { priority: Number(o.value) }, `${t.id} → P${o.value}`)
@@ -838,7 +838,7 @@ export const Kanban = memo((props: { focused?: boolean }) => {
     opts.push({ title: "archived", value: "archive", description: "archive (terminal)" })
     dialog.replace(
       <DialogSelect title={`Status for ${t.id}`} options={opts}
-        current={t.status} placeholder="transition…"
+        current={t.status} filterable={false}
         onSelect={async o => {
           dialog.clear()
           if (o.value === "complete") {

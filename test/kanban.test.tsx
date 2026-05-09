@@ -454,7 +454,7 @@ describe("Kanban tab", () => {
     act(() => t.keys.pressArrow("down")); await t.settle() // workspace
     await until(t, () => /▸ Workspace/.test(t.frame()))
     await act(async () => { await t.keys.typeText(" ") })   // open workspace picker
-    await until(t, () => /Pick a workspace kind/.test(t.frame()))
+    await until(t, () => /isolated temp dir under the board root/.test(t.frame()))
     // scratch (0), worktree (1), dir (2) — ↓↓ to dir, Enter → path prompt
     act(() => t.keys.pressArrow("down")); await t.settle()
     act(() => t.keys.pressArrow("down")); await t.settle()
@@ -522,16 +522,47 @@ describe("Kanban tab", () => {
     act(() => t.keys.pressArrow("down")); await t.settle() // tenant
     act(() => t.keys.pressArrow("down")); await t.settle() // workspace
     await act(async () => { await t.keys.typeText(" ") })   // open workspace picker
-    await until(t, () => /Pick a workspace kind/.test(t.frame()))
+    await until(t, () => /isolated temp dir under the board root/.test(t.frame()))
     act(() => t.keys.pressArrow("down")); await t.settle()
     act(() => t.keys.pressArrow("down")); await t.settle() // → dir:…
     act(() => t.keys.pressEnter()); await t.settle()       // → dir-path prompt
     await until(t, () => /Directory path/.test(t.frame()))
     act(() => t.keys.pressEscape()); await t.settle()      // Esc → back to workspace picker
-    expect(t.frame()).toMatch(/Pick a workspace kind/)
+    expect(t.frame()).toMatch(/isolated temp dir under the board root/)
     act(() => t.keys.pressEscape()); await t.settle()      // Esc → back to form
     expect(t.frame()).toContain("New Task")
-    expect(t.frame()).not.toMatch(/Pick a workspace kind/)
+    expect(t.frame()).not.toMatch(/isolated temp dir under the board root/)
+    t.destroy()
+  })
+
+  test("create form: Priority picker is filter-free; Space selects", async () => {
+    const cmds: string[] = []
+    const gw = new MockGateway({
+      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "tp", stderr: "", code: 0 } },
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    await act(async () => { await t.keys.typeText("n") })
+    await until(t, () => t.frame().includes("New Task"))
+    await act(async () => { await t.keys.typeText("prio pick") })
+    await t.settle()
+    act(() => t.keys.pressArrow("down")); await t.settle() // body
+    act(() => t.keys.pressArrow("down")); await t.settle() // assignee
+    act(() => t.keys.pressArrow("down")); await t.settle() // priority
+    await until(t, () => /▸ Priority/.test(t.frame()))
+    await act(async () => { await t.keys.typeText(" ") })   // open priority picker
+    await until(t, () => /P0 \(none\)/.test(t.frame()))
+    // No filter input — typing a digit must NOT filter; it is ignored.
+    expect(t.frame()).not.toMatch(/Type to filter/)
+    // ↓↓↓ to P3, Space selects (not just Enter).
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    await act(async () => { await t.keys.typeText(" ") })   // Space = select
+    await until(t, () => /▸ Priority\s+P3/.test(t.frame()))
+    act(() => t.keys.pressEnter({ ctrl: true }))
+    await until(t, () => cmds.length === 1)
+    expect(cmds[0]).toBe("hermes kanban --board default create 'prio pick' --priority 3")
     t.destroy()
   })
 
