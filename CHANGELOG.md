@@ -1,3 +1,12 @@
+## [1.2.2](https://github.com/liftaris/herm/compare/v1.2.1...v1.2.2) (2026-05-09)
+
+
+### Bug Fixes
+
+* **goal:** drop local /goal interception — let command.dispatch handle it ([f2bda4d](https://github.com/liftaris/herm/commit/f2bda4d3b822bc4a6c9e79f4ced4074af623086f))
+* **text-prompt:** drop broken onSubmit cast; inline submit, keep Ctrl+U hint ([01ebe6c](https://github.com/liftaris/herm/commit/01ebe6c40b5fb9977cd6261dc6c632d14664f9a0))
+* **text-prompt:** use native \u003cinput\u003e for paste support ([94f5074](https://github.com/liftaris/herm/commit/94f5074d2b5932b865a1778f8512aba04629f4c5))
+
 ## [1.2.1](https://github.com/liftaris/herm/compare/v1.2.0...v1.2.1) (2026-05-06)
 
 
