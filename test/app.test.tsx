@@ -21,17 +21,17 @@ describe("app", () => {
     t.destroy()
   })
 
-  test("ctrl+left/right switches tabs", async () => {
+  test("alt+left/right switches tabs", async () => {
     const t = await mount()
     await until(t, () => t.frame().includes("Ready"))
 
-    // Chat is index 0; ctrl+left should clamp (no Overview anymore)
-    act(() => t.keys.pressArrow("left", { ctrl: true }))
+    // Chat is index 0; alt+left should clamp (no Overview anymore)
+    act(() => t.keys.pressArrow("left", { meta: true }))
     await t.settle()
     expect(t.frame()).toContain("Message Hermes")
 
     // → Sessions (index 2)
-    act(() => { for (let i = 0; i < 2; i++) t.keys.pressArrow("right", { ctrl: true }) })
+    act(() => { for (let i = 0; i < 2; i++) t.keys.pressArrow("right", { meta: true }) })
     // Sandboxed HERMES_HOME has no state.db → empty state
     await until(t, () => t.frame().includes("No sessions"))
 
@@ -102,7 +102,7 @@ describe("app", () => {
     await until(t, () => t.frame().includes("Ready"))
 
     // Default chord no longer switches.
-    act(() => t.keys.pressArrow("right", { ctrl: true }))
+    act(() => t.keys.pressArrow("right", { meta: true }))
     await t.settle()
     expect(t.frame()).toContain("Message Hermes")
 
@@ -147,8 +147,8 @@ describe("app", () => {
     const t = await mount()
     await until(t, () => t.frame().includes("Ready"))
 
-    // Ctrl+→ to Env (index 9). Land on content, not the composer.
-    act(() => { for (let i = 0; i < 9; i++) t.keys.pressArrow("right", { ctrl: true }) })
+    // Alt+→ to Env (index 9). Land on content, not the composer.
+    act(() => { for (let i = 0; i < 9; i++) t.keys.pressArrow("right", { meta: true }) })
     await t.settle()
     await until(t, () => t.frame().includes("Env / API Keys"))
     expect(t.frame()).not.toContain("Env (searching)")
@@ -173,7 +173,7 @@ describe("app", () => {
     const t = await mount()
     await until(t, () => t.frame().includes("Ready"))
 
-    act(() => { for (let i = 0; i < 9; i++) t.keys.pressArrow("right", { ctrl: true }) })
+    act(() => { for (let i = 0; i < 9; i++) t.keys.pressArrow("right", { meta: true }) })
     await until(t, () => t.frame().includes("Env / API Keys"))
 
     // Single Tab: content keeps focus (arrow still moves selection).
@@ -530,9 +530,9 @@ describe("app", () => {
     await act(async () => { await t.keys.typeText("/") })
     await until(t, () => t.frame().includes("/clear"))
 
-    act(() => t.keys.pressArrow("right", { ctrl: true }))
+    act(() => t.keys.pressArrow("right", { meta: true }))
     await t.settle()
-    act(() => t.keys.pressArrow("left", { ctrl: true }))
+    act(() => t.keys.pressArrow("left", { meta: true }))
     await t.settle(); await t.settle()
 
     // Content tab remounted after Composer in the parent's paint order;
