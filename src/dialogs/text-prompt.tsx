@@ -1,6 +1,6 @@
 // Single-line text prompt dialog. Enter submits, Esc cancels.
 
-import { useState, useCallback } from "react"
+import { useState } from "react"
 import { useKeyboard } from "@opentui/react"
 import { useTheme } from "../theme"
 import type { DialogContext } from "../ui/dialog"
@@ -17,11 +17,9 @@ const TextPrompt = (props: Props) => {
   const theme = useTheme().theme
   const [value, setValue] = useState(props.initial ?? "")
 
-  const submit = useCallback(() => {
-    const v = value.trim()
-    if (v) props.onSubmit(v)
-  }, [value, props.onSubmit])
-
+  // Native <input> owns text/paste/cursor; global bus only handles Esc
+  // (DialogProvider also clears on Esc, but it doesn't resolve the
+  // promise — onCancel does).
   useKeyboard((key) => {
     if (key.name === "escape") return props.onCancel()
   })
@@ -37,8 +35,8 @@ const TextPrompt = (props: Props) => {
           <input
             value={value}
             onInput={setValue}
-            onSubmit={submit as unknown as (e: { value: string }) => void}
-            focused={true}
+            onSubmit={() => { const v = value.trim(); if (v) props.onSubmit(v) }}
+            focused
             textColor={theme.text}
             backgroundColor={theme.backgroundElement}
             focusedBackgroundColor={theme.backgroundElement}
@@ -47,7 +45,7 @@ const TextPrompt = (props: Props) => {
       </box>
       <box height={1} />
       <box height={1}><text fg={theme.textMuted}>
-        {value.trim() ? "Enter confirm  ·  Esc cancel" : "Esc cancel"}
+        {value.trim() ? "Enter confirm  ·  Esc cancel  ·  Ctrl+U clear" : "Esc cancel"}
       </text></box>
     </box>
   )
