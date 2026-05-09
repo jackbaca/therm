@@ -357,7 +357,12 @@ export const Context = memo(({ messages = NO_MESSAGES as Message[], info, focuse
   const compressions = info?.usage?.compressions ?? 0
 
   // Parse + build
-  const sections = useMemo(() => parse(systemPrompt?.text ?? ""), [systemPrompt?.text])
+  // Prefer the live wire prompt (info.system_prompt = agent._cached_system_prompt,
+  // reflects mid-session personality/skin switches). Fall back to state.db via
+  // useHome during the pre-session.info window or on older gateways that don't
+  // send the field.
+  const promptText = info?.system_prompt ?? systemPrompt?.text ?? ""
+  const sections = useMemo(() => parse(promptText), [promptText])
   const convTok = useMemo(() => est(messages.filter(m => m.role !== "system").map(m => msgText(m)).join("")), [messages])
 
   const top = useMemo(() => build({
