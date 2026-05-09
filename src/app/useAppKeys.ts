@@ -185,6 +185,20 @@ export function useAppKeys(o: Opts) {
         return
       }
     }
+    // Alt+1..0 → tab 1..10 (1-indexed), Alt+- → tab 11.
+    // Direct single-stroke, no leader needed.
+    if (key.meta && !key.ctrl && !key.shift && key.eventType !== "release") {
+      const map: Record<string, number> = {
+        "1": 0, "2": 1, "3": 2, "4": 3, "5": 4,
+        "6": 5, "7": 6, "8": 7, "9": 8, "0": 9, "-": 10,
+      }
+      const n = map[key.name]
+      if (n !== undefined && n <= o.tabMax) {
+        o.setTab(() => { o.setFocusRegion(regionFor(n)); return n })
+        key.stopPropagation()
+        return
+      }
+    }
 
     // Popover owns up/down/tab/escape while open; stopPropagation keeps the
     // textarea renderable from also moving the cursor on the same keypress.

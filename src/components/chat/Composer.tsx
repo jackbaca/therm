@@ -186,6 +186,11 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
       if (!text || !live.current.props.ready) return
       hist.push(text)
       write("")
+      // Slash-shaped input routes through onSend so send() → slash()
+      // can apply per-command streaming policy (local cases fire now,
+      // gateway-target cases self-queue). Only plain text hits the
+      // app-side busy-mode branch.
+      if (text.startsWith("/")) return void live.current.props.onSend(text)
       live.current.props.onEnqueue?.(text)
       return
     }

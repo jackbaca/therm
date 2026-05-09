@@ -21,7 +21,7 @@ describe("HelpDialog", () => {
 
     // Sample chord labels
     expect(f).toContain("Ctrl+X E")   // editor.open (leader substituted)
-    expect(f).toContain("Ctrl+→")     // tab.next
+    expect(f).toContain("Alt+→")       // tab.next
     expect(f).toContain("Shift+Enter")// input.newline first alternate
     t.destroy()
   })
@@ -32,7 +32,7 @@ describe("HelpDialog", () => {
     await until(t, () => t.frame().includes("Keyboard Shortcuts"))
     const f = t.frame()
     expect(f).toContain("Ctrl+N")
-    expect(f).not.toContain("Ctrl+→")
+    expect(f).not.toContain("Alt+→")
     expect(f).not.toContain("Copy last assistant")
     t.destroy()
   })

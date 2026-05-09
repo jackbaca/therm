@@ -27,11 +27,11 @@ describe("KeysProvider", () => {
       ctrl: false, meta: false, shift: false, option: false, number: false,
       sequence: o.name, raw: o.name, eventType: "press" as const, source: "raw" as const, ...o,
     })
-    expect(keys.match("tab.next", ev({ name: "right", ctrl: true }))).toBe(true)
+    expect(keys.match("tab.next", ev({ name: "right", meta: true }))).toBe(true)
     expect(keys.match("tab.next", ev({ name: "right" }))).toBe(false)
     expect(keys.match("input.newline", ev({ name: "return", shift: true }))).toBe(true)
     expect(keys.match("input.newline", ev({ name: "j", ctrl: true }))).toBe(true)
-    expect(keys.print("tab.next")).toBe("Ctrl+→")
+    expect(keys.print("tab.next")).toBe("Alt+→")
     expect(keys.print("editor.open")).toBe("Ctrl+X E")
     t.destroy()
   })

@@ -5,7 +5,7 @@
 //   t.gw.emit("event", { type: "message.delta", payload: { text: "hi" } })
 //   await t.settle()
 //   expect(t.frame()).toContain("hi")
-//   t.keys.pressArrow("right", { ctrl: true })
+//   t.keys.pressArrow("right", { meta: true })
 //   t.destroy()
 
 import { EventEmitter } from "events"

@@ -111,6 +111,7 @@ function foo() {
 - Avoid mocks as much as possible
 - Test actual implementation, do not duplicate logic into tests
 - Run tests with `bun test`
+- **Never run a standalone script that calls `hermesPath()` / `rmSync` / writes SQLite without first setting `HERMES_HOME` to a tmpdir.** `test/preload.ts` does this for `bun test`; `bun <file>.tsx` does NOT. A one-off repro script that imports from `src/` resolves `~/.hermes` and will clobber real user data. Pattern: `process.env.HERMES_HOME = mkdtempSync(join(tmpdir(), "herm-scratch-"))` as the first line, before any `src/` import.
 
 ## Type Checking
 

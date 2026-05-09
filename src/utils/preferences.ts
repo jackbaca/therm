@@ -49,6 +49,25 @@ interface TuiPreferences {
    *  "suspend" — 10s-countdown confirm, then `systemctl suspend`
    *  any other string — 10s-countdown confirm, then run it via sh */
   onGoalDone?: string
+  /** Per-tab state that should survive restarts. Keep this shallow —
+   *  only durable UX choices (filter masks, collapsed sections), never
+   *  cursor position or transient toggles. */
+  kanban?: KanbanPrefs
+}
+
+/** Persisted Kanban-tab state. Keyed by board slug so masks on one
+ *  board don't follow you to another. */
+export type KanbanPrefs = {
+  /** Boards that should mount expanded. Absent = collapsed. Stored as
+   *  an array for JSON-friendliness; consumer rehydrates to a Set. */
+  open?: string[]
+  /** Per-board filter-chip tri-state. Maps decomposed as entry arrays
+   *  because JSON has no native Map support. */
+  masks?: Record<string, {
+    who?: Array<[string, "in" | "ex"]>
+    pri?: Array<[number, "in" | "ex"]>
+    status?: Array<[string, "in" | "ex"]>
+  }>
 }
 
 const DEFAULTS: Required<Pick<TuiPreferences, "mouse" | "targetFps">> = {

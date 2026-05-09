@@ -150,6 +150,15 @@ export type SessionInfo = {
   skills?: Record<string, string[]>
   version?: string
   /**
+   * Live active-agent system prompt from `agent._cached_system_prompt`
+   * (gateway `_session_info`, tui_gateway/server.py). Prefer this over
+   * `readSystemPromptInfo()`'s state.db scan — the DB row is per-session
+   * and only written at turn boundaries, while this reflects the current
+   * prompt including mid-session personality/skin switches. Optional
+   * because older gateways don't send it.
+   */
+  system_prompt?: string
+  /**
    * Wire usage payload for the current session. Server builds this via
    * `_get_usage(agent)` (tui_gateway/server.py:826), which extends the
    * base Usage with ctx/compression fields when a ContextCompressor is

@@ -17,13 +17,25 @@ const schema = (db: Database) => {
     id TEXT PRIMARY KEY, title TEXT, body TEXT, assignee TEXT,
     status TEXT, priority INTEGER DEFAULT 0, tenant TEXT,
     created_at INTEGER, started_at INTEGER, completed_at INTEGER,
-    result TEXT, last_spawn_error TEXT, worker_pid INTEGER
+    result TEXT, last_spawn_error TEXT, worker_pid INTEGER,
+    workspace_kind TEXT, workspace_path TEXT,
+    skills TEXT, max_runtime_seconds INTEGER
   )`)
   db.run(`CREATE TABLE IF NOT EXISTS task_links (
     parent_id TEXT, child_id TEXT, PRIMARY KEY (parent_id, child_id))`)
   db.run(`CREATE TABLE IF NOT EXISTS task_comments (
     id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT,
     author TEXT, body TEXT, created_at INTEGER)`)
+  // Append-only audit tables. kanban_db.py writes to these on every
+  // write; herm reads them for the detail pane's Runs/Events sections
+  // and the patchTask event-row sibling INSERTs.
+  db.run(`CREATE TABLE IF NOT EXISTS task_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT, run_id INTEGER,
+    kind TEXT, payload TEXT, created_at INTEGER)`)
+  db.run(`CREATE TABLE IF NOT EXISTS task_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT, profile TEXT,
+    status TEXT, outcome TEXT, started_at INTEGER, ended_at INTEGER,
+    summary TEXT, error TEXT, worker_pid INTEGER)`)
 }
 
 beforeAll(() => {
@@ -322,6 +334,283 @@ describe("Kanban tab", () => {
     t.destroy()
   })
 
+  test("create form: empty title blocks submit; footer nags", async () => {
+    const cmds: string[] = []
+    const gw = new MockGateway({
+      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "x", stderr: "", code: 0 } },
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    await act(async () => { await t.keys.typeText("n") })
+    await until(t, () => t.frame().includes("New Task"))
+    // No title typed. Enter is a no-op; Ctrl+Enter is a no-op.
+    expect(t.frame()).toContain("type a title")
+    act(() => t.keys.pressEnter())
+    act(() => t.keys.pressEnter({ ctrl: true }))
+    await t.settle()
+    expect(cmds.length).toBe(0)
+    expect(t.frame()).toContain("New Task") // still open
+    t.destroy()
+  })
+
+  test("create form: ↓ walks fields; Space toggles triage; Ctrl+Enter submits", async () => {
+    const cmds: string[] = []
+    const gw = new MockGateway({
+      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "t7", stderr: "", code: 0 } },
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    await act(async () => { await t.keys.typeText("n") })
+    await until(t, () => t.frame().includes("New Task"))
+    await act(async () => { await t.keys.typeText("spike the thing") })
+    await t.settle()
+    // title → body (empty, ↓ escapes) → assignee → priority → triage
+    act(() => t.keys.pressArrow("down")); await t.settle() // body
+    act(() => t.keys.pressArrow("down")); await t.settle() // assignee
+    act(() => t.keys.pressArrow("down")); await t.settle() // priority
+    act(() => t.keys.pressArrow("down")); await t.settle() // triage
+    await until(t, () => /▸ Triage/.test(t.frame()))
+    await act(async () => { await t.keys.typeText(" ") })
+    await until(t, () => /Triage\s+yes/.test(t.frame()))
+    act(() => t.keys.pressEnter({ ctrl: true }))
+    await until(t, () => cmds.length === 1)
+    expect(cmds[0]).toBe("hermes kanban --board default create 'spike the thing' --triage")
+    t.destroy()
+  })
+
+  test("create form: Space on Assignee opens picker; selection feeds --assignee", async () => {
+    const cmds: string[] = []
+    const gw = new MockGateway({
+      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "t8", stderr: "", code: 0 } },
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    await act(async () => { await t.keys.typeText("n") })
+    await until(t, () => t.frame().includes("New Task"))
+    await act(async () => { await t.keys.typeText("needs an owner") })
+    await t.settle()
+    act(() => t.keys.pressArrow("down")); await t.settle() // body
+    act(() => t.keys.pressArrow("down")); await t.settle() // assignee
+    await until(t, () => /▸ Assignee/.test(t.frame()))
+    await act(async () => { await t.keys.typeText(" ") })   // open picker
+    await until(t, () => /Search profiles/.test(t.frame()))
+    // ↓ past "(unassigned)" to the first real profile, Enter.
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    act(() => t.keys.pressEnter()); await t.settle()
+    await until(t, () => /▸ Assignee\s+\S/.test(t.frame()) && !/\(unassigned\)/.test(t.frame().split("Assignee")[1] ?? ""))
+    act(() => t.keys.pressEnter({ ctrl: true }))
+    await until(t, () => cmds.length === 1)
+    expect(cmds[0]).toMatch(/^hermes kanban --board default create 'needs an owner' --assignee \S+$/)
+    t.destroy()
+  })
+
+  test("create form: body textarea — ↓ enters, Enter newlines, Tab leaves; body feeds --body", async () => {
+    const cmds: string[] = []
+    const gw = new MockGateway({
+      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "t9", stderr: "", code: 0 } },
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    await act(async () => { await t.keys.typeText("n") })
+    await until(t, () => t.frame().includes("New Task"))
+    await act(async () => { await t.keys.typeText("has a body") })
+    await t.settle()
+    act(() => t.keys.pressArrow("down")); await t.settle() // into body
+    await until(t, () => /▸ Body/.test(t.frame()))
+    await act(async () => { await t.keys.typeText("para one") })
+    act(() => t.keys.pressEnter())                          // newline (not submit)
+    await act(async () => { await t.keys.typeText("para two") })
+    await t.settle()
+    expect(cmds.length).toBe(0)                             // Enter did NOT submit
+    expect(t.frame()).toContain("para one")
+    expect(t.frame()).toContain("para two")
+    act(() => t.keys.pressTab()); await t.settle()          // Tab leaves body → assignee
+    await until(t, () => /▸ Assignee/.test(t.frame()))
+    act(() => t.keys.pressEnter({ ctrl: true }))
+    await until(t, () => cmds.length === 1)
+    expect(cmds[0]).toBe("hermes kanban --board default create 'has a body' --body 'para one\npara two'")
+    t.destroy()
+  })
+
+  test("create form: ↑/↓ in a multi-line body move the cursor, only escape at the edges", async () => {
+    const cmds: string[] = []
+    const gw = new MockGateway({
+      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "tb", stderr: "", code: 0 } },
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    await act(async () => { await t.keys.typeText("n") })
+    await until(t, () => t.frame().includes("New Task"))
+    await act(async () => { await t.keys.typeText("multiline body") })
+    await t.settle()
+    act(() => t.keys.pressArrow("down")); await t.settle() // into body (empty → enters)
+    await until(t, () => /▸ Body/.test(t.frame()))
+    // Three lines; cursor ends on line 3 (last).
+    await act(async () => { await t.keys.typeText("one") })
+    act(() => t.keys.pressEnter())
+    await act(async () => { await t.keys.typeText("two") })
+    act(() => t.keys.pressEnter())
+    await act(async () => { await t.keys.typeText("three") })
+    await t.settle()
+    // ↑ twice: cursor row 2 → 1 → 0. Focus must stay on Body.
+    act(() => t.keys.pressArrow("up")); await t.settle()
+    expect(t.frame()).toMatch(/▸ Body/)
+    act(() => t.keys.pressArrow("up")); await t.settle()
+    expect(t.frame()).toMatch(/▸ Body/)
+    // Now at row 0 — one more ↑ spills over to the previous field (Title).
+    act(() => t.keys.pressArrow("up")); await t.settle()
+    expect(t.frame()).toMatch(/▸ Title/)
+    // ↓ from Title re-enters Body at row 0; ↓ again stays (row 0 → 1), etc.
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    expect(t.frame()).toMatch(/▸ Body/)
+    act(() => t.keys.pressArrow("down")); await t.settle() // row 0 → 1
+    expect(t.frame()).toMatch(/▸ Body/)
+    act(() => t.keys.pressArrow("down")); await t.settle() // row 1 → 2 (last)
+    expect(t.frame()).toMatch(/▸ Body/)
+    // row 2 is the last line — one more ↓ spills to the next field (Assignee).
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    expect(t.frame()).toMatch(/▸ Assignee/)
+    // Body text survived all of that.
+    act(() => t.keys.pressEnter({ ctrl: true }))
+    await until(t, () => cmds.length === 1)
+    expect(cmds[0]).toBe("hermes kanban --board default create 'multiline body' --body 'one\ntwo\nthree'")
+    t.destroy()
+  })
+
+  test("create form: More section hidden until expanded; Workspace dir: → --workspace dir:<path>", async () => {
+    const cmds: string[] = []
+    const gw = new MockGateway({
+      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "t10", stderr: "", code: 0 } },
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    await act(async () => { await t.keys.typeText("n") })
+    await until(t, () => t.frame().includes("New Task"))
+    await act(async () => { await t.keys.typeText("in a dir") })
+    await t.settle()
+    expect(t.frame()).not.toContain("Workspace") // collapsed
+    // title→body→assignee→priority→triage→more
+    for (let i = 0; i < 5; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
+    await until(t, () => /▸ More/.test(t.frame()))
+    await act(async () => { await t.keys.typeText(" ") })   // expand
+    await until(t, () => /Workspace/.test(t.frame()))
+    // more→tenant→workspace
+    act(() => t.keys.pressArrow("down")); await t.settle() // tenant
+    act(() => t.keys.pressArrow("down")); await t.settle() // workspace
+    await until(t, () => /▸ Workspace/.test(t.frame()))
+    await act(async () => { await t.keys.typeText(" ") })   // open workspace picker
+    await until(t, () => /isolated temp dir under the board root/.test(t.frame()))
+    // scratch (0), worktree (1), dir (2) — ↓↓ to dir, Enter → path prompt
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    act(() => t.keys.pressEnter()); await t.settle()
+    await until(t, () => /Directory path/.test(t.frame()))
+    await act(async () => { await t.keys.typeText("/tmp/work") })
+    await t.settle()
+    act(() => t.keys.pressEnter()); await t.settle()        // confirm path
+    await until(t, () => /Workspace\s+dir @ \/tmp\/work/.test(t.frame()))
+    act(() => t.keys.pressEnter({ ctrl: true }))
+    await until(t, () => cmds.length === 1)
+    expect(cmds[0]).toBe("hermes kanban --board default create 'in a dir' --workspace dir:/tmp/work")
+    t.destroy()
+  })
+
+  test("create form: Esc cancels — no command", async () => {
+    const cmds: string[] = []
+    const gw = new MockGateway({
+      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "x", stderr: "", code: 0 } },
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    await act(async () => { await t.keys.typeText("n") })
+    await until(t, () => t.frame().includes("New Task"))
+    await act(async () => { await t.keys.typeText("never mind") })
+    await t.settle()
+    act(() => t.keys.pressEscape())
+    await until(t, () => !t.frame().includes("New Task"))
+    expect(cmds.length).toBe(0)
+    t.destroy()
+  })
+
+  test("create form: Esc in a picker returns to the form, not out", async () => {
+    const t = await mountNode(<Kanban focused />, { width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    await act(async () => { await t.keys.typeText("n") })
+    await until(t, () => t.frame().includes("New Task"))
+    await act(async () => { await t.keys.typeText("keep me") })
+    await t.settle()
+    act(() => t.keys.pressArrow("down")); await t.settle() // body
+    act(() => t.keys.pressArrow("down")); await t.settle() // assignee
+    await until(t, () => /▸ Assignee/.test(t.frame()))
+    await act(async () => { await t.keys.typeText(" ") })   // open assignee picker
+    await until(t, () => /Search profiles/.test(t.frame()))
+    act(() => t.keys.pressEscape()); await t.settle()       // Esc → back to form
+    expect(t.frame()).toContain("New Task")                 // form still open
+    expect(t.frame()).not.toMatch(/Search profiles/)        // picker closed
+    expect(t.frame()).toContain("keep me")                  // title preserved
+    // Esc again on the bare form → closes creation.
+    act(() => t.keys.pressEscape())
+    await until(t, () => !t.frame().includes("New Task"))
+    t.destroy()
+  })
+
+  test("create form: Esc in dir-path prompt backs to the workspace picker", async () => {
+    const t = await mountNode(<Kanban focused />, { width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    await act(async () => { await t.keys.typeText("n") })
+    await until(t, () => t.frame().includes("New Task"))
+    await act(async () => { await t.keys.typeText("nested esc") })
+    await t.settle()
+    for (let i = 0; i < 5; i++) { act(() => t.keys.pressArrow("down")); await t.settle() } // → More
+    await act(async () => { await t.keys.typeText(" ") })   // expand
+    await until(t, () => /Workspace/.test(t.frame()))
+    act(() => t.keys.pressArrow("down")); await t.settle() // tenant
+    act(() => t.keys.pressArrow("down")); await t.settle() // workspace
+    await act(async () => { await t.keys.typeText(" ") })   // open workspace picker
+    await until(t, () => /isolated temp dir under the board root/.test(t.frame()))
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    act(() => t.keys.pressArrow("down")); await t.settle() // → dir:…
+    act(() => t.keys.pressEnter()); await t.settle()       // → dir-path prompt
+    await until(t, () => /Directory path/.test(t.frame()))
+    act(() => t.keys.pressEscape()); await t.settle()      // Esc → back to workspace picker
+    expect(t.frame()).toMatch(/isolated temp dir under the board root/)
+    act(() => t.keys.pressEscape()); await t.settle()      // Esc → back to form
+    expect(t.frame()).toContain("New Task")
+    expect(t.frame()).not.toMatch(/isolated temp dir under the board root/)
+    t.destroy()
+  })
+
+  test("create form: Priority picker is filter-free; Space selects", async () => {
+    const cmds: string[] = []
+    const gw = new MockGateway({
+      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "tp", stderr: "", code: 0 } },
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    await act(async () => { await t.keys.typeText("n") })
+    await until(t, () => t.frame().includes("New Task"))
+    await act(async () => { await t.keys.typeText("prio pick") })
+    await t.settle()
+    act(() => t.keys.pressArrow("down")); await t.settle() // body
+    act(() => t.keys.pressArrow("down")); await t.settle() // assignee
+    act(() => t.keys.pressArrow("down")); await t.settle() // priority
+    await until(t, () => /▸ Priority/.test(t.frame()))
+    await act(async () => { await t.keys.typeText(" ") })   // open priority picker
+    await until(t, () => /P0 \(none\)/.test(t.frame()))
+    // No filter input — typing a digit must NOT filter; it is ignored.
+    expect(t.frame()).not.toMatch(/Type to filter/)
+    // ↓↓↓ to P3, Space selects (not just Enter).
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    await act(async () => { await t.keys.typeText(" ") })   // Space = select
+    await until(t, () => /▸ Priority\s+P3/.test(t.frame()))
+    act(() => t.keys.pressEnter({ ctrl: true }))
+    await until(t, () => cmds.length === 1)
+    expect(cmds[0]).toBe("hermes kanban --board default create 'prio pick' --priority 3")
+    t.destroy()
+  })
+
   test("D → confirm → dispatch", async () => {
     const cmds: string[] = []
     const gw = new MockGateway({
@@ -489,5 +778,146 @@ describe("Kanban tab", () => {
       rmSync(hermesPath("kanban/boards/tall"), { recursive: true, force: true })
       resetKanban()
     }
+  })
+})
+
+// ─── Direct-write path (bun:sqlite, matches dashboard PATCH) ─────────
+describe("patchTask direct writes", () => {
+  const read = (id: string): Record<string, unknown> | null => {
+    const db = new Database(hermesPath("kanban.db"), { readonly: true })
+    try {
+      return db.query("SELECT * FROM tasks WHERE id = ?").get(id) as Record<string, unknown> | null
+    } finally { db.close() }
+  }
+  const events = (id: string): Array<{ kind: string; payload: string | null }> => {
+    const db = new Database(hermesPath("kanban.db"), { readonly: true })
+    try {
+      return db.query(
+        "SELECT kind, payload FROM task_events WHERE task_id = ? ORDER BY id",
+      ).all(id) as Array<{ kind: string; payload: string | null }>
+    } finally { db.close() }
+  }
+
+  test("title + body in one txn ⇒ single 'edited' event", async () => {
+    const { patchTask } = await import("../src/utils/hermes-kanban")
+    // Seed by re-using t4 (done) so we have a stable target.
+    expect(patchTask("default", "t4", {
+      title: "draft memo v2", body: "revised body",
+    })).toBe(true)
+    const row = read("t4")!
+    expect(row.title).toBe("draft memo v2")
+    expect(row.body).toBe("revised body")
+    const es = events("t4").filter(e => e.kind === "edited")
+    expect(es.length).toBeGreaterThanOrEqual(1)
+    expect(es[es.length - 1].payload).toBeNull()
+  })
+
+  test("priority ⇒ 'reprioritized' event with JSON payload", async () => {
+    const { patchTask } = await import("../src/utils/hermes-kanban")
+    expect(patchTask("default", "t4", { priority: 7 })).toBe(true)
+    expect(read("t4")!.priority).toBe(7)
+    const es = events("t4").filter(e => e.kind === "reprioritized")
+    expect(es.length).toBeGreaterThanOrEqual(1)
+    expect(JSON.parse(es[es.length - 1].payload!)).toEqual({ priority: 7 })
+    // Clamp: negative collapses to 0, 10+ collapses to 9.
+    expect(patchTask("default", "t4", { priority: 42 })).toBe(true)
+    expect(read("t4")!.priority).toBe(9)
+    expect(patchTask("default", "t4", { priority: -3 })).toBe(true)
+    expect(read("t4")!.priority).toBe(0)
+  })
+
+  test("empty title rejected, unknown id returns false", async () => {
+    const { patchTask } = await import("../src/utils/hermes-kanban")
+    expect(() => patchTask("default", "t4", { title: "   " })).toThrow(/empty/)
+    expect(patchTask("default", "does-not-exist", { title: "x" })).toBe(false)
+  })
+})
+
+// ─── Tab-into-pane nav + field editors ───────────────────────────────
+describe("Kanban detail pane", () => {
+  test("Tab with pane open enters pane; Tab inside pane walks fields", async () => {
+    const t = await mountNode(<Kanban focused />, { width: 180, height: 48 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    // → → to 'ready' (t1), Enter opens detail.
+    act(() => t.keys.pressArrow("right")); await t.settle()
+    act(() => t.keys.pressArrow("right")); await t.settle()
+    act(() => t.keys.pressEnter())
+    await until(t, () => /Assignee\s+researcher/.test(t.frame()))
+    // Hint while grid-tier + pane open: "Tab into pane".
+    expect(t.frame()).toContain("Tab into pane")
+    // Tab → pane tier. Title is the first field, gets the edit hint.
+    act(() => t.keys.pressTab()); await t.settle()
+    await until(t, () => t.frame().includes("Enter edit"))
+    // First Esc → back to grid (pane stays open).
+    act(() => t.keys.pressEscape()); await t.settle()
+    await until(t, () => t.frame().includes("Tab into pane"))
+    expect(t.frame()).toMatch(/Assignee\s+researcher/)  // pane still open
+    // Second Esc → pane closes.
+    act(() => t.keys.pressEscape()); await t.settle()
+    await until(t, () => !/Assignee\s+researcher/.test(t.frame()))
+    t.destroy()
+  })
+
+  test("Enter on priority row in pane → DialogSelect → direct write", async () => {
+    // Re-seed t1's priority so we have a known starting value.
+    const db = new Database(hermesPath("kanban.db"))
+    db.run("UPDATE tasks SET priority = 3 WHERE id = 't1'")
+    db.close()
+    resetKanban()
+    const t = await mountNode(<Kanban focused />, { width: 180, height: 48 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    act(() => t.keys.pressArrow("right")); await t.settle()
+    act(() => t.keys.pressArrow("right")); await t.settle()
+    act(() => t.keys.pressEnter())
+    await until(t, () => /Assignee\s+researcher/.test(t.frame()))
+    // Tab in, then Tab twice more (title → body → assignee → priority).
+    act(() => t.keys.pressTab()); await t.settle()
+    act(() => t.keys.pressTab()); await t.settle()
+    act(() => t.keys.pressTab()); await t.settle()
+    act(() => t.keys.pressTab()); await t.settle()
+    // Priority row shows its hint when focused.
+    await until(t, () => t.frame().includes("↑↓ / Enter"))
+    // ↑ bumps priority directly (patchTask path, no dialog).
+    act(() => t.keys.pressArrow("up")); await t.settle()
+    // Read back via a fresh RO handle — herm's internal cache is RW/RO
+    // split and the write went through the RW handle.
+    const check = new Database(hermesPath("kanban.db"), { readonly: true })
+    const row = check.query("SELECT priority FROM tasks WHERE id = 't1'")
+      .get() as { priority: number }
+    check.close()
+    expect(row.priority).toBe(4)
+    t.destroy()
+  })
+})
+
+// ─── Persistence (filter masks + open boards) ────────────────────────
+describe("Kanban preferences round-trip", () => {
+  test("filter chip toggle persists across remount", async () => {
+    const prefsMod = await import("../src/utils/preferences")
+    prefsMod.reset()
+    // Start clean — no saved kanban prefs.
+    prefsMod.set("kanban", undefined as never)
+
+    const t1 = await mountNode(<Kanban focused />, { width: 180, height: 44 })
+    await until(t1, () => t1.frame().includes("Kanban · 3 boards"))
+    // Flip 'analyst' chip to include via the filter tier.
+    act(() => t1.keys.pressArrow("up")); await t1.settle()
+    act(() => t1.keys.pressKey(" "))
+    await until(t1, () => t1.frame().includes("1/5 task"))
+    t1.destroy()
+
+    // Saved?
+    prefsMod.reset()
+    const saved = prefsMod.load().kanban
+    expect(saved?.masks?.default?.who).toEqual([["analyst", "in"]])
+
+    // Remount — mask rehydrates without user input.
+    const t2 = await mountNode(<Kanban focused />, { width: 180, height: 44 })
+    await until(t2, () => t2.frame().includes("1/5 task"))
+    expect(t2.frame()).toContain("synthesize")
+    expect(t2.frame()).not.toContain("research cost")
+    // Cleanup for the rest of the suite.
+    t2.destroy()
+    prefsMod.set("kanban", undefined as never)
   })
 })

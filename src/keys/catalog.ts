@@ -40,8 +40,8 @@ export const DEFAULTS = {
   "app.sidebar":       def("<leader>b",            "Toggle sidebar",                     "global"),
   "palette.open":      def("ctrl+k",               "Command palette",                    "global"), // ø command_list=ctrl+p
   "help.open":         def("f1",                   "Keyboard shortcuts",                 "global"), // ☨
-  "tab.next":          def("ctrl+right",           "Next tab",                           "global"), // ☨
-  "tab.prev":          def("ctrl+left",            "Previous tab",                       "global"), // ☨
+  "tab.next":          def("alt+right",            "Next tab",                           "global"), // ☨
+  "tab.prev":          def("alt+left",             "Previous tab",                       "global"), // ☨
   "focus.cycle":       def("tab",                  "Cycle focus (double-tap → composer)","global"), // ☨
   "editor.open":       def("<leader>e,ctrl+g",     "Open $EDITOR on prompt",             "global"),
   "reply.copy":        def("<leader>y,ctrl+y",     "Copy last assistant reply",          "global"),
