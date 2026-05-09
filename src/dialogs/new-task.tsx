@@ -170,12 +170,26 @@ const Form = (p: {
     }
     if (key.name === "tab") return moveField(key.shift ? -1 : 1)
 
-    // Arrow nav. The body textarea captures plain ↑/↓ for cursor
-    // movement and only lets them bubble at the buffer edges — so by
-    // the time we see ↑/↓ with field==="body", the cursor was already
-    // at the top/bottom line. Move focus out.
-    if (key.name === "up") return moveField(-1)
-    if (key.name === "down") return moveField(1)
+    // Arrow nav. ↑/↓ move focus between fields — EXCEPT inside the body
+    // textarea, where they move the cursor and only spill over to
+    // field-nav when the cursor is already on the first/last line.
+    // `useKeyboard` fires before the textarea processes the key, so
+    // logicalCursor.row here is the pre-move position.
+    if (key.name === "up") {
+      if (field === "body") {
+        const row = body.current?.logicalCursor.row ?? 0
+        if (row > 0) return // textarea moves the cursor up
+      }
+      return moveField(-1)
+    }
+    if (key.name === "down") {
+      if (field === "body") {
+        const row = body.current?.logicalCursor.row ?? 0
+        const last = (body.current?.lineCount ?? 1) - 1
+        if (row < last) return // textarea moves the cursor down
+      }
+      return moveField(1)
+    }
 
     if (field === "more") {
       if (key.name === "return" || key.name === "space") return setMore(m => !m)

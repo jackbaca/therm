@@ -432,6 +432,51 @@ describe("Kanban tab", () => {
     t.destroy()
   })
 
+  test("create form: ↑/↓ in a multi-line body move the cursor, only escape at the edges", async () => {
+    const cmds: string[] = []
+    const gw = new MockGateway({
+      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "tb", stderr: "", code: 0 } },
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    await act(async () => { await t.keys.typeText("n") })
+    await until(t, () => t.frame().includes("New Task"))
+    await act(async () => { await t.keys.typeText("multiline body") })
+    await t.settle()
+    act(() => t.keys.pressArrow("down")); await t.settle() // into body (empty → enters)
+    await until(t, () => /▸ Body/.test(t.frame()))
+    // Three lines; cursor ends on line 3 (last).
+    await act(async () => { await t.keys.typeText("one") })
+    act(() => t.keys.pressEnter())
+    await act(async () => { await t.keys.typeText("two") })
+    act(() => t.keys.pressEnter())
+    await act(async () => { await t.keys.typeText("three") })
+    await t.settle()
+    // ↑ twice: cursor row 2 → 1 → 0. Focus must stay on Body.
+    act(() => t.keys.pressArrow("up")); await t.settle()
+    expect(t.frame()).toMatch(/▸ Body/)
+    act(() => t.keys.pressArrow("up")); await t.settle()
+    expect(t.frame()).toMatch(/▸ Body/)
+    // Now at row 0 — one more ↑ spills over to the previous field (Title).
+    act(() => t.keys.pressArrow("up")); await t.settle()
+    expect(t.frame()).toMatch(/▸ Title/)
+    // ↓ from Title re-enters Body at row 0; ↓ again stays (row 0 → 1), etc.
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    expect(t.frame()).toMatch(/▸ Body/)
+    act(() => t.keys.pressArrow("down")); await t.settle() // row 0 → 1
+    expect(t.frame()).toMatch(/▸ Body/)
+    act(() => t.keys.pressArrow("down")); await t.settle() // row 1 → 2 (last)
+    expect(t.frame()).toMatch(/▸ Body/)
+    // row 2 is the last line — one more ↓ spills to the next field (Assignee).
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    expect(t.frame()).toMatch(/▸ Assignee/)
+    // Body text survived all of that.
+    act(() => t.keys.pressEnter({ ctrl: true }))
+    await until(t, () => cmds.length === 1)
+    expect(cmds[0]).toBe("hermes kanban --board default create 'multiline body' --body 'one\ntwo\nthree'")
+    t.destroy()
+  })
+
   test("create form: More section hidden until expanded; Workspace dir: → --workspace dir:<path>", async () => {
     const cmds: string[] = []
     const gw = new MockGateway({
