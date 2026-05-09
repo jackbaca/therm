@@ -125,8 +125,11 @@ export class GatewayClient extends EventEmitter {
   start() {
     const root = this.root()
     const bin = python(root)
-    const cwd = process.env.HERMES_CWD || root
+    const cwd = process.env.HERMES_CWD || process.cwd()
     const env = { ...process.env } as Record<string, string>
+    // Ensure the gateway and agent tools resolve to the user's launch cwd.
+    // TERMINAL_CWD is the canonical env var the agent reads for working dir.
+    if (!env.TERMINAL_CWD) env.TERMINAL_CWD = cwd
     const pp = env.PYTHONPATH?.trim()
     env.PYTHONPATH = pp ? `${root}${delimiter}${pp}` : root
 

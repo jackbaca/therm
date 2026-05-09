@@ -971,7 +971,13 @@ describe("app", () => {
       t.gw.push({ type: "message.complete", payload: { text: "alpha ", status: "interrupted", usage: { input: 1, output: 1, total: 2 } } })
     })
     // Cloud unmounts once streaming stops — transcript now visible.
-    await until(t, () => t.frame().includes("Ready") && t.frame().includes("alpha"))
+    // Wait for the interrupted marker too: it's appended by the
+    // message.complete reducer path and can land one commit after
+    // `alpha` on a loaded runner.
+    await until(t, () => {
+      const f = t.frame()
+      return f.includes("Ready") && f.includes("alpha") && f.includes("interrupted")
+    })
 
     const f = t.frame()
     expect(f).not.toContain("STALE-DELTA")

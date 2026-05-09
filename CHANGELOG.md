@@ -1,3 +1,27 @@
+## [1.2.1](https://github.com/liftaris/herm/compare/v1.2.0...v1.2.1) (2026-05-06)
+
+
+### Bug Fixes
+
+* **goal:** route /goal via slash-worker instead of shell.exec python -c ([d3809bd](https://github.com/liftaris/herm/commit/d3809bd1c099c73d0855f1cdd76859c55ce3dcc2))
+
+# [1.2.0](https://github.com/liftaris/herm/compare/v1.1.0...v1.2.0) (2026-05-06)
+
+
+### Bug Fixes
+
+* **avatar:** bundled eikons reachable from the published package ([431dc69](https://github.com/liftaris/herm/commit/431dc699bd5029c9e5e20960bbc9992de7541b50))
+* **dialog:** scheduling-independent open() gate for tab key-guards ([a393e31](https://github.com/liftaris/herm/commit/a393e3161b72051287413d9b1044d36ff77616dd))
+* **kanban:** multi-board support — read/write always target same board ([4817222](https://github.com/liftaris/herm/commit/4817222689bf5ba75833992ccce7937e6308d726))
+
+
+### Features
+
+* **kanban:** status chips, cross-board ↑↓, row rules; ticker end-dwell ([693b5bf](https://github.com/liftaris/herm/commit/693b5bf53cbcf40cfe3a7e0d93af7a656e242dd4))
+* **kanban:** tiered nav, filter chips, zebra rows, marquee titles ([be333fa](https://github.com/liftaris/herm/commit/be333fa7890bf6e614deede162bb386e98ceb7e2))
+* **kanban:** tri-state FilterChip, detail follows selection, drop stripe ([70aab41](https://github.com/liftaris/herm/commit/70aab41049dc429898278a257658d0f6e78b2808))
+* **kanban:** unified multi-board view ([bbb4824](https://github.com/liftaris/herm/commit/bbb48242333a0bc521be6798db51d448aa2d33f5))
+
 # [1.1.0](https://github.com/liftaris/herm/compare/v1.0.0...v1.1.0) (2026-05-04)
 
 
