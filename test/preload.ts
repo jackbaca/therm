@@ -6,6 +6,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
 import { afterEach } from "bun:test"
+import { getTreeSitterClient } from "@opentui/core"
 
 const root = mkdtempSync(join(tmpdir(), "herm-test-"))
 const cfg = join(root, "config")
@@ -16,6 +17,20 @@ process.env.HERMES_AGENT_ROOT = join(root, "agent")
 process.env.HERM_IO_INLINE = "1"
 process.env.CONTROL = ""
 process.env.PERF = ""
+
+// OpenTUI's own Markdown.test.ts pattern: one TreeSitterClient for the
+// whole suite, created in beforeAll, destroyed in afterAll. Under bun
+// test every t.destroy() drops rendererTracker's set to 0, which
+// destroys + re-singletons the client — ~16 worker spawn/terminate
+// cycles per run. Bun 1.3.x segfaults in the worker's node:module
+// bootstrap (generateNativeModule_NodeModule → getPropertySlot @ 0x5,
+// oven-sh/bun#19650/#27463) under that churn. Seed the singleton once
+// and pin a sentinel in the tracker so size never hits 0; the single
+// worker lives for the process and tears down with it.
+await getTreeSitterClient().initialize()
+const bag = (globalThis as Record<symbol, unknown>)[Symbol.for("@opentui/core/singleton")] as
+  { RendererTracker?: { addRenderer: (r: unknown) => void } }
+bag.RendererTracker?.addRenderer({})
 
 // tips.ts scrapes <agent>/hermes_cli/tips.py at first call and caches
 // module-level. Provide a fixture so loadTips() exercises the scraper
