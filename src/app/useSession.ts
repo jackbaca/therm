@@ -6,10 +6,22 @@ import * as sdb from "../utils/sessions-db"
 import { useGateway } from "./gateway"
 import { transcriptToMessages } from "./turnReducer"
 import type { Launch } from "./launch"
-import type { SessionResumeResponse, SessionCreateResponse } from "../utils/gateway-types"
-import type { Message } from "../types/message"
+import type {
+  SessionResumeResponse,
+  SessionCreateResponse,
+  SessionInfo,
+  TranscriptMessage,
+} from "../utils/gateway-types"
+import type { Message, Usage } from "../types/message"
 
-/** session.compress response shape — see upstream fc7f55f49. */
+/** session.compress response shape — see upstream fc7f55f49.
+ *
+ *  `messages` + `info` carry the post-compaction transcript and fresh
+ *  session metadata; the gateway rewrites history in place and rotates
+ *  session_id (agent._compress_context ends the old DB session and opens
+ *  a continuation). Callers MUST re-hydrate local transcript state from
+ *  `messages` — otherwise the TUI keeps the pre-compaction list and the
+ *  next resume snaps it to the compacted history, looking like data loss. */
 export type CompressResult = {
   status?: "compressed" | "skipped"
   removed?: number
@@ -17,6 +29,9 @@ export type CompressResult = {
   after_messages?: number
   before_tokens?: number
   after_tokens?: number
+  messages?: TranscriptMessage[]
+  info?: SessionInfo
+  usage?: Usage
   summary?: {
     noop?: boolean
     headline?: string
@@ -32,6 +47,8 @@ type SessionOps = {
   boot: (launch: Launch) => Promise<Booted>
   create: () => Promise<string>
   resume: (sid: string) => Promise<{ id: string; messages: Message[] }>
+  /** Finalize a gateway session (best-effort — swallows errors). */
+  close: (sid: string) => Promise<void>
   interrupt: () => Promise<void>
   branch: (name?: string) => Promise<string | null>
   compress: () => Promise<CompressResult | null>
@@ -54,6 +71,21 @@ export function useSession(): SessionOps {
     const res = await gw.request<SessionCreateResponse>("session.create", {})
     gw.setSession(res.session_id)
     return res.session_id
+  }, [gw])
+
+  // Finalize a gateway session: marks the DB row ended, tears down the
+  // per-session slash_worker subprocess, unregisters the approval
+  // notifier, and drops the AIAgent from the gateway's `_sessions` map.
+  // Without this, /new and session-switch leak one HermesCLI child
+  // (slash_worker) + one live AIAgent per hop until quit, and the row's
+  // `ended_at IS NULL` throws off lineage classification in Sessions
+  // tab (sessions-db.ts SUB/CONT predicates). Parity with Ink TUI's
+  // useSessionLifecycle.closeSession. Pass `session_id` explicitly so
+  // auto-injection doesn't close whatever sid the gateway already
+  // switched to.
+  const close = useCallback(async (sid: string) => {
+    if (!sid) return
+    try { await gw.request("session.close", { session_id: sid }) } catch {}
   }, [gw])
 
   const boot = useCallback(async (launch: Launch): Promise<Booted> => {
@@ -96,7 +128,7 @@ export function useSession(): SessionOps {
   }, [gw])
 
   return useMemo(
-    () => ({ boot, create, resume, interrupt, branch, compress, undo }),
-    [boot, create, resume, interrupt, branch, compress, undo],
+    () => ({ boot, create, resume, close, interrupt, branch, compress, undo }),
+    [boot, create, resume, close, interrupt, branch, compress, undo],
   )
 }

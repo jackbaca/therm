@@ -240,14 +240,20 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   }, [])
 
   const newSession = useCallback(async () => {
+    const prev = sidRef.current
     reset()
     summoned.current = true
     setSplash(true)
+    // Close the outgoing session so the gateway finalizes it (ends the
+    // DB row, reaps its slash_worker subprocess, drops the AIAgent from
+    // `_sessions`). Fire-and-forget — create() doesn't depend on it.
+    if (prev) void session.close(prev)
     try { setSid(await session.create()); sessionStart.current = Date.now() }
     catch {}
   }, [reset, session])
 
   const switchSession = useCallback(async (target: string) => {
+    const prev = sidRef.current
     reset()
     // Keep splash visible while the resume RPC lands so the user sees
     // the ornate frame instead of the empty-transcript welcome. summoned
@@ -262,6 +268,11 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       setSid(res.id)
       sessionStart.current = Date.now()
       if (res.messages.length) dispatch({ kind: "load", messages: res.messages })
+      // Close only after resume succeeds — a failed resume leaves the
+      // user in the outgoing session, which must stay live. Skip when
+      // resuming self (prev === res.id), e.g. the boot path reusing an
+      // empty stub.
+      if (prev && prev !== res.id) void session.close(prev)
       setSplash(false)
       summoned.current = false
     } catch (err) {
@@ -298,15 +309,29 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     gwRestart()
   }, [reset, goToTab, gwRestart, toast, gw])
 
-  // Compress wrapper — toasts on start, dispatches a transcript system
-  // message carrying the headline + token line from the gateway's
-  // summary payload on completion. Upstream emits intermediate
-  // status.update{kind:"compressing"} events that already feed the
-  // status bar via gatewayEvents.ts.
+  // Compress wrapper — re-hydrates transcript + session info from the
+  // RPC response, toasts, and dispatches a summary system message.
+  //
+  // Why the re-hydrate matters: session.compress rewrites history on the
+  // gateway and `agent._compress_context` ends the old SessionDB session,
+  // opening a continuation with a new session_id. The RPC returns the
+  // post-compaction `messages` + fresh `info`. Without dispatching them
+  // here, `turn.messages` stays stuck on the pre-compaction list until
+  // the user reopens the session — at which point the old messages
+  // vanish, reading as corruption. Mirrors the Ink TUI (upstream
+  // ui-tui/src/app/slash/commands/session.ts compress handler). Upstream
+  // also emits intermediate status.update{kind:"compressing"} events that
+  // already feed the status bar via gatewayEvents.ts.
   const runCompress = useCallback(async () => {
     toast.show({ variant: "info", message: "Compressing session…" })
     const r = await session.compress()
-    if (!r || !r.summary) return
+    if (!r) return
+    if (r.info) setInfo(r.info)
+    if (r.usage) setUsage(r.usage)
+    if (Array.isArray(r.messages)) {
+      dispatch({ kind: "load", messages: transcriptToMessages(r.messages) })
+    }
+    if (!r.summary) return
     const s = r.summary
     if (s.noop) {
       toast.show({ variant: "info",
@@ -492,7 +517,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
             })
             .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
           return
-        case "quit": quit(renderer, sid, title); return
+        case "quit": quit(renderer, sid, title, gw); return
         case "queue":
           if (!arg) { dispatch({ kind: "system", text: `${queue.length} queued` }); return }
           setQueue(q => [...q, arg]); return
@@ -923,7 +948,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     // the head once turn.streaming flips false.
     queued: queue.length,
     onFlushQueue: doInterrupt,
-    onQuit: () => quit(renderer, sid, title),
+    onQuit: () => quit(renderer, sid, title, gw),
     onInterruptNotice: () => dispatch({ kind: "interrupt.notice", text: "Press Escape again to interrupt" }),
     onCopyLast: () => { copyLast() },
     onAttachClipboard: attachClipboard,
