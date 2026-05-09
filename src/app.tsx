@@ -115,8 +115,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const [status, setStatus] = useState("")
   const [eikon, setEikon] = useState<ParsedEikon | undefined>(undefined)
   const [queue, setQueue] = useState<string[]>([])
-  type BusyInputMode = "queue" | "steer" | "interrupt"
-  const [busyInputMode, setBusyInputMode] = useState<BusyInputMode>("queue")
+  const [busy, setBusy] = useState<"queue" | "steer" | "interrupt">("queue")
   // ── Splash ────────────────────────────────────────────────────────
   // Welcome-state chrome over an empty transcript. Composer stays live
   // underneath; first send dismisses. `/splash` re-summons mid-session
@@ -208,46 +207,25 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     setForce(next)
   }, [cloud])
   const closeCloud = useCallback(() => { setForce(false); setPick(undefined) }, [])
-  // Ref for the interrupt function — populated after doInterrupt is defined
-  const doInterruptRef = useRef<() => void>(() => {})
-  // Stable ref to send() — lets us dispatch slash commands immediately during streaming
-  const sendRef = useRef<(raw: string) => void>(() => {})
-  // Mode-aware handler for input while streaming. Slash commands (e.g. /steer, /queue)
-  // are dispatched immediately via send(); plain text respects display.busy_input_mode:
-  //   "queue"     — append to queue, drain on idle (default for TUI)
-  //   "steer"     — inject into current turn via session.steer; falls back to queue
-  //   "interrupt" — interrupt current turn, then send as new prompt
+  const intr = useRef<() => void>(() => {})
+  // Plain text submitted while streaming (Composer routes slash-shaped
+  // input to onSend instead). `interrupt` prepends so the drain effect
+  // fires this text first once turn.streaming flips.
   const onEnqueue = useCallback((t: string) => {
-    // Slash commands execute immediately even while streaming (parity with Ink TUI)
-    if (/^\/\S/.test(t)) {
-      sendRef.current(t)
-      return
-    }
-    const mode = busyInputMode
-    if (mode === "steer") {
-      gw.request<{ status?: string; text?: string }>("session.steer", { text: t })
+    if (busy === "steer") {
+      gw.request<{ status: string }>("session.steer", { text: t })
         .then(r => {
-          if (r.status === "queued") {
-            toast.show({ variant: "success", message: "Steered — lands on next tool result" })
-          } else {
-            setQueue(q => [...q, t])
-            toast.show({ variant: "info", message: "Steer rejected — queued for next turn" })
-          }
-        })
-        .catch(() => {
+          if (r.status === "queued")
+            return toast.show({ variant: "success", message: "steered — lands on next tool result" })
           setQueue(q => [...q, t])
-          toast.show({ variant: "info", message: "Steer failed — queued for next turn" })
+          toast.show({ variant: "info", message: "steer rejected — queued for next turn" })
         })
+        .catch(() => setQueue(q => [...q, t]))
       return
     }
-    if (mode === "interrupt") {
-      doInterruptRef.current()
-      setQueue(q => [...q, t])
-      return
-    }
-    // Default: "queue" — just enqueue for next turn
+    if (busy === "interrupt") { intr.current(); return setQueue(q => [t, ...q]) }
     setQueue(q => [...q, t])
-  }, [busyInputMode, gw, toast])
+  }, [busy, gw, toast])
   const onAttach = useCallback((r: ImageAttachResponse) => setAttachments(a => [...a, r]), [])
 
   // ── Session reset / lifecycle ─────────────────────────────────────
@@ -433,7 +411,8 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   // `slash` and `send` reference each other (skill/alias dispatch needs
   // to submit a turn; typed `/cmd` in send() resolves via slash). The
   // cycle is broken with a forward ref — same shape as upstream Ink's
-  // slashRef/submitRef pair. (sendRef declared earlier for onEnqueue access)
+  // slashRef/submitRef pair.
+  const sendRef = useRef<(raw: string) => void>(() => {})
   const slash = useCallback((c: SlashCommand, arg = "") => {
     if (c.target === "local") {
       switch (c.name) {
@@ -815,13 +794,9 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
           setTitle(r.title ?? "")
           if (r.session_key) preferences.set("lastSessionId", r.session_key)
         }).catch(() => {})
-        // Fetch display.busy_input_mode from config — TUI defaults to "queue"
-        gw.request<{ config?: Record<string, any> }>("config.get", { key: "full" }).then(r => {
-          const d = r.config?.display ?? {}
-          const raw = String(d.busy_input_mode ?? "").trim().toLowerCase()
-          if (raw === "steer" || raw === "interrupt" || raw === "queue") {
-            setBusyInputMode(raw)
-          }
+        gw.request<{ value?: string }>("config.get", { key: "busy" }).then(r => {
+          const m = r.value
+          if (m === "queue" || m === "steer" || m === "interrupt") setBusy(m)
         }).catch(() => {})
       },
       onUsage: (u) => setUsage(u),
@@ -914,7 +889,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     d.text = ""; d.think = ""
     session.interrupt()
   }, [session])
-  doInterruptRef.current = doInterrupt
+  intr.current = doInterrupt
 
   // ── Keyboard ──────────────────────────────────────────────────────
   useAppKeys({
