@@ -500,4 +500,184 @@ describe("Agents tab", () => {
     expect(t.frame()).toContain("Delegation resumed")
     t.destroy()
   })
+
+  // ── Install distribution flow ─────────────────────────────────────
+
+  test("i opens install dialog; preview clone → confirm → hermes profile install", async () => {
+    // Stub shell.exec so `git clone` writes a real distribution.yaml into
+    // the tmp dir the dialog just mkdtemp'd. This exercises the true
+    // readDistributionManifest() path rather than mocking around it.
+    const cmds: string[] = []
+    const gw = new MockGateway({
+      "shell.exec": p => {
+        const c = p.command as string
+        cmds.push(c)
+        const m = c.match(/^git clone .* '([^']+)' '([^']+)'/)
+        if (m && m[2]) {
+          writeFileSync(join(m[2], "distribution.yaml"),
+            [
+              "name: anpicasso-chrome",
+              "version: \"0.2.0\"",
+              "description: Chrome profile distribution",
+              "author: anpicasso",
+              "license: MIT",
+              "hermes_requires: \">=0.12.0\"",
+              "distribution_owned:",
+              "  - SOUL.md",
+              "  - skills",
+              "env_requires:",
+              "  - name: CHROME_API_KEY",
+              "    description: Browser key",
+              "    required: true",
+              "  - name: CHROME_DEBUG",
+              "    required: false",
+              "",
+            ].join("\n"))
+          return { stdout: "", stderr: "", code: 0 }
+        }
+        const inst = c.match(/^hermes profile install '([^']+)'/)
+        if (inst) mkProfile("anpicasso-chrome", { default: "x" })
+        return { stdout: "", stderr: "", code: 0 }
+      },
+    })
+    const t = await mountNode(<Agents focused sessionId="test-sid" />, { gw, width: 200 })
+    await until(t, () => t.frame().includes("Profiles (2)"))
+
+    // Step 1 — open dialog
+    await act(async () => { await t.keys.typeText("i") })
+    await until(t, () => t.frame().includes("Install Distribution"))
+    expect(t.frame()).toContain("git URL")
+
+    // Type a source and submit → triggers clone
+    for (const c of "github.com/anpicasso/hermes-plugin-chrome-profiles") {
+      await act(async () => { await t.keys.typeText(c) })
+    }
+    act(() => t.keys.pressEnter())
+
+    // Step 2 → Step 3 — preview confirm appears with manifest data
+    await until(t, () => t.frame().includes("anpicasso-chrome"))
+    const f = t.frame()
+    expect(f).toContain("v0.2.0")
+    expect(f).toContain("Chrome profile distribution")
+    expect(f).toContain("anpicasso")
+    expect(f).toContain("hermes >=0.12.0")
+    expect(f).toContain("github.com/anpicasso/hermes-plugin-chrome-profiles")
+    expect(f).toContain("SOUL.md, skills")
+    expect(f).toContain("CHROME_API_KEY")   // required env listed
+    expect(f).toContain("1 optional")
+
+    // Confirm
+    await act(async () => { await t.keys.typeText("y") })
+    await t.settle()
+
+    const installCmd = cmds.find(c => c.startsWith("hermes profile install"))
+    expect(installCmd).toBe("hermes profile install 'github.com/anpicasso/hermes-plugin-chrome-profiles' -y")
+    // Env-var toast surfaces the required names.
+    await until(t, () => t.frame().includes("CHROME_API_KEY"))
+    expect(t.frame()).toContain("Env vars needed")
+    t.destroy()
+  })
+
+  test("install dialog: --alias toggle + --name override produce the right flags", async () => {
+    const cmds: string[] = []
+    const gw = new MockGateway({
+      "shell.exec": p => {
+        const c = p.command as string
+        cmds.push(c)
+        const m = c.match(/^git clone .* '([^']+)' '([^']+)'/)
+        if (m && m[2]) {
+          writeFileSync(join(m[2], "distribution.yaml"),
+            "name: coderv2\nversion: \"1.0.0\"\ndescription: Coder distro\n")
+          return { stdout: "", stderr: "", code: 0 }
+        }
+        return { stdout: "", stderr: "", code: 0 }
+      },
+    })
+    const t = await mountNode(<Agents focused sessionId="test-sid" />, { gw, width: 200 })
+    await until(t, () => t.frame().includes("Profiles (2)"))
+
+    await act(async () => { await t.keys.typeText("i") })
+    await until(t, () => t.frame().includes("Install Distribution"))
+    for (const c of "https://example.com/dist.git") {
+      await act(async () => { await t.keys.typeText(c) })
+    }
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("coderv2"))
+
+    // Toggle alias on.
+    act(() => t.keys.pressTab())
+    await until(t, () => t.frame().includes("[x] create shell wrapper"))
+
+    // Override name → press 'n' to enter edit, type, press Enter to exit.
+    await act(async () => { await t.keys.typeText("n") })
+    await t.settle()
+    for (const c of "coder-local") {
+      await act(async () => { await t.keys.typeText(c) })
+    }
+    act(() => t.keys.pressEnter())
+    await t.settle()
+
+    // Confirm — 'y' is consumed by dialog.confirm when not in the name field.
+    await act(async () => { await t.keys.typeText("y") })
+    await t.settle()
+
+    const installCmd = cmds.find(c => c.startsWith("hermes profile install"))
+    expect(installCmd).toBe("hermes profile install 'https://example.com/dist.git' -y --name 'coder-local' --alias")
+    t.destroy()
+  })
+
+  test("install dialog: clone failure shows error, no install shelled", async () => {
+    const cmds: string[] = []
+    const gw = new MockGateway({
+      "shell.exec": p => {
+        const c = p.command as string
+        cmds.push(c)
+        if (c.startsWith("git clone")) return { stdout: "", stderr: "fatal: repository not found", code: 128 }
+        return { stdout: "", stderr: "", code: 0 }
+      },
+    })
+    const t = await mountNode(<Agents focused sessionId="test-sid" />, { gw, width: 200 })
+    await until(t, () => t.frame().includes("Profiles (2)"))
+
+    await act(async () => { await t.keys.typeText("i") })
+    await until(t, () => t.frame().includes("Install Distribution"))
+    for (const c of "bogus-source") {
+      await act(async () => { await t.keys.typeText(c) })
+    }
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Clone failed"))
+    expect(t.frame()).toContain("repository not found")
+
+    // Dismiss error — no install call should have fired.
+    act(() => t.keys.pressEnter())
+    await t.settle()
+    expect(cmds.find(c => c.startsWith("hermes profile install"))).toBeUndefined()
+    t.destroy()
+  })
+
+  test("install dialog: manifest missing → 'Not a distribution' error", async () => {
+    const cmds: string[] = []
+    const gw = new MockGateway({
+      "shell.exec": p => {
+        const c = p.command as string
+        cmds.push(c)
+        // Clone "succeeds" but the cloned dir has no distribution.yaml.
+        if (c.startsWith("git clone")) return { stdout: "", stderr: "", code: 0 }
+        return { stdout: "", stderr: "", code: 0 }
+      },
+    })
+    const t = await mountNode(<Agents focused sessionId="test-sid" />, { gw, width: 200 })
+    await until(t, () => t.frame().includes("Profiles (2)"))
+
+    await act(async () => { await t.keys.typeText("i") })
+    await until(t, () => t.frame().includes("Install Distribution"))
+    for (const c of "https://example.com/not-a-dist.git") {
+      await act(async () => { await t.keys.typeText(c) })
+    }
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Not a distribution"))
+    expect(t.frame()).toContain("distribution.yaml")
+    expect(cmds.find(c => c.startsWith("hermes profile install"))).toBeUndefined()
+    t.destroy()
+  })
 })
