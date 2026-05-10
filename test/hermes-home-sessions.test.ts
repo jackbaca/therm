@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, afterAll } from "bun:test"
 import { openStateDb } from "./fixtures/state-db"
 import { searchSessions, queryRecentSessions, querySubagents, queryLineage } from "../src/utils/hermes-home"
-import { kind, resetDb, peek, lastReal, resolveChainTip } from "../src/utils/sessions-db"
+import { kind, resetDb, peek, lastReal, chainTip } from "../src/utils/sessions-db"
 
 // Seeds a clean state.db and exercises the real SQL paths in
 // sessions-db.ts via the hermes-home re-exports.
@@ -423,12 +423,24 @@ describe("lastReal() — compression chain walk", () => {
     db.close()
     resetDb()
 
-    // lastReal() now searches IN('tui', 'cli') so CLI sessions are found.
-    // This is correct: herm -c should resume the last session regardless of source.
     expect(lastReal()?.id).toBe("cli-sess")
   })
 
-  test("returns undefined when only root has messages but no continuations", () => {
+  test("ignores subagent rows even when newest", () => {
+    const db = seed()
+    sess(db, "parent", "tui", 1000, {
+      ended_at: null, end_reason: null, message_count: 3,
+    })
+    sess(db, "sub", "tui", 1500, {
+      parent_session_id: "parent", message_count: 9,
+    })
+    db.close()
+    resetDb()
+
+    expect(lastReal()?.id).toBe("parent")
+  })
+
+  test("standalone root is its own tip", () => {
     const db = seed()
     sess(db, "solo", "tui", 1700000000, {
       ended_at: null, end_reason: null, message_count: 2,
@@ -442,10 +454,7 @@ describe("lastReal() — compression chain walk", () => {
   })
 })
 
-describe("resolveChainTip() — returns tip regardless of message_count", () => {
-  // Unlike lastReal(), resolveChainTip does NOT filter by message_count.
-  // It is used by useSession boot() to resolve the stored lastSessionId
-  // before checking whether its tip is a reusable 0-msg stub.
+describe("chainTip() — returns tip regardless of message_count", () => {
   afterAll(wipe)
 
   test("returns same id when passed a standalone root", () => {
@@ -454,7 +463,25 @@ describe("resolveChainTip() — returns tip regardless of message_count", () => 
     db.close()
     resetDb()
 
-    expect(resolveChainTip("solo")).toBe("solo")
+    expect(chainTip("solo")).toBe("solo")
+  })
+
+  test("does not cross subagent links in either direction", () => {
+    const db = seed()
+    sess(db, "root", "tui", 1000, {
+      ended_at: 2000, end_reason: "compression",
+    })
+    sess(db, "sub", "tui", 1500, {
+      parent_session_id: "root", message_count: 4,
+    })
+    sess(db, "cont", "tui", 2100, {
+      parent_session_id: "root", message_count: 2,
+    })
+    db.close()
+    resetDb()
+
+    expect(chainTip("root")).toBe("cont")
+    expect(chainTip("sub")).toBe("sub")
   })
 
   test("returns continuation when passed a compressed root", () => {
@@ -468,7 +495,7 @@ describe("resolveChainTip() — returns tip regardless of message_count", () => 
     db.close()
     resetDb()
 
-    expect(resolveChainTip("root")).toBe("cont")
+    expect(chainTip("root")).toBe("cont")
   })
 
   test("walks multi-link chain and returns live tip", () => {
@@ -487,16 +514,16 @@ describe("resolveChainTip() — returns tip regardless of message_count", () => 
     resetDb()
 
     // Pass the root → should walk to tip C
-    expect(resolveChainTip("A")).toBe("C")
+    expect(chainTip("A")).toBe("C")
     // Pass the middle → should walk to C
-    expect(resolveChainTip("B")).toBe("C")
+    expect(chainTip("B")).toBe("C")
     // Pass the tip → should return itself
-    expect(resolveChainTip("C")).toBe("C")
+    expect(chainTip("C")).toBe("C")
   })
 
   test("stub-reuse scenario: stored lastSessionId points to ended continuation with 296 msgs", () => {
     // Simulates: user stored "lastSessionId" = parent continuation id (296 msgs).
-    // boot() calls resolveChainTip(storedId) → walks to stub → stub has 0 msgs.
+    // boot() calls chainTip(storedId) → walks to stub → stub has 0 msgs.
     // The 0-msg stub should be resumed, not skipped.
     const db = seed()
     // Root ended at compression
@@ -515,11 +542,7 @@ describe("resolveChainTip() — returns tip regardless of message_count", () => 
     db.close()
     resetDb()
 
-    // resolveChainTip(parent-cont) must walk to stub, not return parent-cont
-    expect(resolveChainTip("parent-cont")).toBe("stub")
-    // stub has 0 msgs → correct candidate for resume
-    const stubRow = resolveChainTip("parent-cont")
-    expect(stubRow).toBe("stub")
+    expect(chainTip("parent-cont")).toBe("stub")
   })
 })
 

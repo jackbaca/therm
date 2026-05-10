@@ -27,8 +27,8 @@ export type CompressResult = {
 
 type Booted = { id: string; messages: Message[]; note?: string }
 
-export const normalizeSessionId = (input: string): string =>
-  input.trim().replace(/\.json$/i, "").replace(/^session_(?=\d{8}_)/, "")
+export const normalize = (sid: string): string =>
+  sid.trim().replace(/\.json$/i, "").replace(/^session_(?=\d{8}_)/, "")
 
 type SessionOps = {
   /** Establish the initial session per launch intent. */
@@ -45,8 +45,10 @@ export function useSession(): SessionOps {
   const gw = useGateway()
 
   const resume = useCallback(async (sid: string) => {
-    const raw = normalizeSessionId(sid)
-    const target = sdb.byId(raw) ? sdb.resolveChainTip(raw) : raw
+    // Normalize at the edge (argv / slash-arg can be `session_*.json`).
+    // No tip-chasing here: Sessions-tab lineage walk and `/resume <id>`
+    // pass exact ids on purpose; boot() resolves tips itself.
+    const target = normalize(sid)
     const res = await gw.request<SessionResumeResponse>("session.resume", { session_id: target })
     const id = res.session_id
     gw.setSession(id)
@@ -63,48 +65,28 @@ export function useSession(): SessionOps {
 
   const boot = useCallback(async (launch: Launch): Promise<Booted> => {
     const fresh = async (note?: string) => ({ id: await create(), messages: [], note })
-    const latest = async (note = "no prior session to resume — starting fresh") => {
-      const row = sdb.lastReal()
-      if (!row) return fresh(note)
-      try { return await resume(row.id) }
-      catch (e) {
-        const reason = e instanceof Error ? e.message : String(e)
-        return fresh(`resume ${row.id} failed: ${reason} — starting fresh`)
-      }
-    }
 
     if (launch.mode === "resume") {
-      const target = launch.sid ? normalizeSessionId(launch.sid) : sdb.lastReal()?.id
+      const target = launch.sid ?? sdb.lastReal()?.id
       if (!target) return fresh("no prior session to resume — starting fresh")
       try { return await resume(target) }
       catch (e) {
-        const reason = e instanceof Error ? e.message : String(e)
-        return fresh(`resume ${target} failed: ${reason} — starting fresh`)
+        const msg = e instanceof Error ? e.message : String(e)
+        return fresh(`resume ${target} failed: ${msg} — starting fresh`)
       }
     }
 
-    // mode:"new" — reuse our own abandoned empty stub instead of
-    // creating another row every launch.
-    // Resolve the stored lastSessionId through any compression chain, then
-    // act on the tip:
-    //   - message_count > 0: resume the tip directly (it's a live session)
-    //   - message_count = 0: try resuming it (empty stub); fall back to lastReal()
-    //   - no tip: fall back to lastReal()
-    // Without resolveChainTip, a stored parent id (e.g. an ended continuation
-    // with 270 messages) bypasses the stub-reuse check, the resume path is
-    // skipped, and a fresh stub is created — silently losing the active session.
+    // mode:"new" — bare launch is ALWAYS a fresh session (herm-1jd). The
+    // stored id exists only to reuse our own abandoned empty stub instead
+    // of creating another row every launch. It may point at an ended
+    // compression parent (the stub is its continuation), so chase the
+    // chain tip before checking emptiness.
     const last = preferences.get("lastSessionId")
-    const tip = last ? sdb.resolveChainTip(last) : null
-    if (tip) {
-      const tipRow = sdb.byId(tip)
-      if (!tipRow) return latest()
-      if (tipRow.message_count === 0) {
-        try { return await resume(tip) } catch { /* fall through */ }
-        return latest("resume empty stub failed — starting fresh")
-      }
-      return resume(tip)
+    const tip = last ? sdb.chainTip(last) : null
+    if (tip && sdb.byId(tip)?.message_count === 0) {
+      try { return await resume(tip) } catch { /* fall through */ }
     }
-    return latest()
+    return fresh()
   }, [create, resume])
 
   const interrupt = useCallback(async () => {

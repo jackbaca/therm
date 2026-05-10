@@ -546,12 +546,12 @@ export const Sessions = memo((props: Props) => {
     const r = await rpc
     if (r.ok && r.v.sessions?.length) {
       const seen = new Set(diskRows.map(s => s.id))
-      const merged = [...diskRows]
-      for (const s of r.v.sessions.filter(s => (s.message_count ?? 0) > 0)) {
-        if (seen.has(s.id)) continue
-        seen.add(s.id)
-        merged.push({ ...s, detail: local.get(s.id) })
-      }
+      const merged = [
+        ...diskRows,
+        ...r.v.sessions
+          .filter(s => (s.message_count ?? 0) > 0 && !seen.has(s.id))
+          .map(s => ({ ...s, detail: local.get(s.id) })),
+      ].sort((a, b) => b.started_at - a.started_at)
       setRows(merged)
       if (cached) last.rows = merged
       void fillKids(merged)

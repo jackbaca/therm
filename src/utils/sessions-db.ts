@@ -246,53 +246,45 @@ export const byId = (id: string): SessionRow | null => {
   return r ? toRow(r) : null
 }
 
-/** Newest root TUI session that actually has messages. Target of `-c`
- *  and source of the splash continue-prompt title.
+/** Newest real TUI/CLI session that actually has messages. Target of
+ *  `-c` and source of the splash continue-prompt title.
  *
- * Strategy: find the newest TUI session with messages (could be a root OR
- * a continuation), then walk backward to the root and forward to the tip.
- * This handles compression chains where messages live in the continuation,
- * not the root. */
+ *  Newest row with messages (root or continuation — subagents/branches
+ *  excluded), then walk the compression chain to its live tip so a
+ *  compressed root resolves to the continuation holding the messages. */
 export const lastReal = (): SessionRow | undefined => {
-  // Find the newest session with messages — includes both TUI and CLI sessions.
-  // herm -c should resume the last session regardless of interface used.
-  const newestStmt = q(`
+  const hit = q(`
     SELECT s.id FROM sessions s
+    LEFT JOIN sessions p ON p.id = s.parent_session_id
     WHERE s.source IN ('tui', 'cli') AND s.message_count > 0
-    ORDER BY s.started_at DESC
-    LIMIT 1
-  `)
-  const newest = newestStmt?.get() as { id: string } | undefined
-  if (!newest) return undefined
-
-  // Walk backward: if newest is a continuation, walk up to the root.
-  const rootId = walkUp(newest.id)
-  // Walk forward: the root may itself be the tip of a compression chain.
-  const tipId = resolveChainTip(rootId)
-  const row = byId(tipId)
-  // Guard: require messages (tip might be a 0-msg stub).
-  return row?.message_count && row.message_count > 0 ? row : undefined
+      AND (s.parent_session_id IS NULL OR ${CONT("s")})
+    ORDER BY s.started_at DESC LIMIT 1
+  `)?.get() as { id: string } | undefined
+  if (!hit) return undefined
+  const row = byId(chainTip(hit.id))
+  return row && row.message_count > 0 ? row : undefined
 }
 
-/** Resolve a session id to its chain tip (following compression continuations).
- *  Unlike lastReal(), this does NOT filter by message_count — it returns the
- *  actual live end of the chain regardless of whether it has messages.
- *  Used by useSession boot() to resolve the stored lastSessionId before
- *  checking whether its tip is a reusable 0-msg stub. */
-export const resolveChainTip = (sid: string): string =>
-  tip(walkUp(sid))
+/** Resolve any id in a compression chain to the live tip. Walks up to
+ *  the chain root via CONT links, then forward via `tip()`. Does NOT
+ *  filter by message_count — callers check that. */
+export const chainTip = (sid: string): string => tip(walkUp(sid))
 
-/** Walk up a compression chain to the root (parent_session_id IS NULL).
- * Returns the id passed in if it is already a root. */
+/** Walk up continuation links to the chain root. Stops at any non-CONT
+ *  link (subagent/branch parents are NOT crossed — see :146). */
 function walkUp(sid: string): string {
+  const step = q(
+    `SELECT p.id FROM sessions c
+     JOIN sessions p ON p.id = c.parent_session_id
+     WHERE c.id = ? AND ${CONT("c")}`,
+  )
   let cur = sid
   for (let i = 0; i < 100; i++) {
-    const parentStmt = q(`SELECT parent_session_id FROM sessions WHERE id = ?`)
-    const parent = parentStmt?.get(cur) as { parent_session_id: string | null } | undefined
-    if (!parent || parent.parent_session_id === null) return cur
-    cur = parent.parent_session_id
+    const prev = step?.get(cur) as { id: string } | undefined
+    if (!prev) return cur
+    cur = prev.id
   }
-  return cur // cap hit — return what we have
+  return cur
 }
 
 // ─── Readers ─────────────────────────────────────────────────────────
