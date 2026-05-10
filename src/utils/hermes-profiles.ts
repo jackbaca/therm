@@ -20,7 +20,36 @@ import { readdir } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join, basename, dirname } from "node:path"
 import { Database } from "bun:sqlite"
+import { parse as parseYaml } from "yaml"
 import type { Source } from "./hermes-home"
+
+// Mirrors upstream `hermes_cli/profile_distribution.py` :: EnvRequirement.
+// Describes a single env var a distribution expects to be set.
+export type EnvRequirement = {
+  name: string
+  description: string
+  required: boolean
+  default: string | null
+}
+
+// Mirrors upstream `hermes_cli/profile_distribution.py` :: DistributionManifest.
+// Contents of `<profile>/distribution.yaml` — present only for profiles
+// installed via `hermes profile install`, absent for plain user profiles.
+export type DistributionManifest = {
+  name: string
+  version: string
+  description: string
+  hermes_requires: string
+  author: string
+  license: string
+  env_requires: EnvRequirement[]
+  distribution_owned: string[]
+  /** Upstream git URL / dir this distribution was pulled from. */
+  source: string
+  /** ISO-8601 UTC timestamp written on install / update. Empty for
+   *  manifests that ship in an upstream repo. */
+  installed_at: string
+}
 
 export type ProfileInfo = {
   name: string
@@ -35,11 +64,13 @@ export type ProfileInfo = {
   skill_count: number
   has_alias: boolean
   soul_preview: string
+  distribution: DistributionManifest | null
   sources: {
     dir: Source
     config: Source
     soul: Source
     env: Source
+    distribution: Source
   }
 }
 
@@ -122,6 +153,51 @@ function soul(dir: string): string {
   } catch { return "" }
 }
 
+// Mirrors upstream `profile_distribution.py::read_manifest`. Returns
+// null when the file is missing or unparseable — distribution presence
+// is optional, it's never an error for a profile not to have one.
+export function readDistributionManifest(dir: string): DistributionManifest | null {
+  const path = join(dir, "distribution.yaml")
+  if (!existsSync(path)) return null
+  const data: unknown = (() => {
+    try { return parseYaml(readFileSync(path, "utf-8")) }
+    catch { return null }
+  })()
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null
+  const d = data as Record<string, unknown>
+  const name = typeof d.name === "string" ? d.name.trim() : ""
+  if (!name) return null
+  const envRaw = Array.isArray(d.env_requires) ? d.env_requires : []
+  const envs = envRaw.flatMap((e): EnvRequirement[] => {
+    if (!e || typeof e !== "object") return []
+    const r = e as Record<string, unknown>
+    const n = typeof r.name === "string" ? r.name.trim() : ""
+    if (!n) return []
+    return [{
+      name: n,
+      description: typeof r.description === "string" ? r.description : "",
+      required: r.required === undefined ? true : Boolean(r.required),
+      default: typeof r.default === "string" ? r.default : null,
+    }]
+  })
+  const ownedRaw = Array.isArray(d.distribution_owned) ? d.distribution_owned : []
+  const owned = ownedRaw
+    .map(p => typeof p === "string" ? p.trim().replace(/\/+$/, "") : "")
+    .filter(p => p.length > 0)
+  return {
+    name,
+    version: typeof d.version === "string" ? d.version : "0.1.0",
+    description: typeof d.description === "string" ? d.description : "",
+    hermes_requires: typeof d.hermes_requires === "string" ? d.hermes_requires : "",
+    author: typeof d.author === "string" ? d.author : "",
+    license: typeof d.license === "string" ? d.license : "",
+    env_requires: envs,
+    distribution_owned: owned,
+    source: typeof d.source === "string" ? d.source : "",
+    installed_at: typeof d.installed_at === "string" ? d.installed_at : "",
+  }
+}
+
 const src = (file: string, label: string): Source =>
   ({ file, relative: file.replace(home() + "/", "~/"), label })
 
@@ -140,11 +216,13 @@ async function info(name: string, dir: string, active: string, sticky: string | 
     skill_count: await countSkills(dir),
     has_alias: name !== "default" && existsSync(alias),
     soul_preview: soul(dir),
+    distribution: readDistributionManifest(dir),
     sources: {
       dir: src(dir, dir.replace(home() + "/", "~/")),
       config: src(join(dir, "config.yaml"), "config.yaml"),
       soul: src(join(dir, "SOUL.md"), "SOUL.md"),
       env: src(join(dir, ".env"), ".env"),
+      distribution: src(join(dir, "distribution.yaml"), "distribution.yaml"),
     },
   }
 }
