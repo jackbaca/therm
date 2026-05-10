@@ -453,6 +453,26 @@ export const Agents = memo((props: Props) => {
     if (ok) props.onSwitchProfile(p.path, p.name)
   }, [dialog, props.onSwitchProfile])
 
+  // `hermes profile update` re-pulls distribution-owned files from the
+  // source in `distribution.yaml`. `--force-config` additionally
+  // overwrites config.yaml. When the active profile is updated, the
+  // gateway stops mid-command; follow with the same rehome path as
+  // Switch so herm re-attaches under the refreshed profile.
+  const pUpdate = useCallback((p: ProfileInfo, force: boolean) => {
+    const cmd = `hermes profile update ${p.name} -y${force ? " --force-config" : ""}`
+    toast.show({ variant: "info", message: `Updating '${p.name}'…` })
+    sh(cmd)
+      .then(() => {
+        toast.show({ variant: "success", message: `Updated '${p.name}'` })
+        if (p.is_active && props.onSwitchProfile) {
+          props.onSwitchProfile(p.path, p.name)
+          return
+        }
+        loadProfiles()
+      })
+      .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
+  }, [sh, toast, loadProfiles, props.onSwitchProfile])
+
   const pEnter = useCallback((i: number) => {
     setPSel(i)
     const p = live.current.profiles[i]
@@ -469,8 +489,9 @@ export const Agents = memo((props: Props) => {
         .then(out => toast.show({ variant: "success", message: trunc(out.trim() || `Exported '${pp.name}'`, 80) }))
         .catch((e: Error) => toast.show({ variant: "error", message: e.message })),
       remove: () => pDelete(i),
+      update: (pp, force) => pUpdate(pp, force),
     })
-  }, [sh, dialog, toast, loadProfiles, pDelete, pSwitch, props.onSwitchProfile])
+  }, [sh, dialog, toast, loadProfiles, pDelete, pSwitch, pUpdate, props.onSwitchProfile])
 
   const dKill = useCallback(async (i: number) => {
     const r = live.current.active[i]
