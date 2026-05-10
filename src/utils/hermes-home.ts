@@ -106,6 +106,9 @@ export interface HermesConfig {
     stale_after_days: number;
     archive_after_days: number;
   };
+  approvals: {
+    destructive_slash_confirm: boolean;
+  };
   gateway: {
     platforms: {
       api_server?: {
@@ -496,6 +499,9 @@ export async function readConfig(): Promise<HermesConfig | null> {
         interval_hours: raw?.curator?.interval_hours ?? 168,
         stale_after_days: raw?.curator?.stale_after_days ?? 30,
         archive_after_days: raw?.curator?.archive_after_days ?? 90,
+      },
+      approvals: {
+        destructive_slash_confirm: raw?.approvals?.destructive_slash_confirm ?? true,
       },
       gateway: {
         platforms: {

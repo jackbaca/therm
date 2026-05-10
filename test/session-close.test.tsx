@@ -20,7 +20,7 @@ describe("session.close", () => {
     // Boot path created (or resumed) → sid is test-sid.
     expect(t.gw.last("session.close")).toBeUndefined()
 
-    await act(async () => { await t.keys.typeText("/new") })
+    await act(async () => { await t.keys.typeText("/new now") })
     act(() => t.keys.pressEnter())
     await until(t, () => t.gw.last("session.close") !== undefined)
 

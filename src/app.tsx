@@ -65,6 +65,7 @@ import { quit } from "./app/exit"
 import { TABS, TAB_MAX, CHAT_TAB, TAB_SLASH } from "./app/tabs"
 import { activeProfileName } from "./utils/hermes-profiles"
 import { rehome } from "./home/rehome"
+import { useHome, home } from "./home"
 import { makeGoalHook } from "./app/goalHook"
 import type { Launch } from "./app/launch"
 
@@ -432,6 +433,46 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
   }, [gw, toast])
 
+  // ── Destructive slash gate ────────────────────────────────────────
+  // `/clear`, `/new`, `/undo` discard conversation state. Mirrors
+  // upstream's `approvals.destructive_slash_confirm` config gate
+  // (b9c001116) — upstream's gateway-side check never fires for herm
+  // because these commands short-circuit in `slash` below (local
+  // intercept, never reaches gateway). `HERMES_TUI_NO_CONFIRM` is the
+  // kill switch. Arg `now|once|approve|yes|always` skips the dialog;
+  // `always` also flips the config key off, same shape as /reload-mcp.
+  const cfg = useHome("config")
+  const destructive = useCallback((
+    arg: string,
+    opts: { title: string; body: string; yes: string },
+    action: () => void,
+  ) => {
+    const a = arg.trim().toLowerCase()
+    const skip = a === "now" || a === "once" || a === "approve" || a === "yes" || a === "always"
+    const gate = cfg?.approvals?.destructive_slash_confirm ?? true
+    const bypass = !gate || process.env.HERMES_TUI_NO_CONFIRM === "1"
+    const persist = a === "always"
+    const fire = () => {
+      if (persist) {
+        void import("./config/lane").then(({ writeConfig }) =>
+          writeConfig(gw, [{ key: "approvals.destructive_slash_confirm", to: false }])
+            .then(r => {
+              if (r.failed.length) {
+                toast.show({ variant: "warning", message: `couldn't persist: ${r.failed[0].err}` })
+                return
+              }
+              home.invalidate("config")
+              toast.show({ variant: "success", message: `${opts.yes} · future runs silent` })
+            })
+            .catch((e: Error) => toast.show({ variant: "error", message: e.message })))
+      }
+      action()
+    }
+    if (skip || bypass) return fire()
+    void openConfirm(dialog, { title: opts.title, body: opts.body, yes: opts.yes, danger: true })
+      .then(ok => { if (ok) fire() })
+  }, [cfg, dialog, gw, toast])
+
   // ── Slash dispatch ────────────────────────────────────────────────
   // `slash` and `send` reference each other (skill/alias dispatch needs
   // to submit a turn; typed `/cmd` in send() resolves via slash). The
@@ -441,8 +482,16 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const slash = useCallback((c: SlashCommand, arg = "") => {
     if (c.target === "local") {
       switch (c.name) {
-        case "clear": dispatch({ kind: "reset" }); return
-        case "new": newSession(); return
+        case "clear":
+          destructive(arg,
+            { title: "Clear session?", body: "Discards the in-memory transcript. Your session on disk is unchanged; reload to restore.", yes: "clear" },
+            () => dispatch({ kind: "reset" }))
+          return
+        case "new":
+          destructive(arg,
+            { title: "Start a new session?", body: "Ends the current session and starts a fresh one. The existing session remains saved and resumable.", yes: "new session" },
+            () => { void newSession() })
+          return
         case "theme": openThemePicker(dialog, themeCtx); return
         case "help": dialog.replace(<HelpDialog />); return
         case "keys": openKeys(dialog); return
@@ -496,10 +545,14 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
           return
         case "compress": void runCompress(); return
         case "undo":
-          session.undo().then(() =>
-            gw.request<{ messages: TranscriptMessage[] }>("session.history")
-              .then(r => dispatch({ kind: "load", messages: transcriptToMessages(r.messages ?? []) }))
-              .catch(() => {}))
+          destructive(arg,
+            { title: "Undo last turn?", body: "Pops the last user + assistant pair from the transcript. Cannot be undone.", yes: "undo" },
+            () => {
+              session.undo().then(() =>
+                gw.request<{ messages: TranscriptMessage[] }>("session.history")
+                  .then(r => dispatch({ kind: "load", messages: transcriptToMessages(r.messages ?? []) }))
+                  .catch(() => {}))
+            })
           return
         case "retry": {
           const last = [...turn.messages].reverse().find(m => m.role === "user")
@@ -675,7 +728,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       })
   }, [ready, turn.streaming, turn.messages, dialog, themeCtx, newSession, gw, pickEikon, editTitle,
       applyTitle, toast, info, sid, title, switchSession, session, runCompress, rewind, renderer,
-      attachClipboard, goToTab, queue.length, goalHook, skin])
+      attachClipboard, goToTab, queue.length, goalHook, skin, destructive])
 
   // ── Send ──────────────────────────────────────────────────────────
   const send = useCallback(async (raw: string) => {
@@ -906,14 +959,18 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     { title: "Profile", value: "profile", description: "Active profile details", category: "Info",
       onSelect: () => openProfile(dialog) },
     { title: "New Session", value: "new-session", action: "session.new", category: "Session",
-      onSelect: () => newSession() },
+      onSelect: () => destructive("",
+        { title: "Start a new session?", body: "Ends the current session and starts a fresh one. The existing session remains saved and resumable.", yes: "new session" },
+        () => { void newSession() }) },
     { title: "Compress Session", value: "compress", action: "session.compress", category: "Session",
       onSelect: () => runCompress() },
     { title: "Undo Last Turn", value: "undo", description: "Pop last user+assistant pair", category: "Session",
-      onSelect: () => session.undo() },
+      onSelect: () => destructive("",
+        { title: "Undo last turn?", body: "Pops the last user + assistant pair from the transcript. Cannot be undone.", yes: "undo" },
+        () => { session.undo() }) },
     { title: "Branch Session", value: "branch", description: "Fork the current conversation", category: "Session",
       onSelect: () => session.branch() },
-  ]), [cmd, dialog, themeCtx, session, gw, toast, newSession, pickEikon, info, sid, runCompress])
+  ]), [cmd, dialog, themeCtx, session, gw, toast, newSession, pickEikon, info, sid, runCompress, destructive])
 
   const doInterrupt = useCallback(() => {
     interrupted.current = true
