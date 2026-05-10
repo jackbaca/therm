@@ -1,4 +1,4 @@
-import { useRef, useEffect, type ReactNode } from "react"
+import { useRef, useEffect, useState, type ReactNode } from "react"
 import type { RGBA } from "@opentui/core"
 import { useTheme } from "../theme"
 import * as prefs from "../utils/preferences"
@@ -78,9 +78,17 @@ export const Marquee = (p: {
   const node = useRef<import("@opentui/core").TextRenderable | null>(null)
 
   const animate = prefs.get("animations") !== false && p.active
+  // `wraps` gates the `text + GAP + text` duplication. Without it, a
+  // title shorter than the column renders twice (e.g. "fix tests   fix
+  // tests") because overflow="hidden" can't clip what already fits.
+  // Flipped from the layout effect once per row/text change — O(1),
+  // not per-tick, so scrollX stays the hot path.
+  const [wraps, setWraps] = useState(false)
   useEffect(() => {
     const tn = node.current
     if (!tn) return
+    const w = box.current?.width ?? 0
+    setWraps(text.length > w)
     if (!animate) { tn.scrollX = 0; return }
     // Hold static briefly before scrolling so the cell is readable at
     // rest on select; also keeps frame-snapshot tests deterministic.
@@ -91,8 +99,8 @@ export const Marquee = (p: {
     const period = text.length + GAP.length
     const hold = setTimeout(() => {
       id = setInterval(() => {
-        const w = box.current?.width ?? 0
-        if (text.length <= w) { tn.scrollX = 0; return }
+        const cur = box.current?.width ?? 0
+        if (text.length <= cur) { tn.scrollX = 0; return }
         tn.scrollX = (tn.scrollX + 1) % period
       }, p.speed ?? 180)
     }, p.hold ?? 600)
@@ -102,15 +110,17 @@ export const Marquee = (p: {
     }
   }, [animate, text, p.speed, p.hold])
 
-  // `text + GAP + text` renders once; scrollX wraps at period so the
-  // visible window always has GAP-then-head following the tail.
+  // When `wraps`, render `text + GAP + text` so scrollX can roll the
+  // tail→head seam through the viewport. Otherwise plain `text` — the
+  // second copy would be visible inside the fitting column.
+  const body = wraps ? text + GAP + text : text
   return (
     <box ref={box}
          width={p.w} flexGrow={p.grow ? 1 : 0} flexShrink={p.grow ? 1 : 0}
          minWidth={p.grow ? (p.min ?? 12) : p.w} height={1} overflow="hidden">
       <text ref={node} wrapMode="none">{p.bold
-        ? <span fg={fg}><strong>{text + GAP + text}</strong></span>
-        : <span fg={fg}>{text + GAP + text}</span>}</text>
+        ? <span fg={fg}><strong>{body}</strong></span>
+        : <span fg={fg}>{body}</span>}</text>
     </box>
   )
 }
