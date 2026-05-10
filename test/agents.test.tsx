@@ -7,6 +7,7 @@ import { mountNode, until, MockGateway } from "./harness"
 import { Agents } from "../src/tabs/Agents"
 import {
   listProfiles, validateName, activeProfileName, profileNameFrom, stickyDefault, profileStats,
+  readDistributionManifest,
 } from "../src/utils/hermes-profiles"
 import type { DelegationRecord, DelegationStatus } from "../src/utils/gateway-types"
 
@@ -124,6 +125,73 @@ describe("hermes-profiles", () => {
     // Array-shaped jobs.json also supported.
     writeFileSync(join(ROOT, "cron", "jobs.json"), JSON.stringify([{ id: "j1" }]))
     expect((await profileStats(ROOT)).crons).toBe(1)
+  })
+
+  test("readDistributionManifest: absent → null; populated → normalized manifest", async () => {
+    const dir = join(ROOT, "profiles", "coder")
+
+    // No distribution.yaml → null.
+    expect(readDistributionManifest(dir)).toBeNull()
+
+    // Full manifest → normalized shape with defaults applied.
+    writeFileSync(join(dir, "distribution.yaml"), [
+      "name: acme-coder",
+      "version: 1.2.3",
+      "description: Coding profile",
+      "hermes_requires: \">=0.5\"",
+      "author: Acme",
+      "license: MIT",
+      "source: https://github.com/acme/coder",
+      "installed_at: 2026-05-10T12:00:00Z",
+      "env_requires:",
+      "  - name: ACME_KEY",
+      "    description: API key",
+      "  - name: ACME_OPTIONAL",
+      "    required: false",
+      "    default: fallback",
+      "distribution_owned:",
+      "  - skills/",
+      "  - SOUL.md",
+      "",
+    ].join("\n"))
+    const m = readDistributionManifest(dir)
+    expect(m).not.toBeNull()
+    expect(m!.name).toBe("acme-coder")
+    expect(m!.version).toBe("1.2.3")
+    expect(m!.hermes_requires).toBe(">=0.5")
+    expect(m!.license).toBe("MIT")
+    expect(m!.source).toBe("https://github.com/acme/coder")
+    expect(m!.installed_at).toBe("2026-05-10T12:00:00Z")
+    expect(m!.env_requires).toEqual([
+      { name: "ACME_KEY", description: "API key", required: true, default: null },
+      { name: "ACME_OPTIONAL", description: "", required: false, default: "fallback" },
+    ])
+    expect(m!.distribution_owned).toEqual(["skills", "SOUL.md"])
+
+    // Missing name → rejected (null).
+    writeFileSync(join(dir, "distribution.yaml"), "version: 1.0.0\n")
+    expect(readDistributionManifest(dir)).toBeNull()
+
+    // Parse-fail (invalid yaml) → null, does not throw.
+    writeFileSync(join(dir, "distribution.yaml"), "name: [unterminated\n")
+    expect(() => readDistributionManifest(dir)).not.toThrow()
+    expect(readDistributionManifest(dir)).toBeNull()
+  })
+
+  test("listProfiles surfaces distribution on profiles that have a manifest", async () => {
+    // default has no manifest; coder does.
+    writeFileSync(join(ROOT, "profiles", "coder", "distribution.yaml"),
+      "name: acme-coder\nversion: 0.9.0\n")
+    const ps = await listProfiles()
+    const def = ps.find(p => p.name === "default")!
+    const coder = ps.find(p => p.name === "coder")!
+    expect(def.distribution).toBeNull()
+    expect(coder.distribution?.name).toBe("acme-coder")
+    expect(coder.distribution?.version).toBe("0.9.0")
+    // Source provenance for FileLink.
+    expect(coder.sources.distribution.file)
+      .toBe(join(ROOT, "profiles", "coder", "distribution.yaml"))
+    expect(coder.sources.distribution.label).toBe("distribution.yaml")
   })
 })
 
