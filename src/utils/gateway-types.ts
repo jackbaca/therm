@@ -220,6 +220,7 @@ export type SessionUsageResponse = {
   total?: number
   cache_read?: number
   cache_write?: number
+  reasoning?: number
   cost_usd?: number
   cost_status?: "estimated" | "exact"
   context_used?: number
