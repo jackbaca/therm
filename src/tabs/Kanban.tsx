@@ -768,6 +768,51 @@ export const Kanban = memo((props: { focused?: boolean }) => {
     }).then(ok => { if (ok) void sh(`archive ${q(t.id)}`, `Archived ${t.id}`) }),
   [dialog, sh])
 
+  // ── specify (triage → todo via auxiliary LLM) ─────────────────────
+  // Stdout is NDJSON, one line per task. Single-task form emits one
+  // row; --all emits N. Both use the same parser: count ok rows, pick
+  // the first to show in the success toast.
+  type SpecifyRow = { task_id: string; ok: boolean; reason?: string; new_title?: string }
+  const parseSpecify = (out: string): SpecifyRow[] =>
+    out.split("\n").flatMap(l => l.trim() ? [JSON.parse(l) as SpecifyRow] : [])
+
+  const specify = useCallback((t: Task) => {
+    if (t.status !== "triage")
+      return void toast.show({ variant: "info", message: `${t.id} is ${t.status}, not triage` })
+    return sh(`specify ${q(t.id)} --json`).then(out => {
+      if (out == null) return
+      const rows = parseSpecify(out)
+      const r = rows[0]
+      if (!r) return
+      if (!r.ok)
+        return void toast.show({ variant: "error", message: `specify ${r.task_id}: ${trunc(r.reason ?? "failed", 100)}` })
+      toast.show({ variant: "success",
+        message: r.new_title ? `Specified ${r.task_id} → ${trunc(r.new_title, 60)}` : `Specified ${r.task_id} → todo` })
+    })
+  }, [sh, toast])
+
+  const specifyAll = useCallback(() => {
+    const triage = live.current.sec?.cols
+      .find(c => c.status === "triage")?.tasks.length ?? 0
+    if (triage === 0)
+      return void toast.show({ variant: "info", message: `No 'triage' tasks on ${live.current.at}` })
+    return openConfirm(dialog, {
+      title: `Specify all · ${live.current.at}`,
+      body: `${triage} task${triage === 1 ? "" : "s"} in 'triage'. Auxiliary LLM expands each body and promotes to todo.`,
+      yes: "specify",
+    }).then(go => {
+      if (!go) return
+      return sh(`specify --all --json`).then(out => {
+        if (out == null) return
+        const rows = parseSpecify(out)
+        const ok = rows.filter(r => r.ok).length
+        const bad = rows.length - ok
+        toast.show({ variant: ok === 0 && bad > 0 ? "error" : "success",
+          message: `Specified ${ok}/${rows.length}${bad ? ` (${bad} failed)` : ""}` })
+      })
+    })
+  }, [dialog, sh, toast])
+
   const dispatch = useCallback(() => {
     const ready = live.current.sec?.cols
       .find(c => c.status === "ready")?.tasks.length ?? 0
@@ -930,12 +975,14 @@ export const Kanban = memo((props: { focused?: boolean }) => {
     { key: "N", title: "New child",     when: t => !!t,              run: t => void create(t) },
     { key: "a", title: "Assign",        when: t => !!t,              run: t => void assign(t!) },
     { key: "c", title: "Comment",       when: t => !!t,              run: t => void comment(t!) },
+    { key: "s", title: "Specify",       when: t => t?.status === "triage", run: t => void specify(t!) },
+    { key: "S", title: "Specify all",   when: () => true,            run: () => void specifyAll() },
     { key: "u", title: "Unblock",       when: t => t?.status === "blocked", run: t => void unblock(t!) },
     { key: "d", title: "Archive",       when: t => !!t,              run: t => void archive(t!) },
     { key: "l", title: "Worker log",    when: t => !!t,              run: t => showLog(t!) },
     { key: "b", title: "New board",     when: () => true,            run: () => void newBoard() },
     { key: "D", title: "Dispatch",      when: () => true,            run: () => void dispatch() },
-  ], [create, assign, comment, unblock, archive, showLog, newBoard, dispatch])
+  ], [create, assign, comment, specify, specifyAll, unblock, archive, showLog, newBoard, dispatch])
 
   const isOpen = open.has(at)
   const paneOpen = pane?.kind === "detail"
