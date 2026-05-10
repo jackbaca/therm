@@ -260,6 +260,41 @@ describe("Agents tab", () => {
     t.destroy()
   })
 
+  test("distribution badge in row + Distribution block in detail", async () => {
+    writeFileSync(join(ROOT, "profiles", "coder", "distribution.yaml"), [
+      "name: acme-coder",
+      "version: 1.2.3",
+      "hermes_requires: '>=2.0'",
+      "source: https://github.com/acme/coder",
+      "installed_at: '2025-01-15T10:30:00Z'",
+      "env_requires:",
+      "  - name: ACME_KEY",
+      "    required: true",
+      "  - name: ACME_OPT",
+      "    required: false",
+      "",
+    ].join("\n"))
+    const t = await mountNode(<Agents focused sessionId="test-sid" />, { gw: new MockGateway(), width: 200 })
+    await until(t, () => t.frame().includes("Profiles (2)"))
+    const f = t.frame()
+    // Badge on coder row, not on default.
+    const rowCoder = f.split("\n").find(l => /▸?\s+coder/.test(l))!
+    const rowDefault = f.split("\n").find(l => /▸?\s+default\s/.test(l))!
+    expect(rowCoder).toContain("⬢")
+    expect(rowDefault).not.toContain("⬢")
+    // Arrow down to select coder so its detail pane renders.
+    await act(async () => { await t.keys.pressArrow("down") })
+    await until(t, () => t.frame().includes("Distribution"))
+    const g = t.frame()
+    expect(g).toContain("Distribution")
+    expect(g).toContain("acme-coder")
+    expect(g).toContain("v1.2.3")
+    expect(g).toContain("Hermes >=2.0")
+    expect(g).toContain("https://github.com/acme/coder")
+    expect(g).toContain("1 required, 1 optional")
+    t.destroy()
+  })
+
   test("↓ selects, detail follows; d on active/default is no-op; d on other confirms → shell.exec; running-gateway warn", async () => {
     writeFileSync(join(ROOT, "profiles", "coder", "gateway.pid"), String(process.pid))
     const gw = new MockGateway({

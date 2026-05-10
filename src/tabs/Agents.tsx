@@ -16,11 +16,12 @@ import { TabShell } from "../ui/shell"
 import { Spinner } from "../ui/spinner"
 import { KV, KVBlock } from "../ui/kv"
 import { KVLink } from "../components/ui/FileLink"
-import { dur, trunc, fmt } from "../ui/fmt"
+import { dur, trunc, fmt, ago } from "../ui/fmt"
 import {
   listProfiles, stickyDefault, profileStats,
-  type ProfileInfo, type ProfileStats,
+  type ProfileInfo, type ProfileStats, type DistributionManifest,
 } from "../utils/hermes-profiles"
+import type { Source } from "../utils/hermes-home"
 import type { DelegationStatus, DelegationRecord } from "../utils/gateway-types"
 import { tree as buildTree, totals as treeTotals, summary, spark, heat, peak, type Agg } from "../utils/subagent-tree"
 
@@ -62,6 +63,7 @@ const ProfileRow = memo((props: {
             {p.is_active ? <strong>{p.name}</strong> : p.name}
           </span>
           {p.is_sticky ? <span fg={theme.warning}>{" ★"}</span> : null}
+          {p.distribution ? <span fg={theme.info}>{" ⬢"}</span> : null}
           {p.gateway_running ? <span fg={theme.success}>{" ●"}</span> : null}
         </text>
       </box>
@@ -76,6 +78,39 @@ const ProfileRow = memo((props: {
         </box>
       )}
     </box>
+  )
+})
+
+// Distribution panel for ProfileDetail. Rendered only when the profile
+// has a distribution.yaml (installed via `hermes profile install`).
+// `source` in the manifest is the upstream git URL / path it was pulled
+// from — the clickable link targets that, not the local yaml, so users
+// can visit the distribution's origin in one click. Falls back to the
+// local yaml when the manifest has no recorded source.
+const DistBlock = memo((props: { d: DistributionManifest; yaml: Source }) => {
+  const theme = useTheme().theme
+  const d = props.d
+  const req = d.env_requires.filter(e => e.required).length
+  const opt = d.env_requires.length - req
+  const link: Source = d.source
+    ? { file: d.source, relative: d.source, label: d.source }
+    : props.yaml
+  const when = d.installed_at ? Date.parse(d.installed_at) : NaN
+  return (
+    <>
+      <box height={1} />
+      <box height={1}><text fg={theme.info}><strong>Distribution</strong></text></box>
+      <KVBlock rows={[
+        ["Name", d.name],
+        ["Version", `v${d.version}`],
+        ["Requires", d.hermes_requires ? `Hermes ${d.hermes_requires}` : undefined],
+      ]} />
+      <KVLink label="Source" source={link} text={d.source || props.yaml.label} />
+      <KVBlock rows={[
+        ["Installed at", Number.isFinite(when) ? ago(when / 1000) : undefined],
+        ["Env vars", d.env_requires.length ? `${req} required, ${opt} optional` : undefined],
+      ]} />
+    </>
   )
 })
 
@@ -107,6 +142,7 @@ const ProfileDetail = memo((props: { p: ProfileInfo; stats?: ProfileStats }) => 
         <KV label="Gateway" value={p.gateway_running ? "running" : "stopped"}
             fg={p.gateway_running ? theme.success : theme.textMuted} />
         {p.has_alias ? <KV label="Alias" value={`${p.name} (shell)`} /> : null}
+        {p.distribution ? <DistBlock d={p.distribution} yaml={p.sources.distribution} /> : null}
         <box height={1} />
         <KVLink label="Config" source={p.sources.config} />
         <KVLink label="Soul" source={p.sources.soul} />
