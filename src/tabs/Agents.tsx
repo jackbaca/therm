@@ -12,6 +12,7 @@ import { openConfirm } from "../dialogs/confirm"
 import { openSpawnHistory } from "../dialogs/spawn-history"
 import { openProfileMenu } from "../dialogs/profile"
 import { openCreateProfile } from "../dialogs/new-profile"
+import { openInstallDistribution } from "../dialogs/install-distribution"
 import { TabShell } from "../ui/shell"
 import { Spinner } from "../ui/spinner"
 import { KV, KVBlock } from "../ui/kv"
@@ -473,6 +474,40 @@ export const Agents = memo((props: Props) => {
       .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
   }, [sh, dialog, toast, loadProfiles])
 
+  // Install a distribution. The dialog runs its own preview-clone and
+  // shows the real manifest before we commit; the install shellout
+  // passes the ORIGINAL source (URL/path user entered) so the on-disk
+  // distribution.yaml's `source:` records the remote for future updates.
+  const install = useCallback(() => {
+    openInstallDistribution(dialog, gw)
+      .then(r => {
+        if (!r) return
+        const shq = (s: string) => `'${s.replace(/'/g, "'\\''")}'`
+        const flags = [
+          r.name ? `--name ${shq(r.name)}` : "",
+          r.alias ? "--alias" : "",
+        ].filter(Boolean).join(" ")
+        toast.show({ variant: "info", message: `Installing '${r.manifest.name}'…` })
+        return sh(`hermes profile install ${shq(r.source)} -y ${flags}`.trim())
+          .then(() => {
+            const installed = r.name || r.manifest.name
+            toast.show({ variant: "success", message: `Installed '${installed}'` })
+            loadProfiles()
+            const reqs = r.manifest.env_requires.filter(e => e.required).map(e => e.name)
+            if (reqs.length > 0) {
+              toast.show({
+                variant: "warning",
+                title: "Env vars needed",
+                message: `${reqs.join(", ")} — add to the profile's .env before using it`,
+                duration: 6000,
+              })
+            }
+          })
+      })
+      .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
+  }, [gw, sh, dialog, toast, loadProfiles])
+
+
   const selected = profiles[pSel]
   const statGen = useRef(0)
 
@@ -500,6 +535,7 @@ export const Agents = memo((props: Props) => {
     if (pane === "profiles") {
       if (key.name === "escape" && !pWide && pView === "detail") return setPView("list")
       if (key.name === "s") return void pSwitch(pSel)
+      if (keys.match("agents.install", key)) return install()
       handleListKey(keys, key, {
         count: profiles.length, setSel: setPSel, ...pFollow.opts,
         onNew: create,
@@ -544,11 +580,16 @@ export const Agents = memo((props: Props) => {
   useEffect(() => cmd.register([
     { title: deleg?.paused ? "Resume Delegation" : "Pause Delegation", value: "deleg.pause",
       category: "Agents", onSelect: togglePause },
-  ]), [cmd, togglePause, deleg?.paused])
+    // No action: — 'i' is tab-local to Agents (handled in useKeyboard below)
+    // so firing install from the palette doesn't conflict with other tabs
+    // that may want 'i' for their own verbs.
+    { title: "Install Distribution…", value: "profile.install",
+      category: "Agents", description: "from git URL or local directory", onSelect: install },
+  ]), [cmd, togglePause, deleg?.paused, install])
 
   const sw = props.onSwitchProfile ? "s switch  " : ""
   const pHint = pWide
-    ? `↑↓ nav  ${keys.print("list.activate")} actions  ${sw}${keys.print("list.new")} new  ${keys.print("list.delete")} delete  ${keys.print("list.refresh")} refresh`
+    ? `↑↓ nav  ${keys.print("list.activate")} actions  ${sw}${keys.print("list.new")} new  ${keys.print("agents.install")} install  ${keys.print("list.delete")} delete  ${keys.print("list.refresh")} refresh`
     : pView === "list" ? `↑↓ nav  ${keys.print("list.activate")} detail  ${sw}${keys.print("list.new")} new  ${keys.print("list.delete")} delete`
     : `${keys.print("list.activate")} actions  ${sw}Esc back  ${keys.print("list.delete")} delete`
 
