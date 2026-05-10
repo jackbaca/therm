@@ -395,6 +395,14 @@ const SidePane = memo((p: { pane: Pane; on: boolean; sel: number }) => {
                 </box>
               </box>
             : null}
+          {d.max_retries !== null
+            ? <box height={1} flexDirection="row" paddingLeft={1}>
+                <box width={10} flexShrink={0}><text fg={theme.textMuted}>Retries</text></box>
+                <box flexGrow={1} minWidth={0} overflow="hidden">
+                  <text fg={theme.textMuted}>{String(d.max_retries)}</text>
+                </box>
+              </box>
+            : null}
           {d.pid
             ? <box height={1} flexDirection="row" paddingLeft={1}>
                 <box width={10} flexShrink={0}><text fg={theme.textMuted}>PID</text></box>

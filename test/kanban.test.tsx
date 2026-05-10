@@ -921,3 +921,59 @@ describe("Kanban preferences round-trip", () => {
     prefsMod.set("kanban", undefined as never)
   })
 })
+
+// ── max_retries parity (upstream ac51c4c1a) ──────────────────────────
+// New nullable `tasks.max_retries INTEGER` column. Herm surfaces it in
+// the detail pane as "Retries N" only when non-null, same shape as
+// Workspace/Skills. The label is shortened to fit the detail pane's
+// 10-col label track (upstream CLI uses "max-retries", 11 chars, which
+// overflows). Schema-tolerance (selectCol → NULL AS max_retries) is
+// covered implicitly by every other test in this file: their beforeAll
+// schema has no such column, and they all still pass.
+describe("max_retries parity", () => {
+  beforeAll(() => {
+    mkdirSync(hermesPath("kanban/boards/mxr"), { recursive: true })
+    const db = new Database(hermesPath("kanban/boards/mxr/kanban.db"), { create: true })
+    schema(db)
+    db.run("ALTER TABLE tasks ADD COLUMN max_retries INTEGER")
+    const ins = db.prepare(
+      `INSERT INTO tasks (id, title, status, priority, created_at, max_retries)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    ins.run("mxr1", "retries explicit", "ready", 3, now, 5)
+    ins.run("mxr2", "retries default", "ready", 2, now - 1, null)
+    db.close()
+    resetKanban()
+  })
+
+  test("boardOf() surfaces max_retries on tasks that set it; null otherwise", () => {
+    const rows = boardOf("mxr").get("ready") ?? []
+    const byId = new Map(rows.map(r => [r.id, r]))
+    expect(byId.get("mxr1")?.max_retries).toBe(5)
+    expect(byId.get("mxr2")?.max_retries).toBeNull()
+  })
+
+  test("detail pane renders 'Max retries 5' when non-null, omits row otherwise", async () => {
+    const t = await mountNode(<Kanban focused />, { width: 180, height: 48 })
+    try {
+      await until(t, () => /mxr/.test(t.frame()))
+      // Tab walks heads (default → atm10 → mxr); ↓↓ head → filter → grid;
+      // →→ triage → todo → ready. Row 0 is mxr1 (priority 3).
+      act(() => t.keys.pressTab()); await t.settle()
+      act(() => t.keys.pressTab()); await t.settle()
+      act(() => t.keys.pressArrow("down")); await t.settle()
+      act(() => t.keys.pressArrow("down")); await t.settle()
+      act(() => t.keys.pressArrow("right")); await t.settle()
+      act(() => t.keys.pressArrow("right")); await t.settle()
+      act(() => t.keys.pressEnter())
+      await until(t, () => /Title\s+retries explicit/.test(t.frame()))
+      expect(t.frame()).toMatch(/Retries\s+5/)
+      // ↓ to mxr2 — pane rehydrates, row drops.
+      act(() => t.keys.pressArrow("down")); await t.settle()
+      await until(t, () => /Title\s+retries default/.test(t.frame()))
+      expect(t.frame()).not.toMatch(/Retries\s+\d/)
+    } finally {
+      t.destroy()
+    }
+  })
+})
