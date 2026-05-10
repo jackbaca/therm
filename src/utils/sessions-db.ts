@@ -246,10 +246,46 @@ export const byId = (id: string): SessionRow | null => {
   return r ? toRow(r) : null
 }
 
-/** Newest root TUI session that actually has messages. Target of `-c`
- *  and source of the splash continue-prompt title. */
-export const lastReal = (): SessionRow | undefined =>
-  roots().find(r => r.message_count > 0 && r.sessionSource === "tui")
+/** Newest real TUI/CLI session that actually has messages. Target of
+ *  `-c` and source of the splash continue-prompt title.
+ *
+ *  Newest row with messages (root or continuation — subagents/branches
+ *  excluded), then walk the compression chain to its live tip so a
+ *  compressed root resolves to the continuation holding the messages. */
+export const lastReal = (): SessionRow | undefined => {
+  const hit = q(`
+    SELECT s.id FROM sessions s
+    LEFT JOIN sessions p ON p.id = s.parent_session_id
+    WHERE s.source IN ('tui', 'cli') AND s.message_count > 0
+      AND (s.parent_session_id IS NULL OR ${CONT("s")})
+    ORDER BY s.started_at DESC LIMIT 1
+  `)?.get() as { id: string } | undefined
+  if (!hit) return undefined
+  const row = byId(chainTip(hit.id))
+  return row && row.message_count > 0 ? row : undefined
+}
+
+/** Resolve any id in a compression chain to the live tip. Walks up to
+ *  the chain root via CONT links, then forward via `tip()`. Does NOT
+ *  filter by message_count — callers check that. */
+export const chainTip = (sid: string): string => tip(walkUp(sid))
+
+/** Walk up continuation links to the chain root. Stops at any non-CONT
+ *  link (subagent/branch parents are NOT crossed — see :146). */
+function walkUp(sid: string): string {
+  const step = q(
+    `SELECT p.id FROM sessions c
+     JOIN sessions p ON p.id = c.parent_session_id
+     WHERE c.id = ? AND ${CONT("c")}`,
+  )
+  let cur = sid
+  for (let i = 0; i < 100; i++) {
+    const prev = step?.get(cur) as { id: string } | undefined
+    if (!prev) return cur
+    cur = prev.id
+  }
+  return cur
+}
 
 // ─── Readers ─────────────────────────────────────────────────────────
 

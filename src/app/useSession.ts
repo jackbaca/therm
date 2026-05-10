@@ -27,6 +27,9 @@ export type CompressResult = {
 
 type Booted = { id: string; messages: Message[]; note?: string }
 
+export const normalize = (sid: string): string =>
+  sid.trim().replace(/\.json$/i, "").replace(/^session_(?=\d{8}_)/, "")
+
 type SessionOps = {
   /** Establish the initial session per launch intent. */
   boot: (launch: Launch) => Promise<Booted>
@@ -42,10 +45,14 @@ export function useSession(): SessionOps {
   const gw = useGateway()
 
   const resume = useCallback(async (sid: string) => {
-    const res = await gw.request<SessionResumeResponse>("session.resume", { session_id: sid })
+    // Normalize at the edge (argv / slash-arg can be `session_*.json`).
+    // No tip-chasing here: Sessions-tab lineage walk and `/resume <id>`
+    // pass exact ids on purpose; boot() resolves tips itself.
+    const target = normalize(sid)
+    const res = await gw.request<SessionResumeResponse>("session.resume", { session_id: target })
     const id = res.session_id
     gw.setSession(id)
-    preferences.set("lastSessionId", res.resumed ?? sid)
+    preferences.set("lastSessionId", res.resumed ?? target)
     const messages = res.messages?.length ? transcriptToMessages(res.messages) : []
     return { id, messages }
   }, [gw])
@@ -63,14 +70,21 @@ export function useSession(): SessionOps {
       const target = launch.sid ?? sdb.lastReal()?.id
       if (!target) return fresh("no prior session to resume — starting fresh")
       try { return await resume(target) }
-      catch { return fresh(`resume ${target} failed — starting fresh`) }
+      catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        return fresh(`resume ${target} failed: ${msg} — starting fresh`)
+      }
     }
 
-    // mode:"new" — reuse our own abandoned empty stub instead of
-    // creating another row every launch.
+    // mode:"new" — bare launch is ALWAYS a fresh session (herm-1jd). The
+    // stored id exists only to reuse our own abandoned empty stub instead
+    // of creating another row every launch. It may point at an ended
+    // compression parent (the stub is its continuation), so chase the
+    // chain tip before checking emptiness.
     const last = preferences.get("lastSessionId")
-    if (last && sdb.byId(last)?.message_count === 0) {
-      try { return await resume(last) } catch { /* fall through */ }
+    const tip = last ? sdb.chainTip(last) : null
+    if (tip && sdb.byId(tip)?.message_count === 0) {
+      try { return await resume(tip) } catch { /* fall through */ }
     }
     return fresh()
   }, [create, resume])
