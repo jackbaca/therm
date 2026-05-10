@@ -43,3 +43,4 @@ issues.jsonl
 *.bak
 *.code-workspace
 AGENTS.local.md
+.worktrees/
