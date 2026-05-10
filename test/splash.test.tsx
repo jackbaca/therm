@@ -136,7 +136,7 @@ describe("splash (herm-tji.2)", () => {
     act(() => t.gw.push({ type: "message.complete", payload: { text: "ok" } }))
     await until(t, () => t.frame().includes("Ready"))
 
-    await act(async () => { await t.keys.typeText("/new") })
+    await act(async () => { await t.keys.typeText("/new now") })
     act(() => t.keys.pressEnter())
     await until(t, () => splashUp(t.frame()))
     expect(t.frame()).not.toContain("H E R M")
