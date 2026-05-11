@@ -30,7 +30,6 @@ logs
 # Finder (MacOS) folder config
 .DS_Store
 
-docs/
 profiles/
 
 # Beads / Dolt files (added by bd init)
