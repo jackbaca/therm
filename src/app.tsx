@@ -104,6 +104,13 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   )
   const setSub = useCallback((tabIdx: number, sub: number) =>
     setSubTabs(prev => prev[tabIdx] === sub ? prev : { ...prev, [tabIdx]: sub }), [])
+  // Pre-bound per-group — inline `(i) => setSub(TAB, i)` in the JSX is a
+  // fresh closure every AppInner render (= every key event, via the
+  // global useKeyboard in useAppKeys), which defeats memo() on the
+  // active group and reconciles its whole subtree per keystroke.
+  const sessSub = useCallback((i: number) => setSub(SESSIONS_TAB, i), [setSub])
+  const autoSub = useCallback((i: number) => setSub(AUTOMATION_TAB, i), [setSub])
+  const cfgSub = useCallback((i: number) => setSub(CONFIG_TAB, i), [setSub])
   const [hideSidebar, setHideSidebar] = useState(false)
   const [usage, setUsage] = useState<Usage | undefined>(undefined)
   const [info, setInfo] = useState<SessionInfo | null>(null)
@@ -125,6 +132,16 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const [eikon, setEikon] = useState<ParsedEikon | undefined>(undefined)
   const [queue, setQueue] = useState<string[]>([])
   const [busy, setBusy] = useState<"queue" | "steer" | "interrupt">("queue")
+  // ── Live refs for memo stability ──────────────────────────────────
+  // The global useKeyboard re-renders AppInner on every key/mouse
+  // event; memo() on Chat/Composer/etc is the only firewall. Callbacks
+  // that land as props on those children must NOT take `turn.*` or
+  // `queue` as deps — `turn.messages` is replaced every 16ms while
+  // streaming, so any dep on it cascades a new callback identity into
+  // the memo'd child and the firewall is decorative. Read through refs
+  // instead (same shape as sidRef/cmdsRef/sendRef below).
+  const turnRef = useRef(turn); turnRef.current = turn
+  const queueRef = useRef(queue); queueRef.current = queue
   // ── Splash ────────────────────────────────────────────────────────
   // Welcome-state chrome over an empty transcript. Composer stays live
   // underneath; first send dismisses. `/splash` re-summons mid-session
@@ -141,6 +158,15 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const splashLast = useMemo(
     () => launch.mode === "new" ? lastReal() : undefined,
     [launch.mode],
+  )
+  // Stable Splash props — inline `{…}` in JSX is a fresh reference per
+  // AppInner render (= per key event) and defeats Splash's memo().
+  const splashInfo = useMemo(() => info ? {
+    agentVersion: info.version, behind: info.update_behind, model: info.model,
+  } : undefined, [info?.version, info?.update_behind, info?.model])
+  const splashLastProp = useMemo(
+    () => splashLast ? { id: splashLast.id, title: splashLast.title } : undefined,
+    [splashLast],
   )
   const news = useMemo(() => readChangelog()?.headline, [])
   const [attachments, setAttachments] = useState<ImageAttachResponse[]>([])
@@ -190,7 +216,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   // of THAT turn; the override clears on the next turn's rising edge.
   // A pending inline prompt also suppresses the cloud — the overlay
   // would occlude the card the user needs to answer.
-  const prompt = pendingPrompt(turn.messages)
+  const prompt = useMemo(() => pendingPrompt(turn.messages), [turn.messages])
   const cloudAuto = turn.streaming && !turn.hasContent && !prompt
   const [force, setForce] = useState<boolean | undefined>(undefined)
   const cloud = !prompt && (force ?? cloudAuto)
@@ -387,30 +413,34 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
 
   // ── Message actions ───────────────────────────────────────────────
   // turnsFrom counts user turns at-or-after m — each session.undo pops
-  // one user+assistant pair server-side.
+  // one user+assistant pair server-side. Reads turnRef (not turn) so
+  // rewind/fork/msgMenu stay identity-stable across streaming deltas;
+  // they gate on turnRef.current.streaming at call time instead.
   const turnsFrom = (m: Message) => {
-    const at = turn.messages.findIndex(x => x.id === m.id)
-    return at < 0 ? 0 : turn.messages.slice(at).filter(x => x.role === "user").length
+    const msgs = turnRef.current.messages
+    const at = msgs.findIndex(x => x.id === m.id)
+    return at < 0 ? 0 : msgs.slice(at).filter(x => x.role === "user").length
   }
 
   const rewind = useCallback(async (m: Message) => {
-    if (turn.streaming) return
+    if (turnRef.current.streaming) return
     const n = turnsFrom(m)
     if (n === 0) return
     const text = m.parts.filter(p => p.type === "text").map(p => p.content).join("")
     for (let i = 0; i < n; i++) await gw.request("session.undo").catch(() => {})
     const r = await gw.request<{ messages: TranscriptMessage[] }>("session.history").catch(() => null)
-    const at = turn.messages.findIndex(x => x.id === m.id)
-    dispatch({ kind: "load", messages: r ? transcriptToMessages(r.messages ?? []) : turn.messages.slice(0, at) })
+    const msgs = turnRef.current.messages
+    const at = msgs.findIndex(x => x.id === m.id)
+    dispatch({ kind: "load", messages: r ? transcriptToMessages(r.messages ?? []) : msgs.slice(0, at) })
     composer.current?.set(text)
     setFocusRegion("input")
-  }, [turn.streaming, turn.messages, gw])
+  }, [gw])
 
   // Non-destructive: session.branch clones full history into a new
   // gateway session; undo N turns *in that session* to land at m;
   // then switch. Original session is untouched.
   const fork = useCallback(async (m: Message) => {
-    if (turn.streaming) return
+    if (turnRef.current.streaming) return
     const n = turnsFrom(m)
     const text = m.parts.filter(p => p.type === "text").map(p => p.content).join("")
     const res = await gw.request<{ session_id: string; title?: string }>("session.branch", {})
@@ -422,12 +452,12 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     composer.current?.set(text)
     setFocusRegion("input")
     toast.show({ variant: "success", message: `forked → ${res.title ?? res.session_id}` })
-  }, [turn.streaming, turn.messages, gw, toast, switchSession])
+  }, [gw, toast, switchSession])
 
   const msgMenu = useCallback((m: Message) => {
-    if (turn.streaming) return
+    if (turnRef.current.streaming) return
     openMessage(dialog, m, { rewind, fork })
-  }, [turn.streaming, dialog, rewind, fork])
+  }, [dialog, rewind, fork])
 
   // ── Attachments ───────────────────────────────────────────────────
   // Gateway owns the canonical list (session["attached_images"]); chips
@@ -563,7 +593,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
             })
           return
         case "retry": {
-          const last = [...turn.messages].reverse().find(m => m.role === "user")
+          const last = [...turnRef.current.messages].reverse().find(m => m.role === "user")
           if (!last) { toast.show({ variant: "info", message: "nothing to retry" }); return }
           void rewind(last).then(() => sendRef.current(msgText(last)))
           return
@@ -580,10 +610,10 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
           return
         case "quit": quit(renderer, sid, title, gw); return
         case "queue":
-          if (!arg) { dispatch({ kind: "system", text: `${queue.length} queued` }); return }
+          if (!arg) { dispatch({ kind: "system", text: `${queueRef.current.length} queued` }); return }
           setQueue(q => [...q, arg]); return
         case "copy": {
-          const all = turn.messages.filter(m => m.role === "assistant")
+          const all = turnRef.current.messages.filter(m => m.role === "assistant")
           const n = arg ? Math.min(Math.max(1, parseInt(arg, 10) || 0), all.length) : all.length
           const m = all[n - 1]
           if (!m) { toast.show({ variant: "info", message: "nothing to copy" }); return }
@@ -698,7 +728,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     // slash.exec owns the persistent HermesCLI subprocess; mid-stream it
     // races the agent turn. Enqueue as `/cmd arg` and let the drain path
     // (send → resolveSlash → slash) dispatch once idle.
-    if (turn.streaming) { setQueue(q => [...q, full]); return }
+    if (turnRef.current.streaming) { setQueue(q => [...q, full]); return }
     // slash.exec runs in a persistent HermesCLI subprocess; commands that
     // it rejects (skills, quick_commands, plugins, pending-input cmds)
     // fall through to command.dispatch, which returns a typed payload.
@@ -734,9 +764,9 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
           })
           .catch((e: Error) => dispatch({ kind: "system", text: `error: ${e.message}` }))
       })
-  }, [ready, turn.streaming, turn.messages, dialog, themeCtx, newSession, gw, pickEikon, editTitle,
+  }, [ready, dialog, themeCtx, newSession, gw, pickEikon, editTitle,
       applyTitle, toast, info, sid, title, switchSession, session, runCompress, rewind, renderer,
-      attachClipboard, goToTab, goTo, queue.length, goalHook, skin, destructive])
+      attachClipboard, goTo, skin, destructive])
 
   // ── Send ──────────────────────────────────────────────────────────
   const send = useCallback(async (raw: string) => {
@@ -814,17 +844,18 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   }, [turn.streaming, ready, queue, send])
 
   const dequeue = useCallback((i: number) => {
-    const item = queue[i]
+    const item = queueRef.current[i]
     if (item === undefined) return
     setQueue(q => q.filter((_, j) => j !== i))
     composer.current?.set(item)
     setFocusRegion("input")
-  }, [queue])
+  }, [])
 
   // ── Copy last assistant ───────────────────────────────────────────
   const copyLast = useCallback(() => {
-    for (let i = turn.messages.length - 1; i >= 0; i--) {
-      const m = turn.messages[i]
+    const msgs = turnRef.current.messages
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i]
       if (m.role !== "assistant") continue
       const text = m.parts.filter(p => p.type === "text").map(p => p.content).join("")
       if (!text) continue
@@ -832,7 +863,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       return true
     }
     return false
-  }, [turn.messages])
+  }, [])
 
   // ── Gateway events ────────────────────────────────────────────────
   // Delta batching: streamed text/reasoning chunks are accumulated in
@@ -1092,18 +1123,18 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
                                     onResize={setCloudH} onPick={onPick} onClose={closeCloud} onRewind={msgMenu} />
         case SESSIONS_TAB: return <SessionsGroup focused={contentFocused}
                                                  sub={subTabs[SESSIONS_TAB] ?? 0}
-                                                 setSub={(i) => setSub(SESSIONS_TAB, i)}
+                                                 setSub={sessSub}
                                                  onSwitch={switchSession} currentId={sid}
                                                  messages={turn.messages}
                                                  sessionStart={sessionStart.current}
                                                  info={info ?? undefined} />
         case AUTOMATION_TAB: return <Automation focused={contentFocused}
                                                 sub={subTabs[AUTOMATION_TAB] ?? 0}
-                                                setSub={(i) => setSub(AUTOMATION_TAB, i)}
+                                                setSub={autoSub}
                                                 sessionId={sid} onSwitchProfile={switchProfile} />
         case CONFIG_TAB: return <ConfigGroup focused={contentFocused}
                                              sub={subTabs[CONFIG_TAB] ?? 0}
-                                             setSub={(i) => setSub(CONFIG_TAB, i)} />
+                                             setSub={cfgSub} />
         default: return null
       }
     })()
@@ -1132,13 +1163,8 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
               {content()}
               {splash && tab === CHAT_TAB ? (
                 <Splash
-                  info={info ? {
-                    agentVersion: info.version,
-                    behind: info.update_behind,
-                    model: info.model,
-                  } : undefined}
-                  last={summoned.current ? undefined : splashLast
-                    ? { id: splashLast.id, title: splashLast.title } : undefined}
+                  info={splashInfo}
+                  last={summoned.current ? undefined : splashLastProp}
                   composing={composing}
                   news={news}
                   loading={switching || !info}
