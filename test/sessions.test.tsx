@@ -440,9 +440,11 @@ describe("Sessions tab", () => {
     // Transcript section doesn't fit at h=12 with the metadata block
     // above it; it's clipped rather than painted past the border.
     expect(f).not.toContain("Transcript")
-    // Bottom border intact (no content bleeding through it).
-    const last = f.split("\n").filter(l => l.trim()).at(-1)!
-    expect(last).toMatch(/└─+┘└─+┘$/)
+    // Bottom border intact (no content bleeding through it). The
+    // HintBar footer renders below the pane row, so find the border row
+    // (the last non-empty line that contains box-drawing corners).
+    const borderRow = f.split("\n").filter(l => /└─+┘└─+┘/.test(l)).at(-1)
+    expect(borderRow).toMatch(/└─+┘└─+┘$/)
     t.destroy()
   })
 })

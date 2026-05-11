@@ -7,6 +7,7 @@ import { useDialog } from "../ui/dialog";
 import { useToast } from "../ui/toast";
 import { openConfirm } from "../dialogs/confirm";
 import { TabShell } from "../ui/shell";
+import { HintBar } from "../ui/hint";
 import { KVBlock } from "../ui/kv";
 import { Col, Hdr, VBAR } from "../ui/table";
 import { openTextPrompt } from "../dialogs/text-prompt";
@@ -130,7 +131,7 @@ const DetailPanel = memo((props: { job: CronJob; reloadKey: number }) => {
   }, [j.id, props.reloadKey]);
 
   return (
-    <TabShell title="Job Detail" hint="" grow={2}>
+    <TabShell title="Job Detail" grow={2}>
       <scrollbox scrollY flexGrow={1}>
         <box flexDirection="column" width="100%">
           <box minHeight={1}>
@@ -255,9 +256,9 @@ export const Cron = memo((props: { focused?: boolean }) => {
   const showDetail = dims.width >= 120 && job !== null;
 
   return (
+    <box flexDirection="column" flexGrow={1} minWidth={0}>
     <box flexDirection="row" flexGrow={1}>
-      <TabShell title={`Cron Jobs (${jobs.length})`} error={err} grow={3}
-                hint={`↑↓ nav  ${keys.print("list.new")} new  ${keys.print("list.toggle")} pause/resume  ${keys.print("list.delete")} delete  ${keys.print("list.refresh")} refresh`}>
+      <TabShell title={`Cron Jobs (${jobs.length})`} error={err} grow={3}>
         {jobs.length === 0 ? (
           <box key="empty" flexGrow={1}>
             <text fg={theme.textMuted}>No cron jobs. Press n to create one.</text>
@@ -289,6 +290,8 @@ export const Cron = memo((props: { focused?: boolean }) => {
       </TabShell>
 
       {showDetail ? <DetailPanel job={job} reloadKey={reloadKey} /> : null}
+    </box>
+    <HintBar raw={`↑↓ nav  ${keys.print("list.new")} new  ${keys.print("list.toggle")} pause/resume  ${keys.print("list.delete")} delete  ${keys.print("list.refresh")} refresh`} />
     </box>
   );
 });

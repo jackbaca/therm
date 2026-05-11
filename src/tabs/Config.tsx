@@ -7,6 +7,7 @@ import { useToast } from "../ui/toast";
 import { useDialog } from "../ui/dialog";
 import { openConfirm } from "../dialogs/confirm";
 import { TabShell } from "../ui/shell";
+import { HintBar } from "../ui/hint";
 import { Col, Hdr, VBAR } from "../ui/table";
 import { stringify as yamlStringify, parse as yamlParse } from "yaml";
 import { writeConfig, verifyWrite, maxEffect } from "../config/lane";
@@ -460,7 +461,8 @@ export const Config = memo((props: { focused?: boolean }) => {
 
   if (mode === "yaml") {
     return (
-      <TabShell title="Config · YAML" hint={`Tab form  ${keys.print("config.save")} save`}>
+      <box flexDirection="column" flexGrow={1} minWidth={0}>
+      <TabShell title="Config · YAML">
         <scrollbox scrollY flexGrow={1}>
           <text wrapMode="word">
             <span fg={theme.text}>{yaml}</span>
@@ -468,6 +470,8 @@ export const Config = memo((props: { focused?: boolean }) => {
           </text>
         </scrollbox>
       </TabShell>
+      <HintBar raw={`Tab form  ${keys.print("config.save")} save`} />
+      </box>
     );
   }
 
@@ -489,7 +493,7 @@ export const Config = memo((props: { focused?: boolean }) => {
       ) : null}
       <box flexDirection="row" flexGrow={1}>
         {searching ? null : (
-          <TabShell title="Config" hint="↑↓ → select" grow={1}
+          <TabShell title="Config" grow={1}
                     focus={focus === "categories"}>
             <scrollbox ref={catFollow.ref} scrollY flexGrow={1}>
               {groups.map((c, i) => {
@@ -522,11 +526,6 @@ export const Config = memo((props: { focused?: boolean }) => {
         <TabShell
           title={onSlots ? "models · applies immediately"
             : searching ? "Search" : nChanged > 0 ? `${active} · ${nChanged} unsaved` : active}
-          hint={managed
-            ? `read-only · managed by ${managed}`
-            : onSlots
-              ? "←→ pane  ↑↓ nav  Enter pick  x reset  X reset-all"
-              : `${dirty}Tab yaml  ←→ pane  ↑↓ nav  ${keys.print("list.search")} search  ${keys.print("config.save")} save`}
           grow={3} focus={focus === "fields" || searching}
         >
           {managed ? (
@@ -600,6 +599,13 @@ export const Config = memo((props: { focused?: boolean }) => {
           </>)}
         </TabShell>
       </box>
+      <HintBar raw={managed
+        ? `read-only · managed by ${managed}`
+        : onSlots
+          ? "←→ pane  ↑↓ nav  Enter pick  x reset  X reset-all"
+          : focus === "categories" && !searching
+            ? "↑↓ → select"
+            : `${dirty}Tab yaml  ←→ pane  ↑↓ nav  ${keys.print("list.search")} search  ${keys.print("config.save")} save`} />
     </box>
   );
 });

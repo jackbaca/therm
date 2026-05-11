@@ -10,6 +10,7 @@ import { useToast } from "../ui/toast";
 import { useTheme } from "../theme";
 import { useHome } from "../home";
 import { TabShell } from "../ui/shell";
+import { HintBar } from "../ui/hint";
 import { KVBlock } from "../ui/kv";
 import { KVLink } from "../components/ui/FileLink";
 import { Col, Hdr, Marquee, VBAR } from "../ui/table";
@@ -412,12 +413,10 @@ export const Skills = memo((props: { focused?: boolean }) => {
   let skillIdx = -1;
 
   return (
+    <box flexDirection="column" flexGrow={1} minWidth={0}>
     <box flexDirection="row" flexGrow={1}>
       <TabShell
         title={searching ? `Hub Search (${hits.length})` : `Skills (${skills.length}${sort === "used" ? " · by use" : ""})`}
-        hint={searching
-          ? "↑↓ navigate  Enter install  Esc cancel"
-          : `↑↓ navigate  ${keys.print("list.search")} search hub  s sort  c curator  h history  ${keys.print("list.refresh")} refresh`}
       >
         {/* Search bar */}
         {searching ? (
@@ -502,6 +501,10 @@ export const Skills = memo((props: { focused?: boolean }) => {
         ? <HistoryPanel focused={!!props.focused && !searching} />
         : current ? <DetailPanel skill={current} usage={usage[current.name]}
                                   events={lineage.current.get(current.name) ?? NO_EVENTS} /> : null}
+    </box>
+    <HintBar raw={searching
+      ? "↑↓ navigate  Enter install  Esc cancel"
+      : `↑↓ navigate  ${keys.print("list.search")} search hub  s sort  c curator  h history  ${keys.print("list.refresh")} refresh`} />
     </box>
   );
 });

@@ -7,6 +7,7 @@ import { useTheme } from "../theme"
 import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
 import { TabShell } from "../ui/shell"
+import { HintBar } from "../ui/hint"
 import { Col, Hdr, VBAR } from "../ui/table"
 import { openTextPrompt } from "../dialogs/text-prompt"
 import { openConfirm } from "../dialogs/confirm"
@@ -160,11 +161,9 @@ export const Env = memo((props: { focused?: boolean }) => {
   })
 
   return (
+    <box flexDirection="column" flexGrow={1} minWidth={0}>
     <TabShell
       title={searching ? "Env (searching)" : "Env / API Keys"}
-      hint={searching
-        ? "↑↓ move  Enter reveal/edit  Esc cancel"
-        : `↑↓ move  ${keys.print("list.activate")} reveal/edit  ${keys.print("list.toggle")} show-all  ${keys.print("list.new")} new  ${keys.print("list.delete")} delete  ${keys.print("list.search")} search  ${keys.print("list.refresh")} reload`}
     >
       {searching ? (
         <box height={1}>
@@ -223,5 +222,9 @@ export const Env = memo((props: { focused?: boolean }) => {
         </scrollbox>
       )}
     </TabShell>
+    <HintBar raw={searching
+      ? "↑↓ move  Enter reveal/edit  Esc cancel"
+      : `↑↓ move  ${keys.print("list.activate")} reveal/edit  ${keys.print("list.toggle")} show-all  ${keys.print("list.new")} new  ${keys.print("list.delete")} delete  ${keys.print("list.search")} search  ${keys.print("list.refresh")} reload`} />
+    </box>
   )
 })

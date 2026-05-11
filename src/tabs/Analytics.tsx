@@ -7,6 +7,7 @@ import { useKeys } from "../keys"
 import { useTheme } from "../theme"
 import { Spinner } from "../ui/spinner"
 import { TabShell } from "../ui/shell"
+import { HintBar } from "../ui/hint"
 import { Col, Hdr } from "../ui/table"
 import { fmt, cost, trunc } from "../ui/fmt"
 
@@ -148,9 +149,12 @@ export const Analytics = memo((props: { focused?: boolean }) => {
   const chartH = dims.height >= 40 ? 8 : 6
 
   if (!data) return (
-    <TabShell title={title} hint="1/7/3/9 period · r reload">
-      <box height={1}><Spinner label={`aggregating ${days}d…`} /></box>
-    </TabShell>
+    <box flexDirection="column" flexGrow={1} minWidth={0}>
+      <TabShell title={title}>
+        <box height={1}><Spinner label={`aggregating ${days}d…`} /></box>
+      </TabShell>
+      <HintBar raw="1/7/3/9 period · r reload" />
+    </box>
   )
 
   // Tools/Sources section height: header + n rows. Wide=side-by-side so
@@ -162,7 +166,8 @@ export const Analytics = memo((props: { focused?: boolean }) => {
   const ranksH = wide ? Math.max(nTools, nSrc) + 1 : nTools + nSrc + 3
 
   return (
-    <TabShell title={title} hint="1/7/3/9 period · r reload">
+    <box flexDirection="column" flexGrow={1} minWidth={0}>
+    <TabShell title={title}>
       <box flexDirection="column" flexGrow={1} minWidth={0} overflow="hidden">
         {/* Summary + chart — fixed block */}
         <box flexShrink={0} flexDirection="column">
@@ -210,5 +215,7 @@ export const Analytics = memo((props: { focused?: boolean }) => {
         </box>
       </box>
     </TabShell>
+    <HintBar raw="1/7/3/9 period · r reload" />
+    </box>
   )
 })
