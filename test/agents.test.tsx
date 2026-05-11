@@ -340,7 +340,7 @@ describe("Agents tab", () => {
     await until(t, () => t.frame().includes("New Profile"))
     expect(t.frame()).toContain("(fresh)")
     expect(t.frame()).toContain("type a name")
-    expect(t.frame()).toContain("shell alias: yes")
+    expect(t.frame()).toContain("[x] shell alias")
 
     for (const c of "coder") await act(async () => { await t.keys.typeText(c) })
     await until(t, () => t.frame().includes("already exists"))
@@ -350,9 +350,13 @@ describe("Agents tab", () => {
 
     for (const c of "-v2") await act(async () => { await t.keys.typeText(c) })
     await until(t, () => t.frame().includes("Enter create"))
-    act(() => t.keys.pressArrow("down")) // clone: (fresh) → default
-    act(() => t.keys.pressTab())         // alias: yes → no
-    await until(t, () => t.frame().includes("shell alias: no"))
+    // Tab to clone field, ↓ to pick 'default'.
+    act(() => t.keys.pressTab())
+    act(() => t.keys.pressArrow("down"))
+    // Tab to alias field, Space to toggle off.
+    act(() => t.keys.pressTab())
+    act(() => t.keys.pressKey(" "))
+    await until(t, () => t.frame().includes("[ ] shell alias"))
 
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Profiles (3)"))
