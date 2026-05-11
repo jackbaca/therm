@@ -289,15 +289,26 @@ function walkUp(sid: string): string {
 
 // ─── Readers ─────────────────────────────────────────────────────────
 
-/** Root-level sessions, newest first, compression chains projected to
- *  their tip (the resumable end), with lineage_root_id recording the
- *  original root when projection happened. Mirrors list_sessions_rich. */
+/** Root-level sessions, ordered by last activity (most recent first),
+ *  compression chains projected to their tip (the resumable end), with
+ *  lineage_root_id recording the original root when projection happened.
+ *  Mirrors list_sessions_rich.
+ *
+ *  Sort key is the projected row's last activity (last_active for tips,
+ *  or started_at as fallback). This matches user expectation for /resume —
+ *  "most recently active" sorts above "started long ago but idle".
+ *
+ *  SQL pulls a generous candidate set sorted by start time, then we
+ *  project chains to their tips and sort the final rows by activity. */
 export function roots(limit = 30): SessionRow[] {
   const end = perf.mark("io:sessions.roots")
   try {
     // Root filter: no parent, OR parent link is a branch. Subagents
     // and continuations are hidden — they surface via children()/
     // lineage() instead. `p`/`c` aliases satisfy SUB/CONT/BR above.
+    //
+    // Over-fetch by 3x so chains whose root started long ago but whose
+    // tip has fresh activity still make the final sorted page.
     const raw = (q(
       `SELECT ${COLS} FROM sessions s
        WHERE s.parent_session_id IS NULL
@@ -306,17 +317,23 @@ export function roots(limit = 30): SessionRow[] {
                        AND ${BR("s")})
        ORDER BY s.started_at DESC
        LIMIT ?`,
-    )?.all(limit) ?? []) as Raw[]
+    )?.all(limit * 3) ?? []) as Raw[]
 
-    return raw.map((r) => {
+    const projected = raw.map((r) => {
       if (r.end_reason !== "compression") return toRow(r)
       const tid = tip(r.id)
       if (tid === r.id) return toRow(r)
       const t = one(tid)
-      // Tip stats replace the root's, but started_at stays the root's
-      // so chronological list order is preserved.
-      return t ? { ...toRow(t, r.id), started_at: r.started_at } : toRow(r)
+      // Project the tip's stats including its last_active, since
+      // sort order is now driven by activity not start time.
+      return t ? toRow(t, r.id) : toRow(r)
     })
+
+    // Final sort by activity (tip's last_active or started_at fallback),
+    // newest first, then trim to the requested limit.
+    return projected
+      .sort((a, b) => (b.last_active ?? b.started_at) - (a.last_active ?? a.started_at))
+      .slice(0, limit)
   } finally { end() }
 }
 
