@@ -36,4 +36,56 @@ describe("DialogSelect", () => {
     expect(/[▲▼║│┃█▐]/.test(row)).toBe(true)
     t.destroy()
   })
+
+  test("End jumps to last item, Home back to first", async () => {
+    const moves: string[] = []
+    const t = await mountNode(
+      <DialogSelect title="Pick" options={opts} onSelect={() => {}}
+        onMove={o => moves.push(o.value)} />,
+      { width: 80, height: 30 },
+    )
+    await until(t, () => t.frame().includes("Item 00"))
+    act(() => t.keys.pressKey("END"))
+    await t.settle()
+    expect(moves.at(-1)).toBe(`v${opts.length - 1}`)
+    expect(t.frame()).toContain("Item 29")
+    act(() => t.keys.pressKey("HOME"))
+    await t.settle()
+    expect(moves.at(-1)).toBe("v0")
+    expect(t.frame()).toContain("Item 00")
+    t.destroy()
+  })
+
+  test("PgDn advances by one viewport, Enter selects", async () => {
+    const picked: string[] = []
+    const t = await mountNode(
+      <DialogSelect title="Pick" options={opts} onSelect={o => picked.push(o.value)} />,
+      { width: 80, height: 30 },
+    )
+    await until(t, () => t.frame().includes("Item 00"))
+    // Viewport height is 16 → PgDn stride ≈ 15 → cursor lands on a mid-list item.
+    act(() => t.keys.pressKey("\x1B[57355u")) // kitty pagedown
+    await t.settle()
+    act(() => t.keys.pressEnter())
+    await t.settle()
+    expect(picked.length).toBe(1)
+    expect(picked[0]).not.toBe("v0")
+    t.destroy()
+  })
+
+  test("non-filterable: Space selects", async () => {
+    const picked: string[] = []
+    const t = await mountNode(
+      <DialogSelect title="Pick" options={opts.slice(0, 5)}
+        filterable={false} onSelect={o => picked.push(o.value)} />,
+      { width: 80, height: 30 },
+    )
+    await until(t, () => t.frame().includes("Item 00"))
+    act(() => t.keys.pressArrow("down"))
+    await t.settle()
+    act(() => t.keys.pressKey(" "))
+    await t.settle()
+    expect(picked).toEqual(["v1"])
+    t.destroy()
+  })
 })
