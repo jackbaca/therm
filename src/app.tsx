@@ -13,17 +13,9 @@ import type { AvatarState } from "./components/avatar/states"
 import { TabBar } from "./components/tabs/TabBar"
 import { Sidebar } from "./components/sidebar/Sidebar"
 import { Chat } from "./tabs/Chat"
-import { Context } from "./tabs/Context"
-import { Sessions } from "./tabs/Sessions"
-import { Agents } from "./tabs/Agents"
-import { Analytics } from "./tabs/Analytics"
-import { Memory } from "./tabs/Memory"
-import { Skills } from "./tabs/Skills"
-import { Config } from "./tabs/Config"
-import { Cron } from "./tabs/Cron"
-import { Toolsets } from "./tabs/Toolsets"
-import { Env } from "./tabs/Env"
-import { Kanban } from "./tabs/Kanban"
+import { SessionsGroup } from "./tabs/SessionsGroup"
+import { Automation } from "./tabs/Automation"
+import { ConfigGroup } from "./tabs/ConfigGroup"
 import type { Usage } from "./types/message"
 import { copySelection, copy as clipCopy } from "./utils/clipboard"
 import { ThemeProvider, useTheme } from "./theme"
@@ -62,9 +54,10 @@ import { useSession } from "./app/useSession"
 import { SkinProvider, deriveSkin, SKINS, type SkinState } from "./app/skin"
 import { useAppKeys, redraw } from "./app/useAppKeys"
 import { quit } from "./app/exit"
-import { TABS, TAB_MAX, CHAT_TAB, TAB_SLASH } from "./app/tabs"
+import { TABS, TAB_MAX, CHAT_TAB, SESSIONS_TAB, AUTOMATION_TAB, CONFIG_TAB, SUB_TABS, TAB_SLASH } from "./app/tabs"
 import { activeProfileName } from "./utils/hermes-profiles"
 import { rehome } from "./home/rehome"
+import { useHome, home } from "./home"
 import { makeGoalHook } from "./app/goalHook"
 import type { Launch } from "./app/launch"
 
@@ -103,6 +96,21 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const [sid, setSid] = useState("")
   const sidRef = useRef(sid); sidRef.current = sid
   const [tab, setTab] = useState(CHAT_TAB)
+  // Sub-tab per group — Chat has none, so key 0 is unused.
+  // Defensive clamp lives inside each group (SessionsGroup/Automation/
+  // ConfigGroup) so a shrinking SUB_TABS list doesn't render blank.
+  const [subTabs, setSubTabs] = useState<Record<number, number>>(
+    () => ({ [SESSIONS_TAB]: 0, [AUTOMATION_TAB]: 0, [CONFIG_TAB]: 0 }),
+  )
+  const setSub = useCallback((tabIdx: number, sub: number) =>
+    setSubTabs(prev => prev[tabIdx] === sub ? prev : { ...prev, [tabIdx]: sub }), [])
+  // Pre-bound per-group — inline `(i) => setSub(TAB, i)` in the JSX is a
+  // fresh closure every AppInner render (= every key event, via the
+  // global useKeyboard in useAppKeys), which defeats memo() on the
+  // active group and reconciles its whole subtree per keystroke.
+  const sessSub = useCallback((i: number) => setSub(SESSIONS_TAB, i), [setSub])
+  const autoSub = useCallback((i: number) => setSub(AUTOMATION_TAB, i), [setSub])
+  const cfgSub = useCallback((i: number) => setSub(CONFIG_TAB, i), [setSub])
   const [hideSidebar, setHideSidebar] = useState(false)
   const [usage, setUsage] = useState<Usage | undefined>(undefined)
   const [info, setInfo] = useState<SessionInfo | null>(null)
@@ -112,10 +120,28 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     setTab(t)
     setFocusRegion(t === CHAT_TAB ? "input" : "content")
   }, [])
+  // Slash-driven deep-link: jumps to a top-level tab AND sets its
+  // sub-tab. goToTab preserves whatever sub-tab the user last picked;
+  // goTo overrides it (what /memory or /cron should do).
+  const goTo = useCallback((t: number, sub: number) => {
+    setTab(t)
+    setSubTabs(prev => prev[t] === sub ? prev : { ...prev, [t]: sub })
+    setFocusRegion(t === CHAT_TAB ? "input" : "content")
+  }, [])
   const [status, setStatus] = useState("")
   const [eikon, setEikon] = useState<ParsedEikon | undefined>(undefined)
   const [queue, setQueue] = useState<string[]>([])
   const [busy, setBusy] = useState<"queue" | "steer" | "interrupt">("queue")
+  // ── Live refs for memo stability ──────────────────────────────────
+  // The global useKeyboard re-renders AppInner on every key/mouse
+  // event; memo() on Chat/Composer/etc is the only firewall. Callbacks
+  // that land as props on those children must NOT take `turn.*` or
+  // `queue` as deps — `turn.messages` is replaced every 16ms while
+  // streaming, so any dep on it cascades a new callback identity into
+  // the memo'd child and the firewall is decorative. Read through refs
+  // instead (same shape as sidRef/cmdsRef/sendRef below).
+  const turnRef = useRef(turn); turnRef.current = turn
+  const queueRef = useRef(queue); queueRef.current = queue
   // ── Splash ────────────────────────────────────────────────────────
   // Welcome-state chrome over an empty transcript. Composer stays live
   // underneath; first send dismisses. `/splash` re-summons mid-session
@@ -132,6 +158,15 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const splashLast = useMemo(
     () => launch.mode === "new" ? lastReal() : undefined,
     [launch.mode],
+  )
+  // Stable Splash props — inline `{…}` in JSX is a fresh reference per
+  // AppInner render (= per key event) and defeats Splash's memo().
+  const splashInfo = useMemo(() => info ? {
+    agentVersion: info.version, behind: info.update_behind, model: info.model,
+  } : undefined, [info?.version, info?.update_behind, info?.model])
+  const splashLastProp = useMemo(
+    () => splashLast ? { id: splashLast.id, title: splashLast.title } : undefined,
+    [splashLast],
   )
   const news = useMemo(() => readChangelog()?.headline, [])
   const [attachments, setAttachments] = useState<ImageAttachResponse[]>([])
@@ -181,7 +216,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   // of THAT turn; the override clears on the next turn's rising edge.
   // A pending inline prompt also suppresses the cloud — the overlay
   // would occlude the card the user needs to answer.
-  const prompt = pendingPrompt(turn.messages)
+  const prompt = useMemo(() => pendingPrompt(turn.messages), [turn.messages])
   const cloudAuto = turn.streaming && !turn.hasContent && !prompt
   const [force, setForce] = useState<boolean | undefined>(undefined)
   const cloud = !prompt && (force ?? cloudAuto)
@@ -240,14 +275,20 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   }, [])
 
   const newSession = useCallback(async () => {
+    const prev = sidRef.current
     reset()
     summoned.current = true
     setSplash(true)
+    // Close the outgoing session so the gateway finalizes it (ends the
+    // DB row, reaps its slash_worker subprocess, drops the AIAgent from
+    // `_sessions`). Fire-and-forget — create() doesn't depend on it.
+    if (prev) void session.close(prev)
     try { setSid(await session.create()); sessionStart.current = Date.now() }
     catch {}
   }, [reset, session])
 
   const switchSession = useCallback(async (target: string) => {
+    const prev = sidRef.current
     reset()
     // Keep splash visible while the resume RPC lands so the user sees
     // the ornate frame instead of the empty-transcript welcome. summoned
@@ -262,6 +303,11 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       setSid(res.id)
       sessionStart.current = Date.now()
       if (res.messages.length) dispatch({ kind: "load", messages: res.messages })
+      // Close only after resume succeeds — a failed resume leaves the
+      // user in the outgoing session, which must stay live. Skip when
+      // resuming self (prev === res.id), e.g. the boot path reusing an
+      // empty stub.
+      if (prev && prev !== res.id) void session.close(prev)
       setSplash(false)
       summoned.current = false
     } catch (err) {
@@ -298,15 +344,29 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     gwRestart()
   }, [reset, goToTab, gwRestart, toast, gw])
 
-  // Compress wrapper — toasts on start, dispatches a transcript system
-  // message carrying the headline + token line from the gateway's
-  // summary payload on completion. Upstream emits intermediate
-  // status.update{kind:"compressing"} events that already feed the
-  // status bar via gatewayEvents.ts.
+  // Compress wrapper — re-hydrates transcript + session info from the
+  // RPC response, toasts, and dispatches a summary system message.
+  //
+  // Why the re-hydrate matters: session.compress rewrites history on the
+  // gateway and `agent._compress_context` ends the old SessionDB session,
+  // opening a continuation with a new session_id. The RPC returns the
+  // post-compaction `messages` + fresh `info`. Without dispatching them
+  // here, `turn.messages` stays stuck on the pre-compaction list until
+  // the user reopens the session — at which point the old messages
+  // vanish, reading as corruption. Mirrors the Ink TUI (upstream
+  // ui-tui/src/app/slash/commands/session.ts compress handler). Upstream
+  // also emits intermediate status.update{kind:"compressing"} events that
+  // already feed the status bar via gatewayEvents.ts.
   const runCompress = useCallback(async () => {
     toast.show({ variant: "info", message: "Compressing session…" })
     const r = await session.compress()
-    if (!r || !r.summary) return
+    if (!r) return
+    if (r.info) setInfo(r.info)
+    if (r.usage) setUsage(r.usage)
+    if (Array.isArray(r.messages)) {
+      dispatch({ kind: "load", messages: transcriptToMessages(r.messages) })
+    }
+    if (!r.summary) return
     const s = r.summary
     if (s.noop) {
       toast.show({ variant: "info",
@@ -353,30 +413,34 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
 
   // ── Message actions ───────────────────────────────────────────────
   // turnsFrom counts user turns at-or-after m — each session.undo pops
-  // one user+assistant pair server-side.
+  // one user+assistant pair server-side. Reads turnRef (not turn) so
+  // rewind/fork/msgMenu stay identity-stable across streaming deltas;
+  // they gate on turnRef.current.streaming at call time instead.
   const turnsFrom = (m: Message) => {
-    const at = turn.messages.findIndex(x => x.id === m.id)
-    return at < 0 ? 0 : turn.messages.slice(at).filter(x => x.role === "user").length
+    const msgs = turnRef.current.messages
+    const at = msgs.findIndex(x => x.id === m.id)
+    return at < 0 ? 0 : msgs.slice(at).filter(x => x.role === "user").length
   }
 
   const rewind = useCallback(async (m: Message) => {
-    if (turn.streaming) return
+    if (turnRef.current.streaming) return
     const n = turnsFrom(m)
     if (n === 0) return
     const text = m.parts.filter(p => p.type === "text").map(p => p.content).join("")
     for (let i = 0; i < n; i++) await gw.request("session.undo").catch(() => {})
     const r = await gw.request<{ messages: TranscriptMessage[] }>("session.history").catch(() => null)
-    const at = turn.messages.findIndex(x => x.id === m.id)
-    dispatch({ kind: "load", messages: r ? transcriptToMessages(r.messages ?? []) : turn.messages.slice(0, at) })
+    const msgs = turnRef.current.messages
+    const at = msgs.findIndex(x => x.id === m.id)
+    dispatch({ kind: "load", messages: r ? transcriptToMessages(r.messages ?? []) : msgs.slice(0, at) })
     composer.current?.set(text)
     setFocusRegion("input")
-  }, [turn.streaming, turn.messages, gw])
+  }, [gw])
 
   // Non-destructive: session.branch clones full history into a new
   // gateway session; undo N turns *in that session* to land at m;
   // then switch. Original session is untouched.
   const fork = useCallback(async (m: Message) => {
-    if (turn.streaming) return
+    if (turnRef.current.streaming) return
     const n = turnsFrom(m)
     const text = m.parts.filter(p => p.type === "text").map(p => p.content).join("")
     const res = await gw.request<{ session_id: string; title?: string }>("session.branch", {})
@@ -388,12 +452,12 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     composer.current?.set(text)
     setFocusRegion("input")
     toast.show({ variant: "success", message: `forked → ${res.title ?? res.session_id}` })
-  }, [turn.streaming, turn.messages, gw, toast, switchSession])
+  }, [gw, toast, switchSession])
 
   const msgMenu = useCallback((m: Message) => {
-    if (turn.streaming) return
+    if (turnRef.current.streaming) return
     openMessage(dialog, m, { rewind, fork })
-  }, [turn.streaming, dialog, rewind, fork])
+  }, [dialog, rewind, fork])
 
   // ── Attachments ───────────────────────────────────────────────────
   // Gateway owns the canonical list (session["attached_images"]); chips
@@ -407,6 +471,46 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
   }, [gw, toast])
 
+  // ── Destructive slash gate ────────────────────────────────────────
+  // `/clear`, `/new`, `/undo` discard conversation state. Mirrors
+  // upstream's `approvals.destructive_slash_confirm` config gate
+  // (b9c001116) — upstream's gateway-side check never fires for herm
+  // because these commands short-circuit in `slash` below (local
+  // intercept, never reaches gateway). `HERMES_TUI_NO_CONFIRM` is the
+  // kill switch. Arg `now|once|approve|yes|always` skips the dialog;
+  // `always` also flips the config key off, same shape as /reload-mcp.
+  const cfg = useHome("config")
+  const destructive = useCallback((
+    arg: string,
+    opts: { title: string; body: string; yes: string },
+    action: () => void,
+  ) => {
+    const a = arg.trim().toLowerCase()
+    const skip = a === "now" || a === "once" || a === "approve" || a === "yes" || a === "always"
+    const gate = cfg?.approvals?.destructive_slash_confirm ?? true
+    const bypass = !gate || process.env.HERMES_TUI_NO_CONFIRM === "1"
+    const persist = a === "always"
+    const fire = () => {
+      if (persist) {
+        void import("./config/lane").then(({ writeConfig }) =>
+          writeConfig(gw, [{ key: "approvals.destructive_slash_confirm", to: false }])
+            .then(r => {
+              if (r.failed.length) {
+                toast.show({ variant: "warning", message: `couldn't persist: ${r.failed[0].err}` })
+                return
+              }
+              home.invalidate("config")
+              toast.show({ variant: "success", message: `${opts.yes} · future runs silent` })
+            })
+            .catch((e: Error) => toast.show({ variant: "error", message: e.message })))
+      }
+      action()
+    }
+    if (skip || bypass) return fire()
+    void openConfirm(dialog, { title: opts.title, body: opts.body, yes: opts.yes, danger: true })
+      .then(ok => { if (ok) fire() })
+  }, [cfg, dialog, gw, toast])
+
   // ── Slash dispatch ────────────────────────────────────────────────
   // `slash` and `send` reference each other (skill/alias dispatch needs
   // to submit a turn; typed `/cmd` in send() resolves via slash). The
@@ -416,8 +520,16 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const slash = useCallback((c: SlashCommand, arg = "") => {
     if (c.target === "local") {
       switch (c.name) {
-        case "clear": dispatch({ kind: "reset" }); return
-        case "new": newSession(); return
+        case "clear":
+          destructive(arg,
+            { title: "Clear session?", body: "Discards the in-memory transcript. Your session on disk is unchanged; reload to restore.", yes: "clear" },
+            () => dispatch({ kind: "reset" }))
+          return
+        case "new":
+          destructive(arg,
+            { title: "Start a new session?", body: "Ends the current session and starts a fresh one. The existing session remains saved and resumable.", yes: "new session" },
+            () => { void newSession() })
+          return
         case "theme": openThemePicker(dialog, themeCtx); return
         case "help": dialog.replace(<HelpDialog />); return
         case "keys": openKeys(dialog); return
@@ -463,7 +575,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
         // ── parity: session-mutating (slash-worker can't service these) ──
         case "resume":
           if (arg) { void switchSession(arg); return }
-          goToTab(TAB_SLASH.sessions); return
+          goTo(TAB_SLASH.sessions.tab, TAB_SLASH.sessions.sub); return
         case "branch":
           session.branch(arg || undefined).then(id => id
             ? void switchSession(id)
@@ -471,13 +583,17 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
           return
         case "compress": void runCompress(); return
         case "undo":
-          session.undo().then(() =>
-            gw.request<{ messages: TranscriptMessage[] }>("session.history")
-              .then(r => dispatch({ kind: "load", messages: transcriptToMessages(r.messages ?? []) }))
-              .catch(() => {}))
+          destructive(arg,
+            { title: "Undo last turn?", body: "Pops the last user + assistant pair from the transcript. Cannot be undone.", yes: "undo" },
+            () => {
+              session.undo().then(() =>
+                gw.request<{ messages: TranscriptMessage[] }>("session.history")
+                  .then(r => dispatch({ kind: "load", messages: transcriptToMessages(r.messages ?? []) }))
+                  .catch(() => {}))
+            })
           return
         case "retry": {
-          const last = [...turn.messages].reverse().find(m => m.role === "user")
+          const last = [...turnRef.current.messages].reverse().find(m => m.role === "user")
           if (!last) { toast.show({ variant: "info", message: "nothing to retry" }); return }
           void rewind(last).then(() => sendRef.current(msgText(last)))
           return
@@ -492,12 +608,12 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
             })
             .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
           return
-        case "quit": quit(renderer, sid, title); return
+        case "quit": quit(renderer, sid, title, gw); return
         case "queue":
-          if (!arg) { dispatch({ kind: "system", text: `${queue.length} queued` }); return }
+          if (!arg) { dispatch({ kind: "system", text: `${queueRef.current.length} queued` }); return }
           setQueue(q => [...q, arg]); return
         case "copy": {
-          const all = turn.messages.filter(m => m.role === "assistant")
+          const all = turnRef.current.messages.filter(m => m.role === "assistant")
           const n = arg ? Math.min(Math.max(1, parseInt(arg, 10) || 0), all.length) : all.length
           const m = all[n - 1]
           if (!m) { toast.show({ variant: "info", message: "nothing to copy" }); return }
@@ -607,12 +723,12 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     }
     if (c.target !== "gateway" || !ready) return
     const jump = TAB_SLASH[c.name]
-    if (jump !== undefined && !arg) { goToTab(jump); return }
+    if (jump !== undefined && !arg) { goTo(jump.tab, jump.sub); return }
     const full = `/${c.name}${arg ? " " + arg : ""}`
     // slash.exec owns the persistent HermesCLI subprocess; mid-stream it
     // races the agent turn. Enqueue as `/cmd arg` and let the drain path
     // (send → resolveSlash → slash) dispatch once idle.
-    if (turn.streaming) { setQueue(q => [...q, full]); return }
+    if (turnRef.current.streaming) { setQueue(q => [...q, full]); return }
     // slash.exec runs in a persistent HermesCLI subprocess; commands that
     // it rejects (skills, quick_commands, plugins, pending-input cmds)
     // fall through to command.dispatch, which returns a typed payload.
@@ -648,9 +764,9 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
           })
           .catch((e: Error) => dispatch({ kind: "system", text: `error: ${e.message}` }))
       })
-  }, [ready, turn.streaming, turn.messages, dialog, themeCtx, newSession, gw, pickEikon, editTitle,
+  }, [ready, dialog, themeCtx, newSession, gw, pickEikon, editTitle,
       applyTitle, toast, info, sid, title, switchSession, session, runCompress, rewind, renderer,
-      attachClipboard, goToTab, queue.length, goalHook, skin])
+      attachClipboard, goTo, skin, destructive])
 
   // ── Send ──────────────────────────────────────────────────────────
   const send = useCallback(async (raw: string) => {
@@ -728,17 +844,18 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   }, [turn.streaming, ready, queue, send])
 
   const dequeue = useCallback((i: number) => {
-    const item = queue[i]
+    const item = queueRef.current[i]
     if (item === undefined) return
     setQueue(q => q.filter((_, j) => j !== i))
     composer.current?.set(item)
     setFocusRegion("input")
-  }, [queue])
+  }, [])
 
   // ── Copy last assistant ───────────────────────────────────────────
   const copyLast = useCallback(() => {
-    for (let i = turn.messages.length - 1; i >= 0; i--) {
-      const m = turn.messages[i]
+    const msgs = turnRef.current.messages
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i]
       if (m.role !== "assistant") continue
       const text = m.parts.filter(p => p.type === "text").map(p => p.content).join("")
       if (!text) continue
@@ -746,7 +863,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       return true
     }
     return false
-  }, [turn.messages])
+  }, [])
 
   // ── Gateway events ────────────────────────────────────────────────
   // Delta batching: streamed text/reasoning chunks are accumulated in
@@ -881,14 +998,18 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     { title: "Profile", value: "profile", description: "Active profile details", category: "Info",
       onSelect: () => openProfile(dialog) },
     { title: "New Session", value: "new-session", action: "session.new", category: "Session",
-      onSelect: () => newSession() },
+      onSelect: () => destructive("",
+        { title: "Start a new session?", body: "Ends the current session and starts a fresh one. The existing session remains saved and resumable.", yes: "new session" },
+        () => { void newSession() }) },
     { title: "Compress Session", value: "compress", action: "session.compress", category: "Session",
       onSelect: () => runCompress() },
     { title: "Undo Last Turn", value: "undo", description: "Pop last user+assistant pair", category: "Session",
-      onSelect: () => session.undo() },
+      onSelect: () => destructive("",
+        { title: "Undo last turn?", body: "Pops the last user + assistant pair from the transcript. Cannot be undone.", yes: "undo" },
+        () => { session.undo() }) },
     { title: "Branch Session", value: "branch", description: "Fork the current conversation", category: "Session",
       onSelect: () => session.branch() },
-  ]), [cmd, dialog, themeCtx, session, gw, toast, newSession, pickEikon, info, sid, runCompress])
+  ]), [cmd, dialog, themeCtx, session, gw, toast, newSession, pickEikon, info, sid, runCompress, destructive])
 
   const doInterrupt = useCallback(() => {
     interrupted.current = true
@@ -902,8 +1023,20 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   intr.current = doInterrupt
 
   // ── Keyboard ──────────────────────────────────────────────────────
+  const subCount = SUB_TABS[tab]?.length ?? 0
+  const cycleSub = useCallback((dir: -1 | 1) => {
+    const labels = SUB_TABS[tab]
+    if (!labels || labels.length === 0) return
+    setSubTabs(prev => {
+      const cur = prev[tab] ?? 0
+      const next = (cur + dir + labels.length) % labels.length
+      return next === cur ? prev : { ...prev, [tab]: next }
+    })
+  }, [tab])
   useAppKeys({
-    tab, tabMax: TAB_MAX, chatTab: CHAT_TAB, setTab, focusRegion, setFocusRegion,
+    tab, tabMax: TAB_MAX, chatTab: CHAT_TAB, setTab,
+    subCount, cycleSub,
+    focusRegion, setFocusRegion,
     streaming: turn.streaming,
     dialogOpen: dialog.open,
     composer,
@@ -923,7 +1056,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     // the head once turn.streaming flips false.
     queued: queue.length,
     onFlushQueue: doInterrupt,
-    onQuit: () => quit(renderer, sid, title),
+    onQuit: () => quit(renderer, sid, title, gw),
     onInterruptNotice: () => dispatch({ kind: "interrupt.notice", text: "Press Escape again to interrupt" }),
     onCopyLast: () => { copyLast() },
     onAttachClipboard: attachClipboard,
@@ -984,23 +1117,24 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const content = () => {
     const inner = (() => {
       switch (tab) {
-        case 0: return <Chat messages={turn.messages} streaming={turn.streaming}
-                             prompt={promptWire}
-                             cloud={cloud} cloudH={cloudH} pick={pick}
-                             onResize={setCloudH} onPick={onPick} onClose={closeCloud} onRewind={msgMenu} />
-        case 1: return <Context description={TABS[tab].description} messages={turn.messages}
-                               sessionStart={sessionStart.current} info={info ?? undefined}
-                               focused={contentFocused} />
-        case 2: return <Sessions onSwitch={switchSession} currentId={sid} focused={contentFocused} />
-        case 3: return <Agents focused={contentFocused} sessionId={sid} onSwitchProfile={switchProfile} />
-        case 4: return <Analytics focused={contentFocused} />
-        case 5: return <Skills focused={contentFocused} />
-        case 6: return <Cron focused={contentFocused} />
-        case 7: return <Toolsets focused={contentFocused} />
-        case 8: return <Config focused={contentFocused} />
-        case 9: return <Env focused={contentFocused} />
-        case 10: return <Memory focused={contentFocused} />
-        case 11: return <Kanban focused={contentFocused} />
+        case CHAT_TAB: return <Chat messages={turn.messages} streaming={turn.streaming}
+                                    prompt={promptWire}
+                                    cloud={cloud} cloudH={cloudH} pick={pick}
+                                    onResize={setCloudH} onPick={onPick} onClose={closeCloud} onRewind={msgMenu} />
+        case SESSIONS_TAB: return <SessionsGroup focused={contentFocused}
+                                                 sub={subTabs[SESSIONS_TAB] ?? 0}
+                                                 setSub={sessSub}
+                                                 onSwitch={switchSession} currentId={sid}
+                                                 messages={turn.messages}
+                                                 sessionStart={sessionStart.current}
+                                                 info={info ?? undefined} />
+        case AUTOMATION_TAB: return <Automation focused={contentFocused}
+                                                sub={subTabs[AUTOMATION_TAB] ?? 0}
+                                                setSub={autoSub}
+                                                sessionId={sid} onSwitchProfile={switchProfile} />
+        case CONFIG_TAB: return <ConfigGroup focused={contentFocused}
+                                             sub={subTabs[CONFIG_TAB] ?? 0}
+                                             setSub={cfgSub} />
         default: return null
       }
     })()
@@ -1029,13 +1163,8 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
               {content()}
               {splash && tab === CHAT_TAB ? (
                 <Splash
-                  info={info ? {
-                    agentVersion: info.version,
-                    behind: info.update_behind,
-                    model: info.model,
-                  } : undefined}
-                  last={summoned.current ? undefined : splashLast
-                    ? { id: splashLast.id, title: splashLast.title } : undefined}
+                  info={splashInfo}
+                  last={summoned.current ? undefined : splashLastProp}
                   composing={composing}
                   news={news}
                   loading={switching || !info}

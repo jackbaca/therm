@@ -5,6 +5,7 @@ import { useTheme } from "../theme";
 import { useDialog } from "../ui/dialog";
 import { useToast } from "../ui/toast";
 import { TabShell } from "../ui/shell";
+import { HintBar } from "../ui/hint";
 import { KVBlock } from "../ui/kv";
 import { Col, Hdr, VBAR } from "../ui/table";
 
@@ -214,11 +215,11 @@ export const Toolsets = memo((props: { focused?: boolean }) => {
   });
 
   return (
+    <box flexDirection="column" flexGrow={1} minWidth={0}>
     <box flexDirection="row" flexGrow={1}>
       <TabShell
         title={`Toolsets (${count})`}
         error={err}
-        hint={`↑↓ nav  ${keys.print("list.toggle")} toggle  ${keys.print("list.refresh")} refresh`}
       >
         <Hdr>
           <Col w={4} fg={theme.textMuted}>{""}</Col>
@@ -261,6 +262,12 @@ export const Toolsets = memo((props: { focused?: boolean }) => {
       </TabShell>
 
       {ts ? <DetailPanel ts={ts} /> : null}
+    </box>
+    <HintBar pairs={[
+      ["↑↓", "nav"],
+      [keys.print("list.toggle"), "toggle"],
+      [keys.print("list.refresh"), "refresh"],
+    ]} />
     </box>
   );
 });

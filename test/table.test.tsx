@@ -99,6 +99,11 @@ describe("ui/table", () => {
     // Initial frame: all three show their head.
     expect(t.frame()).toContain("ABCDEFGHIJ")
     expect(t.frame()).toContain("short")
+    // Regression: a fitting title must render exactly once. The
+    // marquee duplicates text internally (`text + GAP + text`) so
+    // scrollX can roll a seamless tail→head; without a `wraps` gate,
+    // short titles render twice side-by-side in the Title column.
+    expect(t.frame().match(/short/g)?.length).toBe(1)
 
     // After hold + a few ticks, row 1 has rotated.
     await act(async () => { await Bun.sleep(1100) })

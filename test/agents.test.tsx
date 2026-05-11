@@ -7,6 +7,7 @@ import { mountNode, until, MockGateway } from "./harness"
 import { Agents } from "../src/tabs/Agents"
 import {
   listProfiles, validateName, activeProfileName, profileNameFrom, stickyDefault, profileStats,
+  readDistributionManifest,
 } from "../src/utils/hermes-profiles"
 import type { DelegationRecord, DelegationStatus } from "../src/utils/gateway-types"
 
@@ -125,6 +126,73 @@ describe("hermes-profiles", () => {
     writeFileSync(join(ROOT, "cron", "jobs.json"), JSON.stringify([{ id: "j1" }]))
     expect((await profileStats(ROOT)).crons).toBe(1)
   })
+
+  test("readDistributionManifest: absent → null; populated → normalized manifest", async () => {
+    const dir = join(ROOT, "profiles", "coder")
+
+    // No distribution.yaml → null.
+    expect(readDistributionManifest(dir)).toBeNull()
+
+    // Full manifest → normalized shape with defaults applied.
+    writeFileSync(join(dir, "distribution.yaml"), [
+      "name: acme-coder",
+      "version: 1.2.3",
+      "description: Coding profile",
+      "hermes_requires: \">=0.5\"",
+      "author: Acme",
+      "license: MIT",
+      "source: https://github.com/acme/coder",
+      "installed_at: 2026-05-10T12:00:00Z",
+      "env_requires:",
+      "  - name: ACME_KEY",
+      "    description: API key",
+      "  - name: ACME_OPTIONAL",
+      "    required: false",
+      "    default: fallback",
+      "distribution_owned:",
+      "  - skills/",
+      "  - SOUL.md",
+      "",
+    ].join("\n"))
+    const m = readDistributionManifest(dir)
+    expect(m).not.toBeNull()
+    expect(m!.name).toBe("acme-coder")
+    expect(m!.version).toBe("1.2.3")
+    expect(m!.hermes_requires).toBe(">=0.5")
+    expect(m!.license).toBe("MIT")
+    expect(m!.source).toBe("https://github.com/acme/coder")
+    expect(m!.installed_at).toBe("2026-05-10T12:00:00Z")
+    expect(m!.env_requires).toEqual([
+      { name: "ACME_KEY", description: "API key", required: true, default: null },
+      { name: "ACME_OPTIONAL", description: "", required: false, default: "fallback" },
+    ])
+    expect(m!.distribution_owned).toEqual(["skills", "SOUL.md"])
+
+    // Missing name → rejected (null).
+    writeFileSync(join(dir, "distribution.yaml"), "version: 1.0.0\n")
+    expect(readDistributionManifest(dir)).toBeNull()
+
+    // Parse-fail (invalid yaml) → null, does not throw.
+    writeFileSync(join(dir, "distribution.yaml"), "name: [unterminated\n")
+    expect(() => readDistributionManifest(dir)).not.toThrow()
+    expect(readDistributionManifest(dir)).toBeNull()
+  })
+
+  test("listProfiles surfaces distribution on profiles that have a manifest", async () => {
+    // default has no manifest; coder does.
+    writeFileSync(join(ROOT, "profiles", "coder", "distribution.yaml"),
+      "name: acme-coder\nversion: 0.9.0\n")
+    const ps = await listProfiles()
+    const def = ps.find(p => p.name === "default")!
+    const coder = ps.find(p => p.name === "coder")!
+    expect(def.distribution).toBeNull()
+    expect(coder.distribution?.name).toBe("acme-coder")
+    expect(coder.distribution?.version).toBe("0.9.0")
+    // Source provenance for FileLink.
+    expect(coder.sources.distribution.file)
+      .toBe(join(ROOT, "profiles", "coder", "distribution.yaml"))
+    expect(coder.sources.distribution.label).toBe("distribution.yaml")
+  })
 })
 
 // ─── Agents tab ──────────────────────────────────────────────────────
@@ -192,6 +260,41 @@ describe("Agents tab", () => {
     t.destroy()
   })
 
+  test("distribution badge in row + Distribution block in detail", async () => {
+    writeFileSync(join(ROOT, "profiles", "coder", "distribution.yaml"), [
+      "name: acme-coder",
+      "version: 1.2.3",
+      "hermes_requires: '>=2.0'",
+      "source: https://github.com/acme/coder",
+      "installed_at: '2025-01-15T10:30:00Z'",
+      "env_requires:",
+      "  - name: ACME_KEY",
+      "    required: true",
+      "  - name: ACME_OPT",
+      "    required: false",
+      "",
+    ].join("\n"))
+    const t = await mountNode(<Agents focused sessionId="test-sid" />, { gw: new MockGateway(), width: 200 })
+    await until(t, () => t.frame().includes("Profiles (2)"))
+    const f = t.frame()
+    // Badge on coder row, not on default.
+    const rowCoder = f.split("\n").find(l => /▸?\s+coder/.test(l))!
+    const rowDefault = f.split("\n").find(l => /▸?\s+default\s/.test(l))!
+    expect(rowCoder).toContain("⬢")
+    expect(rowDefault).not.toContain("⬢")
+    // Arrow down to select coder so its detail pane renders.
+    await act(async () => { await t.keys.pressArrow("down") })
+    await until(t, () => t.frame().includes("Distribution"))
+    const g = t.frame()
+    expect(g).toContain("Distribution")
+    expect(g).toContain("acme-coder")
+    expect(g).toContain("v1.2.3")
+    expect(g).toContain("Hermes >=2.0")
+    expect(g).toContain("https://github.com/acme/coder")
+    expect(g).toContain("1 required, 1 optional")
+    t.destroy()
+  })
+
   test("↓ selects, detail follows; d on active/default is no-op; d on other confirms → shell.exec; running-gateway warn", async () => {
     writeFileSync(join(ROOT, "profiles", "coder", "gateway.pid"), String(process.pid))
     const gw = new MockGateway({
@@ -237,7 +340,7 @@ describe("Agents tab", () => {
     await until(t, () => t.frame().includes("New Profile"))
     expect(t.frame()).toContain("(fresh)")
     expect(t.frame()).toContain("type a name")
-    expect(t.frame()).toContain("shell alias: yes")
+    expect(t.frame()).toContain("[x] shell alias")
 
     for (const c of "coder") await act(async () => { await t.keys.typeText(c) })
     await until(t, () => t.frame().includes("already exists"))
@@ -247,9 +350,13 @@ describe("Agents tab", () => {
 
     for (const c of "-v2") await act(async () => { await t.keys.typeText(c) })
     await until(t, () => t.frame().includes("Enter create"))
-    act(() => t.keys.pressArrow("down")) // clone: (fresh) → default
-    act(() => t.keys.pressTab())         // alias: yes → no
-    await until(t, () => t.frame().includes("shell alias: no"))
+    // Tab to clone field, ↓ to pick 'default'.
+    act(() => t.keys.pressTab())
+    act(() => t.keys.pressArrow("down"))
+    // Tab to alias field, Space to toggle off.
+    act(() => t.keys.pressTab())
+    act(() => t.keys.pressKey(" "))
+    await until(t, () => t.frame().includes("[ ] shell alias"))
 
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Profiles (3)"))
@@ -321,22 +428,22 @@ describe("Agents tab", () => {
     const t = await mountNode(<Agents focused sessionId="test-sid" />, { gw, width: 80 })
     await until(t, () => t.frame().includes("Profiles (2)"))
     expect(t.frame()).not.toContain("Delegation (")
-    expect(t.frame()).toContain("Tab ↔ delegation")
-    expect(t.frame()).toContain("Enter detail")
+    expect(t.frame()).toContain("[Tab] ↔ delegation")
+    expect(t.frame()).toContain("[Enter] detail")
     // Detail column (path/model) hidden at 80 cols.
     expect(t.frame()).not.toContain("test-model")
 
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("test-model"))
-    expect(t.frame()).toContain("Enter actions")
-    expect(t.frame()).toContain("Esc back")
+    expect(t.frame()).toContain("[Enter] actions")
+    expect(t.frame()).toContain("[Esc] back")
     // Second Enter from detail opens the action menu.
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Profile · default"))
     act(() => t.keys.pressEscape())
     await until(t, () => !t.frame().includes("Profile · default"))
     act(() => t.keys.pressEscape())
-    await until(t, () => t.frame().includes("Enter detail"))
+    await until(t, () => t.frame().includes("[Enter] detail"))
 
     act(() => t.keys.pressTab())
     await until(t, () => t.frame().includes("Delegation (3)"))
@@ -359,7 +466,7 @@ describe("Agents tab", () => {
       { gw },
     )
     await until(t, () => t.frame().includes("Profiles (2)"))
-    expect(t.frame()).toContain("s switch")
+    expect(t.frame()).toContain("[s] switch")
 
     // Row 0 is active — `s` should not open the confirm.
     await act(async () => { await t.keys.typeText("s") })
@@ -395,6 +502,322 @@ describe("Agents tab", () => {
     await until(t, () => t.frame().includes("▶ active"))
     expect(gw.last("delegation.pause")?.params.paused).toBe(false)
     expect(t.frame()).toContain("Delegation resumed")
+    t.destroy()
+  })
+
+  // ── Install distribution flow ─────────────────────────────────────
+
+  test("i opens install dialog; preview clone → confirm → hermes profile install", async () => {
+    // Stub shell.exec so `git clone` writes a real distribution.yaml into
+    // the tmp dir the dialog just mkdtemp'd. This exercises the true
+    // readDistributionManifest() path rather than mocking around it.
+    const cmds: string[] = []
+    const gw = new MockGateway({
+      "shell.exec": p => {
+        const c = p.command as string
+        cmds.push(c)
+        const m = c.match(/^git clone .* '([^']+)' '([^']+)'/)
+        if (m && m[2]) {
+          writeFileSync(join(m[2], "distribution.yaml"),
+            [
+              "name: anpicasso-chrome",
+              "version: \"0.2.0\"",
+              "description: Chrome profile distribution",
+              "author: anpicasso",
+              "license: MIT",
+              "hermes_requires: \">=0.12.0\"",
+              "distribution_owned:",
+              "  - SOUL.md",
+              "  - skills",
+              "env_requires:",
+              "  - name: CHROME_API_KEY",
+              "    description: Browser key",
+              "    required: true",
+              "  - name: CHROME_DEBUG",
+              "    required: false",
+              "",
+            ].join("\n"))
+          return { stdout: "", stderr: "", code: 0 }
+        }
+        const inst = c.match(/^hermes profile install '([^']+)'/)
+        if (inst) mkProfile("anpicasso-chrome", { default: "x" })
+        return { stdout: "", stderr: "", code: 0 }
+      },
+    })
+    const t = await mountNode(<Agents focused sessionId="test-sid" />, { gw, width: 200 })
+    await until(t, () => t.frame().includes("Profiles (2)"))
+
+    // Step 1 — open dialog
+    await act(async () => { await t.keys.typeText("i") })
+    await until(t, () => t.frame().includes("Install Distribution"))
+    expect(t.frame()).toContain("git URL")
+
+    // Type a source and submit → triggers clone
+    for (const c of "github.com/anpicasso/hermes-plugin-chrome-profiles") {
+      await act(async () => { await t.keys.typeText(c) })
+    }
+    act(() => t.keys.pressEnter())
+
+    // Step 2 → Step 3 — preview confirm appears with manifest data
+    await until(t, () => t.frame().includes("anpicasso-chrome"))
+    const f = t.frame()
+    expect(f).toContain("v0.2.0")
+    expect(f).toContain("Chrome profile distribution")
+    expect(f).toContain("anpicasso")
+    expect(f).toContain("hermes >=0.12.0")
+    expect(f).toContain("github.com/anpicasso/hermes-plugin-chrome-profiles")
+    expect(f).toContain("SOUL.md, skills")
+    expect(f).toContain("CHROME_API_KEY")   // required env listed
+    expect(f).toContain("1 optional")
+
+    // Confirm (Enter submits the form; nav spec § Dialogs)
+    act(() => t.keys.pressEnter())
+    await t.settle()
+
+    const installCmd = cmds.find(c => c.startsWith("hermes profile install"))
+    expect(installCmd).toBe("hermes profile install 'github.com/anpicasso/hermes-plugin-chrome-profiles' -y")
+    // Env-var toast surfaces the required names.
+    await until(t, () => t.frame().includes("CHROME_API_KEY"))
+    expect(t.frame()).toContain("Env vars needed")
+    t.destroy()
+  })
+
+  test("install dialog: --alias toggle + --name override produce the right flags", async () => {
+    const cmds: string[] = []
+    const gw = new MockGateway({
+      "shell.exec": p => {
+        const c = p.command as string
+        cmds.push(c)
+        const m = c.match(/^git clone .* '([^']+)' '([^']+)'/)
+        if (m && m[2]) {
+          writeFileSync(join(m[2], "distribution.yaml"),
+            "name: coderv2\nversion: \"1.0.0\"\ndescription: Coder distro\n")
+          return { stdout: "", stderr: "", code: 0 }
+        }
+        return { stdout: "", stderr: "", code: 0 }
+      },
+    })
+    const t = await mountNode(<Agents focused sessionId="test-sid" />, { gw, width: 200 })
+    await until(t, () => t.frame().includes("Profiles (2)"))
+
+    await act(async () => { await t.keys.typeText("i") })
+    await until(t, () => t.frame().includes("Install Distribution"))
+    for (const c of "https://example.com/dist.git") {
+      await act(async () => { await t.keys.typeText(c) })
+    }
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("coderv2"))
+
+    // Tab walks fields: name → alias. Space toggles on alias.
+    act(() => t.keys.pressTab())
+    await until(t, () => t.frame().includes("[ ] create shell wrapper"))
+    act(() => t.keys.pressKey(" "))
+    await until(t, () => t.frame().includes("[x] create shell wrapper"))
+
+    // Shift+Tab back to name field, then type the override.
+    act(() => t.keys.pressTab({ shift: true }))
+    await t.settle()
+    for (const c of "coder-local") {
+      await act(async () => { await t.keys.typeText(c) })
+    }
+    await t.settle()
+
+    // Enter submits from the name field (<input> onSubmit fires the same
+    // path as the global dialog.accept).
+    act(() => t.keys.pressEnter())
+    await t.settle()
+
+    const installCmd = cmds.find(c => c.startsWith("hermes profile install"))
+    expect(installCmd).toBe("hermes profile install 'https://example.com/dist.git' -y --name 'coder-local' --alias")
+    t.destroy()
+  })
+
+  test("install dialog: clone failure shows error, no install shelled", async () => {
+    const cmds: string[] = []
+    const gw = new MockGateway({
+      "shell.exec": p => {
+        const c = p.command as string
+        cmds.push(c)
+        if (c.startsWith("git clone")) return { stdout: "", stderr: "fatal: repository not found", code: 128 }
+        return { stdout: "", stderr: "", code: 0 }
+      },
+    })
+    const t = await mountNode(<Agents focused sessionId="test-sid" />, { gw, width: 200 })
+    await until(t, () => t.frame().includes("Profiles (2)"))
+
+    await act(async () => { await t.keys.typeText("i") })
+    await until(t, () => t.frame().includes("Install Distribution"))
+    for (const c of "bogus-source") {
+      await act(async () => { await t.keys.typeText(c) })
+    }
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Clone failed"))
+    expect(t.frame()).toContain("repository not found")
+
+    // Dismiss error — no install call should have fired.
+    act(() => t.keys.pressEnter())
+    await t.settle()
+    expect(cmds.find(c => c.startsWith("hermes profile install"))).toBeUndefined()
+    t.destroy()
+  })
+
+  test("install dialog: manifest missing → 'Not a distribution' error", async () => {
+    const cmds: string[] = []
+    const gw = new MockGateway({
+      "shell.exec": p => {
+        const c = p.command as string
+        cmds.push(c)
+        // Clone "succeeds" but the cloned dir has no distribution.yaml.
+        if (c.startsWith("git clone")) return { stdout: "", stderr: "", code: 0 }
+        return { stdout: "", stderr: "", code: 0 }
+      },
+    })
+    const t = await mountNode(<Agents focused sessionId="test-sid" />, { gw, width: 200 })
+    await until(t, () => t.frame().includes("Profiles (2)"))
+
+    await act(async () => { await t.keys.typeText("i") })
+    await until(t, () => t.frame().includes("Install Distribution"))
+    for (const c of "https://example.com/not-a-dist.git") {
+      await act(async () => { await t.keys.typeText(c) })
+    }
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Not a distribution"))
+    expect(t.frame()).toContain("distribution.yaml")
+    expect(cmds.find(c => c.startsWith("hermes profile install"))).toBeUndefined()
+    t.destroy()
+  })
+  test("distribution menu: Info opens read-only dialog; Update → shell.exec with --force-config toggle", async () => {
+    writeFileSync(join(ROOT, "profiles", "coder", "distribution.yaml"), [
+      "name: acme-coder",
+      "version: 1.2.3",
+      "description: Coding profile",
+      "hermes_requires: '>=2.0'",
+      "author: Acme Corp",
+      "license: MIT",
+      "source: https://github.com/acme/coder",
+      "installed_at: '2025-01-15T10:30:00Z'",
+      "env_requires:",
+      "  - name: ACME_KEY",
+      "    description: Primary API token",
+      "    required: true",
+      "  - name: ACME_OPT",
+      "    description: Optional override",
+      "    required: false",
+      "    default: fallback",
+      "distribution_owned:",
+      "  - skills/",
+      "  - SOUL.md",
+      "",
+    ].join("\n"))
+    const cmds: string[] = []
+    const gw = new MockGateway({
+      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "ok", stderr: "", code: 0 } },
+    })
+    const t = await mountNode(<Agents focused sessionId="test-sid" />, { gw, width: 200 })
+    await until(t, () => t.frame().includes("Profiles (2)"))
+
+    // Select coder (has the manifest), open the action menu.
+    act(() => t.keys.pressArrow("down"))
+    await until(t, () => t.frame().includes("⬢"))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Profile · coder"))
+    expect(t.frame()).toContain("Info")
+    expect(t.frame()).toContain("Update")
+
+    // Filter to Info (title match).
+    for (const c of "info") await act(async () => { await t.keys.typeText(c) })
+    await t.settle()
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Distribution · coder"))
+    const info = t.frame()
+    expect(info).toContain("acme-coder")
+    expect(info).toContain("v1.2.3")
+    expect(info).toContain("Hermes >=2.0")
+    expect(info).toContain("Acme Corp")
+    expect(info).toContain("MIT")
+    expect(info).toContain("https://github.com/acme/coder")
+    expect(info).toContain("Required")
+    expect(info).toContain("ACME_KEY")
+    expect(info).toContain("Primary API token")
+    expect(info).toContain("Optional")
+    expect(info).toContain("ACME_OPT")
+    expect(info).toContain("default: fallback")
+    expect(info).toContain("skills, SOUL.md")
+
+    // Close info, reopen menu, pick Update.
+    act(() => t.keys.pressEscape())
+    await until(t, () => !t.frame().includes("Distribution · coder"))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Profile · coder"))
+    for (const c of "update") await act(async () => { await t.keys.typeText(c) })
+    await t.settle()
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Update distribution?"))
+    expect(t.frame()).toContain("'coder' · v1.2.3 · https://github.com/acme/coder")
+    expect(t.frame()).toContain("[ ] --force-config")
+    expect(t.frame()).not.toContain("active profile")
+
+    // Tab is a no-op on single-checkbox confirm dialogs.
+    act(() => t.keys.pressTab()); await t.settle()
+    expect(t.frame()).toContain("[ ] --force-config")
+
+    // Toggle force, confirm.
+    act(() => t.keys.pressKey(" "))
+    await until(t, () => t.frame().includes("[x] --force-config"))
+    await act(async () => { await t.keys.typeText("y") })
+    await until(t, () => cmds.length > 0)
+    expect(cmds[0]).toBe("hermes profile update coder -y --force-config")
+    await until(t, () => t.frame().includes("Updated 'coder'"))
+    t.destroy()
+  })
+
+  test("update on the active profile warns + triggers rehome on success", async () => {
+    writeFileSync(join(ROOT, "profiles", "coder", "distribution.yaml"),
+      "name: acme-coder\nversion: 0.9.0\nsource: https://github.com/acme/coder\n")
+    const cmds: string[] = []
+    const switched: Array<[string, string]> = []
+    const gw = new MockGateway({
+      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "ok", stderr: "", code: 0 } },
+      "config.get": p => p.key === "profile"
+        ? { home: join(ROOT, "profiles", "coder"), display: "coder" }
+        : { config: {} },
+    })
+    const t = await mountNode(
+      <Agents focused sessionId="test-sid"
+              onSwitchProfile={(h, n) => switched.push([h, n])} />,
+      { gw, width: 200 },
+    )
+    await until(t, () => t.frame().includes("Profiles (2)"))
+    // coder is the active row (gateway reports so); select it.
+    act(() => t.keys.pressArrow("down"))
+    await until(t, () => t.frame().includes("⬢"))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Profile · coder (active)"))
+    for (const c of "update") await act(async () => { await t.keys.typeText(c) })
+    await t.settle()
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Update distribution?"))
+    expect(t.frame()).toContain("active profile")
+    expect(t.frame()).toContain("gateway will re-spawn")
+
+    await act(async () => { await t.keys.typeText("y") })
+    await until(t, () => cmds.length > 0)
+    expect(cmds[0]).toBe("hermes profile update coder -y")
+    await until(t, () => switched.length > 0)
+    expect(switched).toEqual([[join(ROOT, "profiles", "coder"), "coder"]])
+    t.destroy()
+  })
+
+  test("distribution menu entries absent on profiles without a manifest", async () => {
+    const t = await mountNode(<Agents focused sessionId="test-sid" />, { gw: new MockGateway(), width: 200 })
+    await until(t, () => t.frame().includes("Profiles (2)"))
+    // default has no distribution.yaml.
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Profile · default"))
+    // No Info/Update titles in the dialog-select body.
+    const f = t.frame()
+    expect(f).not.toMatch(/^\s*[▸ ]\s*Info\b/m)
+    expect(f).not.toMatch(/^\s*[▸ ]\s*Update\b/m)
     t.destroy()
   })
 })

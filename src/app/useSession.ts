@@ -6,10 +6,22 @@ import * as sdb from "../utils/sessions-db"
 import { useGateway } from "./gateway"
 import { transcriptToMessages } from "./turnReducer"
 import type { Launch } from "./launch"
-import type { SessionResumeResponse, SessionCreateResponse } from "../utils/gateway-types"
-import type { Message } from "../types/message"
+import type {
+  SessionResumeResponse,
+  SessionCreateResponse,
+  SessionInfo,
+  TranscriptMessage,
+} from "../utils/gateway-types"
+import type { Message, Usage } from "../types/message"
 
-/** session.compress response shape — see upstream fc7f55f49. */
+/** session.compress response shape — see upstream fc7f55f49.
+ *
+ *  `messages` + `info` carry the post-compaction transcript and fresh
+ *  session metadata; the gateway rewrites history in place and rotates
+ *  session_id (agent._compress_context ends the old DB session and opens
+ *  a continuation). Callers MUST re-hydrate local transcript state from
+ *  `messages` — otherwise the TUI keeps the pre-compaction list and the
+ *  next resume snaps it to the compacted history, looking like data loss. */
 export type CompressResult = {
   status?: "compressed" | "skipped"
   removed?: number
@@ -17,6 +29,9 @@ export type CompressResult = {
   after_messages?: number
   before_tokens?: number
   after_tokens?: number
+  messages?: TranscriptMessage[]
+  info?: SessionInfo
+  usage?: Usage
   summary?: {
     noop?: boolean
     headline?: string
@@ -27,11 +42,16 @@ export type CompressResult = {
 
 type Booted = { id: string; messages: Message[]; note?: string }
 
+export const normalize = (sid: string): string =>
+  sid.trim().replace(/\.json$/i, "").replace(/^session_(?=\d{8}_)/, "")
+
 type SessionOps = {
   /** Establish the initial session per launch intent. */
   boot: (launch: Launch) => Promise<Booted>
   create: () => Promise<string>
   resume: (sid: string) => Promise<{ id: string; messages: Message[] }>
+  /** Finalize a gateway session (best-effort — swallows errors). */
+  close: (sid: string) => Promise<void>
   interrupt: () => Promise<void>
   branch: (name?: string) => Promise<string | null>
   compress: () => Promise<CompressResult | null>
@@ -42,10 +62,14 @@ export function useSession(): SessionOps {
   const gw = useGateway()
 
   const resume = useCallback(async (sid: string) => {
-    const res = await gw.request<SessionResumeResponse>("session.resume", { session_id: sid })
+    // Normalize at the edge (argv / slash-arg can be `session_*.json`).
+    // No tip-chasing here: Sessions-tab lineage walk and `/resume <id>`
+    // pass exact ids on purpose; boot() resolves tips itself.
+    const target = normalize(sid)
+    const res = await gw.request<SessionResumeResponse>("session.resume", { session_id: target })
     const id = res.session_id
     gw.setSession(id)
-    preferences.set("lastSessionId", res.resumed ?? sid)
+    preferences.set("lastSessionId", res.resumed ?? target)
     const messages = res.messages?.length ? transcriptToMessages(res.messages) : []
     return { id, messages }
   }, [gw])
@@ -56,6 +80,21 @@ export function useSession(): SessionOps {
     return res.session_id
   }, [gw])
 
+  // Finalize a gateway session: marks the DB row ended, tears down the
+  // per-session slash_worker subprocess, unregisters the approval
+  // notifier, and drops the AIAgent from the gateway's `_sessions` map.
+  // Without this, /new and session-switch leak one HermesCLI child
+  // (slash_worker) + one live AIAgent per hop until quit, and the row's
+  // `ended_at IS NULL` throws off lineage classification in Sessions
+  // tab (sessions-db.ts SUB/CONT predicates). Parity with Ink TUI's
+  // useSessionLifecycle.closeSession. Pass `session_id` explicitly so
+  // auto-injection doesn't close whatever sid the gateway already
+  // switched to.
+  const close = useCallback(async (sid: string) => {
+    if (!sid) return
+    try { await gw.request("session.close", { session_id: sid }) } catch {}
+  }, [gw])
+
   const boot = useCallback(async (launch: Launch): Promise<Booted> => {
     const fresh = async (note?: string) => ({ id: await create(), messages: [], note })
 
@@ -63,14 +102,21 @@ export function useSession(): SessionOps {
       const target = launch.sid ?? sdb.lastReal()?.id
       if (!target) return fresh("no prior session to resume — starting fresh")
       try { return await resume(target) }
-      catch { return fresh(`resume ${target} failed — starting fresh`) }
+      catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        return fresh(`resume ${target} failed: ${msg} — starting fresh`)
+      }
     }
 
-    // mode:"new" — reuse our own abandoned empty stub instead of
-    // creating another row every launch.
+    // mode:"new" — bare launch is ALWAYS a fresh session (herm-1jd). The
+    // stored id exists only to reuse our own abandoned empty stub instead
+    // of creating another row every launch. It may point at an ended
+    // compression parent (the stub is its continuation), so chase the
+    // chain tip before checking emptiness.
     const last = preferences.get("lastSessionId")
-    if (last && sdb.byId(last)?.message_count === 0) {
-      try { return await resume(last) } catch { /* fall through */ }
+    const tip = last ? sdb.chainTip(last) : null
+    if (tip && sdb.byId(tip)?.message_count === 0) {
+      try { return await resume(tip) } catch { /* fall through */ }
     }
     return fresh()
   }, [create, resume])
@@ -96,7 +142,7 @@ export function useSession(): SessionOps {
   }, [gw])
 
   return useMemo(
-    () => ({ boot, create, resume, interrupt, branch, compress, undo }),
-    [boot, create, resume, interrupt, branch, compress, undo],
+    () => ({ boot, create, resume, close, interrupt, branch, compress, undo }),
+    [boot, create, resume, close, interrupt, branch, compress, undo],
   )
 }

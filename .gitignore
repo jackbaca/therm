@@ -30,7 +30,6 @@ logs
 # Finder (MacOS) folder config
 .DS_Store
 
-docs/
 profiles/
 
 # Beads / Dolt files (added by bd init)
@@ -43,3 +42,4 @@ issues.jsonl
 *.bak
 *.code-workspace
 AGENTS.local.md
+.worktrees/

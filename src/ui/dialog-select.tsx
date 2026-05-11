@@ -1,7 +1,9 @@
 /**
  * Filterable select dialog — reusable pick-list for dialogs.
  *
- * Keyboard: up/down navigate, enter selects, typing filters.
+ * Keyboard: list.* (↑↓/PgUp/PgDn/Home/End navigate, Enter selects), typing
+ * filters. With `filterable: false`, Space also selects (the scrollbox has
+ * focus so the filter input never sees it).
  * Mouse: hover highlights, click selects.
  * Grouped by category with headers.
  */
@@ -11,6 +13,8 @@ import type { ReactNode } from "react"
 import { useKeyboard } from "@opentui/react"
 import type { ParsedKey, ScrollBoxRenderable } from "@opentui/core"
 import { useTheme } from "../theme"
+import { useKeys } from "../keys/context"
+import { handleListKey } from "../keys/list"
 
 export type SelectOption = {
   readonly title: string
@@ -70,11 +74,7 @@ export const DialogSelect = (props: Props) => {
 
   const rowId = (i: number) => `ds-row-${i}`
 
-  const move = (n: number) => setCursor(c => {
-    const next = Math.max(0, Math.min(filtered.length - 1, c + n))
-    sb.current?.scrollChildIntoView(rowId(next))
-    return next
-  })
+  const scrollTo = (i: number) => sb.current?.scrollChildIntoView(rowId(i))
 
   // Notify on move
   useEffect(() => {
@@ -82,18 +82,24 @@ export const DialogSelect = (props: Props) => {
     if (item && props.onMove) props.onMove(item)
   }, [cursor, filtered, props.onMove])
 
+  const keys = useKeys()
+
   useKeyboard((key) => {
-    if (key.name === "up") return move(-1)
-    if (key.name === "down") return move(1)
-    if (key.name === "pageup") return move(-10)
-    if (key.name === "pagedown") return move(10)
-    // Space selects too when there's no filter input to type into.
-    const isSpace = key.name === "space" || key.name === " "
-    if (key.name === "return" || (!filterable && isSpace)) {
-      const item = filtered[cursor]
-      if (item) props.onSelect(item)
-      return
-    }
+    // Space only selects in non-filterable mode (otherwise it's a literal
+    // space for the filter input). Drive through list.toggle so a rebind
+    // of space takes effect here too.
+    const onToggle = !filterable
+      ? () => { const item = filtered[cursor]; if (item) props.onSelect(item) }
+      : undefined
+    const consumed = handleListKey(keys, key, {
+      count: filtered.length,
+      setSel: setCursor,
+      scrollTo,
+      page: Math.max(1, (sb.current?.viewport.height ?? 10) - 1),
+      onActivate: () => { const item = filtered[cursor]; if (item) props.onSelect(item) },
+      onToggle,
+    })
+    if (consumed) return
     if (props.onKey?.(key)) return
   })
 

@@ -16,7 +16,7 @@ const navTo = async (t: H, cfg: Record<string, unknown>, key: string) => {
   const ri = rows.findIndex(f => f.key === key)
   if (gi < 0 || ri < 0) throw new Error(`navTo: ${key} not found (group=${g})`)
   act(() => { for (let i = 0; i < gi; i++) t.keys.pressArrow("down") })
-  act(() => t.keys.pressArrow("right"))
+  act(() => t.keys.pressTab())
   act(() => { for (let i = 0; i < ri; i++) t.keys.pressArrow("down") })
   await t.settle()
 }
@@ -214,6 +214,56 @@ describe("Config tab", () => {
     }
     await t.settle(); await t.settle()
     expect(t.frame()).toContain(last)
+    t.destroy()
+  })
+
+  // 11237112: Tab walks focus categories↔fields; mode-swap moved off Tab
+  // to mnemonic `m`. Old pane-swap on ←→ is removed.
+  test("Tab walks focus categories↔fields; m toggles form↔yaml mode", async () => {
+    const gw = new MockGateway({ "config.get": () => ({ config: {} }) })
+    const t = await mountNode(<Config focused />, { gw, width: 160, height: 40 })
+    await until(t, () => t.frame().includes("general"))
+
+    // Boot: two panes visible, left pane focused — form mode, not YAML.
+    expect(t.frame()).not.toContain("Config · YAML")
+    // Footer hint reflects focused pane: boot = categories → advertises Tab→fields.
+    expect(t.frame()).toContain("[Tab] fields")
+
+    // Tab → focus moves to fields pane. The right pane's focus border
+    // is a visual signal; the hint is a stable string to assert on.
+    act(() => t.keys.pressTab()); await t.settle()
+    // Footer flips to advertise Tab→categories once fields are focused.
+    expect(t.frame()).toContain("[Tab] categories")
+    // Field rows are active now; arrow-down moves cursor, not category.
+    // Easiest observable: a FieldRow carries a ▸ caret when focus=fields.
+    const f = t.frame()
+    // First field of `general` is selected; the row has the caret glyph.
+    expect(f.split("\n").some(l => /▸.*\w/.test(l) && !l.includes("general"))).toBe(true)
+
+    // Shift+Tab → back to categories.
+    act(() => t.keys.pressTab({ shift: true })); await t.settle()
+    // Category row now carries the caret.
+    expect(t.frame().split("\n").some(l => l.includes("▸") && l.includes("general"))).toBe(true)
+
+    // m toggles mode — enters YAML.
+    await act(async () => { await t.keys.typeText("m") })
+    await until(t, () => t.frame().includes("Config · YAML"))
+    // m again → back to form.
+    await act(async () => { await t.keys.typeText("m") })
+    await until(t, () => !t.frame().includes("Config · YAML"))
+    expect(t.frame()).toContain("general")
+    t.destroy()
+  })
+
+  test("←→ no longer swaps panes (dropped in favor of Tab)", async () => {
+    const gw = new MockGateway({ "config.get": () => ({ config: {} }) })
+    const t = await mountNode(<Config focused />, { gw, width: 160, height: 40 })
+    await until(t, () => t.frame().includes("general"))
+    // Boot: categories pane focused (caret on 'general').
+    expect(t.frame().split("\n").some(l => l.includes("▸") && l.includes("general"))).toBe(true)
+    // → should be a no-op now; caret stays on 'general' in categories.
+    act(() => t.keys.pressArrow("right")); await t.settle()
+    expect(t.frame().split("\n").some(l => l.includes("▸") && l.includes("general"))).toBe(true)
     t.destroy()
   })
 })

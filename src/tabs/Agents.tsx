@@ -12,15 +12,18 @@ import { openConfirm } from "../dialogs/confirm"
 import { openSpawnHistory } from "../dialogs/spawn-history"
 import { openProfileMenu } from "../dialogs/profile"
 import { openCreateProfile } from "../dialogs/new-profile"
+import { openInstallDistribution } from "../dialogs/install-distribution"
 import { TabShell } from "../ui/shell"
+import { HintBar } from "../ui/hint"
 import { Spinner } from "../ui/spinner"
 import { KV, KVBlock } from "../ui/kv"
 import { KVLink } from "../components/ui/FileLink"
-import { dur, trunc, fmt } from "../ui/fmt"
+import { dur, trunc, fmt, ago } from "../ui/fmt"
 import {
   listProfiles, stickyDefault, profileStats,
-  type ProfileInfo, type ProfileStats,
+  type ProfileInfo, type ProfileStats, type DistributionManifest,
 } from "../utils/hermes-profiles"
+import type { Source } from "../utils/hermes-home"
 import type { DelegationStatus, DelegationRecord } from "../utils/gateway-types"
 import { tree as buildTree, totals as treeTotals, summary, spark, heat, peak, type Agg } from "../utils/subagent-tree"
 
@@ -62,6 +65,7 @@ const ProfileRow = memo((props: {
             {p.is_active ? <strong>{p.name}</strong> : p.name}
           </span>
           {p.is_sticky ? <span fg={theme.warning}>{" ★"}</span> : null}
+          {p.distribution ? <span fg={theme.info}>{" ⬢"}</span> : null}
           {p.gateway_running ? <span fg={theme.success}>{" ●"}</span> : null}
         </text>
       </box>
@@ -76,6 +80,39 @@ const ProfileRow = memo((props: {
         </box>
       )}
     </box>
+  )
+})
+
+// Distribution panel for ProfileDetail. Rendered only when the profile
+// has a distribution.yaml (installed via `hermes profile install`).
+// `source` in the manifest is the upstream git URL / path it was pulled
+// from — the clickable link targets that, not the local yaml, so users
+// can visit the distribution's origin in one click. Falls back to the
+// local yaml when the manifest has no recorded source.
+const DistBlock = memo((props: { d: DistributionManifest; yaml: Source }) => {
+  const theme = useTheme().theme
+  const d = props.d
+  const req = d.env_requires.filter(e => e.required).length
+  const opt = d.env_requires.length - req
+  const link: Source = d.source
+    ? { file: d.source, relative: d.source, label: d.source }
+    : props.yaml
+  const when = d.installed_at ? Date.parse(d.installed_at) : NaN
+  return (
+    <>
+      <box height={1} />
+      <box height={1}><text fg={theme.info}><strong>Distribution</strong></text></box>
+      <KVBlock rows={[
+        ["Name", d.name],
+        ["Version", `v${d.version}`],
+        ["Requires", d.hermes_requires ? `Hermes ${d.hermes_requires}` : undefined],
+      ]} />
+      <KVLink label="Source" source={link} text={d.source || props.yaml.label} />
+      <KVBlock rows={[
+        ["Installed at", Number.isFinite(when) ? ago(when / 1000) : undefined],
+        ["Env vars", d.env_requires.length ? `${req} required, ${opt} optional` : undefined],
+      ]} />
+    </>
   )
 })
 
@@ -107,6 +144,7 @@ const ProfileDetail = memo((props: { p: ProfileInfo; stats?: ProfileStats }) => 
         <KV label="Gateway" value={p.gateway_running ? "running" : "stopped"}
             fg={p.gateway_running ? theme.success : theme.textMuted} />
         {p.has_alias ? <KV label="Alias" value={`${p.name} (shell)`} /> : null}
+        {p.distribution ? <DistBlock d={p.distribution} yaml={p.sources.distribution} /> : null}
         <box height={1} />
         <KVLink label="Config" source={p.sources.config} />
         <KVLink label="Soul" source={p.sources.soul} />
@@ -417,6 +455,26 @@ export const Agents = memo((props: Props) => {
     if (ok) props.onSwitchProfile(p.path, p.name)
   }, [dialog, props.onSwitchProfile])
 
+  // `hermes profile update` re-pulls distribution-owned files from the
+  // source in `distribution.yaml`. `--force-config` additionally
+  // overwrites config.yaml. When the active profile is updated, the
+  // gateway stops mid-command; follow with the same rehome path as
+  // Switch so herm re-attaches under the refreshed profile.
+  const pUpdate = useCallback((p: ProfileInfo, force: boolean) => {
+    const cmd = `hermes profile update ${p.name} -y${force ? " --force-config" : ""}`
+    toast.show({ variant: "info", message: `Updating '${p.name}'…` })
+    sh(cmd)
+      .then(() => {
+        toast.show({ variant: "success", message: `Updated '${p.name}'` })
+        if (p.is_active && props.onSwitchProfile) {
+          props.onSwitchProfile(p.path, p.name)
+          return
+        }
+        loadProfiles()
+      })
+      .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
+  }, [sh, toast, loadProfiles, props.onSwitchProfile])
+
   const pEnter = useCallback((i: number) => {
     setPSel(i)
     const p = live.current.profiles[i]
@@ -433,8 +491,9 @@ export const Agents = memo((props: Props) => {
         .then(out => toast.show({ variant: "success", message: trunc(out.trim() || `Exported '${pp.name}'`, 80) }))
         .catch((e: Error) => toast.show({ variant: "error", message: e.message })),
       remove: () => pDelete(i),
+      update: (pp, force) => pUpdate(pp, force),
     })
-  }, [sh, dialog, toast, loadProfiles, pDelete, pSwitch, props.onSwitchProfile])
+  }, [sh, dialog, toast, loadProfiles, pDelete, pSwitch, pUpdate, props.onSwitchProfile])
 
   const dKill = useCallback(async (i: number) => {
     const r = live.current.active[i]
@@ -473,6 +532,40 @@ export const Agents = memo((props: Props) => {
       .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
   }, [sh, dialog, toast, loadProfiles])
 
+  // Install a distribution. The dialog runs its own preview-clone and
+  // shows the real manifest before we commit; the install shellout
+  // passes the ORIGINAL source (URL/path user entered) so the on-disk
+  // distribution.yaml's `source:` records the remote for future updates.
+  const install = useCallback(() => {
+    openInstallDistribution(dialog, gw)
+      .then(r => {
+        if (!r) return
+        const shq = (s: string) => `'${s.replace(/'/g, "'\\''")}'`
+        const flags = [
+          r.name ? `--name ${shq(r.name)}` : "",
+          r.alias ? "--alias" : "",
+        ].filter(Boolean).join(" ")
+        toast.show({ variant: "info", message: `Installing '${r.manifest.name}'…` })
+        return sh(`hermes profile install ${shq(r.source)} -y ${flags}`.trim())
+          .then(() => {
+            const installed = r.name || r.manifest.name
+            toast.show({ variant: "success", message: `Installed '${installed}'` })
+            loadProfiles()
+            const reqs = r.manifest.env_requires.filter(e => e.required).map(e => e.name)
+            if (reqs.length > 0) {
+              toast.show({
+                variant: "warning",
+                title: "Env vars needed",
+                message: `${reqs.join(", ")} — add to the profile's .env before using it`,
+                duration: 6000,
+              })
+            }
+          })
+      })
+      .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
+  }, [gw, sh, dialog, toast, loadProfiles])
+
+
   const selected = profiles[pSel]
   const statGen = useRef(0)
 
@@ -500,6 +593,7 @@ export const Agents = memo((props: Props) => {
     if (pane === "profiles") {
       if (key.name === "escape" && !pWide && pView === "detail") return setPView("list")
       if (key.name === "s") return void pSwitch(pSel)
+      if (keys.match("agents.install", key)) return install()
       handleListKey(keys, key, {
         count: profiles.length, setSel: setPSel, ...pFollow.opts,
         onNew: create,
@@ -544,20 +638,49 @@ export const Agents = memo((props: Props) => {
   useEffect(() => cmd.register([
     { title: deleg?.paused ? "Resume Delegation" : "Pause Delegation", value: "deleg.pause",
       category: "Agents", onSelect: togglePause },
-  ]), [cmd, togglePause, deleg?.paused])
+    // No action: — 'i' is tab-local to Agents (handled in useKeyboard below)
+    // so firing install from the palette doesn't conflict with other tabs
+    // that may want 'i' for their own verbs.
+    { title: "Install Distribution…", value: "profile.install",
+      category: "Agents", description: "from git URL or local directory", onSelect: install },
+  ]), [cmd, togglePause, deleg?.paused, install])
 
-  const sw = props.onSwitchProfile ? "s switch  " : ""
+  const pair = (k: string, v: string) => `[${k}] ${v}`
+  const join = (...parts: string[]) => parts.filter(Boolean).join("  ")
+  const sw = props.onSwitchProfile ? pair("s", "switch") : ""
   const pHint = pWide
-    ? `↑↓ nav  ${keys.print("list.activate")} actions  ${sw}${keys.print("list.new")} new  ${keys.print("list.delete")} delete  ${keys.print("list.refresh")} refresh`
-    : pView === "list" ? `↑↓ nav  ${keys.print("list.activate")} detail  ${sw}${keys.print("list.new")} new  ${keys.print("list.delete")} delete`
-    : `${keys.print("list.activate")} actions  ${sw}Esc back  ${keys.print("list.delete")} delete`
+    ? join("[↑↓] nav", pair(keys.print("list.activate"), "actions"), sw,
+           pair(keys.print("list.new"), "new"),
+           pair(keys.print("agents.install"), "install"),
+           pair(keys.print("list.delete"), "delete"),
+           pair(keys.print("list.refresh"), "refresh"))
+    : pView === "list"
+      ? join("[↑↓] nav", pair(keys.print("list.activate"), "detail"), sw,
+             pair(keys.print("list.new"), "new"),
+             pair(keys.print("list.delete"), "delete"))
+      : join(pair(keys.print("list.activate"), "actions"), sw, "[Esc] back",
+             pair(keys.print("list.delete"), "delete"))
+
+  const profilesHint = `${pHint}  ${pair("Tab", wide ? "→ delegation" : "↔ delegation")}`
+  const delegKeys = join(
+    "[↑↓] nav",
+    pair(keys.print("agents.kill"), "interrupt"),
+    pair(keys.print("agents.history"), "history"),
+    pair(keys.print("list.refresh"), "refresh"),
+  )
+  const delegHint = dHint ? `${delegKeys}  ·  ${dHint}` : delegKeys
+  // Wide: both panes visible, footer joins hints by focused pane order.
+  // Narrow: only one pane rendered, footer matches.
+  const footerHint = wide
+    ? (pane === "profiles" ? `${profilesHint}  ·  ${delegHint}` : `${delegHint}  ·  ${profilesHint}`)
+    : (pane === "profiles" ? profilesHint : delegHint)
 
   return (
+    <box flexDirection="column" flexGrow={1} minWidth={0}>
     <box flexDirection="row" flexGrow={1}>
       {/* ── Profiles ── */}
       {showProfiles ? (
       <TabShell title={`Profiles (${profiles.length})${sticky ? `  ·  ★ ${sticky}` : ""}`}
-                hint={`${pHint}  Tab ${wide ? "→" : "↔"} delegation`}
                 error={err || null}
                 focus={pane === "profiles"} grow={3}>
         <box flexDirection="row" flexGrow={1} minWidth={0}>
@@ -590,7 +713,6 @@ export const Agents = memo((props: Props) => {
       {/* ── Delegation ── */}
       {showDeleg ? (
       <TabShell title={`Delegation (${active.length})`}
-                hint={`↑↓ nav  ${keys.print("agents.kill")} interrupt  ${keys.print("agents.history")} history  ${keys.print("list.refresh")} refresh  ·  ${dHint}`}
                 focus={pane === "deleg"} grow={2}>
         <box height={1} flexDirection="row" marginBottom={1}>
           <box flexShrink={0} paddingX={1}
@@ -632,6 +754,8 @@ export const Agents = memo((props: Props) => {
         )}
       </TabShell>
       ) : null}
+    </box>
+    <HintBar raw={footerHint} />
     </box>
   )
 })

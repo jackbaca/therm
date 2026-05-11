@@ -10,6 +10,7 @@ import { useToast } from "../ui/toast"
 import { useGateway } from "../app/gateway"
 import { openConfirm } from "../dialogs/confirm"
 import { TabShell } from "../ui/shell"
+import { HintBar } from "../ui/hint"
 import { KVBlock } from "../ui/kv"
 
 // ─── Helpers ──────────────────────────────────────────────────────────
@@ -97,9 +98,9 @@ export const Memory = memo((props: { focused?: boolean }) => {
     : activity.filter(a => a.provider === cur.name)
 
   return (
+    <box flexDirection="column" flexGrow={1} minWidth={0}>
     <box flexDirection="row" flexGrow={1}>
-      <TabShell title="Memory Providers" grow={1}
-                hint={`${keys.print("list.up")}${keys.print("list.down")} select  ${keys.print("list.toggle")} activate`}>
+      <TabShell title="Memory Providers" grow={1}>
         <scrollbox scrollY flexGrow={1}>
           {providers.map((p, i) => {
             const pOn = p.name === "builtin" || p.name === active
@@ -134,7 +135,6 @@ export const Memory = memo((props: { focused?: boolean }) => {
 
       <TabShell
         title={cur?.name ?? "Provider"}
-        hint={on ? "● active" : "○ inactive"}
         grow={2}
       >
         {cur ? (
@@ -144,6 +144,14 @@ export const Memory = memo((props: { focused?: boolean }) => {
           <text fg={theme.textMuted}>Select a provider</text>
         )}
       </TabShell>
+    </box>
+    <HintBar
+      pairs={[
+        ["↑↓", "select"],
+        [keys.print("list.toggle"), "activate"],
+      ]}
+      suffix={on ? "● active" : "○ inactive"}
+    />
     </box>
   )
 })

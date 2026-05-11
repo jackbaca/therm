@@ -14,6 +14,7 @@ import { useTheme } from "../theme"
 import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
 import { TabShell } from "../ui/shell"
+import { HintBar } from "../ui/hint"
 import { KVBlock } from "../ui/kv"
 import { Col, Hdr, Marquee, VBAR } from "../ui/table"
 import { Spinner } from "../ui/spinner"
@@ -183,7 +184,7 @@ const Detail = memo((props: {
   const go = (sid: string) => () => props.onSwitch?.(sid)
 
   return (
-    <TabShell title="Session Detail" hint="" grow={2}>
+    <TabShell title="Session Detail" grow={2}>
       <box flexDirection="column" width="100%" flexGrow={1} overflow="hidden">
         <box flexDirection="column" flexShrink={0}>
           <box minHeight={1}>
@@ -270,7 +271,7 @@ const SearchDetail = memo((props: { result: SessionHit }) => {
   }
 
   return (
-    <TabShell title="Search Match" hint="" grow={2}>
+    <TabShell title="Search Match" grow={2}>
       <scrollbox scrollY flexGrow={1}>
         <box flexDirection="column" width="100%">
           <box minHeight={1}>
@@ -539,12 +540,19 @@ export const Sessions = memo((props: Props) => {
     void fillKids(diskRows)
 
     // Stock session.list doesn't drop 0-msg stubs — every abandoned
-    // connect leaves one, and they're never useful to resume.
+    // connect leaves one, and they're never useful to resume. Keep
+    // local state.db rows as authoritative for herm: gateway rows can
+    // be stale, over-filtered, or ordered differently, but they are
+    // still useful when herm is pointed at a remote/mismatched state.
     const r = await rpc
     if (r.ok && r.v.sessions?.length) {
-      const merged = r.v.sessions
-        .filter(s => (s.message_count ?? 0) > 0)
-        .map(s => ({ ...s, detail: local.get(s.id) }))
+      const seen = new Set(diskRows.map(s => s.id))
+      const merged = [
+        ...diskRows,
+        ...r.v.sessions
+          .filter(s => (s.message_count ?? 0) > 0 && !seen.has(s.id))
+          .map(s => ({ ...s, detail: local.get(s.id) })),
+      ].sort((a, b) => b.started_at - a.started_at)
       setRows(merged)
       if (cached) last.rows = merged
       void fillKids(merged)
@@ -740,14 +748,12 @@ export const Sessions = memo((props: Props) => {
   const showDetailPanel = dims.width >= 120
 
   return (
+    <box flexDirection="column" flexGrow={1} minWidth={0}>
     <box flexDirection="row" flexGrow={1}>
       <TabShell
         title={searching
           ? `Search Results (${results.length})`
           : `Sessions (${rows.length}${pending ? "…" : ""})`}
-        hint={searching
-          ? "↑↓ navigate  Enter/click switch  Esc cancel"
-          : `↑↓ navigate  ←→ lineage  ${keys.print("list.activate")}/click switch  ${keys.print("list.search")} search  ${keys.print("sessions.rename")} rename  ${keys.print("list.delete")} delete  ${keys.print("list.refresh")} refresh`}
         error={warn || null}
         grow={3}
       >
@@ -799,6 +805,22 @@ export const Sessions = memo((props: Props) => {
         : showDetailPanel && !searching && visible[sel]?.row
           ? <Detail row={visible[sel].row} lineage={io.lineage} peek={io.peek} onSwitch={lineageSwitch} />
           : null}
+    </box>
+    <HintBar pairs={searching
+      ? [
+          ["↑↓", "navigate"],
+          ["Enter/click", "switch"],
+          ["Esc", "cancel"],
+        ]
+      : [
+          ["↑↓", "navigate"],
+          ["←→", "lineage"],
+          [`${keys.print("list.activate")}/click`, "switch"],
+          [keys.print("list.search"), "search"],
+          [keys.print("sessions.rename"), "rename"],
+          [keys.print("list.delete"), "delete"],
+          [keys.print("list.refresh"), "refresh"],
+        ]} />
     </box>
   )
 })

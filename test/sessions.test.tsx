@@ -97,7 +97,8 @@ describe("Sessions tab", () => {
     await until(t, () => t.frame().includes("From disk"))
     expect(t.frame()).toContain("Sessions (1…)")
     unblock()
-    await until(t, () => t.frame().includes("Sessions (2)"))
+    await until(t, () => t.frame().includes("Sessions (3)"))
+    expect(t.frame()).toContain("From disk")
     expect(t.frame()).toContain("First session")
     expect(t.frame()).not.toContain("…)")
     t.destroy()
@@ -439,9 +440,11 @@ describe("Sessions tab", () => {
     // Transcript section doesn't fit at h=12 with the metadata block
     // above it; it's clipped rather than painted past the border.
     expect(f).not.toContain("Transcript")
-    // Bottom border intact (no content bleeding through it).
-    const last = f.split("\n").filter(l => l.trim()).at(-1)!
-    expect(last).toMatch(/└─+┘└─+┘$/)
+    // Bottom border intact (no content bleeding through it). The
+    // HintBar footer renders below the pane row, so find the border row
+    // (the last non-empty line that contains box-drawing corners).
+    const borderRow = f.split("\n").filter(l => /└─+┘└─+┘/.test(l)).at(-1)
+    expect(borderRow).toMatch(/└─+┘└─+┘$/)
     t.destroy()
   })
 })
@@ -895,8 +898,9 @@ describe("Sessions tab — lineage keyboard nav (herm-ngy)", () => {
       { gw },
     )
     await until(t, () => t.frame().includes("Sessions (3)"))
-    // Table sort is oldest-first, so visible[0] = sid-root (Root on top).
-    // Press → to go to its compressedTo (sid-mid).
+    // Newest-first sort: visible[0] = sid-tip. Walk down to sid-root.
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    act(() => t.keys.pressArrow("down")); await t.settle()
     act(() => t.keys.pressArrow("right"))
     await until(t, () => t.frame().includes("Load session?"))
     await act(async () => { await t.keys.typeText("y") })
@@ -913,10 +917,7 @@ describe("Sessions tab — lineage keyboard nav (herm-ngy)", () => {
       { gw },
     )
     await until(t, () => t.frame().includes("Sessions (3)"))
-    // Walk down to sid-tip (last in oldest-first sort).
-    act(() => t.keys.pressArrow("down")); await t.settle()
-    act(() => t.keys.pressArrow("down")); await t.settle()
-    // ← from tip → continuesFrom (sid-mid).
+    // Newest-first: sel=0 is sid-tip. ← → continuesFrom (sid-mid).
     act(() => t.keys.pressArrow("left"))
     await until(t, () => t.frame().includes("Load session?"))
     await act(async () => { await t.keys.typeText("y") })
@@ -933,9 +934,7 @@ describe("Sessions tab — lineage keyboard nav (herm-ngy)", () => {
       { gw },
     )
     await until(t, () => t.frame().includes("Sessions (3)"))
-    // Walk to sid-tip (last), which has NO compressedTo. → should do nothing.
-    act(() => t.keys.pressArrow("down")); await t.settle()
-    act(() => t.keys.pressArrow("down")); await t.settle()
+    // Newest-first: sel=0 is sid-tip (no compressedTo). → should do nothing.
     act(() => t.keys.pressArrow("right"))
     await t.settle()
     expect(t.frame()).not.toContain("Load session?")
@@ -951,7 +950,9 @@ describe("Sessions tab — lineage keyboard nav (herm-ngy)", () => {
       { gw },
     )
     await until(t, () => t.frame().includes("Sessions (3)"))
-    // sel=0 → sid-root (top of oldest-first sort). ← is no-op (no continuesFrom).
+    // Newest-first: walk down to sid-root (no continuesFrom). ← is no-op.
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    act(() => t.keys.pressArrow("down")); await t.settle()
     act(() => t.keys.pressArrow("left"))
     await t.settle()
     expect(t.frame()).not.toContain("Load session?")

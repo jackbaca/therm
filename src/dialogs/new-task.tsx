@@ -2,14 +2,15 @@
 //
 // Layout: a vertical form. Fields top-to-bottom: Title (input), Body
 // (textarea), Assignee / Priority / Triage always visible; Tenant /
-// Workspace / Max runtime live under a collapsed "More" section ('m'
-// toggles). Skills is intentionally absent in v1 — tracked separately
-// (tab-completion + chips is a bigger build).
+// Workspace / Max runtime / Skills live under a collapsed "More"
+// section ('m' toggles).
 //
 // Navigation:
 //   ↑/↓            move focus between visible fields (wraps)
 //   Tab / ⇧Tab     same, but also the ONLY way in/out of the Body
-//                  textarea (it owns ↑/↓ for cursor movement)
+//                  textarea (it owns ↑/↓ for cursor movement); on the
+//                  Skills field Tab commits the highlighted match to a
+//                  chip if the filter has matches, otherwise moves field
 //   ↑ at body top / ↓ at body bottom   escape the textarea to the
 //                  adjacent field (the textarea lets edge arrows
 //                  bubble; mid-buffer arrows move the cursor)
@@ -20,17 +21,28 @@
 //   Ctrl+Enter     submit from anywhere
 //   Esc            cancel
 //
+// Skills field:
+//   typing         filters the available skills; matches render inline
+//                  below the input
+//   ↑/↓            navigate matches (only when filter non-empty and
+//                  matches exist); otherwise move form field
+//   Tab            commit the highlighted match as a chip; clears the
+//                  filter. Falls through to field-nav when no matches.
+//   Backspace      with empty filter, pops the last chip
+//
 // The picker is rendered INSIDE this component (a `picker` state swaps
 // the field rows for a <DialogSelect>), so the form never unmounts and
 // the <input>/<textarea> buffers survive a round-trip through a picker.
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect, useMemo } from "react"
 import { useKeyboard } from "@opentui/react"
 import type { TextareaRenderable } from "@opentui/core"
 import { useTheme } from "../theme"
+import { useGateway } from "../app/gateway"
 import type { DialogContext } from "../ui/dialog"
 import { DialogSelect } from "../ui/dialog-select"
 import type { SelectOption } from "../ui/dialog-select"
+import { FilterChip } from "../ui/filter-chip"
 
 export type Workspace =
   | { kind: "scratch" }
@@ -47,6 +59,7 @@ export type Draft = {
   tenant: string | null
   workspace: Workspace
   maxRuntime: string | null
+  skills: string[]
 }
 
 export function openCreateTask(
@@ -65,18 +78,18 @@ export function openCreateTask(
 // Visible-field identifiers. "More" is the collapsible header row.
 type Field =
   | "title" | "body" | "assignee" | "priority" | "triage"
-  | "more" | "tenant" | "workspace" | "maxRuntime"
+  | "more" | "tenant" | "workspace" | "maxRuntime" | "skills"
 
 const CORE: Field[] = ["title", "body", "assignee", "priority", "triage", "more"]
-const MORE: Field[] = ["tenant", "workspace", "maxRuntime"]
+const MORE: Field[] = ["tenant", "workspace", "maxRuntime", "skills"]
 
 // Fields that open a picker on Space.
 const SELECTY: ReadonlySet<Field> = new Set(["assignee", "priority", "workspace"])
-// Text-entry fields (plain arrows move form focus — single-line, no
-// vertical cursor to conflict with).
-const TEXTY: ReadonlySet<Field> = new Set(["title", "tenant", "maxRuntime"])
 
 const MAX_RUNTIME_RE = /^\d+[smhd]?$/
+
+// Cap on inline match rows to keep the dialog height bounded.
+const SKILL_MATCHES_MAX = 6
 
 const wsLabel = (w: Workspace): string =>
   w.kind === "scratch" ? "scratch"
@@ -90,12 +103,16 @@ type Picker =
   | { kind: "workspace" }
   | { kind: "dirPath"; value: string }
 
+// A single installed skill, as returned by `skills.manage action=list`.
+type Skill = { cat: string; name: string }
+
 const Form = (p: {
   pool: string[]
   parent?: { id: string; title: string }
   done: (r: Draft | null) => void
 }) => {
   const theme = useTheme().theme
+  const gw = useGateway()
   const body = useRef<TextareaRenderable | null>(null)
   // <textarea> has no onInput(value) — we mirror its content into state
   // via onContentChange (reading .plainText off the ref) so the text
@@ -115,6 +132,49 @@ const Form = (p: {
   const [workspace, setWorkspace] = useState<Workspace>({ kind: "scratch" })
   const [maxRuntime, setMaxRuntime] = useState("")
 
+  // Skills state.
+  const [catalog, setCatalog] = useState<Skill[]>([])
+  const [skills, setSkills] = useState<string[]>([])
+  const [filter, setFilter] = useState("")
+  const [matchIdx, setMatchIdx] = useState(0)
+
+  useEffect(() => {
+    let live = true
+    gw.request<{ skills: Record<string, string[]> }>("skills.manage", { action: "list" })
+      .then(r => {
+        if (!live) return
+        const raw = r.skills ?? {}
+        const out: Skill[] = []
+        for (const cat of Object.keys(raw)) {
+          for (const name of raw[cat] ?? []) out.push({ cat, name })
+        }
+        out.sort((a, b) => a.name.localeCompare(b.name))
+        setCatalog(out)
+      })
+      .catch(() => { /* leave catalog empty — typing still works, just no matches */ })
+    return () => { live = false }
+  }, [gw])
+
+  // Skill matches: case-insensitive substring over name, excluding
+  // already-picked skills. Capped at SKILL_MATCHES_MAX.
+  const matches = useMemo(() => {
+    if (!filter.trim()) return []
+    const q = filter.trim().toLowerCase()
+    const picked = new Set(skills)
+    const hits: Skill[] = []
+    for (const s of catalog) {
+      if (picked.has(s.name)) continue
+      if (s.name.toLowerCase().includes(q) || s.cat.toLowerCase().includes(q)) hits.push(s)
+      if (hits.length >= SKILL_MATCHES_MAX) break
+    }
+    return hits
+  }, [catalog, filter, skills])
+
+  // Clamp match cursor when the list shrinks.
+  useEffect(() => {
+    if (matchIdx > 0 && matchIdx >= matches.length) setMatchIdx(Math.max(0, matches.length - 1))
+  }, [matches.length, matchIdx])
+
   const order = (): Field[] => more ? [...CORE, ...MORE] : CORE
   const titleOk = title.trim().length > 0
   const runtimeOk = maxRuntime.trim() === "" || MAX_RUNTIME_RE.test(maxRuntime.trim())
@@ -132,6 +192,7 @@ const Form = (p: {
       tenant: tenant.trim() || null,
       workspace,
       maxRuntime: maxRuntime.trim() || null,
+      skills,
     })
   }
 
@@ -151,6 +212,18 @@ const Form = (p: {
     if (field === "workspace") return setPicker({ kind: "workspace" })
   }
 
+  // Commit the highlighted match as a chip and clear the filter.
+  const commitMatch = () => {
+    const hit = matches[matchIdx]
+    if (!hit) return false
+    setSkills(s => s.includes(hit.name) ? s : [...s, hit.name])
+    setFilter("")
+    setMatchIdx(0)
+    return true
+  }
+
+  const popSkill = () => setSkills(s => s.slice(0, -1))
+
   useKeyboard((key) => {
     // Picker owns the keyboard while open; DialogSelect has its own
     // useKeyboard. Esc backs out one level: dirPath → workspace picker
@@ -168,6 +241,40 @@ const Form = (p: {
       if (field !== "body") return submit()
       return // body textarea owns plain Enter (newline)
     }
+
+    // Skills field owns the input buffer — intercept Tab/Bksp/arrows
+    // and printable keys here so autocomplete works. Escape and Enter
+    // are handled above so the form still cancels/submits from Skills.
+    if (field === "skills") {
+      if (key.name === "tab") {
+        // Shift+Tab always moves fields (backwards). Plain Tab commits
+        // a match; falls through to field-nav when filter is empty or
+        // has no matches.
+        if (!key.shift && commitMatch()) return
+        return moveField(key.shift ? -1 : 1)
+      }
+      if (key.name === "backspace") {
+        if (filter.length > 0) return setFilter(f => f.slice(0, -1))
+        return popSkill()
+      }
+      if (key.name === "up") {
+        if (matches.length > 0) return setMatchIdx(i => Math.max(0, i - 1))
+        return moveField(-1)
+      }
+      if (key.name === "down") {
+        if (matches.length > 0) return setMatchIdx(i => Math.min(matches.length - 1, i + 1))
+        return moveField(1)
+      }
+      // Printable: append to filter. Limit to skill-name legal chars so
+      // stray shortcuts don't land in the buffer; skill names use
+      // [a-z0-9_-] plus `/` for "category/name" scoped search.
+      if (key.raw && key.raw.length === 1 && /[A-Za-z0-9_\-/ ]/.test(key.raw)) {
+        setFilter(f => f + key.raw)
+        setMatchIdx(0)
+      }
+      return
+    }
+
     if (key.name === "tab") return moveField(key.shift ? -1 : 1)
 
     // Arrow nav. ↑/↓ move focus between fields — EXCEPT inside the body
@@ -326,17 +433,72 @@ const Form = (p: {
     </box>
   )
 
+  // Skills row + inline match list. Chips render as FilterChip{state:in}
+  // so they match every other pill in herm. The filter text sits at the
+  // end of the chip row with a blinking cursor marker when focused.
+  const skillsRows = () => {
+    const focused = field === "skills"
+    const empty = skills.length === 0 && !focused
+    return (
+      <>
+        <box height={1} flexDirection="row">
+          {lbl("skills", "Skills")}
+          <box flexGrow={1} minWidth={0} height={1} flexDirection="row" overflow="hidden">
+            {skills.map(n => (
+              <FilterChip key={n} label={n} state="in" gap={0} />
+            ))}
+            {empty
+              ? <text fg={theme.textMuted}>(none — focus field to pick)</text>
+              : (
+                <box flexDirection="row" marginLeft={skills.length > 0 ? 1 : 0}>
+                  <text fg={theme.text}>{filter}</text>
+                  {focused ? <text fg={theme.accent}>█</text> : null}
+                </box>
+              )}
+          </box>
+        </box>
+        {focused && matches.length > 0 ? (
+          <box flexDirection="column">
+            {matches.map((s, i) => (
+              <box key={`${s.cat}/${s.name}`} height={1} flexDirection="row">
+                <box width={13} flexShrink={0}>
+                  <text fg={i === matchIdx ? theme.accent : theme.textMuted}>
+                    {i === matchIdx ? "  ▸ " : "    "}
+                  </text>
+                </box>
+                <box flexGrow={1} minWidth={0} height={1} overflow="hidden">
+                  <text>
+                    <span fg={i === matchIdx ? theme.accent : theme.text}>{s.name}</span>
+                    <span fg={theme.textMuted}>{`  ${s.cat}`}</span>
+                  </text>
+                </box>
+              </box>
+            ))}
+          </box>
+        ) : null}
+      </>
+    )
+  }
+
+  const skillsFooter = () => {
+    if (matches.length > 0) return "Tab add  ·  ↑↓ pick  ·  Bksp remove  ·  Enter create  ·  Esc"
+    if (skills.length > 0) return "type to filter  ·  Bksp remove last  ·  Enter create  ·  ↑↓/Tab  ·  Esc"
+    return "type to filter  ·  Enter create  ·  ↑↓/Tab field  ·  Esc cancel"
+  }
+
   const footer = !valid
     ? (!titleOk ? "type a title" : "fix runtime (e.g. 30m, 2h, 1800)")
     : field === "body"
       ? "Ctrl+Enter create  ·  Tab leave  ·  ↑↓ cursor  ·  Esc cancel"
       : field === "more"
         ? `Space ${more ? "collapse" : "expand"}  ·  Ctrl+Enter create  ·  ↑↓/Tab  ·  Esc`
-        : SELECTY.has(field)
-          ? "Space pick  ·  Enter create  ·  ↑↓/Tab field  ·  Esc cancel"
-          : field === "triage"
-            ? "Space toggle  ·  Enter create  ·  ↑↓/Tab field  ·  Esc"
-            : "Enter create  ·  ↑↓/Tab field  ·  Esc cancel"
+        : field === "skills"
+          ? skillsFooter()
+          : SELECTY.has(field)
+            ? "Space pick  ·  Enter create  ·  ↑↓/Tab field  ·  Esc cancel"
+            : field === "triage"
+              ? "Space toggle  ·  Enter create  ·  ↑↓/Tab field  ·  Esc"
+              : "Enter create  ·  ↑↓/Tab field  ·  Esc cancel"
 
   return (
     <box flexDirection="column" width={66}>
@@ -384,7 +546,7 @@ const Form = (p: {
         </box>
         {!more ? (
           <box flexGrow={1} height={1} overflow="hidden">
-            <text fg={theme.textMuted}>tenant · workspace · max runtime</text>
+            <text fg={theme.textMuted}>tenant · workspace · runtime · skills</text>
           </box>
         ) : null}
       </box>
@@ -392,6 +554,7 @@ const Form = (p: {
       {more ? textRow("tenant", "Tenant", tenant, setTenant, "namespace (optional)") : null}
       {more ? valRow("workspace", "Workspace", wsLabel(workspace), "Space pick ▾") : null}
       {more ? textRow("maxRuntime", "Runtime", maxRuntime, setMaxRuntime, "e.g. 30m, 2h, 1800 (optional)") : null}
+      {more ? skillsRows() : null}
 
       <box height={1} />
       <box height={1}><text fg={theme.textMuted}>{footer}</text></box>

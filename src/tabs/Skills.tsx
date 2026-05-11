@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, memo } from "react";
 import { useKeyboard } from "@opentui/react";
 import type { RGBA } from "@opentui/core";
 import { useKeys, handleListKey, useFollow } from "../keys";
+import type { Dispatch, SetStateAction } from "react";
 import { makeSource, readSkillFrontmatter, listCuratorRuns, readCuratorReport, indexCuratorLineage, type SkillInfo, type SkillUsage, type CuratorRun, type LineageEvent } from "../utils/hermes-home";
 import { count as tokenCount } from "../utils/tokens";
 import { useGateway } from "../app/gateway";
@@ -10,6 +11,7 @@ import { useToast } from "../ui/toast";
 import { useTheme } from "../theme";
 import { useHome } from "../home";
 import { TabShell } from "../ui/shell";
+import { HintBar } from "../ui/hint";
 import { KVBlock } from "../ui/kv";
 import { KVLink } from "../components/ui/FileLink";
 import { Col, Hdr, Marquee, VBAR } from "../ui/table";
@@ -178,6 +180,8 @@ const EmptyState = memo((props: { searching: boolean }) => {
 
 const HistoryPanel = memo((props: { focused: boolean }) => {
   const { theme, syntaxStyle } = useTheme();
+  const keys = useKeys();
+  const follow = useFollow("skills-history");
   const [runs, setRuns] = useState<CuratorRun[]>(() => listCuratorRuns());
   const [sel, setSel] = useState(0);
   const [open, setOpen] = useState(false);
@@ -191,12 +195,20 @@ const HistoryPanel = memo((props: { focused: boolean }) => {
     return () => { live = false };
   }, [open, run?.id]);
 
-  useKeyboard((key) => {
+  // Collapse the expanded body whenever selection moves. Wraps setSel so
+  // handleListKey's ↑↓/PgUp/PgDn/Home/End all trigger it uniformly.
+  const moveSel: Dispatch<SetStateAction<number>> = useCallback(v => {
+    setOpen(false);
+    setSel(v);
+  }, []);
+
+  useKeyboard(key => {
     if (!props.focused) return;
-    if (key.name === "up") { setOpen(false); return setSel(p => Math.max(0, p - 1)) }
-    if (key.name === "down") { setOpen(false); return setSel(p => Math.min(runs.length - 1, p + 1)) }
-    if (key.name === "return") return setOpen(o => !o);
-    if (key.raw === "r") return setRuns(listCuratorRuns());
+    handleListKey(keys, key, {
+      count: runs.length, setSel: moveSel, ...follow.opts,
+      onActivate: () => setOpen(o => !o),
+      onRefresh: () => setRuns(listCuratorRuns()),
+    });
   });
 
   return (
@@ -211,17 +223,17 @@ const HistoryPanel = memo((props: { focused: boolean }) => {
           </span>
         </text>
       </box>
-      <box height={1}><text fg={theme.textMuted}>↑↓ select · Enter expand · h close</text></box>
+      <box height={1}><text fg={theme.textMuted}>{`↑↓ select · Enter expand · ${keys.print("list.refresh")} reload · h close`}</text></box>
       <box height={1} />
       {runs.length === 0
         ? <text fg={theme.textMuted}>no runs in ~/.hermes/logs/curator/</text>
         : (
-          <scrollbox scrollY flexGrow={1}>
+          <scrollbox ref={follow.ref} scrollY flexGrow={1}>
             <box flexDirection="column" width="100%">
               {runs.map((r, i) => {
                 const on = i === sel;
                 return (
-                  <box key={r.id} flexDirection="column">
+                  <box key={r.id} id={follow.id(i)} flexDirection="column">
                     <box height={1} flexDirection="row"
                          backgroundColor={on ? theme.backgroundElement : undefined}
                          onMouseDown={() => { setSel(i); setOpen(o => i === sel ? !o : true) }}>
@@ -412,12 +424,10 @@ export const Skills = memo((props: { focused?: boolean }) => {
   let skillIdx = -1;
 
   return (
+    <box flexDirection="column" flexGrow={1} minWidth={0}>
     <box flexDirection="row" flexGrow={1}>
       <TabShell
         title={searching ? `Hub Search (${hits.length})` : `Skills (${skills.length}${sort === "used" ? " · by use" : ""})`}
-        hint={searching
-          ? "↑↓ navigate  Enter install  Esc cancel"
-          : `↑↓ navigate  ${keys.print("list.search")} search hub  s sort  c curator  h history  ${keys.print("list.refresh")} refresh`}
       >
         {/* Search bar */}
         {searching ? (
@@ -502,6 +512,21 @@ export const Skills = memo((props: { focused?: boolean }) => {
         ? <HistoryPanel focused={!!props.focused && !searching} />
         : current ? <DetailPanel skill={current} usage={usage[current.name]}
                                   events={lineage.current.get(current.name) ?? NO_EVENTS} /> : null}
+    </box>
+    <HintBar pairs={searching
+      ? [
+          ["↑↓", "navigate"],
+          ["Enter", "install"],
+          ["Esc", "cancel"],
+        ]
+      : [
+          ["↑↓", "navigate"],
+          [keys.print("list.search"), "search hub"],
+          ["s", "sort"],
+          ["c", "curator"],
+          ["h", "history"],
+          [keys.print("list.refresh"), "refresh"],
+        ]} />
     </box>
   );
 });

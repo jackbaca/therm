@@ -19,9 +19,16 @@ export function quit(
   renderer: { destroy: () => void },
   sid?: string,
   title?: string,
+  gw?: { kill: () => void },
 ): never {
   if (done) process.exit(0)
   done = true
+  // Explicit SIGTERM to the gateway so its signal handler runs the
+  // graceful sys.exit(0) → atexit → _shutdown_sessions path inside the
+  // grace window. Without this we rely on stdin EOF, which works, but
+  // the explicit signal starts cleanup sooner and matches Ink TUI's
+  // setupGracefulExit cleanup.
+  try { gw?.kill() } catch {}
   renderer.destroy()
   if (process.stdout.isTTY && sid) {
     const t = title ? `  —  ${title.slice(0, 60)}` : ""

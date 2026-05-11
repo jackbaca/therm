@@ -93,7 +93,9 @@ export const DEFAULTS = {
   "sessions.next":     def("right",                "Walk lineage forward (compressed to)", "sessions"),
   "agents.kill":       def("k",                    "Kill subagent",                      "agents"),	// k: I like this
   "agents.history":    def("h",                    "Spawn history",                      "agents"),	// k: keep
+  "agents.install":    def("i",                    "Install distribution",               "agents"),	// ☨
   "config.save":       def("ctrl+s",               "Write config",                       "config"),
+  "config.mode":       def("m",                    "Toggle form ↔ YAML",                 "config"), // ☨
 } satisfies Record<string, Def>
 
 export type ActionId = keyof typeof DEFAULTS

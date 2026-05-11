@@ -3,7 +3,7 @@ import { parseLaunch, type Launch } from "../src/app/launch"
 import { openStateDb } from "./fixtures/state-db"
 import { resetDb, lastReal, byId } from "../src/utils/sessions-db"
 import * as preferences from "../src/utils/preferences"
-import { useSession } from "../src/app/useSession"
+import { useSession, normalize } from "../src/app/useSession"
 import { MockGateway, mountNode } from "./harness"
 
 // ─── argv parse ──────────────────────────────────────────────────────
@@ -25,6 +25,14 @@ describe("parseLaunch", () => {
   }
 })
 
+describe("normalize", () => {
+  test("accepts db ids and session json filenames", () => {
+    expect(normalize("20260509_002407_e8b6e4")).toBe("20260509_002407_e8b6e4")
+    expect(normalize(" session_20260509_002407_e8b6e4.json ")).toBe("20260509_002407_e8b6e4")
+    expect(normalize("session_not-a-date.json")).toBe("session_not-a-date")
+  })
+})
+
 // ─── sessions-db helpers ─────────────────────────────────────────────
 
 const seed = () => {
@@ -41,9 +49,16 @@ const sess = (
   source: string,
   ts: number,
   message_count = 1,
-) => db.prepare(
-  "INSERT INTO sessions (id, source, started_at, message_count) VALUES (?,?,?,?)",
-).run(id, source, ts, message_count)
+  extra: Record<string, string | number | null> = {},
+) => {
+  const row: Record<string, string | number | null> = {
+    id, source, started_at: ts, message_count, ...extra,
+  }
+  const cols = Object.keys(row)
+  db.prepare(
+    `INSERT INTO sessions (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`,
+  ).run(...Object.values(row))
+}
 
 describe("lastReal / byId", () => {
   beforeEach(() => {
@@ -99,7 +114,22 @@ describe("useSession.boot", () => {
     expect(gw.last("session.resume")?.params.session_id).toBe("stub")
   })
 
+  test("mode:new chases compression chain to reuse empty tip stub", async () => {
+    const db = seed()
+    sess(db, "root", "tui", 1000, 296, { ended_at: 2000, end_reason: "compression" })
+    sess(db, "tip",  "tui", 2100,   0, { parent_session_id: "root" })
+    db.close()
+    resetDb()
+    preferences.set("lastSessionId", "root")
+    const gw = new MockGateway()
+    await boot(gw, { mode: "new" })
+    expect(gw.calls.some(c => c.method === "session.create")).toBe(false)
+    expect(gw.last("session.resume")?.params.session_id).toBe("tip")
+  })
+
   test("mode:new creates when lastSessionId is non-empty session", async () => {
+    // herm-1jd: bare `herm` is fresh. `-c` is resume. Non-empty stored
+    // id is NOT reused — that's an explicit choice, not a loss.
     preferences.set("lastSessionId", "real")
     const gw = new MockGateway()
     const r = await boot(gw, { mode: "new" })
@@ -111,6 +141,12 @@ describe("useSession.boot", () => {
     const gw = new MockGateway()
     await boot(gw, { mode: "resume" })
     expect(gw.last("session.resume")?.params.session_id).toBe("real")
+  })
+
+  test("mode:resume normalizes session_*.json filenames", async () => {
+    const gw = new MockGateway()
+    await boot(gw, { mode: "resume", sid: "session_20260509_002407_e8b6e4.json" })
+    expect(gw.last("session.resume")?.params.session_id).toBe("20260509_002407_e8b6e4")
   })
 
   test("mode:resume sid rejection falls through to fresh + note", async () => {
