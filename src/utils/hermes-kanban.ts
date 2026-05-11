@@ -47,6 +47,7 @@ export type Task = {
   workspace_kind: string | null; workspace_path: string | null
   skills: string[]
   max_runtime_seconds: number | null
+  max_retries: number | null
 }
 
 export type Run = {
@@ -209,6 +210,7 @@ const taskColumns = (have: Set<string>): string => [
   selectCol(have, "worker_pid"),
   selectCol(have, "workspace_kind"), selectCol(have, "workspace_path"),
   selectCol(have, "skills"), selectCol(have, "max_runtime_seconds"),
+  selectCol(have, "max_retries"),
   `${AT} AS updated_at`,
 ].join(", ")
 
@@ -237,6 +239,7 @@ const toTask = (r: Record<string, unknown>): Task => ({
   workspace_path: (r.workspace_path as string) ?? null,
   skills: parseSkills(r.skills),
   max_runtime_seconds: (r.max_runtime_seconds as number) ?? null,
+  max_retries: (r.max_retries as number) ?? null,
 })
 
 const toRun = (r: Record<string, unknown>): Run => ({

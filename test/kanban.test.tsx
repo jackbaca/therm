@@ -65,6 +65,8 @@ beforeAll(() => {
     "done", 1, now - 7200, now - 7100, now - 7000, "memo.md written", null)
   ins.run("t5", "need decision", "rate limit keying", "researcher",
     "blocked", 2, now - 600, now - 500, null, null, null)
+  ins.run("t0", "one-liner idea", null, null,
+    "triage", 0, now - 200, null, null, null, null)
   db.run("INSERT INTO task_links (parent_id, child_id) VALUES ('t1','t3'),('t2','t3')")
   db.run("INSERT INTO task_comments (task_id, author, body, created_at) VALUES (?,?,?,?)",
     ["t1", "kaio", "check AWS reserved pricing too", now - 1000])
@@ -95,7 +97,7 @@ describe("hermes-kanban readers", () => {
     expect(b.get("todo")?.[0]?.id).toBe("t3")
     expect(b.get("blocked")?.[0]?.id).toBe("t5")
     expect(b.get("done")?.[0]?.result).toContain("memo.md")
-    expect(b.get("triage")).toEqual([])
+    expect(b.get("triage")?.[0]?.id).toBe("t0")
   })
 
   test("boardOf() reads per-slug without touching current", () => {
@@ -161,7 +163,7 @@ describe("hermes-kanban readers", () => {
 describe("Kanban tab", () => {
   test("stacks boards, empty last, chips + one-line rows", async () => {
     const t = await mountNode(<Kanban focused />, { width: 180, height: 44 })
-    await until(t, () => t.frame().includes("Kanban · 3 boards · 6 tasks"))
+    await until(t, () => t.frame().includes("Kanban · 3 boards · 7 tasks"))
     const f = t.frame()
     // Non-empty boards open; empty board collapsed and sorted last.
     expect(f).toContain("▾ Default")
@@ -240,17 +242,17 @@ describe("Kanban tab", () => {
     act(() => t.keys.pressArrow("up")); await t.settle()
     await until(t, () => t.frame().includes("←→ chip"))
     act(() => t.keys.pressKey(" "))
-    await until(t, () => t.frame().includes("1/5 task"))
+    await until(t, () => t.frame().includes("1/6 task"))
     // include: only analyst's task survives the who group.
     expect(t.frame()).toContain("synthesize")
     expect(t.frame()).not.toContain("research cost")
     act(() => t.keys.pressKey(" "))
-    await until(t, () => t.frame().includes("4/5 task"))
+    await until(t, () => t.frame().includes("5/6 task"))
     // exclude: everyone except analyst.
     expect(t.frame()).not.toContain("synthesize")
     expect(t.frame()).toContain("research cost")
     act(() => t.keys.pressKey(" "))
-    await until(t, () => !/\d\/5 task/.test(t.frame()))
+    await until(t, () => !/\d\/6 task/.test(t.frame()))
     // ↑ to head. Space collapses.
     act(() => t.keys.pressArrow("up")); await t.settle()
     await until(t, () => t.frame().includes("Space fold"))
@@ -314,6 +316,64 @@ describe("Kanban tab", () => {
     await act(async () => { await t.keys.typeText("y") })
     await until(t, () => cmds.length === 1)
     expect(cmds[0]).toBe("hermes kanban --board default archive t4")
+    t.destroy()
+  })
+
+  test("s on triage → shell.exec specify → success toast with new title", async () => {
+    const cmds: string[] = []
+    const gw = new MockGateway({
+      "shell.exec": p => {
+        cmds.push(p.command as string)
+        return { stdout: `{"task_id":"t0","ok":true,"reason":null,"new_title":"Expanded idea"}\n`, stderr: "", code: 0 }
+      },
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    // Initial col 0 = triage, row 0 = t0. `s` fires specify.
+    await act(async () => { await t.keys.typeText("s") })
+    await until(t, () => cmds.length === 1)
+    expect(cmds[0]).toBe("hermes kanban --board default specify t0 --json")
+    await until(t, () => /Specified t0 → Expanded idea/.test(t.frame()))
+    t.destroy()
+  })
+
+  test("s on non-triage is a no-op (info toast, no command)", async () => {
+    const cmds: string[] = []
+    const gw = new MockGateway({
+      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "", stderr: "", code: 0 } },
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    // → to 'todo' (col 1) — t3 is not triage.
+    act(() => t.keys.pressArrow("right")); await t.settle()
+    await act(async () => { await t.keys.typeText("s") })
+    await t.settle()
+    // when-guard keeps the action from firing; no shell command emitted.
+    expect(cmds.length).toBe(0)
+    t.destroy()
+  })
+
+  test("S → confirm → specify --all → aggregate toast", async () => {
+    const cmds: string[] = []
+    const gw = new MockGateway({
+      "shell.exec": p => {
+        cmds.push(p.command as string)
+        return {
+          stdout:
+            `{"task_id":"t0","ok":true,"reason":null,"new_title":"First spec"}\n`
+            + `{"task_id":"tX","ok":false,"reason":"auxiliary: timeout","new_title":null}\n`,
+          stderr: "", code: 0,
+        }
+      },
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    await act(async () => { await t.keys.typeText("S") })
+    await until(t, () => t.frame().includes("Specify all"))
+    await act(async () => { await t.keys.typeText("y") })
+    await until(t, () => cmds.length === 1)
+    expect(cmds[0]).toBe("hermes kanban --board default specify --all --json")
+    await until(t, () => /Specified 1\/2 \(1 failed\)/.test(t.frame()))
     t.destroy()
   })
 
@@ -656,8 +716,8 @@ describe("Kanban tab", () => {
   test("↓ walks off the last row into the next board's head", async () => {
     const t = await mountNode(<Kanban focused />, { width: 180, height: 48 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
-    // Grid on default, col 0 (triage, 0 tasks). Single ↓ from an empty
-    // column's row 0 goes nowhere; nav to todo (1 task) first.
+    // Grid on default, col 0 (triage, 1 task). → to todo (1 task); its
+    // single row then walks off into atm10 head on the next ↓.
     act(() => t.keys.pressArrow("right")); await t.settle()
     // row 0 → ↓ crosses into atm10 head.
     act(() => t.keys.pressArrow("down")); await t.settle()
@@ -714,13 +774,13 @@ describe("Kanban tab", () => {
     expect(slice()).toContain("todo  1")
     // 1st Space → include: only todo column remains on Default.
     act(() => t.keys.pressKey(" "))
-    await until(t, () => t.frame().includes("1/5 task"))
+    await until(t, () => t.frame().includes("1/6 task"))
     expect(slice()).not.toContain("ready  1")
     expect(slice()).toContain("todo  1")
     expect(slice()).toContain("synthesize")
     // 2nd Space → exclude: todo column gone; others back.
     act(() => t.keys.pressKey(" "))
-    await until(t, () => t.frame().includes("4/5 task"))
+    await until(t, () => t.frame().includes("5/6 task"))
     expect(slice()).not.toContain("todo  1")
     expect(slice()).toContain("ready  1")
     expect(slice()).not.toContain("synthesize")
@@ -728,7 +788,7 @@ describe("Kanban tab", () => {
     expect(t.frame()).toContain("todo  0")
     // 3rd Space → off.
     act(() => t.keys.pressKey(" "))
-    await until(t, () => !/\d\/5 task/.test(t.frame()))
+    await until(t, () => !/\d\/6 task/.test(t.frame()))
     expect(slice()).toContain("todo  1")
     t.destroy()
   })
@@ -903,7 +963,7 @@ describe("Kanban preferences round-trip", () => {
     // Flip 'analyst' chip to include via the filter tier.
     act(() => t1.keys.pressArrow("up")); await t1.settle()
     act(() => t1.keys.pressKey(" "))
-    await until(t1, () => t1.frame().includes("1/5 task"))
+    await until(t1, () => t1.frame().includes("1/6 task"))
     t1.destroy()
 
     // Saved?
@@ -913,11 +973,67 @@ describe("Kanban preferences round-trip", () => {
 
     // Remount — mask rehydrates without user input.
     const t2 = await mountNode(<Kanban focused />, { width: 180, height: 44 })
-    await until(t2, () => t2.frame().includes("1/5 task"))
+    await until(t2, () => t2.frame().includes("1/6 task"))
     expect(t2.frame()).toContain("synthesize")
     expect(t2.frame()).not.toContain("research cost")
     // Cleanup for the rest of the suite.
     t2.destroy()
     prefsMod.set("kanban", undefined as never)
+  })
+})
+
+// ── max_retries parity (upstream ac51c4c1a) ──────────────────────────
+// New nullable `tasks.max_retries INTEGER` column. Herm surfaces it in
+// the detail pane as "Retries N" only when non-null, same shape as
+// Workspace/Skills. The label is shortened to fit the detail pane's
+// 10-col label track (upstream CLI uses "max-retries", 11 chars, which
+// overflows). Schema-tolerance (selectCol → NULL AS max_retries) is
+// covered implicitly by every other test in this file: their beforeAll
+// schema has no such column, and they all still pass.
+describe("max_retries parity", () => {
+  beforeAll(() => {
+    mkdirSync(hermesPath("kanban/boards/mxr"), { recursive: true })
+    const db = new Database(hermesPath("kanban/boards/mxr/kanban.db"), { create: true })
+    schema(db)
+    db.run("ALTER TABLE tasks ADD COLUMN max_retries INTEGER")
+    const ins = db.prepare(
+      `INSERT INTO tasks (id, title, status, priority, created_at, max_retries)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    ins.run("mxr1", "retries explicit", "ready", 3, now, 5)
+    ins.run("mxr2", "retries default", "ready", 2, now - 1, null)
+    db.close()
+    resetKanban()
+  })
+
+  test("boardOf() surfaces max_retries on tasks that set it; null otherwise", () => {
+    const rows = boardOf("mxr").get("ready") ?? []
+    const byId = new Map(rows.map(r => [r.id, r]))
+    expect(byId.get("mxr1")?.max_retries).toBe(5)
+    expect(byId.get("mxr2")?.max_retries).toBeNull()
+  })
+
+  test("detail pane renders 'Max retries 5' when non-null, omits row otherwise", async () => {
+    const t = await mountNode(<Kanban focused />, { width: 180, height: 48 })
+    try {
+      await until(t, () => /mxr/.test(t.frame()))
+      // Tab walks heads (default → atm10 → mxr); ↓↓ head → filter → grid;
+      // →→ triage → todo → ready. Row 0 is mxr1 (priority 3).
+      act(() => t.keys.pressTab()); await t.settle()
+      act(() => t.keys.pressTab()); await t.settle()
+      act(() => t.keys.pressArrow("down")); await t.settle()
+      act(() => t.keys.pressArrow("down")); await t.settle()
+      act(() => t.keys.pressArrow("right")); await t.settle()
+      act(() => t.keys.pressArrow("right")); await t.settle()
+      act(() => t.keys.pressEnter())
+      await until(t, () => /Title\s+retries explicit/.test(t.frame()))
+      expect(t.frame()).toMatch(/Retries\s+5/)
+      // ↓ to mxr2 — pane rehydrates, row drops.
+      act(() => t.keys.pressArrow("down")); await t.settle()
+      await until(t, () => /Title\s+retries default/.test(t.frame()))
+      expect(t.frame()).not.toMatch(/Retries\s+\d/)
+    } finally {
+      t.destroy()
+    }
   })
 })

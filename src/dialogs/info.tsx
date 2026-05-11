@@ -76,6 +76,7 @@ const UsageDialog = ({ gw }: { gw: Gateway }) => {
       ["Input",     fmt(u.input ?? 0)],
       ["Output",    fmt(u.output ?? 0)],
       ["Cache r/w", (u.cache_read || u.cache_write) ? `${fmt(u.cache_read ?? 0)} / ${fmt(u.cache_write ?? 0)}` : undefined],
+      ["Reasoning", u.reasoning ? fmt(u.reasoning) : undefined],
       ["Total",     fmt(u.total ?? 0)],
       ["Context",   ctx],
       ["Cost",      u.cost_usd != null ? cost(u.cost_usd) : undefined, theme.accent],

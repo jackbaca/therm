@@ -3,10 +3,12 @@
 // through `shell.exec → hermes curator <verb>` so the CLI owns the
 // state machine (see Agents.tsx / Kanban.tsx for the precedent).
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useRef } from "react"
 import { useKeyboard } from "@opentui/react"
+import type { ScrollBoxRenderable } from "@opentui/core"
 import { useTheme } from "../theme"
 import type { DialogContext } from "../ui/dialog"
+import { useDialog } from "../ui/dialog"
 import { useGateway } from "../app/gateway"
 import { useHome, home } from "../home"
 import { useToast } from "../ui/toast"
@@ -23,22 +25,39 @@ const iso = (s: string | null | undefined): number | null => {
 }
 
 type Sh = { stdout: string; stderr: string; code: number }
+type Verb = "run" | "pause" | "resume" | "list-archived" | "restore"
+
+const parseList = (stdout: string): string[] =>
+  stdout.split("\n").map(s => s.trim()).filter(s => s.length > 0 && !s.startsWith("("))
 
 const CuratorDialog = () => {
   const { theme, syntaxStyle } = useTheme()
   const gw = useGateway()
   const toast = useToast()
+  const dialog = useDialog()
   const state = useHome("curatorState")
   const cfg = useHome("config")?.curator
   const [report, setReport] = useState<CuratorReportInfo | null>(null)
   const [loaded, setLoaded] = useState(false)
-  const [busy, setBusy] = useState<"run" | "pause" | "resume" | null>(null)
+  const [busy, setBusy] = useState<Verb | null>(null)
+  const [archived, setArchived] = useState<string[]>([])
+  const [mode, setMode] = useState<"report" | "archived">("report")
+  const [sel, setSel] = useState(0)
+  const sb = useRef<ScrollBoxRenderable | null>(null)
 
   useEffect(() => {
     readLatestCuratorReport()
       .then(r => { setReport(r); setLoaded(true) })
       .catch(() => setLoaded(true))
   }, [])
+
+  const refreshArchived = useCallback(() => {
+    gw.request<Sh>("shell.exec", { command: "hermes curator list-archived" })
+      .then(r => { if (r.code === 0) setArchived(parseList(r.stdout)) })
+      .catch(() => {})
+  }, [gw])
+
+  useEffect(() => { refreshArchived() }, [refreshArchived])
 
   const sh = useCallback((verb: "run" | "pause" | "resume", ok: string) => {
     if (busy) return
@@ -53,12 +72,45 @@ const CuratorDialog = () => {
       .finally(() => setBusy(null))
   }, [gw, toast, busy])
 
+  const restore = useCallback((name: string) => {
+    if (busy) return
+    setBusy("restore")
+    gw.request<Sh>("shell.exec", { command: `hermes curator restore ${name}` })
+      .then(r => {
+        if (r.code !== 0) throw new Error((r.stderr || r.stdout || `exit ${r.code}`).trim())
+        toast.show({ variant: "success", message: `Restored ${name}` })
+        setArchived(prev => prev.filter(n => n !== name))
+        setSel(s => Math.max(0, s - 1))
+      })
+      .catch((e: Error) => toast.show({ variant: "error", message: trunc(e.message, 120) }))
+      .finally(() => setBusy(null))
+  }, [gw, toast, busy])
+
   useKeyboard((key) => {
+    if (mode === "archived") {
+      if (key.name === "escape") { setMode("report"); return }
+      if (key.raw === "a") { setMode("report"); return }
+      if (key.name === "up") return setSel(s => Math.max(0, s - 1))
+      if (key.name === "down") return setSel(s => Math.min(archived.length - 1, s + 1))
+      if (key.name === "return") {
+        const name = archived[sel]
+        if (name) restore(name)
+        return
+      }
+      return
+    }
+    if (key.name === "escape") return dialog.clear()
     if (key.raw === "r") return sh("run", "Curator run started (background)")
     if (key.raw === "p") return state?.paused
       ? sh("resume", "Curator resumed")
       : sh("pause", "Curator paused")
+    if (key.raw === "a" && archived.length > 0) { setSel(0); setMode("archived") }
   })
+
+  // Keep scroll cursor in view.
+  useEffect(() => {
+    if (mode === "archived") sb.current?.scrollChildIntoView(`arch-${sel}`)
+  }, [sel, mode])
 
   const last = iso(state?.last_run_at ?? null)
   // Next-due is last_run_at + interval_hours. CLI additionally gates on
@@ -96,6 +148,7 @@ const CuratorDialog = () => {
             ["Last run", last ? ago(last) : "never"],
             ["Duration", state?.last_run_duration_seconds
               ? dur(state.last_run_duration_seconds) : undefined],
+            ["Archived", archived.length > 0 ? String(archived.length) : undefined],
           ]} />
           <box height={1} />
           <box height={1}><text fg={theme.textMuted}>Config  ·  edit in Config tab</text></box>
@@ -115,6 +168,13 @@ const CuratorDialog = () => {
               <span fg={theme.accent}>p </span>
               <span fg={theme.text}>{state?.paused ? "resume" : "pause"}</span>
             </text></box>
+            {archived.length > 0 ? (
+              <box height={1}><text>
+                <span fg={theme.accent}>a </span>
+                <span fg={theme.text}>archived skills</span>
+                <span fg={theme.textMuted}>{`  (${archived.length})`}</span>
+              </text></box>
+            ) : null}
           </box>
           {state?.last_run_summary ? <>
             <box height={1} />
@@ -126,7 +186,33 @@ const CuratorDialog = () => {
           </> : null}
         </box>
 
-        {!loaded ? (
+        {mode === "archived" ? (
+          <box flexDirection="column" flexGrow={1} height="100%" minWidth={0}>
+            <box height={1}><text fg={theme.info}>
+              <strong>{`▾ Archived skills (${archived.length})`}</strong>
+            </text></box>
+            <box height={1}><text fg={theme.textMuted}>
+              {`↑↓ select  ·  Enter restore  ·  a/Esc back to report`}
+            </text></box>
+            <box height={1} />
+            <scrollbox ref={sb} scrollY flexGrow={1} border borderColor={theme.border}
+              paddingLeft={1} paddingRight={1}
+              contentOptions={{ flexDirection: "column" }}>
+              {archived.length === 0 ? (
+                <text fg={theme.textMuted}>No archived skills.</text>
+              ) : archived.map((name, i) => (
+                <box key={name} id={`arch-${i}`} height={1}
+                  backgroundColor={i === sel ? theme.backgroundElement : undefined}
+                  onMouseMove={() => setSel(i)}
+                  onMouseDown={() => restore(name)}>
+                  <text fg={i === sel ? theme.text : theme.textMuted}>
+                    {i === sel ? "▸ " : "  "}{name}
+                  </text>
+                </box>
+              ))}
+            </scrollbox>
+          </box>
+        ) : !loaded ? (
           <box height={1}><text fg={theme.textMuted}>loading report…</text></box>
         ) : report ? (
           <box flexDirection="column" flexGrow={1} height="100%" minWidth={0}>
@@ -150,4 +236,4 @@ const CuratorDialog = () => {
 }
 
 export const openCurator = (dialog: DialogContext) =>
-  dialog.replace(<CuratorDialog />)
+  dialog.replace(<CuratorDialog />, undefined, { ownCancel: true })

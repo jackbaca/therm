@@ -116,7 +116,7 @@ const MERGE: Record<string, string> = {
   human_delay: "display", dashboard: "display",
   tool_output: "agent", prompt_caching: "compression", code_execution: "terminal",
   slack: "platforms", telegram: "platforms", mattermost: "platforms",
-  discord: "platforms", whatsapp: "platforms",
+  discord: "platforms", whatsapp: "platforms", matrix: "platforms",
 }
 
 export const rawGroupOf = (key: string): string =>

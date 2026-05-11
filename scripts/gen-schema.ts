@@ -173,6 +173,7 @@ const EXTRA: Record<string, { type: string; default: unknown; doc: string }> = {
   "display.tui_compact": { type: "bool", default: false, doc: "Ink-TUI compact layout." },
   "display.tui_statusbar": { type: "str", default: "top", doc: "Ink-TUI statusbar placement: top | bottom | off." },
   "display.tui_mouse": { type: "bool", default: true, doc: "Ink-TUI mouse support." },
+  "openrouter.min_coding_score": { type: "float", default: 0.65, doc: "Coding-score floor (0.0-1.0) for openrouter/pareto-code. Only applied when model is openrouter/pareto-code; ignored otherwise. Lower = cheaper model, higher = stronger coder." },
 }
 
 const RPC_LIVE = new Set([
