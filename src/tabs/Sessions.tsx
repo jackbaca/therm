@@ -544,15 +544,21 @@ export const Sessions = memo((props: Props) => {
     // local state.db rows as authoritative for herm: gateway rows can
     // be stale, over-filtered, or ordered differently, but they are
     // still useful when herm is pointed at a remote/mismatched state.
+    //
+    // Sort by last activity (when each row last moved), not started_at.
+    // Disk rows carry last_active in their detail; gateway-only rows
+    // (rare, remote-only) fall back to started_at.
     const r = await rpc
     if (r.ok && r.v.sessions?.length) {
       const seen = new Set(diskRows.map(s => s.id))
+      const sortKey = (row: Row): number =>
+        row.detail?.last_active ?? row.started_at
       const merged = [
         ...diskRows,
         ...r.v.sessions
           .filter(s => (s.message_count ?? 0) > 0 && !seen.has(s.id))
           .map(s => ({ ...s, detail: local.get(s.id) })),
-      ].sort((a, b) => b.started_at - a.started_at)
+      ].sort((a, b) => sortKey(b) - sortKey(a))
       setRows(merged)
       if (cached) last.rows = merged
       void fillKids(merged)

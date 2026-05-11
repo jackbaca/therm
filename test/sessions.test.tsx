@@ -80,6 +80,78 @@ describe("Sessions tab", () => {
     t.destroy()
   })
 
+  test("merged list orders by last activity, not start time", async () => {
+    // Disk rows: stale start times but fresh activity on the older-start row.
+    // The "Older Start Fresh Activity" row should sort ABOVE the
+    // "Newer Start Idle" row even though its started_at is older.
+    const DISK = [
+      // SessionRow shape (from io.list)
+      {
+        source: "state.db" as const,
+        id: "older-fresh",
+        sessionSource: "tui",
+        model: null,
+        started_at: 1700000000,
+        ended_at: null,
+        end_reason: null,
+        message_count: 5,
+        tool_call_count: 0,
+        input_tokens: 0, output_tokens: 0,
+        cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0,
+        estimated_cost_usd: null,
+        title: "Older Start Fresh Activity",
+        lastMessage: "ping",
+        last_active: 1700099999,           // <-- fresh
+        parent_session_id: null,
+        subagent_count: 0,
+        lineage_root_id: null,
+      },
+      {
+        source: "state.db" as const,
+        id: "newer-idle",
+        sessionSource: "tui",
+        model: null,
+        started_at: 1700050000,
+        ended_at: null,
+        end_reason: null,
+        message_count: 3,
+        tool_call_count: 0,
+        input_tokens: 0, output_tokens: 0,
+        cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0,
+        estimated_cost_usd: null,
+        title: "Newer Start Idle",
+        lastMessage: "",
+        last_active: 1700050001,           // <-- right after start, idle
+        parent_session_id: null,
+        subagent_count: 0,
+        lineage_root_id: null,
+      },
+    ]
+    // Gateway also reports the same rows (typical local case). The
+    // bug was that the .sort() at the end of the merge clobbered the
+    // activity-aware order from roots() with started_at-only order.
+    const GW_ROWS = [
+      { id: "older-fresh", title: "Older Start Fresh Activity", preview: "ping",
+        message_count: 5, started_at: 1700000000, source: "tui" },
+      { id: "newer-idle", title: "Newer Start Idle", preview: "",
+        message_count: 3, started_at: 1700050000, source: "tui" },
+    ]
+    const io = { ...NOIO, list: () => DISK }
+    const gw = new MockGateway({ "session.list": () => ({ sessions: GW_ROWS }) })
+    const t = await mountNode(<Sessions focused io={io} />, { gw })
+    await until(t, () => t.frame().includes("Sessions (2)"))
+
+    // The frame paints in rendered order. Find the line index of each
+    // row's title — older-fresh must appear first.
+    const f = t.frame()
+    const idxFresh = f.indexOf("Older Start Fresh Activity")
+    const idxIdle = f.indexOf("Newer Start Idle")
+    expect(idxFresh).toBeGreaterThanOrEqual(0)
+    expect(idxIdle).toBeGreaterThanOrEqual(0)
+    expect(idxFresh).toBeLessThan(idxIdle)
+    t.destroy()
+  })
+
   test("paints fs rows before RPC resolves; spinner when fs empty (gsk.11)", async () => {
     let unblock!: () => void
     const gate = new Promise<void>(r => { unblock = r })
