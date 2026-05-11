@@ -226,12 +226,14 @@ describe("Config tab", () => {
 
     // Boot: two panes visible, left pane focused — form mode, not YAML.
     expect(t.frame()).not.toContain("Config · YAML")
-    // Right-pane hint advertises the new chords.
-    expect(t.frame()).toContain("Tab categories")
+    // Footer hint reflects focused pane: boot = categories → advertises Tab→fields.
+    expect(t.frame()).toContain("[Tab] fields")
 
     // Tab → focus moves to fields pane. The right pane's focus border
     // is a visual signal; the hint is a stable string to assert on.
     act(() => t.keys.pressTab()); await t.settle()
+    // Footer flips to advertise Tab→categories once fields are focused.
+    expect(t.frame()).toContain("[Tab] categories")
     // Field rows are active now; arrow-down moves cursor, not category.
     // Easiest observable: a FieldRow carries a ▸ caret when focus=fields.
     const f = t.frame()
