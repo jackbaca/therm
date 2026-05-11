@@ -751,8 +751,12 @@ describe("Agents tab", () => {
     expect(t.frame()).toContain("[ ] --force-config")
     expect(t.frame()).not.toContain("active profile")
 
+    // Tab is a no-op on single-checkbox confirm dialogs.
+    act(() => t.keys.pressTab()); await t.settle()
+    expect(t.frame()).toContain("[ ] --force-config")
+
     // Toggle force, confirm.
-    act(() => t.keys.pressTab())
+    act(() => t.keys.pressKey(" "))
     await until(t, () => t.frame().includes("[x] --force-config"))
     await act(async () => { await t.keys.typeText("y") })
     await until(t, () => cmds.length > 0)
