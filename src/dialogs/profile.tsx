@@ -84,7 +84,7 @@ export function openProfileMenu(dialog: DialogContext, p: ProfileInfo, ops: Prof
   )
 }
 
-// Update confirm. Quotes source + version, offers a Tab-toggled
+// Update confirm. Quotes source + version, offers a Space-toggled
 // `--force-config` checkbox, and warns when updating the active
 // profile (gateway will re-spawn; current session is lost).
 const UpdateForm = (props: { p: ProfileInfo; done: (force: boolean | null) => void }) => {
@@ -94,7 +94,7 @@ const UpdateForm = (props: { p: ProfileInfo; done: (force: boolean | null) => vo
   useKeyboard((key) => {
     if (keys.match("dialog.cancel", key) || keys.match("dialog.deny", key)) return props.done(null)
     if (keys.match("dialog.confirm", key) || keys.match("dialog.accept", key)) return props.done(force)
-    if (key.name === "tab") return setForce(f => !f)
+    if (key.name === "space" || key.name === " ") return setForce(f => !f)
   })
   const d = props.p.distribution!
   return (
@@ -129,7 +129,7 @@ const UpdateForm = (props: { p: ProfileInfo; done: (force: boolean | null) => vo
       </box>
       <box height={1}>
         <text fg={theme.textMuted}>
-          {`[${keys.print("dialog.confirm")}] update   [Tab] toggle force   [${keys.print("dialog.cancel")}] cancel`}
+          {`[${keys.print("dialog.confirm")}] update   [Space] toggle force   [${keys.print("dialog.cancel")}] cancel`}
         </text>
       </box>
     </box>
