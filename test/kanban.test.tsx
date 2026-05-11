@@ -6,7 +6,7 @@ import { mountNode, MockGateway, until } from "./harness"
 import { hermesPath } from "../src/utils/hermes-home"
 import {
   board, boardOf, detail, assignees, tailLog, q, resetKanban,
-  currentBoard, listBoards,
+  currentBoard, listBoards, parseDiagnostics, maxSeverity, sortDiags,
 } from "../src/utils/hermes-kanban"
 import { Kanban } from "../src/tabs/Kanban"
 
@@ -207,7 +207,7 @@ describe("Kanban tab", () => {
   test("Tab walks boards; verbs pin --board to active section", async () => {
     const cmds: string[] = []
     const gw = new MockGateway({
-      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "", stderr: "", code: 0 } },
+      "shell.exec": p => { if (!/\bdiagnostics\b/.test(p.command as string)) cmds.push(p.command as string); return { stdout: "", stderr: "", code: 0 } },
     })
     const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
     await until(t, () => t.frame().includes("▾ Default"))
@@ -268,7 +268,7 @@ describe("Kanban tab", () => {
   test("a → DialogSelect → shell.exec assign", async () => {
     const cmds: string[] = []
     const gw = new MockGateway({
-      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "", stderr: "", code: 0 } },
+      "shell.exec": p => { if (!/\bdiagnostics\b/.test(p.command as string)) cmds.push(p.command as string); return { stdout: "", stderr: "", code: 0 } },
     })
     const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
@@ -287,7 +287,7 @@ describe("Kanban tab", () => {
   test("u on blocked → comment then unblock", async () => {
     const cmds: string[] = []
     const gw = new MockGateway({
-      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "", stderr: "", code: 0 } },
+      "shell.exec": p => { if (!/\bdiagnostics\b/.test(p.command as string)) cmds.push(p.command as string); return { stdout: "", stderr: "", code: 0 } },
     })
     const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
@@ -306,7 +306,7 @@ describe("Kanban tab", () => {
   test("d → confirm → archive", async () => {
     const cmds: string[] = []
     const gw = new MockGateway({
-      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "", stderr: "", code: 0 } },
+      "shell.exec": p => { if (!/\bdiagnostics\b/.test(p.command as string)) cmds.push(p.command as string); return { stdout: "", stderr: "", code: 0 } },
     })
     const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
@@ -323,7 +323,7 @@ describe("Kanban tab", () => {
     const cmds: string[] = []
     const gw = new MockGateway({
       "shell.exec": p => {
-        cmds.push(p.command as string)
+        if (!/\bdiagnostics\b/.test(p.command as string)) cmds.push(p.command as string)
         return { stdout: `{"task_id":"t0","ok":true,"reason":null,"new_title":"Expanded idea"}\n`, stderr: "", code: 0 }
       },
     })
@@ -340,7 +340,7 @@ describe("Kanban tab", () => {
   test("s on non-triage is a no-op (info toast, no command)", async () => {
     const cmds: string[] = []
     const gw = new MockGateway({
-      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "", stderr: "", code: 0 } },
+      "shell.exec": p => { if (!/\bdiagnostics\b/.test(p.command as string)) cmds.push(p.command as string); return { stdout: "", stderr: "", code: 0 } },
     })
     const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
@@ -357,7 +357,7 @@ describe("Kanban tab", () => {
     const cmds: string[] = []
     const gw = new MockGateway({
       "shell.exec": p => {
-        cmds.push(p.command as string)
+        if (!/\bdiagnostics\b/.test(p.command as string)) cmds.push(p.command as string)
         return {
           stdout:
             `{"task_id":"t0","ok":true,"reason":null,"new_title":"First spec"}\n`
@@ -380,7 +380,7 @@ describe("Kanban tab", () => {
   test("n → create dialog → shell.exec create on active board", async () => {
     const cmds: string[] = []
     const gw = new MockGateway({
-      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "t6", stderr: "", code: 0 } },
+      "shell.exec": p => { if (!/\bdiagnostics\b/.test(p.command as string)) cmds.push(p.command as string); return { stdout: "t6", stderr: "", code: 0 } },
     })
     const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
@@ -397,7 +397,7 @@ describe("Kanban tab", () => {
   test("create form: empty title blocks submit; footer nags", async () => {
     const cmds: string[] = []
     const gw = new MockGateway({
-      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "x", stderr: "", code: 0 } },
+      "shell.exec": p => { if (!/\bdiagnostics\b/.test(p.command as string)) cmds.push(p.command as string); return { stdout: "x", stderr: "", code: 0 } },
     })
     const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
@@ -416,7 +416,7 @@ describe("Kanban tab", () => {
   test("create form: ↓ walks fields; Space toggles triage; Ctrl+Enter submits", async () => {
     const cmds: string[] = []
     const gw = new MockGateway({
-      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "t7", stderr: "", code: 0 } },
+      "shell.exec": p => { if (!/\bdiagnostics\b/.test(p.command as string)) cmds.push(p.command as string); return { stdout: "t7", stderr: "", code: 0 } },
     })
     const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
@@ -441,7 +441,7 @@ describe("Kanban tab", () => {
   test("create form: Space on Assignee opens picker; selection feeds --assignee", async () => {
     const cmds: string[] = []
     const gw = new MockGateway({
-      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "t8", stderr: "", code: 0 } },
+      "shell.exec": p => { if (!/\bdiagnostics\b/.test(p.command as string)) cmds.push(p.command as string); return { stdout: "t8", stderr: "", code: 0 } },
     })
     const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
@@ -467,7 +467,7 @@ describe("Kanban tab", () => {
   test("create form: body textarea — ↓ enters, Enter newlines, Tab leaves; body feeds --body", async () => {
     const cmds: string[] = []
     const gw = new MockGateway({
-      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "t9", stderr: "", code: 0 } },
+      "shell.exec": p => { if (!/\bdiagnostics\b/.test(p.command as string)) cmds.push(p.command as string); return { stdout: "t9", stderr: "", code: 0 } },
     })
     const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
@@ -495,7 +495,7 @@ describe("Kanban tab", () => {
   test("create form: ↑/↓ in a multi-line body move the cursor, only escape at the edges", async () => {
     const cmds: string[] = []
     const gw = new MockGateway({
-      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "tb", stderr: "", code: 0 } },
+      "shell.exec": p => { if (!/\bdiagnostics\b/.test(p.command as string)) cmds.push(p.command as string); return { stdout: "tb", stderr: "", code: 0 } },
     })
     const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
@@ -540,7 +540,7 @@ describe("Kanban tab", () => {
   test("create form: More section hidden until expanded; Workspace dir: → --workspace dir:<path>", async () => {
     const cmds: string[] = []
     const gw = new MockGateway({
-      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "t10", stderr: "", code: 0 } },
+      "shell.exec": p => { if (!/\bdiagnostics\b/.test(p.command as string)) cmds.push(p.command as string); return { stdout: "t10", stderr: "", code: 0 } },
     })
     const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
@@ -578,7 +578,7 @@ describe("Kanban tab", () => {
   test("create form: Esc cancels — no command", async () => {
     const cmds: string[] = []
     const gw = new MockGateway({
-      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "x", stderr: "", code: 0 } },
+      "shell.exec": p => { if (!/\bdiagnostics\b/.test(p.command as string)) cmds.push(p.command as string); return { stdout: "x", stderr: "", code: 0 } },
     })
     const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
@@ -643,7 +643,7 @@ describe("Kanban tab", () => {
   test("create form: Priority picker is filter-free; Space selects", async () => {
     const cmds: string[] = []
     const gw = new MockGateway({
-      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "tp", stderr: "", code: 0 } },
+      "shell.exec": p => { if (!/\bdiagnostics\b/.test(p.command as string)) cmds.push(p.command as string); return { stdout: "tp", stderr: "", code: 0 } },
     })
     const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
@@ -674,7 +674,7 @@ describe("Kanban tab", () => {
   test("D → confirm → dispatch", async () => {
     const cmds: string[] = []
     const gw = new MockGateway({
-      "shell.exec": p => { cmds.push(p.command as string); return { stdout: "[]", stderr: "", code: 0 } },
+      "shell.exec": p => { if (!/\bdiagnostics\b/.test(p.command as string)) cmds.push(p.command as string); return { stdout: "[]", stderr: "", code: 0 } },
     })
     const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
@@ -1032,6 +1032,167 @@ describe("max_retries parity", () => {
       act(() => t.keys.pressArrow("down")); await t.settle()
       await until(t, () => /Title\s+retries default/.test(t.frame()))
       expect(t.frame()).not.toMatch(/Retries\s+\d/)
+    } finally {
+      t.destroy()
+    }
+  })
+})
+
+describe("diagnostics parser", () => {
+  test("parseDiagnostics() accepts CLI shape and filters malformed rows", () => {
+    const out = parseDiagnostics(JSON.stringify([
+      {
+        task_id: "t1", title: "a", status: "running", assignee: "worker",
+        diagnostics: [
+          {
+            kind: "spawn_loop", severity: "critical", title: "10 failures",
+            detail: "spawn failed 10x", actions: [
+              { kind: "reassign", label: "Reassign elsewhere", payload: {}, suggested: true },
+              { kind: "cli_hint", label: "hermes profile doctor", payload: {} },
+            ],
+            first_seen_at: 100, last_seen_at: 200, count: 10, run_id: 7,
+            data: { count: 10 },
+          },
+          // Bad severity → dropped.
+          { kind: "bad", severity: "info", title: "x", detail: "", actions: [] },
+        ],
+      },
+      // Missing task_id → row dropped.
+      { title: "orphan", diagnostics: [] },
+    ]))
+    expect(out).toHaveLength(1)
+    expect(out[0].task_id).toBe("t1")
+    expect(out[0].diagnostics).toHaveLength(1)
+    const d = out[0].diagnostics[0]
+    expect(d.severity).toBe("critical")
+    expect(d.count).toBe(10)
+    expect(d.actions).toHaveLength(2)
+    expect(d.actions[0].suggested).toBe(true)
+    expect(d.actions[1].suggested).toBe(false)
+  })
+
+  test("parseDiagnostics() returns [] on empty/invalid/bad-JSON input", () => {
+    expect(parseDiagnostics("")).toEqual([])
+    expect(parseDiagnostics("[]")).toEqual([])
+    expect(parseDiagnostics("not json")).toEqual([])
+    expect(parseDiagnostics("{}")).toEqual([])
+  })
+
+  test("maxSeverity() picks worst; sortDiags() orders critical→warning", () => {
+    const ds = [
+      { kind: "a", severity: "warning" as const, title: "", detail: "", actions: [], first_seen_at: 0, last_seen_at: 0, count: 1, run_id: null, data: {} },
+      { kind: "b", severity: "critical" as const, title: "", detail: "", actions: [], first_seen_at: 0, last_seen_at: 0, count: 1, run_id: null, data: {} },
+      { kind: "c", severity: "error" as const, title: "", detail: "", actions: [], first_seen_at: 0, last_seen_at: 0, count: 1, run_id: null, data: {} },
+    ]
+    expect(maxSeverity(ds)).toBe("critical")
+    expect(maxSeverity([])).toBeNull()
+    expect(sortDiags(ds).map(d => d.kind)).toEqual(["b", "c", "a"])
+  })
+})
+
+describe("Kanban diagnostics UI", () => {
+  // Emit a diagnostics payload keyed by board slug. Every `shell.exec`
+  // that contains the `diagnostics` verb matches the slug in `--board
+  // <slug>` against the fixture and returns that board's rows.
+  const diagFixture = (cmd: string, byBoard: Record<string, unknown[]>): string => {
+    const m = /--board\s+(\S+)\s+diagnostics/.exec(cmd)
+    const slug = m?.[1] ?? "default"
+    return JSON.stringify(byBoard[slug] ?? [])
+  }
+
+  test("Card prefixes severity glyph; SidePane renders Diagnostics block + suggested action", async () => {
+    const fixture = {
+      default: [{
+        task_id: "t5", title: "need decision", status: "blocked", assignee: "researcher",
+        diagnostics: [{
+          kind: "stuck_blocked", severity: "error",
+          title: "Blocked for 7 days",
+          detail: "Awaiting operator input on rate-limit keying.",
+          actions: [
+            { kind: "comment", label: "Add an unblock comment", payload: {}, suggested: true },
+            { kind: "unblock", label: "Mark ready", payload: {} },
+          ],
+          first_seen_at: now - 86400 * 7, last_seen_at: now, count: 1, run_id: null, data: {},
+        }],
+      }],
+    }
+    const gw = new MockGateway({
+      "shell.exec": p => /\bdiagnostics\b/.test(p.command as string)
+        ? ({ stdout: diagFixture(p.command as string, fixture), stderr: "", code: 0 })
+        : ({ stdout: "", stderr: "", code: 0 }),
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 48 })
+    try {
+      // Card badge: the `!!` glyph sits on the same line as "need decision"
+      // in the blocked column.
+      await until(t, () => {
+        const row = t.frame().split("\n").find(l => l.includes("need decision"))
+        return !!row && /!!/.test(row)
+      })
+
+      // Tab → grid; arrow over to the blocked column (index 4: triage, todo,
+      // ready, running, blocked). Row 0 is t5 by priority sort.
+      act(() => t.keys.pressArrow("right")); await t.settle()
+      act(() => t.keys.pressArrow("right")); await t.settle()
+      act(() => t.keys.pressArrow("right")); await t.settle()
+      act(() => t.keys.pressArrow("right")); await t.settle()
+      act(() => t.keys.pressEnter())
+      await until(t, () => /Diagnostics\s+\(1\)/.test(t.frame()))
+      const f = t.frame()
+      expect(f).toMatch(/\[error\]\s+stuck_blocked/)
+      expect(f).toContain("Blocked for 7 days")
+      expect(f).toContain("Awaiting operator input")
+      // Suggested action leads with → arrow, non-suggested with ·.
+      expect(f).toMatch(/→\s+Add an unblock comment/)
+      expect(f).toMatch(/·\s+Mark ready/)
+    } finally {
+      t.destroy()
+    }
+  })
+
+  test("task without diagnostics shows no badge; other tasks still get theirs", async () => {
+    const fixture = {
+      default: [{
+        task_id: "t2", title: "", status: "running", assignee: "researcher",
+        diagnostics: [{
+          kind: "crash_loop", severity: "critical", title: "3 crashes",
+          detail: "", actions: [],
+          first_seen_at: now, last_seen_at: now, count: 3, run_id: 7, data: {},
+        }],
+      }],
+    }
+    const gw = new MockGateway({
+      "shell.exec": p => /\bdiagnostics\b/.test(p.command as string)
+        ? ({ stdout: diagFixture(p.command as string, fixture), stderr: "", code: 0 })
+        : ({ stdout: "", stderr: "", code: 0 }),
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 48 })
+    try {
+      // Badge must attach to its own task — `‼` appears adjacent to
+      // "research perf" in the per-column cell, never to "research
+      // cost" in an adjacent column. Use cell-scoped regexes (no "."
+      // in between) so "same row, different column" doesn't alias.
+      await until(t, () => /‼\s*research perf/.test(t.frame()))
+      expect(t.frame()).not.toMatch(/[‼⚠]\s*research cost/)
+      expect(t.frame()).not.toMatch(/!!\s*research cost/)
+    } finally {
+      t.destroy()
+    }
+  })
+
+  test("diagnostics CLI failure → board still renders, no badges", async () => {
+    const gw = new MockGateway({
+      "shell.exec": p => /\bdiagnostics\b/.test(p.command as string)
+        ? ({ stdout: "", stderr: "hermes: command not found", code: 127 })
+        : ({ stdout: "", stderr: "", code: 0 }),
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    try {
+      // Don't depend on board count — other describes may seed extra
+      // boards by the time this one runs. Gate on a task title instead.
+      await until(t, () => t.frame().includes("research cost"))
+      // No badge glyphs leaked into any row.
+      expect(t.frame()).not.toMatch(/[‼⚠]|!!/)
     } finally {
       t.destroy()
     }

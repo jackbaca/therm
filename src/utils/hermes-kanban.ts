@@ -75,6 +75,121 @@ export type Detail = Task & {
 
 export type Board = { slug: string; name: string }
 
+// ── Diagnostics ────────────────────────────────────────────────────
+// Fetched by shelling `hermes kanban --board <slug> diagnostics --json`.
+// Parsed here so Kanban.tsx holds only the UI shape. The Python rule
+// engine (hermes_cli/kanban_diagnostics.py, ~650 LOC) owns all rule
+// logic — thresholds, phantom-id regex, severity escalation, action
+// suggestions. Herm does not port any of it.
+
+export type Severity = "warning" | "error" | "critical"
+
+export type DiagAction = {
+  kind: string
+  label: string
+  payload: Record<string, unknown>
+  suggested: boolean
+}
+
+export type Diag = {
+  kind: string
+  severity: Severity
+  title: string
+  detail: string
+  actions: DiagAction[]
+  first_seen_at: number
+  last_seen_at: number
+  count: number
+  run_id: number | null
+  data: Record<string, unknown>
+}
+
+export type TaskDiags = {
+  task_id: string
+  title?: string
+  status?: string
+  assignee?: string | null
+  diagnostics: Diag[]
+}
+
+const SEV = new Set<Severity>(["warning", "error", "critical"])
+
+/** Parse the CLI's `diagnostics --json` stdout into typed rows. Rejects
+ *  malformed payloads silently so a CLI regression doesn't blank the
+ *  tab — we'd rather show tasks without badges than crash the board. */
+export function parseDiagnostics(stdout: string): TaskDiags[] {
+  const trimmed = stdout.trim()
+  if (!trimmed) return []
+  let raw: unknown
+  try { raw = JSON.parse(trimmed) } catch { return [] }
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap(r => {
+    if (!r || typeof r !== "object") return []
+    const rec = r as Record<string, unknown>
+    const id = rec.task_id
+    if (typeof id !== "string" || !id) return []
+    const diags = Array.isArray(rec.diagnostics) ? rec.diagnostics : []
+    return [{
+      task_id: id,
+      title: typeof rec.title === "string" ? rec.title : undefined,
+      status: typeof rec.status === "string" ? rec.status : undefined,
+      assignee: typeof rec.assignee === "string" ? rec.assignee : null,
+      diagnostics: diags.flatMap(toDiag),
+    }]
+  })
+}
+
+const toDiag = (raw: unknown): Diag[] => {
+  if (!raw || typeof raw !== "object") return []
+  const r = raw as Record<string, unknown>
+  const sev = r.severity
+  if (typeof sev !== "string" || !SEV.has(sev as Severity)) return []
+  const actions = Array.isArray(r.actions) ? r.actions.flatMap(toAction) : []
+  return [{
+    kind: String(r.kind ?? ""),
+    severity: sev as Severity,
+    title: String(r.title ?? ""),
+    detail: String(r.detail ?? ""),
+    actions,
+    first_seen_at: Number(r.first_seen_at) || 0,
+    last_seen_at: Number(r.last_seen_at) || 0,
+    count: Number(r.count) || 1,
+    run_id: typeof r.run_id === "number" ? r.run_id : null,
+    data: (r.data && typeof r.data === "object")
+      ? (r.data as Record<string, unknown>) : {},
+  }]
+}
+
+const toAction = (raw: unknown): DiagAction[] => {
+  if (!raw || typeof raw !== "object") return []
+  const r = raw as Record<string, unknown>
+  const kind = r.kind, label = r.label
+  if (typeof kind !== "string" || typeof label !== "string") return []
+  return [{
+    kind, label,
+    payload: (r.payload && typeof r.payload === "object")
+      ? (r.payload as Record<string, unknown>) : {},
+    suggested: r.suggested === true,
+  }]
+}
+
+/** Severity order: critical > error > warning. Sorted worst-first.
+ *  Kind is the tiebreaker so UI snapshots stay stable. */
+const SEV_RANK: Record<Severity, number> = { critical: 3, error: 2, warning: 1 }
+
+export const maxSeverity = (ds: Diag[]): Severity | null => {
+  let best: Severity | null = null
+  for (const d of ds) {
+    if (!best || SEV_RANK[d.severity] > SEV_RANK[best]) best = d.severity
+  }
+  return best
+}
+
+export const sortDiags = (ds: Diag[]): Diag[] =>
+  [...ds].sort((a, b) =>
+    SEV_RANK[b.severity] - SEV_RANK[a.severity]
+    || a.kind.localeCompare(b.kind))
+
 const DEFAULT = "default"
 const SLUG = /^[a-z0-9][a-z0-9_-]{0,63}$/
 
