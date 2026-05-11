@@ -14,6 +14,7 @@ import { openProfileMenu } from "../dialogs/profile"
 import { openCreateProfile } from "../dialogs/new-profile"
 import { openInstallDistribution } from "../dialogs/install-distribution"
 import { TabShell } from "../ui/shell"
+import { HintBar } from "../ui/hint"
 import { Spinner } from "../ui/spinner"
 import { KV, KVBlock } from "../ui/kv"
 import { KVLink } from "../components/ui/FileLink"
@@ -650,12 +651,20 @@ export const Agents = memo((props: Props) => {
     : pView === "list" ? `↑↓ nav  ${keys.print("list.activate")} detail  ${sw}${keys.print("list.new")} new  ${keys.print("list.delete")} delete`
     : `${keys.print("list.activate")} actions  ${sw}Esc back  ${keys.print("list.delete")} delete`
 
+  const profilesHint = `${pHint}  Tab ${wide ? "→" : "↔"} delegation`
+  const delegHint = `↑↓ nav  ${keys.print("agents.kill")} interrupt  ${keys.print("agents.history")} history  ${keys.print("list.refresh")} refresh  ·  ${dHint}`
+  // Wide: both panes visible, footer joins hints by focused pane order.
+  // Narrow: only one pane rendered, footer matches.
+  const footerHint = wide
+    ? (pane === "profiles" ? `${profilesHint}  ·  ${delegHint}` : `${delegHint}  ·  ${profilesHint}`)
+    : (pane === "profiles" ? profilesHint : delegHint)
+
   return (
+    <box flexDirection="column" flexGrow={1} minWidth={0}>
     <box flexDirection="row" flexGrow={1}>
       {/* ── Profiles ── */}
       {showProfiles ? (
       <TabShell title={`Profiles (${profiles.length})${sticky ? `  ·  ★ ${sticky}` : ""}`}
-                hint={`${pHint}  Tab ${wide ? "→" : "↔"} delegation`}
                 error={err || null}
                 focus={pane === "profiles"} grow={3}>
         <box flexDirection="row" flexGrow={1} minWidth={0}>
@@ -688,7 +697,6 @@ export const Agents = memo((props: Props) => {
       {/* ── Delegation ── */}
       {showDeleg ? (
       <TabShell title={`Delegation (${active.length})`}
-                hint={`↑↓ nav  ${keys.print("agents.kill")} interrupt  ${keys.print("agents.history")} history  ${keys.print("list.refresh")} refresh  ·  ${dHint}`}
                 focus={pane === "deleg"} grow={2}>
         <box height={1} flexDirection="row" marginBottom={1}>
           <box flexShrink={0} paddingX={1}
@@ -730,6 +738,8 @@ export const Agents = memo((props: Props) => {
         )}
       </TabShell>
       ) : null}
+    </box>
+    <HintBar raw={footerHint} />
     </box>
   )
 })

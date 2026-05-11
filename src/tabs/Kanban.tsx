@@ -20,6 +20,7 @@ import { openConfirm } from "../dialogs/confirm"
 import { openTextPrompt } from "../dialogs/text-prompt"
 import { openCreateTask } from "../dialogs/new-task"
 import { TabShell } from "../ui/shell"
+import { HintBar } from "../ui/hint"
 import { KVBlock } from "../ui/kv"
 import { ago, trunc } from "../ui/fmt"
 import { load as loadPrefs, set as setPref, type KanbanPrefs } from "../utils/preferences"
@@ -1190,10 +1191,10 @@ export const Kanban = memo((props: { focused?: boolean }) => {
   }, [])
 
   return (
+    <box flexDirection="column" flexGrow={1} minWidth={0}>
     <box flexDirection="row" flexGrow={1}>
       <TabShell
         title={`Kanban · ${sections.length} board${sections.length === 1 ? "" : "s"} · ${grand} task${grand === 1 ? "" : "s"}${running ? ` · ${running} running` : ""}`}
-        hint={hint}
       >
         <scrollbox ref={outer} scrollY flexGrow={1} verticalScrollbarOptions={NOBAR}>
           <box flexDirection="column" width="100%">
@@ -1261,6 +1262,8 @@ export const Kanban = memo((props: { focused?: boolean }) => {
               ? (diags.get(pane.slug)?.get(pane.d.id) ?? EMPTY_DIAGS)
               : EMPTY_DIAGS} />
         : null}
+    </box>
+    <HintBar raw={hint} />
     </box>
   )
 })
