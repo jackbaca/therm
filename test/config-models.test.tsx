@@ -83,7 +83,7 @@ describe("Config → models category", () => {
 
     // ↓ to 'models', → into slots
     act(() => t.keys.pressArrow("down"))
-    act(() => t.keys.pressArrow("right"))
+    act(() => t.keys.pressTab())
     await t.settle()
     const f = t.frame()
     expect(f).toContain("★")
@@ -92,7 +92,7 @@ describe("Config → models category", () => {
     expect(f).toContain("Vision")
     expect(f).toContain("google · gemini-2.5-flash")
     expect(f).toContain("auto  (use main model)")
-    expect(f).toContain("Enter pick  x reset  X reset-all")
+    expect(f).toContain("[Enter] pick  [x] reset  [X] reset-all")
 
     // ↓ to vision, Enter → picker titled for the slot
     act(() => t.keys.pressArrow("down"))
@@ -126,7 +126,7 @@ describe("Config → models category", () => {
     const t = await mountNode(<Config focused />, { gw, width: 160, height: 40 })
     await until(t, () => t.frame().includes("models (10)"))
     act(() => t.keys.pressArrow("down"))
-    act(() => t.keys.pressArrow("right"))
+    act(() => t.keys.pressTab())
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Set main model"))
     expect(t.frame()).not.toContain("Scope:")   // scope toggle hidden when onApply set

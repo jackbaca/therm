@@ -117,7 +117,7 @@ async function preview(
   // Pass ORIGINAL source to install so the persisted manifest's source:
   // points at the remote, not the temp dir we just staged.
   dialog.replace(
-    <Confirm
+    <ConfirmStep
       source={source}
       manifest={manifest}
       onConfirm={(r) => { cleanup(); done(r) }}
@@ -200,7 +200,10 @@ const ErrorBox = (p: { title: string; body: string; onClose: () => void }) => {
 
 // ── Step 3: preview + confirm ─────────────────────────────────────────
 
-const Confirm = (p: {
+type Field = "name" | "alias"
+const ORDER: readonly Field[] = ["name", "alias"] as const
+
+export const ConfirmStep = (p: {
   source: string
   manifest: DistributionManifest
   onConfirm: (r: InstallResult) => void
@@ -208,12 +211,12 @@ const Confirm = (p: {
 }) => {
   const theme = useTheme().theme
   const keys = useKeys()
-  // Three focusable fields: name input, alias checkbox, confirm.
-  // Keep it minimal — Tab cycles; 'y' confirms when not in the name
-  // input (Esc always cancels).
+  // Form dialog: Tab/Shift+Tab walks fields, Space toggles focused checkbox,
+  // Enter accepts, Esc cancels. No 'y'/'n' mnemonics here — those are
+  // reserved for openConfirm per nav spec.
   const [name, setName] = useState("")
   const [alias, setAlias] = useState(false)
-  const [editing, setEditing] = useState<"name" | null>(null)
+  const [field, setField] = useState<Field>("name")
 
   const fire = () => p.onConfirm({
     source: p.source,
@@ -222,27 +225,24 @@ const Confirm = (p: {
     alias,
   })
 
+  const move = (dir: 1 | -1) => {
+    const i = ORDER.indexOf(field)
+    setField(ORDER[(i + dir + ORDER.length) % ORDER.length])
+  }
+
   useKeyboard((key) => {
-    if (editing === "name") {
-      // Delegate Esc to the input's blur path so the user can back out of
-      // the field without cancelling the whole dialog on the first Esc.
-      if (key.name === "escape") return setEditing(null)
-      if (key.name === "return") return setEditing(null)
-      return
-    }
     if (key.name === "escape") return p.onCancel()
-    // 'n' enters the name field (takes precedence over dialog.deny, which
-    // would cancel on 'n' — users expect the letter-key verb on a confirm
-    // with a rename affordance to target the affordance).
-    if (key.raw === "n") return setEditing("name")
-    if (keys.match("dialog.confirm", key) || keys.match("dialog.accept", key)) return fire()
-    if (keys.match("dialog.deny", key)) return p.onCancel()
-    if (key.name === "tab") return setAlias(a => !a)
+    if (key.name === "tab") return move(key.shift ? -1 : 1)
+    // Enter submits from non-name fields; on name the <input> onSubmit
+    // fires the same path, so avoid double-firing by gating here.
+    if (field !== "name" && keys.match("dialog.accept", key)) return fire()
+    if (field === "alias" && (key.name === "space" || key.name === " ")) return setAlias(a => !a)
   })
 
   const m = p.manifest
   const reqEnv = m.env_requires.filter(e => e.required)
   const optEnv = m.env_requires.filter(e => !e.required)
+  const focusBg = (f: Field) => field === f ? theme.backgroundElement : undefined
   return (
     <box flexDirection="column" width={72}>
       <box height={1}><text fg={theme.primary}><strong>Install Distribution</strong></text></box>
@@ -264,15 +264,14 @@ const Confirm = (p: {
       <box height={1} />
 
       {/* --name override */}
-      <box height={1} flexDirection="row">
+      <box height={1} flexDirection="row" backgroundColor={focusBg("name")}>
         <box width={11}><text fg={theme.textMuted}>Name as</text></box>
-        <box flexGrow={1} minWidth={0} height={1} overflow="hidden"
-             backgroundColor={editing === "name" ? theme.backgroundElement : undefined}>
-          {editing === "name" ? (
+        <box flexGrow={1} minWidth={0} height={1} overflow="hidden">
+          {field === "name" ? (
             <input
               value={name}
               onInput={setName}
-              onSubmit={() => setEditing(null)}
+              onSubmit={fire}
               focused
               textColor={theme.text}
               backgroundColor={theme.backgroundElement}
@@ -280,25 +279,23 @@ const Confirm = (p: {
             />
           ) : (
             <text fg={name ? theme.text : theme.textMuted}>
-              {name || `(${m.name}) — press 'n' to override`}
+              {name || `(${m.name})`}
             </text>
           )}
         </box>
       </box>
 
       {/* --alias */}
-      <box height={1} flexDirection="row">
+      <box height={1} flexDirection="row" backgroundColor={focusBg("alias")}>
         <box width={11}><text fg={theme.textMuted}>Alias</text></box>
         <text fg={alias ? theme.accent : theme.textMuted}>
-          {alias ? "[x] create shell wrapper" : "[ ] (Tab to toggle)"}
+          {alias ? "[x] create shell wrapper" : "[ ] create shell wrapper"}
         </text>
       </box>
 
       <box height={1} />
       <box height={1}><text fg={theme.textMuted}>
-        {editing === "name"
-          ? "Enter / Esc finish editing"
-          : `[${keys.print("dialog.confirm")}] install  ·  [${keys.print("dialog.deny")}] cancel  ·  Tab alias  ·  n rename`}
+        Enter install  ·  Tab next field  ·  Space toggle  ·  Esc cancel
       </text></box>
     </box>
   )

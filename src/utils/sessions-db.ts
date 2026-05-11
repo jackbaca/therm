@@ -406,11 +406,35 @@ export const systemPrompt = (): { id: string; text: string } | null =>
 // 'goal:<sid>'. status: active | paused | done | cleared. Only the
 // fields herm consumes are surfaced.
 
+export type ChecklistItem = {
+  text: string
+  status: "pending" | "completed" | "impossible"
+  addedBy?: "judge" | "user"
+}
+
 export type GoalState = {
   goal: string
   status: "active" | "paused" | "done" | "cleared"
   turn_count?: number
   max_turns?: number | null
+  checklist?: ChecklistItem[]
+  decomposed?: boolean
+}
+
+const VALID_ITEM: ReadonlySet<ChecklistItem["status"]> =
+  new Set<ChecklistItem["status"]>(["pending", "completed", "impossible"])
+
+const parseItem = (raw: unknown): ChecklistItem | null => {
+  if (!raw || typeof raw !== "object") return null
+  const o = raw as Record<string, unknown>
+  const text = typeof o.text === "string" ? o.text : ""
+  if (!text.trim()) return null
+  const s = typeof o.status === "string" ? o.status : "pending"
+  const status = (VALID_ITEM.has(s as ChecklistItem["status"])
+    ? s : "pending") as ChecklistItem["status"]
+  const by = typeof o.added_by === "string" ? o.added_by : undefined
+  const addedBy = by === "judge" || by === "user" ? by : undefined
+  return { text, status, addedBy }
 }
 
 export function goalState(sid: string): GoalState | null {
@@ -419,11 +443,15 @@ export function goalState(sid: string): GoalState | null {
   if (!row) return null
   try {
     const j = JSON.parse(row.value) as Record<string, unknown>
+    const rawList = Array.isArray(j.checklist) ? j.checklist : []
+    const checklist = rawList.map(parseItem).filter((x): x is ChecklistItem => x !== null)
     return {
       goal: String(j.goal ?? ""),
       status: (j.status as GoalState["status"]) ?? "active",
       turn_count: typeof j.turn_count === "number" ? j.turn_count : undefined,
       max_turns: (j.max_turns as number | null | undefined) ?? null,
+      checklist: checklist.length > 0 ? checklist : undefined,
+      decomposed: j.decomposed === true ? true : undefined,
     }
   } catch { return null }
 }

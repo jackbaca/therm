@@ -7,6 +7,7 @@ import { useToast } from "../ui/toast";
 import { useDialog } from "../ui/dialog";
 import { openConfirm } from "../dialogs/confirm";
 import { TabShell } from "../ui/shell";
+import { HintBar } from "../ui/hint";
 import { Col, Hdr, VBAR } from "../ui/table";
 import { stringify as yamlStringify, parse as yamlParse } from "yaml";
 import { writeConfig, verifyWrite, maxEffect } from "../config/lane";
@@ -345,7 +346,7 @@ export const Config = memo((props: { focused?: boolean }) => {
   const keys = useKeys();
   useKeyboard((key) => {
     if (!props.focused || dialog.open()) return;
-    if (key.name === "tab" && !editing && !searching) {
+    if (keys.match("config.mode", key) && !editing && !searching) {
       setMode(m => m === "form" ? "yaml" : "form");
       return;
     }
@@ -399,8 +400,10 @@ export const Config = memo((props: { focused?: boolean }) => {
       return;
     }
 
-    if (key.name === "left") { setFocus("categories"); return; }
-    if (key.name === "right") { setFocus("fields"); return; }
+    if (key.name === "tab") {
+      setFocus(f => f === "categories" ? "fields" : "categories");
+      return;
+    }
     if (keys.match("list.search", key)) { setSearching(true); setQuery(""); setCursor(0); return; }
 
     if (focus === "categories") {
@@ -456,11 +459,10 @@ export const Config = memo((props: { focused?: boolean }) => {
     }
   });
 
-  const dirty = nChanged > 0 ? `● ${nChanged} unsaved  ` : "";
-
   if (mode === "yaml") {
     return (
-      <TabShell title="Config · YAML" hint={`Tab form  ${keys.print("config.save")} save`}>
+      <box flexDirection="column" flexGrow={1} minWidth={0}>
+      <TabShell title="Config · YAML">
         <scrollbox scrollY flexGrow={1}>
           <text wrapMode="word">
             <span fg={theme.text}>{yaml}</span>
@@ -468,6 +470,11 @@ export const Config = memo((props: { focused?: boolean }) => {
           </text>
         </scrollbox>
       </TabShell>
+      <HintBar pairs={[
+        [keys.print("config.mode"), "form"],
+        [keys.print("config.save"), "save"],
+      ]} />
+      </box>
     );
   }
 
@@ -489,7 +496,7 @@ export const Config = memo((props: { focused?: boolean }) => {
       ) : null}
       <box flexDirection="row" flexGrow={1}>
         {searching ? null : (
-          <TabShell title="Config" hint="↑↓ → select" grow={1}
+          <TabShell title="Config" grow={1}
                     focus={focus === "categories"}>
             <scrollbox ref={catFollow.ref} scrollY flexGrow={1}>
               {groups.map((c, i) => {
@@ -522,11 +529,6 @@ export const Config = memo((props: { focused?: boolean }) => {
         <TabShell
           title={onSlots ? "models · applies immediately"
             : searching ? "Search" : nChanged > 0 ? `${active} · ${nChanged} unsaved` : active}
-          hint={managed
-            ? `read-only · managed by ${managed}`
-            : onSlots
-              ? "←→ pane  ↑↓ nav  Enter pick  x reset  X reset-all"
-              : `${dirty}Tab yaml  ←→ pane  ↑↓ nav  ${keys.print("list.search")} search  ${keys.print("config.save")} save`}
           grow={3} focus={focus === "fields" || searching}
         >
           {managed ? (
@@ -600,6 +602,28 @@ export const Config = memo((props: { focused?: boolean }) => {
           </>)}
         </TabShell>
       </box>
+      {managed
+        ? <HintBar raw={`read-only · managed by ${managed}`} />
+        : onSlots
+          ? <HintBar pairs={[
+              ["↑↓", "nav"],
+              ["Enter", "pick"],
+              ["x", "reset"],
+              ["X", "reset-all"],
+              ["Tab", "categories"],
+            ]} />
+          : focus === "categories" && !searching
+            ? <HintBar pairs={[["↑↓", "select"], ["Tab", "fields"]]} />
+            : <HintBar
+                pairs={[
+                  [keys.print("config.mode"), "yaml"],
+                  ["Tab", "categories"],
+                  ["↑↓", "nav"],
+                  [keys.print("list.search"), "search"],
+                  [keys.print("config.save"), "save"],
+                ]}
+                suffix={nChanged > 0 ? `● ${nChanged} unsaved` : undefined}
+              />}
     </box>
   );
 });

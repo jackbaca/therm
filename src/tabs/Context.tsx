@@ -38,6 +38,7 @@ import {
 import { FileLink } from "../components/ui/FileLink"
 import { useTheme, type Theme } from "../theme"
 import { TabShell } from "../ui/shell"
+import { HintBar } from "../ui/hint"
 import { categorical } from "../utils/categorical"
 import type { RGBA } from "@opentui/core"
 
@@ -542,9 +543,9 @@ export const Context = memo(({ messages = NO_MESSAGES as Message[], info, focuse
   const focusSeg = focus ? findSeg(focus) : null
 
   return (
+    <box flexDirection="column" flexGrow={1} minWidth={0}>
     <TabShell
       title={`Context · ${fmt(fill)} / ${fmt(ctxLen)} (${pct}%)`}
-      hint={crumb + escHint}
     >
       <box height={1}>
         {focusSeg ? (
@@ -600,5 +601,7 @@ export const Context = memo(({ messages = NO_MESSAGES as Message[], info, focuse
         </box>
       </box>
     </TabShell>
+    <HintBar raw={crumb + escHint} />
+    </box>
   )
 })

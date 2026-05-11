@@ -4,7 +4,9 @@ import type { BorderSides, ScrollBoxRenderable } from "@opentui/core"
 import {
   boardOf, detailOf, tailLogOf, assignees, q, STATUSES,
   currentBoard, listBoards, resetKanban, patchTask,
+  parseDiagnostics, maxSeverity, sortDiags,
   type Task, type Status, type Detail, type Board,
+  type Diag, type Severity,
 } from "../utils/hermes-kanban"
 import { useKeys } from "../keys"
 import { useTheme } from "../theme"
@@ -18,6 +20,7 @@ import { openConfirm } from "../dialogs/confirm"
 import { openTextPrompt } from "../dialogs/text-prompt"
 import { openCreateTask } from "../dialogs/new-task"
 import { TabShell } from "../ui/shell"
+import { HintBar } from "../ui/hint"
 import { KVBlock } from "../ui/kv"
 import { ago, trunc } from "../ui/fmt"
 import { load as loadPrefs, set as setPref, type KanbanPrefs } from "../utils/preferences"
@@ -81,6 +84,8 @@ type Mask = {
 }
 
 const EMPTY: Mask = { who: new Map(), pri: new Map(), status: new Map() }
+const EMPTY_DIAG: Map<string, Diag[]> = new Map()
+const EMPTY_DIAGS: Diag[] = []
 
 const chipId = (c: Chip) =>
   c.kind === "who" ? `who:${c.v}` : c.kind === "pri" ? `pri:${c.v}` : `st:${c.v}`
@@ -102,6 +107,16 @@ function admits<V>(g: Map<V, Tri>, v: V): boolean {
 const pass = (t: Task, m: Mask) =>
   admits(m.who, t.assignee ?? null as unknown as string)
   && admits(m.pri, t.priority)
+
+/** Index parsed diagnostic rows by task_id for O(1) lookup from the
+ *  card renderer. Empty rows are stripped so maxSeverity() on an
+ *  absent map entry is always null. */
+const indexDiags = (rows: ReturnType<typeof parseDiagnostics>): Map<string, Diag[]> => {
+  const out = new Map<string, Diag[]>()
+  for (const r of rows)
+    if (r.diagnostics.length > 0) out.set(r.task_id, sortDiags(r.diagnostics))
+  return out
+}
 
 // ── Persistence (t_cce26780) ───────────────────────────────────────
 // Masks + open-set round-trip through ~/.config/herm/tui.json under
@@ -155,8 +170,17 @@ const persist = (masks: Map<string, Mask>, open: Set<string>) => {
 // last-hovered tracking could miss the stale element's onMouseOut,
 // leaving a row marqueeing after the pointer left.
 
+// Severity → one-glyph badge + color. Keeps cards one line regardless
+// of diagnostics count; the pane shows the full list.
+const SEV_GLYPH: Record<Severity, string> = {
+  warning: "⚠", error: "!!", critical: "‼",
+}
+type SevTheme = { warning: import("@opentui/core").RGBA; error: import("@opentui/core").RGBA }
+const sevColor = (sev: Severity, theme: SevTheme) =>
+  sev === "warning" ? theme.warning : theme.error
+
 const Card = memo((p: {
-  id: string; t: Task; on: boolean; hov: boolean
+  id: string; t: Task; on: boolean; hov: boolean; sev: Severity | null
   onHover: () => void; onPick: () => void
 }) => {
   const theme = useTheme().theme
@@ -167,6 +191,9 @@ const Card = memo((p: {
          onMouseDown={p.onPick}
          onMouseMove={p.onHover}>
       <Ticker active={p.on || p.hov} fg={p.on ? theme.accent : theme.text}>
+        {p.sev
+          ? <><span fg={sevColor(p.sev, theme)}>{SEV_GLYPH[p.sev]}</span>{" "}</>
+          : null}
         {p.t.title}
       </Ticker>
     </box>
@@ -175,6 +202,7 @@ const Card = memo((p: {
 
 const Column = memo((p: {
   slug: string; status: Status; tasks: Task[]; on: boolean; sel: number
+  diags: Map<string, Diag[]>
   onPick: (i: number) => void
 }) => {
   const theme = useTheme().theme
@@ -207,6 +235,7 @@ const Column = memo((p: {
           {p.tasks.map((t, i) => (
             <Card key={t.id} id={id(i)} t={t} on={p.on && i === p.sel}
                   hov={i === hov}
+                  sev={maxSeverity(p.diags.get(t.id) ?? [])}
                   onHover={() => { if (hov !== i) setHov(i) }}
                   onPick={() => p.onPick(i)} />
           ))}
@@ -275,7 +304,7 @@ type Pane =
   | { kind: "detail"; slug: string; d: Detail }
   | { kind: "log"; slug: string; id: string; text: string }
 
-const SidePane = memo((p: { pane: Pane; on: boolean; sel: number }) => {
+const SidePane = memo((p: { pane: Pane; on: boolean; sel: number; diags: Diag[] }) => {
   const { theme, syntaxStyle } = useTheme()
   if (p.pane.kind === "log") return (
     <box flexDirection="column" padding={1} border borderColor={theme.border}
@@ -428,6 +457,41 @@ const SidePane = memo((p: { pane: Pane; on: boolean; sel: number }) => {
                   : <text fg={theme.textMuted}>—</text>,
                 p.on && cur === "result" ? "Enter edit" : undefined)
             : null}
+          {p.diags.length > 0 ? <>
+            <box height={1} marginTop={1}>
+              <text>
+                <span fg={theme.textMuted}>Diagnostics </span>
+                <span fg={sevColor(p.diags[0].severity, theme)}>{`(${p.diags.length})`}</span>
+              </text>
+            </box>
+            {p.diags.map((dx, i) => (
+              <box key={`${dx.kind}-${i}`} flexDirection="column" marginTop={i === 0 ? 0 : 1}>
+                <box height={1}>
+                  <text>
+                    <span fg={sevColor(dx.severity, theme)}>{SEV_GLYPH[dx.severity]}</span>
+                    <span fg={theme.text}>{` [${dx.severity}] ${dx.kind}`}</span>
+                    {dx.count > 1 ? <span fg={theme.textMuted}>{`  ×${dx.count}`}</span> : null}
+                  </text>
+                </box>
+                <box paddingLeft={2} flexDirection="column">
+                  <text wrapMode="word" fg={theme.text}>{dx.title}</text>
+                  {dx.detail
+                    ? <text wrapMode="word" fg={theme.textMuted}>{dx.detail}</text>
+                    : null}
+                  {dx.actions.map((a, j) => (
+                    <box key={j} height={1}>
+                      <text>
+                        <span fg={a.suggested ? theme.accent : theme.textMuted}>
+                          {a.suggested ? "→ " : "· "}
+                        </span>
+                        <span fg={a.suggested ? theme.text : theme.textMuted}>{a.label}</span>
+                      </text>
+                    </box>
+                  ))}
+                </box>
+              </box>
+            ))}
+          </> : null}
           {d.runs.length > 0 ? <>
             <box height={1} marginTop={1}>
               <text fg={theme.textMuted}>{`Runs (${d.runs.length})`}</text>
@@ -508,6 +572,12 @@ export const Kanban = memo((props: { focused?: boolean }) => {
   const [data, setData] = useState<Map<string, Map<Status, Task[]>>>(
     () => new Map(boards.map(b => [b.slug, boardOf(b.slug)])),
   )
+  // diag[slug][taskId] = Diag[]. Shape keeps card lookup O(1) and
+  // lets the SidePane pull the current task's diagnostics without a
+  // second fetch. Missing slug / missing taskId both mean "none".
+  const [diags, setDiags] = useState<Map<string, Map<string, Diag[]>>>(
+    () => new Map(),
+  )
   const [masks, setMasks] = useState<Map<string, Mask>>(() =>
     maskFromPrefs(loadPrefs().kanban?.masks))
   const [open, setOpen] = useState<Set<string>>(() => {
@@ -536,7 +606,20 @@ export const Kanban = memo((props: { focused?: boolean }) => {
     setData(new Map(bs.map(b => [b.slug, boardOf(b.slug)])))
     setPane(p => p?.kind === "detail"
       ? (d => d ? { ...p, d } : null)(detailOf(p.slug, p.d.id)) : p)
-  }, [])
+    // Diagnostics: one shell.exec per board. Compute in parallel; any
+    // per-board failure (CLI absent, board not initialized) falls back
+    // to "no diags" for that slug rather than blocking the others. A
+    // single request object is built per-board so stale fetches from a
+    // previous `load()` can't clobber newer results — `setDiags`
+    // replaces the map atomically per call.
+    Promise.all(bs.map(b =>
+      gw.request<Sh>("shell.exec",
+          { command: `hermes kanban --board ${q(b.slug)} diagnostics --json` })
+        .then(r => r.code === 0 ? parseDiagnostics(r.stdout) : [])
+        .catch(() => [] as ReturnType<typeof parseDiagnostics>)
+        .then(rows => [b.slug, indexDiags(rows)] as const),
+    )).then(pairs => setDiags(new Map(pairs)))
+  }, [gw])
   useEffect(load, [load])
 
   // Persist masks + open set whenever either changes.
@@ -727,6 +810,7 @@ export const Kanban = memo((props: { focused?: boolean }) => {
         d.tenant ? `--tenant ${q(d.tenant)}` : "",
         ws,
         d.maxRuntime ? `--max-runtime ${q(d.maxRuntime)}` : "",
+        ...d.skills.map(s => `--skill ${q(s)}`),
       ].filter(Boolean).join(" ")
       return sh(`create ${q(d.title)} ${flags}`.trim(),
         `Created${d.triage ? " (triage)" : ""}${d.assignee ? ` → ${d.assignee}` : ""}`)
@@ -1090,8 +1174,8 @@ export const Kanban = memo((props: { focused?: boolean }) => {
       : "←→↑↓ nav  Enter detail"
     return [tier === "pane" ? "Esc grid" : "Tab board", nav,
       ...ACTS.filter(a => a.when(t)).map(a => `${a.key} ${a.title.toLowerCase()}`),
-      "r reload"].join("  ")
-  }, [ACTS, task, tier])
+      `${keys.print("list.refresh")} reload`].join("  ")
+  }, [ACTS, keys, task, tier])
 
   const onHead = useCallback((s: string) => {
     setAt(s); setTier("head"); toggle(s)
@@ -1107,10 +1191,10 @@ export const Kanban = memo((props: { focused?: boolean }) => {
   }, [])
 
   return (
+    <box flexDirection="column" flexGrow={1} minWidth={0}>
     <box flexDirection="row" flexGrow={1}>
       <TabShell
         title={`Kanban · ${sections.length} board${sections.length === 1 ? "" : "s"} · ${grand} task${grand === 1 ? "" : "s"}${running ? ` · ${running} running` : ""}`}
-        hint={hint}
       >
         <scrollbox ref={outer} scrollY flexGrow={1} verticalScrollbarOptions={NOBAR}>
           <box flexDirection="column" width="100%">
@@ -1119,6 +1203,7 @@ export const Kanban = memo((props: { focused?: boolean }) => {
               const secOpen = open.has(s.board.slug)
               const m = maskOf(s.board.slug)
               const filt = m.who.size + m.pri.size + m.status.size
+              const dg = diags.get(s.board.slug) ?? EMPTY_DIAG
               return (
                 <box key={s.board.slug} id={`kb-sec-${s.board.slug}`}
                      flexDirection="column" flexShrink={0} marginBottom={1}>
@@ -1151,6 +1236,7 @@ export const Kanban = memo((props: { focused?: boolean }) => {
                             {s.cols.map((c, ci) => (
                               <Column key={c.status} slug={s.board.slug} status={c.status}
                                       tasks={c.tasks}
+                                      diags={dg}
                                       on={on && (tier === "grid" || tier === "pane") && ci === clampCol}
                                       sel={on ? row : 0}
                                       onPick={ri => onPick(s.board.slug, ci, ri, c.tasks[ri].id)} />
@@ -1171,8 +1257,13 @@ export const Kanban = memo((props: { focused?: boolean }) => {
         </scrollbox>
       </TabShell>
       {pane
-        ? <SidePane pane={pane} on={tier === "pane"} sel={paneSel} />
+        ? <SidePane pane={pane} on={tier === "pane"} sel={paneSel}
+            diags={pane.kind === "detail"
+              ? (diags.get(pane.slug)?.get(pane.d.id) ?? EMPTY_DIAGS)
+              : EMPTY_DIAGS} />
         : null}
+    </box>
+    <HintBar raw={hint} />
     </box>
   )
 })

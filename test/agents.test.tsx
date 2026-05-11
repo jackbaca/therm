@@ -340,7 +340,7 @@ describe("Agents tab", () => {
     await until(t, () => t.frame().includes("New Profile"))
     expect(t.frame()).toContain("(fresh)")
     expect(t.frame()).toContain("type a name")
-    expect(t.frame()).toContain("shell alias: yes")
+    expect(t.frame()).toContain("[x] shell alias")
 
     for (const c of "coder") await act(async () => { await t.keys.typeText(c) })
     await until(t, () => t.frame().includes("already exists"))
@@ -350,9 +350,13 @@ describe("Agents tab", () => {
 
     for (const c of "-v2") await act(async () => { await t.keys.typeText(c) })
     await until(t, () => t.frame().includes("Enter create"))
-    act(() => t.keys.pressArrow("down")) // clone: (fresh) → default
-    act(() => t.keys.pressTab())         // alias: yes → no
-    await until(t, () => t.frame().includes("shell alias: no"))
+    // Tab to clone field, ↓ to pick 'default'.
+    act(() => t.keys.pressTab())
+    act(() => t.keys.pressArrow("down"))
+    // Tab to alias field, Space to toggle off.
+    act(() => t.keys.pressTab())
+    act(() => t.keys.pressKey(" "))
+    await until(t, () => t.frame().includes("[ ] shell alias"))
 
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Profiles (3)"))
@@ -424,22 +428,22 @@ describe("Agents tab", () => {
     const t = await mountNode(<Agents focused sessionId="test-sid" />, { gw, width: 80 })
     await until(t, () => t.frame().includes("Profiles (2)"))
     expect(t.frame()).not.toContain("Delegation (")
-    expect(t.frame()).toContain("Tab ↔ delegation")
-    expect(t.frame()).toContain("Enter detail")
+    expect(t.frame()).toContain("[Tab] ↔ delegation")
+    expect(t.frame()).toContain("[Enter] detail")
     // Detail column (path/model) hidden at 80 cols.
     expect(t.frame()).not.toContain("test-model")
 
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("test-model"))
-    expect(t.frame()).toContain("Enter actions")
-    expect(t.frame()).toContain("Esc back")
+    expect(t.frame()).toContain("[Enter] actions")
+    expect(t.frame()).toContain("[Esc] back")
     // Second Enter from detail opens the action menu.
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Profile · default"))
     act(() => t.keys.pressEscape())
     await until(t, () => !t.frame().includes("Profile · default"))
     act(() => t.keys.pressEscape())
-    await until(t, () => t.frame().includes("Enter detail"))
+    await until(t, () => t.frame().includes("[Enter] detail"))
 
     act(() => t.keys.pressTab())
     await until(t, () => t.frame().includes("Delegation (3)"))
@@ -462,7 +466,7 @@ describe("Agents tab", () => {
       { gw },
     )
     await until(t, () => t.frame().includes("Profiles (2)"))
-    expect(t.frame()).toContain("s switch")
+    expect(t.frame()).toContain("[s] switch")
 
     // Row 0 is active — `s` should not open the confirm.
     await act(async () => { await t.keys.typeText("s") })
@@ -566,8 +570,8 @@ describe("Agents tab", () => {
     expect(f).toContain("CHROME_API_KEY")   // required env listed
     expect(f).toContain("1 optional")
 
-    // Confirm
-    await act(async () => { await t.keys.typeText("y") })
+    // Confirm (Enter submits the form; nav spec § Dialogs)
+    act(() => t.keys.pressEnter())
     await t.settle()
 
     const installCmd = cmds.find(c => c.startsWith("hermes profile install"))
@@ -604,21 +608,23 @@ describe("Agents tab", () => {
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("coderv2"))
 
-    // Toggle alias on.
+    // Tab walks fields: name → alias. Space toggles on alias.
     act(() => t.keys.pressTab())
+    await until(t, () => t.frame().includes("[ ] create shell wrapper"))
+    act(() => t.keys.pressKey(" "))
     await until(t, () => t.frame().includes("[x] create shell wrapper"))
 
-    // Override name → press 'n' to enter edit, type, press Enter to exit.
-    await act(async () => { await t.keys.typeText("n") })
+    // Shift+Tab back to name field, then type the override.
+    act(() => t.keys.pressTab({ shift: true }))
     await t.settle()
     for (const c of "coder-local") {
       await act(async () => { await t.keys.typeText(c) })
     }
-    act(() => t.keys.pressEnter())
     await t.settle()
 
-    // Confirm — 'y' is consumed by dialog.confirm when not in the name field.
-    await act(async () => { await t.keys.typeText("y") })
+    // Enter submits from the name field (<input> onSubmit fires the same
+    // path as the global dialog.accept).
+    act(() => t.keys.pressEnter())
     await t.settle()
 
     const installCmd = cmds.find(c => c.startsWith("hermes profile install"))
@@ -751,8 +757,12 @@ describe("Agents tab", () => {
     expect(t.frame()).toContain("[ ] --force-config")
     expect(t.frame()).not.toContain("active profile")
 
+    // Tab is a no-op on single-checkbox confirm dialogs.
+    act(() => t.keys.pressTab()); await t.settle()
+    expect(t.frame()).toContain("[ ] --force-config")
+
     // Toggle force, confirm.
-    act(() => t.keys.pressTab())
+    act(() => t.keys.pressKey(" "))
     await until(t, () => t.frame().includes("[x] --force-config"))
     await act(async () => { await t.keys.typeText("y") })
     await until(t, () => cmds.length > 0)
