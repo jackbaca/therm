@@ -32,7 +32,7 @@ describe("Toolsets tab", () => {
     const f = strip(t.frame())
     expect(f).toContain("● file")
     expect(f).toContain("○ web")
-    expect(f).toContain("Space toggle")
+    expect(f).toContain("[Space] toggle")
     // no expand affordance now that detail pane is the single surface
     expect(f).not.toMatch(/\bexpand\b/)
     t.destroy()

@@ -291,7 +291,13 @@ export const Cron = memo((props: { focused?: boolean }) => {
 
       {showDetail ? <DetailPanel job={job} reloadKey={reloadKey} /> : null}
     </box>
-    <HintBar raw={`↑↓ nav  ${keys.print("list.new")} new  ${keys.print("list.toggle")} pause/resume  ${keys.print("list.delete")} delete  ${keys.print("list.refresh")} refresh`} />
+    <HintBar pairs={[
+      ["↑↓", "nav"],
+      [keys.print("list.new"), "new"],
+      [keys.print("list.toggle"), "pause/resume"],
+      [keys.print("list.delete"), "delete"],
+      [keys.print("list.refresh"), "refresh"],
+    ]} />
     </box>
   );
 });

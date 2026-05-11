@@ -428,22 +428,22 @@ describe("Agents tab", () => {
     const t = await mountNode(<Agents focused sessionId="test-sid" />, { gw, width: 80 })
     await until(t, () => t.frame().includes("Profiles (2)"))
     expect(t.frame()).not.toContain("Delegation (")
-    expect(t.frame()).toContain("Tab ↔ delegation")
-    expect(t.frame()).toContain("Enter detail")
+    expect(t.frame()).toContain("[Tab] ↔ delegation")
+    expect(t.frame()).toContain("[Enter] detail")
     // Detail column (path/model) hidden at 80 cols.
     expect(t.frame()).not.toContain("test-model")
 
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("test-model"))
-    expect(t.frame()).toContain("Enter actions")
-    expect(t.frame()).toContain("Esc back")
+    expect(t.frame()).toContain("[Enter] actions")
+    expect(t.frame()).toContain("[Esc] back")
     // Second Enter from detail opens the action menu.
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Profile · default"))
     act(() => t.keys.pressEscape())
     await until(t, () => !t.frame().includes("Profile · default"))
     act(() => t.keys.pressEscape())
-    await until(t, () => t.frame().includes("Enter detail"))
+    await until(t, () => t.frame().includes("[Enter] detail"))
 
     act(() => t.keys.pressTab())
     await until(t, () => t.frame().includes("Delegation (3)"))
@@ -466,7 +466,7 @@ describe("Agents tab", () => {
       { gw },
     )
     await until(t, () => t.frame().includes("Profiles (2)"))
-    expect(t.frame()).toContain("s switch")
+    expect(t.frame()).toContain("[s] switch")
 
     // Row 0 is active — `s` should not open the confirm.
     await act(async () => { await t.keys.typeText("s") })

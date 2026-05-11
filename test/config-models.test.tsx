@@ -92,7 +92,7 @@ describe("Config → models category", () => {
     expect(f).toContain("Vision")
     expect(f).toContain("google · gemini-2.5-flash")
     expect(f).toContain("auto  (use main model)")
-    expect(f).toContain("Enter pick  x reset  X reset-all")
+    expect(f).toContain("[Enter] pick  [x] reset  [X] reset-all")
 
     // ↓ to vision, Enter → picker titled for the slot
     act(() => t.keys.pressArrow("down"))

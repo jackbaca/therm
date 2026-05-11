@@ -153,7 +153,10 @@ export const Analytics = memo((props: { focused?: boolean }) => {
       <TabShell title={title}>
         <box height={1}><Spinner label={`aggregating ${days}d…`} /></box>
       </TabShell>
-      <HintBar raw="1/7/3/9 period · r reload" />
+      <HintBar pairs={[
+        ["1/7/3/9", "period"],
+        [keys.print("list.refresh"), "reload"],
+      ]} />
     </box>
   )
 
@@ -215,7 +218,10 @@ export const Analytics = memo((props: { focused?: boolean }) => {
         </box>
       </box>
     </TabShell>
-    <HintBar raw="1/7/3/9 period · r reload" />
+    <HintBar pairs={[
+      ["1/7/3/9", "period"],
+      [keys.print("list.refresh"), "reload"],
+    ]} />
     </box>
   )
 })

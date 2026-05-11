@@ -94,8 +94,8 @@ describe("useListKeys / handleListKey", () => {
     await until(t, () => t.frame().includes("Cron Jobs (2)"))
 
     // Hint reflects rebind + suppressed refresh.
-    expect(t.frame()).toContain("X delete")
-    expect(t.frame()).not.toMatch(/R refresh/)
+    expect(t.frame()).toContain("[X] delete")
+    expect(t.frame()).not.toMatch(/\[R\] refresh/)
 
     // 'd' no longer deletes.
     await act(async () => { await t.keys.typeText("d") })

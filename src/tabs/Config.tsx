@@ -459,8 +459,6 @@ export const Config = memo((props: { focused?: boolean }) => {
     }
   });
 
-  const dirty = nChanged > 0 ? `● ${nChanged} unsaved  ` : "";
-
   if (mode === "yaml") {
     return (
       <box flexDirection="column" flexGrow={1} minWidth={0}>
@@ -472,7 +470,10 @@ export const Config = memo((props: { focused?: boolean }) => {
           </text>
         </scrollbox>
       </TabShell>
-      <HintBar raw={`${keys.print("config.mode")} form  ${keys.print("config.save")} save`} />
+      <HintBar pairs={[
+        [keys.print("config.mode"), "form"],
+        [keys.print("config.save"), "save"],
+      ]} />
       </box>
     );
   }
@@ -601,13 +602,28 @@ export const Config = memo((props: { focused?: boolean }) => {
           </>)}
         </TabShell>
       </box>
-      <HintBar raw={managed
-        ? `read-only · managed by ${managed}`
+      {managed
+        ? <HintBar raw={`read-only · managed by ${managed}`} />
         : onSlots
-          ? "↑↓ nav  Enter pick  x reset  X reset-all  Tab categories"
+          ? <HintBar pairs={[
+              ["↑↓", "nav"],
+              ["Enter", "pick"],
+              ["x", "reset"],
+              ["X", "reset-all"],
+              ["Tab", "categories"],
+            ]} />
           : focus === "categories" && !searching
-            ? "↑↓ select  Tab fields"
-            : `${dirty}${keys.print("config.mode")} yaml  Tab categories  ↑↓ nav  ${keys.print("list.search")} search  ${keys.print("config.save")} save`} />
+            ? <HintBar pairs={[["↑↓", "select"], ["Tab", "fields"]]} />
+            : <HintBar
+                pairs={[
+                  [keys.print("config.mode"), "yaml"],
+                  ["Tab", "categories"],
+                  ["↑↓", "nav"],
+                  [keys.print("list.search"), "search"],
+                  [keys.print("config.save"), "save"],
+                ]}
+                suffix={nChanged > 0 ? `● ${nChanged} unsaved` : undefined}
+              />}
     </box>
   );
 });

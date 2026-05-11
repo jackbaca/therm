@@ -5,20 +5,23 @@ import { useTheme } from "../theme"
 // One row, rendered below all panes and above the composer. Muted
 // text, clips instead of wraps.
 //
-// Two input shapes during migration:
+// Input shapes:
 //   - `pairs`: structured [key, verb] list, rendered as `[key] verb`
-//     separated by 2 spaces. Preferred going forward; sibling card
-//     t_2b0d31ac rebuilds tabs around this.
-//   - `raw`: free-form string (previous TabShell.hint text). Relocated
-//     verbatim so the footer move is layout-only; each tab migrates to
-//     `pairs` when its nav is fully catalog-resolved.
+//     separated by 2 spaces. The canonical shape.
+//   - `suffix`: optional trailing status fragment appended after pairs
+//     with a `  ·  ` separator — for live indicators like "● 3 unsaved"
+//     or "● active" that sit alongside key hints but aren't bindings
+//     themselves.
+//   - `raw`: free-form passthrough. Used where the hint is pure status
+//     text (breadcrumb, managed-by label) with no key bindings.
 
 type Pair = readonly [string, string]
 
-export const HintBar = memo((props: { pairs?: readonly Pair[]; raw?: string }) => {
+export const HintBar = memo((props: { pairs?: readonly Pair[]; suffix?: string; raw?: string }) => {
   const theme = useTheme().theme
   const text = props.pairs
     ? props.pairs.map(p => `[${p[0]}] ${p[1]}`).join("  ")
+      + (props.suffix ? `  ·  ${props.suffix}` : "")
     : props.raw ?? ""
   return (
     <box height={1} flexShrink={0} paddingX={1} overflow="hidden">
