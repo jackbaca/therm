@@ -263,7 +263,11 @@ export const Toolsets = memo((props: { focused?: boolean }) => {
 
       {ts ? <DetailPanel ts={ts} /> : null}
     </box>
-    <HintBar raw={`↑↓ nav  ${keys.print("list.toggle")} toggle  ${keys.print("list.refresh")} refresh`} />
+    <HintBar pairs={[
+      ["↑↓", "nav"],
+      [keys.print("list.toggle"), "toggle"],
+      [keys.print("list.refresh"), "refresh"],
+    ]} />
     </box>
   );
 });

@@ -222,9 +222,21 @@ export const Env = memo((props: { focused?: boolean }) => {
         </scrollbox>
       )}
     </TabShell>
-    <HintBar raw={searching
-      ? "↑↓ move  Enter reveal/edit  Esc cancel"
-      : `↑↓ move  ${keys.print("list.activate")} reveal/edit  ${keys.print("list.toggle")} show-all  ${keys.print("list.new")} new  ${keys.print("list.delete")} delete  ${keys.print("list.search")} search  ${keys.print("list.refresh")} reload`} />
+    <HintBar pairs={searching
+      ? [
+          ["↑↓", "move"],
+          ["Enter", "reveal/edit"],
+          ["Esc", "cancel"],
+        ]
+      : [
+          ["↑↓", "move"],
+          [keys.print("list.activate"), "reveal/edit"],
+          [keys.print("list.toggle"), "show-all"],
+          [keys.print("list.new"), "new"],
+          [keys.print("list.delete"), "delete"],
+          [keys.print("list.search"), "search"],
+          [keys.print("list.refresh"), "reload"],
+        ]} />
     </box>
   )
 })

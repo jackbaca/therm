@@ -502,9 +502,20 @@ export const Skills = memo((props: { focused?: boolean }) => {
         : current ? <DetailPanel skill={current} usage={usage[current.name]}
                                   events={lineage.current.get(current.name) ?? NO_EVENTS} /> : null}
     </box>
-    <HintBar raw={searching
-      ? "↑↓ navigate  Enter install  Esc cancel"
-      : `↑↓ navigate  ${keys.print("list.search")} search hub  s sort  c curator  h history  ${keys.print("list.refresh")} refresh`} />
+    <HintBar pairs={searching
+      ? [
+          ["↑↓", "navigate"],
+          ["Enter", "install"],
+          ["Esc", "cancel"],
+        ]
+      : [
+          ["↑↓", "navigate"],
+          [keys.print("list.search"), "search hub"],
+          ["s", "sort"],
+          ["c", "curator"],
+          ["h", "history"],
+          [keys.print("list.refresh"), "refresh"],
+        ]} />
     </box>
   );
 });

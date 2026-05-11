@@ -645,14 +645,30 @@ export const Agents = memo((props: Props) => {
       category: "Agents", description: "from git URL or local directory", onSelect: install },
   ]), [cmd, togglePause, deleg?.paused, install])
 
-  const sw = props.onSwitchProfile ? "s switch  " : ""
+  const pair = (k: string, v: string) => `[${k}] ${v}`
+  const join = (...parts: string[]) => parts.filter(Boolean).join("  ")
+  const sw = props.onSwitchProfile ? pair("s", "switch") : ""
   const pHint = pWide
-    ? `↑↓ nav  ${keys.print("list.activate")} actions  ${sw}${keys.print("list.new")} new  ${keys.print("agents.install")} install  ${keys.print("list.delete")} delete  ${keys.print("list.refresh")} refresh`
-    : pView === "list" ? `↑↓ nav  ${keys.print("list.activate")} detail  ${sw}${keys.print("list.new")} new  ${keys.print("list.delete")} delete`
-    : `${keys.print("list.activate")} actions  ${sw}Esc back  ${keys.print("list.delete")} delete`
+    ? join("[↑↓] nav", pair(keys.print("list.activate"), "actions"), sw,
+           pair(keys.print("list.new"), "new"),
+           pair(keys.print("agents.install"), "install"),
+           pair(keys.print("list.delete"), "delete"),
+           pair(keys.print("list.refresh"), "refresh"))
+    : pView === "list"
+      ? join("[↑↓] nav", pair(keys.print("list.activate"), "detail"), sw,
+             pair(keys.print("list.new"), "new"),
+             pair(keys.print("list.delete"), "delete"))
+      : join(pair(keys.print("list.activate"), "actions"), sw, "[Esc] back",
+             pair(keys.print("list.delete"), "delete"))
 
-  const profilesHint = `${pHint}  Tab ${wide ? "→" : "↔"} delegation`
-  const delegHint = `↑↓ nav  ${keys.print("agents.kill")} interrupt  ${keys.print("agents.history")} history  ${keys.print("list.refresh")} refresh  ·  ${dHint}`
+  const profilesHint = `${pHint}  ${pair("Tab", wide ? "→ delegation" : "↔ delegation")}`
+  const delegKeys = join(
+    "[↑↓] nav",
+    pair(keys.print("agents.kill"), "interrupt"),
+    pair(keys.print("agents.history"), "history"),
+    pair(keys.print("list.refresh"), "refresh"),
+  )
+  const delegHint = dHint ? `${delegKeys}  ·  ${dHint}` : delegKeys
   // Wide: both panes visible, footer joins hints by focused pane order.
   // Narrow: only one pane rendered, footer matches.
   const footerHint = wide

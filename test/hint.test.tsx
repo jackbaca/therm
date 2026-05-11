@@ -38,6 +38,22 @@ describe("HintBar", () => {
     t.destroy()
   })
 
+  test("suffix appends after pairs with ' · ' separator", async () => {
+    const t = await mountNode(
+      <HintBar pairs={[["↑↓", "select"], ["Space", "activate"]]}
+               suffix="● 3 unsaved" />,
+      { width: 80, height: 3 },
+    )
+    expect(t.frame()).toContain("[↑↓] select  [Space] activate  ·  ● 3 unsaved")
+    t.destroy()
+  })
+
+  test("suffix without pairs is ignored (use raw for pure-status lines)", async () => {
+    const t = await mountNode(<HintBar suffix="lonely" />, { width: 40, height: 3 })
+    expect(t.frame()).not.toContain("lonely")
+    t.destroy()
+  })
+
   test("oversized content clips to one row, does not wrap", async () => {
     const long = "↑↓ nav  Enter open  n new  d delete  / search  r refresh  Tab pane"
     const t = await mountNode(<HintBar raw={long} />, { width: 30, height: 3 })

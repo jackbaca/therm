@@ -806,9 +806,21 @@ export const Sessions = memo((props: Props) => {
           ? <Detail row={visible[sel].row} lineage={io.lineage} peek={io.peek} onSwitch={lineageSwitch} />
           : null}
     </box>
-    <HintBar raw={searching
-      ? "↑↓ navigate  Enter/click switch  Esc cancel"
-      : `↑↓ navigate  ←→ lineage  ${keys.print("list.activate")}/click switch  ${keys.print("list.search")} search  ${keys.print("sessions.rename")} rename  ${keys.print("list.delete")} delete  ${keys.print("list.refresh")} refresh`} />
+    <HintBar pairs={searching
+      ? [
+          ["↑↓", "navigate"],
+          ["Enter/click", "switch"],
+          ["Esc", "cancel"],
+        ]
+      : [
+          ["↑↓", "navigate"],
+          ["←→", "lineage"],
+          [`${keys.print("list.activate")}/click`, "switch"],
+          [keys.print("list.search"), "search"],
+          [keys.print("sessions.rename"), "rename"],
+          [keys.print("list.delete"), "delete"],
+          [keys.print("list.refresh"), "refresh"],
+        ]} />
     </box>
   )
 })

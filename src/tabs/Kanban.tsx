@@ -1091,8 +1091,8 @@ export const Kanban = memo((props: { focused?: boolean }) => {
       : "←→↑↓ nav  Enter detail"
     return [tier === "pane" ? "Esc grid" : "Tab board", nav,
       ...ACTS.filter(a => a.when(t)).map(a => `${a.key} ${a.title.toLowerCase()}`),
-      "r reload"].join("  ")
-  }, [ACTS, task, tier])
+      `${keys.print("list.refresh")} reload`].join("  ")
+  }, [ACTS, keys, task, tier])
 
   const onHead = useCallback((s: string) => {
     setAt(s); setTier("head"); toggle(s)

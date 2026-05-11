@@ -145,7 +145,13 @@ export const Memory = memo((props: { focused?: boolean }) => {
         )}
       </TabShell>
     </box>
-    <HintBar raw={`${keys.print("list.up")}${keys.print("list.down")} select  ${keys.print("list.toggle")} activate  ·  ${on ? "● active" : "○ inactive"}`} />
+    <HintBar
+      pairs={[
+        ["↑↓", "select"],
+        [keys.print("list.toggle"), "activate"],
+      ]}
+      suffix={on ? "● active" : "○ inactive"}
+    />
     </box>
   )
 })
