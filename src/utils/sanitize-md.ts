@@ -11,11 +11,13 @@
 // Two rewrites, applied only outside inline-code spans:
 //
 //   1. `[label](dest)` where `dest` lacks a terminal-openable scheme
-//      → `[label]\(dest)` — the `\(` stops tree-sitter's markdown_inline
-//      grammar from recognising an inline_link, so no `link_destination`
-//      node is produced and detect-links never sees it. Visually identical
-//      (the `\` is concealed by the same highlights.scm that would have
-//      concealed the link markers).
+//      → `[label] (dest)` — the inserted space stops tree-sitter's
+//      markdown_inline grammar from recognising an inline_link (CommonMark
+//      requires `](` adjacency), so no `link_destination` node is produced
+//      and detect-links never sees it. `[label]` alone parses as a
+//      shortcut_link whose brackets are concealed; the net visual is
+//      `label (dest)`, same as a real inline_link would render (`]` conceals
+//      to a space there too), just without the OSC-8 span.
 //
 //   2. `<scheme://…>` autolink → `scheme://…` — strip the angle brackets so
 //      the bare URI is what ends up in the OSC-8 href instead of `<…>`.
@@ -41,7 +43,7 @@ function rewrite(prose: string): string {
   return prose
     .replace(AUTOLINK_RE, '$1')
     .replace(INLINE_LINK_RE, (m, label, dest) =>
-      OPENABLE.test(dest) ? m : `${label}\\(${dest})`)
+      OPENABLE.test(dest) ? m : `${label} (${dest})`)
 }
 
 export function sanitizeLinks(md: string): string {

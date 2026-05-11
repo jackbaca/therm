@@ -2,13 +2,13 @@ import { describe, expect, test } from "bun:test"
 import { sanitizeLinks } from "../src/utils/sanitize-md"
 
 describe("sanitizeLinks — inline links", () => {
-  test("escapes link whose dest has no terminal-openable scheme", () => {
+  test("breaks link whose dest has no terminal-openable scheme", () => {
     expect(sanitizeLinks("see [here](#anchor) for more"))
-      .toBe("see [here]\\(#anchor) for more")
+      .toBe("see [here] (#anchor) for more")
     expect(sanitizeLinks("[rel](./path/to/file.md)"))
-      .toBe("[rel]\\(./path/to/file.md)")
+      .toBe("[rel] (./path/to/file.md)")
     expect(sanitizeLinks("call [set](arg) now"))
-      .toBe("call [set]\\(arg) now")
+      .toBe("call [set] (arg) now")
   })
 
   test("preserves link whose dest has an openable scheme", () => {
@@ -29,7 +29,7 @@ describe("sanitizeLinks — inline links", () => {
 
   test("handles multiple links, mixed validity", () => {
     expect(sanitizeLinks("[a](https://x) and [b](#y) and [c](mailto:z@z)"))
-      .toBe("[a](https://x) and [b]\\(#y) and [c](mailto:z@z)")
+      .toBe("[a](https://x) and [b] (#y) and [c](mailto:z@z)")
   })
 
   test("leaves prose brackets without paren-dest alone", () => {
@@ -55,14 +55,14 @@ describe("sanitizeLinks — autolinks", () => {
 describe("sanitizeLinks — code spans", () => {
   test("skips inline-code spans entirely", () => {
     expect(sanitizeLinks("run `[x](#a)` then [y](#b)"))
-      .toBe("run `[x](#a)` then [y]\\(#b)")
+      .toBe("run `[x](#a)` then [y] (#b)")
     expect(sanitizeLinks("``[a](b)`` and `<https://x>`"))
       .toBe("``[a](b)`` and `<https://x>`")
   })
 
   test("code span at start, end, and adjacent", () => {
     expect(sanitizeLinks("`[a](b)`[c](#d)`[e](f)`"))
-      .toBe("`[a](b)`[c]\\(#d)`[e](f)`")
+      .toBe("`[a](b)`[c] (#d)`[e](f)`")
   })
 })
 
