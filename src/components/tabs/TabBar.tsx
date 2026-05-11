@@ -1,50 +1,31 @@
 import { memo } from "react"
-import { useTheme } from "../../theme"
 import { useKeys } from "../../keys"
+import { TabStrip } from "./TabStrip"
 
-type Tab = {
-  name: string
-  description: string
-}
+// Top-level tab row. Thin adapter over TabStrip that maps the TABS
+// registry's {name, description} entries down to bare names and
+// supplies the top-level nav hint. The <leader>+N / Alt+N direct-jump
+// chords still work (useAppKeys) — they're just no longer painted per
+// label, since with four consolidated groups the row has room and the
+// hint already advertises the chord.
 
-type TabBarProps = {
+type Tab = { name: string; description: string }
+
+type Props = {
   tabs: ReadonlyArray<Tab>
   activeTab: number
-  onTabChange: (index: number) => void
+  onTabChange: (i: number) => void
 }
 
-// 1..9, 0, - — mirrors the <leader>+digit map in useAppKeys.
-const idx = (i: number) => i < 9 ? String(i + 1) : i === 9 ? "0" : "-"
-
-export const TabBar = memo(({ tabs, activeTab, onTabChange }: TabBarProps) => {
-  const theme = useTheme().theme
+export const TabBar = memo(({ tabs, activeTab, onTabChange }: Props) => {
   const keys = useKeys()
-
+  const hint = `${keys.print("tab.prev")}/${keys.print("tab.next")} or ${keys.print("leader")} N`
   return (
-    <box width="100%" flexDirection="column" height={1}>
-      <box flexDirection="row" overflow="hidden">
-        {tabs.map((tab, i) => (
-          <box
-            key={i}
-            onMouseDown={() => onTabChange(i)}
-            paddingX={2}
-            marginRight={1}
-            flexShrink={0}
-            backgroundColor={i === activeTab ? theme.backgroundElement : undefined}
-          >
-            <text attributes={3}>
-              <span fg={theme.borderSubtle}>{idx(i)} </span>
-              <span fg={i === activeTab ? theme.primary : theme.textMuted}>{tab.name}</span>
-            </text>
-          </box>
-        ))}
-        <box flexGrow={1} minWidth={0} />
-        <box paddingX={1} flexShrink={1} minWidth={0} overflow="hidden">
-          <text fg={theme.borderSubtle}>
-            {`${keys.print("tab.prev")}/${keys.print("tab.next")} or ${keys.print("leader")} N`}
-          </text>
-        </box>
-      </box>
-    </box>
+    <TabStrip
+      tabs={tabs.map(t => t.name)}
+      active={activeTab}
+      onChange={onTabChange}
+      hint={hint}
+    />
   )
 })

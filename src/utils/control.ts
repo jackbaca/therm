@@ -66,16 +66,28 @@ const json = (data: unknown, status = 200) =>
 // module load — hardcoded indexes drift every time a tab is inserted.
 // Throws if a named tab is missing so the app refuses to start with a
 // broken safety table rather than silently leaving Chat's Enter unguarded.
+//
+// The top-level tabs are now groups that host multiple sub-tabs (e.g.
+// "Config" hosts Config/Skills/Toolsets/Env/Memory). Since control.ts
+// only sees the top-level tab, the guarded key set for a group is the
+// UNION of every sub-tab's dangerous keys — err on the side of requiring
+// safe=false when a sub-tab could mutate. Acceptable: Skills/Memory
+// don't mutate on plain return, so only the worst-case sub-tab matters.
 const idx = (name: string) => {
   const n = TAB_NAMES.indexOf(name)
   if (n < 0) throw new Error(`control.ts DANGEROUS: tab '${name}' missing from TAB_NAMES`)
   return n
 }
 const DANGEROUS: Record<number, Set<string>> = {
-  [idx("Chat")]:     new Set(["return"]),                                     // Enter sends message
-  [idx("Sessions")]: new Set(["d", "delete", "return"]),                      // d=delete, Enter=switch
-  [idx("Config")]:   new Set(["space", "return", "h", "l", "]", "[", "ctrl+s"]), // toggles, edits, save
-  [idx("Env")]:      new Set(["return", "space", "d", "delete"]),             // potential mutations
+  [idx("Chat")]:                   new Set(["return"]),                         // Enter sends message
+  // Sessions sub-tab: d/delete/return; Context/Analytics sub-tabs: no mutations.
+  [idx("Sessions")]:               new Set(["d", "delete", "return"]),
+  // Profiles sub-tab: k (kill subagent), d (delete). Cron sub-tab: return, space,
+  // d/delete. Kanban sub-tab: d/delete, return (activate/start).
+  [idx("Profiles & Automation")]:  new Set(["return", "space", "d", "delete", "k"]),
+  // Config sub-tab: space, return, h, l, ]/[, ctrl+s. Env sub-tab:
+  // return, space, d/delete. Toolsets/Skills/Memory: space for toggles.
+  [idx("Config")]:                 new Set(["space", "return", "h", "l", "]", "[", "ctrl+s", "d", "delete"]),
 }
 
 export function isDangerous(tab: number, keyName: string, ctrl: boolean): boolean {

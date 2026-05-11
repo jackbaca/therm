@@ -25,13 +25,13 @@ describe("app", () => {
     const t = await mount()
     await until(t, () => t.frame().includes("Ready"))
 
-    // Chat is index 0; alt+left should clamp (no Overview anymore)
+    // Chat is index 0; alt+left should clamp.
     act(() => t.keys.pressArrow("left", { meta: true }))
     await t.settle()
     expect(t.frame()).toContain("Message Hermes")
 
-    // → Sessions (index 2)
-    act(() => { for (let i = 0; i < 2; i++) t.keys.pressArrow("right", { meta: true }) })
+    // → Sessions (index 1, the consolidated Sessions/Context/Analytics group).
+    act(() => t.keys.pressArrow("right", { meta: true }))
     // Sandboxed HERMES_HOME has no state.db → empty state
     await until(t, () => t.frame().includes("No sessions"))
 
@@ -42,19 +42,21 @@ describe("app", () => {
     const t = await mount()
     await until(t, () => t.frame().includes("Ready"))
 
-    // Tab bar shows index prefixes.
-    expect(t.frame()).toMatch(/1 Chat.*2 Context.*3 Sessions/)
+    // Tab bar shows bare labels (no digit prefix). New 4-tab layout.
+    expect(t.frame()).toMatch(/Chat.*Sessions.*Profiles & Automation.*Config/)
 
-    act(() => { t.keys.pressKey("x", { ctrl: true }); t.keys.pressKey("3") })
+    // <leader>2 → Sessions group (landing sub-tab is Sessions).
+    act(() => { t.keys.pressKey("x", { ctrl: true }); t.keys.pressKey("2") })
     await until(t, () => t.frame().includes("No sessions"))
 
-    act(() => { t.keys.pressKey("x", { ctrl: true }); t.keys.pressKey("0") })
-    await until(t, () => t.frame().includes("Env / API Keys"))
-    // Focus landed on content: arrow moves Env selection, doesn't type.
+    // <leader>4 → Config group. Landing sub-tab is Config.
+    act(() => { t.keys.pressKey("x", { ctrl: true }); t.keys.pressKey("4") })
+    await until(t, () => t.frame().includes("general") && t.frame().includes("models"))
+    // Focus landed on content: arrow moves Config selection, doesn't type.
     act(() => t.keys.pressArrow("down"))
     await t.settle()
-    const sel = t.frame().split("\n").find(l => l.includes("▸"))!
-    expect(sel).not.toMatch(/LLM Providers/)
+    // Composer should still be empty — arrow didn't bounce to input.
+    expect(t.frame()).not.toMatch(/> [a-z]/)
 
     act(() => { t.keys.pressKey("x", { ctrl: true }); t.keys.pressKey("1") })
     await t.settle()
@@ -106,12 +108,10 @@ describe("app", () => {
     await t.settle()
     expect(t.frame()).toContain("Message Hermes")
 
-    // Rebound chord does.
-    act(() => { t.keys.pressKey("]", { ctrl: true }); t.keys.pressKey("]", { ctrl: true }) })
+    // Rebound chord does (one step → Sessions group).
+    act(() => t.keys.pressKey("]", { ctrl: true }))
     await until(t, () => t.frame().includes("No sessions"))
 
-    act(() => t.keys.pressKey("[", { ctrl: true }))
-    await t.settle()
     act(() => t.keys.pressKey("[", { ctrl: true }))
     await t.settle()
     expect(t.frame()).toContain("Message Hermes")
@@ -147,8 +147,10 @@ describe("app", () => {
     const t = await mount()
     await until(t, () => t.frame().includes("Ready"))
 
-    // Alt+→ to Env (index 9). Land on content, not the composer.
-    act(() => { for (let i = 0; i < 9; i++) t.keys.pressArrow("right", { meta: true }) })
+    // Alt+→×3 lands on Config group; Shift+→×3 walks to Env sub-tab.
+    act(() => { for (let i = 0; i < 3; i++) t.keys.pressArrow("right", { meta: true }) })
+    await t.settle()
+    act(() => { for (let i = 0; i < 3; i++) t.keys.pressArrow("right", { shift: true }) })
     await t.settle()
     await until(t, () => t.frame().includes("Env / API Keys"))
     expect(t.frame()).not.toContain("Env (searching)")
@@ -173,7 +175,9 @@ describe("app", () => {
     const t = await mount()
     await until(t, () => t.frame().includes("Ready"))
 
-    act(() => { for (let i = 0; i < 9; i++) t.keys.pressArrow("right", { meta: true }) })
+    act(() => { for (let i = 0; i < 3; i++) t.keys.pressArrow("right", { meta: true }) })
+    await t.settle()
+    act(() => { for (let i = 0; i < 3; i++) t.keys.pressArrow("right", { shift: true }) })
     await until(t, () => t.frame().includes("Env / API Keys"))
 
     // Single Tab: content keeps focus (arrow still moves selection).
@@ -250,7 +254,8 @@ describe("app", () => {
     // Chat tab: sidebar visible at 130.
     expect(t.frame()).toMatch(/Profile\s+default/)
 
-    act(() => { t.keys.pressKey("x", { ctrl: true }); t.keys.pressKey("3") })
+    // <leader>2 → Sessions group (landing sub-tab: Sessions).
+    act(() => { t.keys.pressKey("x", { ctrl: true }); t.keys.pressKey("2") })
     await until(t, () => t.frame().includes("Sessions (1)"))
     // Sidebar dropped, detail pane kept.
     expect(t.frame()).not.toMatch(/Profile\s+default/)
@@ -357,8 +362,9 @@ describe("app", () => {
 
     // Unlike the old dialog, tab-nav is NOT blocked — the prompt is
     // in the transcript, not an overlay. But it snaps back to Chat
-    // on arrival and that's where the card lives.
-    expect(t.frame()).toContain("1 Chat")
+    // on arrival and that's where the card lives. Tab bar still
+    // paints — no backdrop covering it.
+    expect(t.frame()).toMatch(/Chat.*Sessions.*Profiles & Automation/)
 
     // Esc denies the prompt and does NOT arm interrupt (card.feed
     // consumed it and stopPropagation'd).

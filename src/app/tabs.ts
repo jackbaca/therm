@@ -1,23 +1,47 @@
+// Top-level tab registry. The four groups consolidate the earlier 12-tab
+// sprawl; inner views are reached via each group's sub-tab bar (see
+// tabs/SessionsGroup / Automation / ConfigGroup).
+//
+// SUB_TABS keys MUST match TABS indices; each entry is the ordered list of
+// sub-tab names shown in the group's sub-tab strip. SLASH_SUB maps slash
+// command names to the sub-tab label they jump to, so `/memory` opens the
+// Memory sub-tab inside Config.
+
 export const TABS = [
-  { name: "Chat",      description: "Main chat interface" },
-  { name: "Context",   description: "Context and session info" },
-  { name: "Sessions",  description: "Session history" },
-  { name: "Agents",    description: "Profiles and running subagents" },
-  { name: "Analytics", description: "Token usage and costs" },
-  { name: "Skills",    description: "Installed skills browser" },
-  { name: "Cron",      description: "Scheduled job manager" },
-  { name: "Toolsets",  description: "Available toolsets manager" },
-  { name: "Config",    description: "Configuration editor" },
-  { name: "Env",       description: "API keys & env variables" },
-  { name: "Memory",    description: "Agent memory browser" },
-  { name: "Kanban",    description: "Multi-agent task board" },
+  { name: "Chat",                 description: "Main chat interface" },
+  { name: "Sessions",             description: "Sessions, context, analytics" },
+  { name: "Profiles & Automation",description: "Profiles, cron jobs, kanban boards" },
+  { name: "Config",               description: "Config, env, skills, toolsets, memory" },
 ] as const
 
 export const TAB_MAX = TABS.length - 1
 export const CHAT_TAB = 0
+export const SESSIONS_TAB = 1
+export const AUTOMATION_TAB = 2
+export const CONFIG_TAB = 3
 
-/** Slash-command names that jump to a tab (F5.3). */
-export const TAB_SLASH: Record<string, number> = Object.fromEntries(
-  TABS.map((t, i) => [t.name.toLowerCase(), i]),
-)
-TAB_SLASH.insights = TAB_SLASH.analytics
+export const SUB_TABS: Record<number, readonly string[]> = {
+  [SESSIONS_TAB]:   ["List", "Context", "Analytics"],
+  [AUTOMATION_TAB]: ["Kanban", "Profiles", "Cron"],
+  [CONFIG_TAB]:     ["Config", "Skills", "Toolsets", "Env", "Memory"],
+}
+
+/** Slash-command name → {tab, sub}. `sub` is the sub-tab index within that
+ *  group (0 when the slash targets the group's landing view). */
+export const TAB_SLASH: Record<string, { tab: number; sub: number }> = {
+  chat:       { tab: CHAT_TAB,       sub: 0 },
+  sessions:   { tab: SESSIONS_TAB,   sub: 0 },
+  context:    { tab: SESSIONS_TAB,   sub: 1 },
+  analytics:  { tab: SESSIONS_TAB,   sub: 2 },
+  insights:   { tab: SESSIONS_TAB,   sub: 2 },
+  kanban:     { tab: AUTOMATION_TAB, sub: 0 },
+  automation: { tab: AUTOMATION_TAB, sub: 0 },
+  profiles:   { tab: AUTOMATION_TAB, sub: 1 },
+  agents:     { tab: AUTOMATION_TAB, sub: 1 },
+  cron:       { tab: AUTOMATION_TAB, sub: 2 },
+  config:     { tab: CONFIG_TAB,     sub: 0 },
+  skills:     { tab: CONFIG_TAB,     sub: 1 },
+  toolsets:   { tab: CONFIG_TAB,     sub: 2 },
+  env:        { tab: CONFIG_TAB,     sub: 3 },
+  memory:     { tab: CONFIG_TAB,     sub: 4 },
+}

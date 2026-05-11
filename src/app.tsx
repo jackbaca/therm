@@ -13,17 +13,9 @@ import type { AvatarState } from "./components/avatar/states"
 import { TabBar } from "./components/tabs/TabBar"
 import { Sidebar } from "./components/sidebar/Sidebar"
 import { Chat } from "./tabs/Chat"
-import { Context } from "./tabs/Context"
-import { Sessions } from "./tabs/Sessions"
-import { Agents } from "./tabs/Agents"
-import { Analytics } from "./tabs/Analytics"
-import { Memory } from "./tabs/Memory"
-import { Skills } from "./tabs/Skills"
-import { Config } from "./tabs/Config"
-import { Cron } from "./tabs/Cron"
-import { Toolsets } from "./tabs/Toolsets"
-import { Env } from "./tabs/Env"
-import { Kanban } from "./tabs/Kanban"
+import { SessionsGroup } from "./tabs/SessionsGroup"
+import { Automation } from "./tabs/Automation"
+import { ConfigGroup } from "./tabs/ConfigGroup"
 import type { Usage } from "./types/message"
 import { copySelection, copy as clipCopy } from "./utils/clipboard"
 import { ThemeProvider, useTheme } from "./theme"
@@ -62,7 +54,7 @@ import { useSession } from "./app/useSession"
 import { SkinProvider, deriveSkin, SKINS, type SkinState } from "./app/skin"
 import { useAppKeys, redraw } from "./app/useAppKeys"
 import { quit } from "./app/exit"
-import { TABS, TAB_MAX, CHAT_TAB, TAB_SLASH } from "./app/tabs"
+import { TABS, TAB_MAX, CHAT_TAB, SESSIONS_TAB, AUTOMATION_TAB, CONFIG_TAB, SUB_TABS, TAB_SLASH } from "./app/tabs"
 import { activeProfileName } from "./utils/hermes-profiles"
 import { rehome } from "./home/rehome"
 import { useHome, home } from "./home"
@@ -104,6 +96,14 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const [sid, setSid] = useState("")
   const sidRef = useRef(sid); sidRef.current = sid
   const [tab, setTab] = useState(CHAT_TAB)
+  // Sub-tab per group — Chat has none, so key 0 is unused.
+  // Defensive clamp lives inside each group (SessionsGroup/Automation/
+  // ConfigGroup) so a shrinking SUB_TABS list doesn't render blank.
+  const [subTabs, setSubTabs] = useState<Record<number, number>>(
+    () => ({ [SESSIONS_TAB]: 0, [AUTOMATION_TAB]: 0, [CONFIG_TAB]: 0 }),
+  )
+  const setSub = useCallback((tabIdx: number, sub: number) =>
+    setSubTabs(prev => prev[tabIdx] === sub ? prev : { ...prev, [tabIdx]: sub }), [])
   const [hideSidebar, setHideSidebar] = useState(false)
   const [usage, setUsage] = useState<Usage | undefined>(undefined)
   const [info, setInfo] = useState<SessionInfo | null>(null)
@@ -111,6 +111,14 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const [focusRegion, setFocusRegion] = useState<"input" | "content">("input")
   const goToTab = useCallback((t: number) => {
     setTab(t)
+    setFocusRegion(t === CHAT_TAB ? "input" : "content")
+  }, [])
+  // Slash-driven deep-link: jumps to a top-level tab AND sets its
+  // sub-tab. goToTab preserves whatever sub-tab the user last picked;
+  // goTo overrides it (what /memory or /cron should do).
+  const goTo = useCallback((t: number, sub: number) => {
+    setTab(t)
+    setSubTabs(prev => prev[t] === sub ? prev : { ...prev, [t]: sub })
     setFocusRegion(t === CHAT_TAB ? "input" : "content")
   }, [])
   const [status, setStatus] = useState("")
@@ -537,7 +545,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
         // ── parity: session-mutating (slash-worker can't service these) ──
         case "resume":
           if (arg) { void switchSession(arg); return }
-          goToTab(TAB_SLASH.sessions); return
+          goTo(TAB_SLASH.sessions.tab, TAB_SLASH.sessions.sub); return
         case "branch":
           session.branch(arg || undefined).then(id => id
             ? void switchSession(id)
@@ -685,7 +693,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     }
     if (c.target !== "gateway" || !ready) return
     const jump = TAB_SLASH[c.name]
-    if (jump !== undefined && !arg) { goToTab(jump); return }
+    if (jump !== undefined && !arg) { goTo(jump.tab, jump.sub); return }
     const full = `/${c.name}${arg ? " " + arg : ""}`
     // slash.exec owns the persistent HermesCLI subprocess; mid-stream it
     // races the agent turn. Enqueue as `/cmd arg` and let the drain path
@@ -728,7 +736,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       })
   }, [ready, turn.streaming, turn.messages, dialog, themeCtx, newSession, gw, pickEikon, editTitle,
       applyTitle, toast, info, sid, title, switchSession, session, runCompress, rewind, renderer,
-      attachClipboard, goToTab, queue.length, goalHook, skin, destructive])
+      attachClipboard, goToTab, goTo, queue.length, goalHook, skin, destructive])
 
   // ── Send ──────────────────────────────────────────────────────────
   const send = useCallback(async (raw: string) => {
@@ -984,8 +992,20 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   intr.current = doInterrupt
 
   // ── Keyboard ──────────────────────────────────────────────────────
+  const subCount = SUB_TABS[tab]?.length ?? 0
+  const cycleSub = useCallback((dir: -1 | 1) => {
+    const labels = SUB_TABS[tab]
+    if (!labels || labels.length === 0) return
+    setSubTabs(prev => {
+      const cur = prev[tab] ?? 0
+      const next = (cur + dir + labels.length) % labels.length
+      return next === cur ? prev : { ...prev, [tab]: next }
+    })
+  }, [tab])
   useAppKeys({
-    tab, tabMax: TAB_MAX, chatTab: CHAT_TAB, setTab, focusRegion, setFocusRegion,
+    tab, tabMax: TAB_MAX, chatTab: CHAT_TAB, setTab,
+    subCount, cycleSub,
+    focusRegion, setFocusRegion,
     streaming: turn.streaming,
     dialogOpen: dialog.open,
     composer,
@@ -1066,23 +1086,24 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const content = () => {
     const inner = (() => {
       switch (tab) {
-        case 0: return <Chat messages={turn.messages} streaming={turn.streaming}
-                             prompt={promptWire}
-                             cloud={cloud} cloudH={cloudH} pick={pick}
-                             onResize={setCloudH} onPick={onPick} onClose={closeCloud} onRewind={msgMenu} />
-        case 1: return <Context description={TABS[tab].description} messages={turn.messages}
-                               sessionStart={sessionStart.current} info={info ?? undefined}
-                               focused={contentFocused} />
-        case 2: return <Sessions onSwitch={switchSession} currentId={sid} focused={contentFocused} />
-        case 3: return <Agents focused={contentFocused} sessionId={sid} onSwitchProfile={switchProfile} />
-        case 4: return <Analytics focused={contentFocused} />
-        case 5: return <Skills focused={contentFocused} />
-        case 6: return <Cron focused={contentFocused} />
-        case 7: return <Toolsets focused={contentFocused} />
-        case 8: return <Config focused={contentFocused} />
-        case 9: return <Env focused={contentFocused} />
-        case 10: return <Memory focused={contentFocused} />
-        case 11: return <Kanban focused={contentFocused} />
+        case CHAT_TAB: return <Chat messages={turn.messages} streaming={turn.streaming}
+                                    prompt={promptWire}
+                                    cloud={cloud} cloudH={cloudH} pick={pick}
+                                    onResize={setCloudH} onPick={onPick} onClose={closeCloud} onRewind={msgMenu} />
+        case SESSIONS_TAB: return <SessionsGroup focused={contentFocused}
+                                                 sub={subTabs[SESSIONS_TAB] ?? 0}
+                                                 setSub={(i) => setSub(SESSIONS_TAB, i)}
+                                                 onSwitch={switchSession} currentId={sid}
+                                                 messages={turn.messages}
+                                                 sessionStart={sessionStart.current}
+                                                 info={info ?? undefined} />
+        case AUTOMATION_TAB: return <Automation focused={contentFocused}
+                                                sub={subTabs[AUTOMATION_TAB] ?? 0}
+                                                setSub={(i) => setSub(AUTOMATION_TAB, i)}
+                                                sessionId={sid} onSwitchProfile={switchProfile} />
+        case CONFIG_TAB: return <ConfigGroup focused={contentFocused}
+                                             sub={subTabs[CONFIG_TAB] ?? 0}
+                                             setSub={(i) => setSub(CONFIG_TAB, i)} />
         default: return null
       }
     })()

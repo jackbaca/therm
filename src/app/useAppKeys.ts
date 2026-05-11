@@ -31,6 +31,10 @@ type Opts = {
   tabMax: number
   chatTab: number
   setTab: (fn: (t: number) => number) => void
+  /** Sub-tab count for the active top-level tab (0 if no sub-tabs, e.g. Chat). */
+  subCount: number
+  /** Cycle sub-tab within the active top-level tab. dir: -1 = prev, +1 = next. */
+  cycleSub: (dir: -1 | 1) => void
   focusRegion: Region
   setFocusRegion: (r: Region | ((r: Region) => Region)) => void
   streaming: boolean
@@ -169,6 +173,14 @@ export function useAppKeys(o: Opts) {
     if (keys.match("tab.next", key)) {
       o.setTab(t => { const n = Math.min(o.tabMax, t + 1); o.setFocusRegion(regionFor(n)); return n })
       return
+    }
+    // Shift+←/→ cycles sub-tab within the active group. No-op on Chat
+    // (subCount=0). Structural, not catalog — sub-tabs are a layout
+    // property of a group, not a rebindable concept.
+    if (o.subCount > 0 && key.shift && !key.ctrl && !key.meta
+        && key.eventType !== "release") {
+      if (key.name === "left")  { o.cycleSub(-1); key.stopPropagation(); return }
+      if (key.name === "right") { o.cycleSub(1);  key.stopPropagation(); return }
     }
     // <leader> 1..0 → tab 1..10 (1-indexed), <leader> - → tab 11.
     // Structural, not catalog — ten near-identical rebindable actions is
