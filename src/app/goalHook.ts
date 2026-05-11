@@ -35,11 +35,12 @@ const run = (cmd: string) =>
 const fired = new Map<string, string>()
 
 export function makeGoalHook(dialog: DialogContext, toast: Toast): GoalHook {
-  const act = (goal: string) => {
+  const act = (goal: string, done?: number, total?: number) => {
     const pref = (prefs.get("onGoalDone") ?? "toast").trim()
     const head = goal.length > 60 ? goal.slice(0, 57) + "…" : goal
+    const n = total && total > 0 ? `  ${done}/${total} items` : ""
     toast.show({
-      variant: "success", title: "Goal complete", message: head, duration: 8000,
+      variant: "success", title: "Goal complete", message: head + n, duration: 8000,
     })
     if (pref === "toast") return
     const cmd = pref === "suspend" ? SUSPEND : pref
@@ -58,7 +59,9 @@ export function makeGoalHook(dialog: DialogContext, toast: Toast): GoalHook {
         if (!s || s.status !== "done") return
         if (fired.get(sid) === s.goal) return
         fired.set(sid, s.goal)
-        act(s.goal)
+        const list = s.checklist ?? []
+        const done = list.filter(i => i.status === "completed" || i.status === "impossible").length
+        act(s.goal, done, list.length)
       }).catch(() => {})
     },
   }

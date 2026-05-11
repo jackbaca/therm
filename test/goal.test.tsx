@@ -20,7 +20,17 @@ describe("sessions-db.goalState", () => {
     db.run("CREATE TABLE IF NOT EXISTS state_meta (key TEXT PRIMARY KEY, value TEXT)")
     db.run("INSERT OR REPLACE INTO state_meta VALUES (?, ?)", [
       "goal:sid-done",
-      JSON.stringify({ goal: "ship it", status: "done", turn_count: 3, max_turns: null }),
+      JSON.stringify({
+        goal: "ship it", status: "done", turn_count: 3, max_turns: null,
+        decomposed: true,
+        checklist: [
+          { text: "write it", status: "completed", added_by: "judge" },
+          { text: "ship it",  status: "completed", added_by: "judge" },
+          { text: "extra",    status: "impossible", added_by: "user" },
+          { text: "", status: "pending" },           // dropped (empty text)
+          { text: "weird", status: "bogus" },         // status coerced to pending
+        ],
+      }),
     ])
     db.run("INSERT OR REPLACE INTO state_meta VALUES (?, ?)", [
       "goal:sid-active", JSON.stringify({ goal: "wip", status: "active" }),
@@ -45,6 +55,22 @@ describe("sessions-db.goalState", () => {
     expect(d?.turn_count).toBe(3)
     expect(goalState("sid-active")?.status).toBe("active")
     expect(goalState("nope")).toBeNull()
+  })
+
+  test("checklist + decomposed parsed; empty text dropped; bad status coerced; added_by→addedBy", () => {
+    const d = goalState("sid-done")
+    expect(d?.decomposed).toBe(true)
+    expect(d?.checklist?.length).toBe(4) // empty-text dropped
+    expect(d?.checklist?.[0]).toEqual({ text: "write it", status: "completed", addedBy: "judge" })
+    expect(d?.checklist?.[2]).toEqual({ text: "extra", status: "impossible", addedBy: "user" })
+    // bogus status coerced to pending; added_by missing → addedBy undefined
+    expect(d?.checklist?.[3]).toEqual({ text: "weird", status: "pending", addedBy: undefined })
+  })
+
+  test("active goal with no checklist: checklist/decomposed are undefined", () => {
+    const a = goalState("sid-active")
+    expect(a?.checklist).toBeUndefined()
+    expect(a?.decomposed).toBeUndefined()
   })
 })
 
