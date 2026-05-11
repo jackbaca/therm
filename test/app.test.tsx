@@ -42,8 +42,8 @@ describe("app", () => {
     const t = await mount()
     await until(t, () => t.frame().includes("Ready"))
 
-    // Tab bar shows index prefixes. New 4-tab layout.
-    expect(t.frame()).toMatch(/1 Chat.*2 Sessions.*3 Profiles & Automation.*4 Config/)
+    // Tab bar shows bare labels (no digit prefix). New 4-tab layout.
+    expect(t.frame()).toMatch(/Chat.*Sessions.*Profiles & Automation.*Config/)
 
     // <leader>2 → Sessions group (landing sub-tab is Sessions).
     act(() => { t.keys.pressKey("x", { ctrl: true }); t.keys.pressKey("2") })
@@ -362,8 +362,9 @@ describe("app", () => {
 
     // Unlike the old dialog, tab-nav is NOT blocked — the prompt is
     // in the transcript, not an overlay. But it snaps back to Chat
-    // on arrival and that's where the card lives.
-    expect(t.frame()).toContain("1 Chat")
+    // on arrival and that's where the card lives. Tab bar still
+    // paints — no backdrop covering it.
+    expect(t.frame()).toMatch(/Chat.*Sessions.*Profiles & Automation/)
 
     // Esc denies the prompt and does NOT arm interrupt (card.feed
     // consumed it and stopPropagation'd).
