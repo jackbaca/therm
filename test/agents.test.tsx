@@ -566,8 +566,8 @@ describe("Agents tab", () => {
     expect(f).toContain("CHROME_API_KEY")   // required env listed
     expect(f).toContain("1 optional")
 
-    // Confirm
-    await act(async () => { await t.keys.typeText("y") })
+    // Confirm (Enter submits the form; nav spec § Dialogs)
+    act(() => t.keys.pressEnter())
     await t.settle()
 
     const installCmd = cmds.find(c => c.startsWith("hermes profile install"))
@@ -604,21 +604,23 @@ describe("Agents tab", () => {
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("coderv2"))
 
-    // Toggle alias on.
+    // Tab walks fields: name → alias. Space toggles on alias.
     act(() => t.keys.pressTab())
+    await until(t, () => t.frame().includes("[ ] create shell wrapper"))
+    act(() => t.keys.pressKey(" "))
     await until(t, () => t.frame().includes("[x] create shell wrapper"))
 
-    // Override name → press 'n' to enter edit, type, press Enter to exit.
-    await act(async () => { await t.keys.typeText("n") })
+    // Shift+Tab back to name field, then type the override.
+    act(() => t.keys.pressTab({ shift: true }))
     await t.settle()
     for (const c of "coder-local") {
       await act(async () => { await t.keys.typeText(c) })
     }
-    act(() => t.keys.pressEnter())
     await t.settle()
 
-    // Confirm — 'y' is consumed by dialog.confirm when not in the name field.
-    await act(async () => { await t.keys.typeText("y") })
+    // Enter submits from the name field (<input> onSubmit fires the same
+    // path as the global dialog.accept).
+    act(() => t.keys.pressEnter())
     await t.settle()
 
     const installCmd = cmds.find(c => c.startsWith("hermes profile install"))
