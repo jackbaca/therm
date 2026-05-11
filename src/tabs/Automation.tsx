@@ -30,14 +30,14 @@ export const Automation = memo((props: Props) => {
       <SubTabBar tabs={labels} active={props.sub} onChange={props.setSub} hint={hint} />
       <box flexGrow={1} minWidth={0} flexDirection="column">
         <Pane visible={props.sub === 0}>
-          <Agents focused={!!props.focused && props.sub === 0}
-                  sessionId={props.sessionId} onSwitchProfile={props.onSwitchProfile} />
+          <Kanban focused={!!props.focused && props.sub === 0} />
         </Pane>
         <Pane visible={props.sub === 1}>
-          <Cron focused={!!props.focused && props.sub === 1} />
+          <Agents focused={!!props.focused && props.sub === 1}
+                  sessionId={props.sessionId} onSwitchProfile={props.onSwitchProfile} />
         </Pane>
         <Pane visible={props.sub === 2}>
-          <Kanban focused={!!props.focused && props.sub === 2} />
+          <Cron focused={!!props.focused && props.sub === 2} />
         </Pane>
       </box>
     </box>

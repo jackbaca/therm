@@ -21,8 +21,8 @@ export const AUTOMATION_TAB = 2
 export const CONFIG_TAB = 3
 
 export const SUB_TABS: Record<number, readonly string[]> = {
-  [SESSIONS_TAB]:   ["Sessions", "Context", "Analytics"],
-  [AUTOMATION_TAB]: ["Profiles", "Cron", "Kanban"],
+  [SESSIONS_TAB]:   ["List", "Context", "Analytics"],
+  [AUTOMATION_TAB]: ["Kanban", "Profiles", "Cron"],
   [CONFIG_TAB]:     ["Config", "Skills", "Toolsets", "Env", "Memory"],
 }
 
@@ -34,11 +34,11 @@ export const TAB_SLASH: Record<string, { tab: number; sub: number }> = {
   context:    { tab: SESSIONS_TAB,   sub: 1 },
   analytics:  { tab: SESSIONS_TAB,   sub: 2 },
   insights:   { tab: SESSIONS_TAB,   sub: 2 },
-  profiles:   { tab: AUTOMATION_TAB, sub: 0 },
-  agents:     { tab: AUTOMATION_TAB, sub: 0 },
+  kanban:     { tab: AUTOMATION_TAB, sub: 0 },
   automation: { tab: AUTOMATION_TAB, sub: 0 },
-  cron:       { tab: AUTOMATION_TAB, sub: 1 },
-  kanban:     { tab: AUTOMATION_TAB, sub: 2 },
+  profiles:   { tab: AUTOMATION_TAB, sub: 1 },
+  agents:     { tab: AUTOMATION_TAB, sub: 1 },
+  cron:       { tab: AUTOMATION_TAB, sub: 2 },
   config:     { tab: CONFIG_TAB,     sub: 0 },
   skills:     { tab: CONFIG_TAB,     sub: 1 },
   toolsets:   { tab: CONFIG_TAB,     sub: 2 },
