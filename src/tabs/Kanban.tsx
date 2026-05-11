@@ -727,6 +727,7 @@ export const Kanban = memo((props: { focused?: boolean }) => {
         d.tenant ? `--tenant ${q(d.tenant)}` : "",
         ws,
         d.maxRuntime ? `--max-runtime ${q(d.maxRuntime)}` : "",
+        ...d.skills.map(s => `--skill ${q(s)}`),
       ].filter(Boolean).join(" ")
       return sh(`create ${q(d.title)} ${flags}`.trim(),
         `Created${d.triage ? " (triage)" : ""}${d.assignee ? ` → ${d.assignee}` : ""}`)
