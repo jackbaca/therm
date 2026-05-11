@@ -59,6 +59,7 @@ export const CodeBlock = memo((props: { code: string; lang?: string; streaming?:
       <box paddingX={1} paddingY={ft ? 0 : 1}>
         {ft
           ? <code content={props.code} filetype={ft} syntaxStyle={syntaxStyle}
+                  conceal={false}
                   fg={theme.text} wrapMode="none" streaming={props.streaming} />
           : <text fg={theme.text}>{props.code}</text>}
       </box>

@@ -10,6 +10,7 @@ import { ChafaImage } from "../../ui/ChafaImage"
 import { useTheme } from "../../theme"
 import { useSkin } from "../../app/skin"
 import { mathify } from "../../utils/math-unicode"
+import { sanitizeLinks } from "../../utils/sanitize-md"
 
 export type { Message }
 
@@ -251,7 +252,7 @@ const AssistantMessage = memo(({ message, streaming, prompt, onPick }: {
       // they simply don't substitute yet.
       return (
         <box key={`${k}-${j}`}>
-          <markdown content={mathify(s.md)} fg={theme.markdownText}
+          <markdown content={sanitizeLinks(mathify(s.md))} fg={theme.markdownText}
             syntaxStyle={ctx.syntaxStyle} streaming={tail} />
         </box>
       )
