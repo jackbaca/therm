@@ -33,6 +33,8 @@ export const Col = (p: {
   right?: boolean
   fg?: RGBA
   bold?: boolean
+  /** Header-cell click — for sortable-column affordances. */
+  onClick?: () => void
   children: string
 }) => {
   const theme = useTheme().theme
@@ -40,6 +42,7 @@ export const Col = (p: {
   return (
     <box width={p.w} flexGrow={p.grow ? 1 : 0} flexShrink={p.grow ? 1 : 0}
          minWidth={p.grow ? (p.min ?? 12) : p.w} height={1} overflow="hidden"
+         onMouseDown={p.onClick}
          flexDirection="row" justifyContent={p.right ? "flex-end" : "flex-start"}>
       <text>{p.bold
         ? <span fg={fg}><strong>{p.children}</strong></span>

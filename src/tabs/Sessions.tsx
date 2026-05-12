@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, memo } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef, memo } from "react"
 import { SIDE_PIPE } from "../ui/borders"
 import { useKeyboard, useTerminalDimensions } from "@opentui/react"
 import type { ScrollBoxRenderable } from "@opentui/core"
@@ -23,6 +23,8 @@ import { openConfirm } from "../dialogs/confirm"
 import { openTextPrompt } from "../dialogs/text-prompt"
 import { fmt, cost, trunc, ago, when, span, stamp } from "../ui/fmt"
 import { home } from "../home"
+import * as prefs from "../utils/preferences"
+import type { SessionsPrefs } from "../utils/preferences"
 
 // Architecture: herm's Sessions tab is a **local state.db reader**.
 // Stock tui_gateway exposes only ~30% of what the tab needs via RPC
@@ -35,6 +37,18 @@ import { home } from "../home"
 // un-enriched; the tab keeps working at session.list fidelity.
 
 type Row = SessionListItem & { detail?: SessionRow }
+
+type Sort = NonNullable<SessionsPrefs["sort"]>
+
+/** Row comparator for the chosen sort. "active" keys on the tip's
+ *  last_active (state.db enrichment); gateway-only rows fall back to
+ *  started_at so remote-only entries still interleave sensibly. */
+const cmp = (s: Sort) => {
+  const k = (r: Row) => s === "started"
+    ? r.started_at
+    : (r.detail?.last_active ?? r.started_at)
+  return (a: Row, b: Row) => k(b) - k(a)
+}
 
 // ─── Formatting ──────────────────────────────────────────────────────
 
@@ -302,16 +316,24 @@ const SearchDetail = memo((props: { result: SessionHit }) => {
 // Col/Hdr live in ui/table; header pads by VBAR_W so its grow column
 // matches body rows inside the forced-visible v-bar scrollbox.
 
-const HeaderRow = memo(() => {
+const HeaderRow = memo((props: { sort: Sort; onSort: (s: Sort) => void }) => {
   const theme = useTheme().theme
   const fg = theme.textMuted
+  const on = theme.accent
+  const by = props.sort
   return (
     <Hdr>
       <Col w={2} fg={fg}>{"  "}</Col>
       <Col grow fg={fg} bold>Title</Col>
       <Col w={9} fg={fg} bold>Source</Col>
-      <Col w={8} fg={fg} bold>Start</Col>
-      <Col w={10} fg={fg} bold right>Active</Col>
+      <Col w={8} fg={by === "started" ? on : fg} bold
+           onClick={() => props.onSort("started")}>
+        {by === "started" ? "Start ▾" : "Start"}
+      </Col>
+      <Col w={10} fg={by === "active" ? on : fg} bold right
+           onClick={() => props.onSort("active")}>
+        {by === "active" ? "Active ▾" : "Active"}
+      </Col>
       <Col w={7} fg={fg} bold right>Msgs</Col>
       <box width={3} />
     </Hdr>
@@ -446,6 +468,12 @@ export const Sessions = memo((props: Props) => {
   const [rows, setRows] = useState<Row[]>(cached ? last.rows : [])
   const [warn, setWarn] = useState("")
   const [pending, setPending] = useState(rows.length === 0)
+  // Persisted, user-toggleable list ordering. roots() always returns
+  // newest-started; we re-sort here so the choice can flip live
+  // without re-hitting state.db.
+  const sort: Sort = prefs.usePref("sessions")?.sort ?? "active"
+  const setSort = useCallback((s: Sort) => prefs.set("sessions", { sort: s }), [])
+  const sorted = useMemo(() => [...rows].sort(cmp(sort)), [rows, sort])
   // Selection is tracked by row identity so that collapsing children
   // (which changes the flat index of every row below) never lands sel
   // on the wrong row. The numeric index consumers use (handleListKey,
@@ -466,14 +494,14 @@ export const Sessions = memo((props: Props) => {
   // child, the child's owning parent is expanded. Anything else = no
   // expansion. This makes collapse/expand atomic with sel changes —
   // no lagging effect, no clamp pass.
-  const anchored = anchor && rows.find(r => r.id === anchor.id)
+  const anchored = anchor && sorted.find(r => r.id === anchor.id)
   const owner =
     anchor?.indent
-      ? rows.find(r => kids.get(r.id)?.some(c => c.id === anchor.id))
+      ? sorted.find(r => kids.get(r.id)?.some(c => c.id === anchor.id))
       : (anchored?.detail?.subagent_count ?? 0) > 0 ? anchored : undefined
 
   // Flat visible sequence = parents with `owner`'s children inlined.
-  const visible = rows.flatMap((r, i) =>
+  const visible = sorted.flatMap((r, i) =>
     r.id === owner?.id
       ? [{ row: r, indent: false, parentIdx: i },
          ...(kids.get(r.id) ?? []).map(c =>
@@ -544,21 +572,16 @@ export const Sessions = memo((props: Props) => {
     // local state.db rows as authoritative for herm: gateway rows can
     // be stale, over-filtered, or ordered differently, but they are
     // still useful when herm is pointed at a remote/mismatched state.
-    //
-    // Sort by last activity (when each row last moved), not started_at.
-    // Disk rows carry last_active in their detail; gateway-only rows
-    // (rare, remote-only) fall back to started_at.
+    // Order is applied by the `sorted` memo, not here.
     const r = await rpc
     if (r.ok && r.v.sessions?.length) {
       const seen = new Set(diskRows.map(s => s.id))
-      const sortKey = (row: Row): number =>
-        row.detail?.last_active ?? row.started_at
       const merged = [
         ...diskRows,
         ...r.v.sessions
           .filter(s => (s.message_count ?? 0) > 0 && !seen.has(s.id))
           .map(s => ({ ...s, detail: local.get(s.id) })),
-      ].sort((a, b) => sortKey(b) - sortKey(a))
+      ]
       setRows(merged)
       if (cached) last.rows = merged
       void fillKids(merged)
@@ -575,8 +598,8 @@ export const Sessions = memo((props: Props) => {
 
   // Seed anchor once rows arrive (first row, unexpanded).
   useEffect(() => {
-    if (!anchor && rows.length) setAnchor({ id: rows[0].id, indent: false })
-  }, [rows, anchor])
+    if (!anchor && sorted.length) setAnchor({ id: sorted[0].id, indent: false })
+  }, [sorted, anchor])
 
   // Search is a synchronous FTS5 query on state.db, so debounce —
   // running it on every keystroke blocks the render thread. The
@@ -729,6 +752,8 @@ export const Sessions = memo((props: Props) => {
       onSearch: () => { setSearching(true); setQuery(""); setResults([]); setSearchSel(0) },
     })
     if (matched) return
+    if (keys.match("sessions.sort", key))
+      return setSort(sort === "active" ? "started" : "active")
     if (keys.match("sessions.rename", key)) return void rename()
     if (keys.match("sessions.prev", key) || keys.match("sessions.next", key)) {
       // Walk the compression chain. continuesFrom is the ancestor
@@ -786,7 +811,7 @@ export const Sessions = memo((props: Props) => {
           </box>
         ) : (
           <box key="table" flexDirection="column" flexGrow={1} minWidth={0}>
-            {searching ? <SearchHeaderRow /> : <HeaderRow />}
+            {searching ? <SearchHeaderRow /> : <HeaderRow sort={sort} onSort={setSort} />}
             <box height={1} />
             <scrollbox ref={vscroll} scrollY viewportCulling flexGrow={1}
                        verticalScrollbarOptions={VBAR}>
@@ -823,6 +848,7 @@ export const Sessions = memo((props: Props) => {
           ["←→", "lineage"],
           [`${keys.print("list.activate")}/click`, "switch"],
           [keys.print("list.search"), "search"],
+          [keys.print("sessions.sort"), `sort: ${sort}`],
           [keys.print("sessions.rename"), "rename"],
           [keys.print("list.delete"), "delete"],
           [keys.print("list.refresh"), "refresh"],

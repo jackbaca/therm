@@ -53,6 +53,14 @@ interface TuiPreferences {
    *  only durable UX choices (filter masks, collapsed sections), never
    *  cursor position or transient toggles. */
   kanban?: KanbanPrefs
+  sessions?: SessionsPrefs
+}
+
+/** Persisted Sessions-tab state. */
+export type SessionsPrefs = {
+  /** List ordering. "active" (default) = by last message timestamp;
+   *  "started" = by session start time. */
+  sort?: "active" | "started"
 }
 
 /** Persisted Kanban-tab state. Keyed by board slug so masks on one

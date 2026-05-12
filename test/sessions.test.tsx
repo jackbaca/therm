@@ -3,7 +3,9 @@ import { act } from "react"
 import { mountNode, until, MockGateway } from "./harness"
 import { Sessions, fold } from "../src/tabs/Sessions"
 import type { SessionHit } from "../src/utils/hermes-home"
+import type { SessionRow } from "../src/utils/hermes-home"
 import type { PeekMsg } from "../src/utils/sessions-db"
+import * as prefs from "../src/utils/preferences"
 
 const ROWS = [
   { id: "sid-a", title: "First session", preview: "hey", message_count: 4, started_at: 1700000000, source: "tui" },
@@ -11,6 +13,18 @@ const ROWS = [
 ]
 
 const NOIO = { list: () => [], search: () => [], remove: () => true, rename: () => true, subagents: () => [], peek: () => [] }
+
+// Stub SessionRow fields we actually consume; zero the rest.
+const detail = (over: Partial<SessionRow> & { id: string; sessionSource: string }): SessionRow => ({
+  source: { file: "/tmp/state.db", relative: "state.db", label: "state.db" },
+  model: null, started_at: 1699999000, ended_at: null, end_reason: null,
+  message_count: 0, tool_call_count: 0,
+  input_tokens: 0, output_tokens: 0,
+  cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0,
+  estimated_cost_usd: null, title: null, lastMessage: null, last_active: null,
+  parent_session_id: null, subagent_count: 0, lineage_root_id: null,
+  ...over,
+})
 
 describe("Sessions tab", () => {
   test("lists from session.list RPC and switches on Enter", async () => {
@@ -80,75 +94,63 @@ describe("Sessions tab", () => {
     t.destroy()
   })
 
-  test("merged list orders by last activity, not start time", async () => {
-    // Disk rows: stale start times but fresh activity on the older-start row.
-    // The "Older Start Fresh Activity" row should sort ABOVE the
-    // "Newer Start Idle" row even though its started_at is older.
+  test("sort: defaults to last-activity; 'o' toggles to started and persists", async () => {
+    prefs.reset()
+    // "Older Start Fresh Activity" should top "active" sort;
+    // "Newer Start Idle" should top "started" sort.
     const DISK = [
-      // SessionRow shape (from io.list)
-      {
-        source: "state.db" as const,
-        id: "older-fresh",
-        sessionSource: "tui",
-        model: null,
-        started_at: 1700000000,
-        ended_at: null,
-        end_reason: null,
-        message_count: 5,
-        tool_call_count: 0,
-        input_tokens: 0, output_tokens: 0,
-        cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0,
-        estimated_cost_usd: null,
-        title: "Older Start Fresh Activity",
-        lastMessage: "ping",
-        last_active: 1700099999,           // <-- fresh
-        parent_session_id: null,
-        subagent_count: 0,
-        lineage_root_id: null,
-      },
-      {
-        source: "state.db" as const,
-        id: "newer-idle",
-        sessionSource: "tui",
-        model: null,
-        started_at: 1700050000,
-        ended_at: null,
-        end_reason: null,
-        message_count: 3,
-        tool_call_count: 0,
-        input_tokens: 0, output_tokens: 0,
-        cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0,
-        estimated_cost_usd: null,
-        title: "Newer Start Idle",
-        lastMessage: "",
-        last_active: 1700050001,           // <-- right after start, idle
-        parent_session_id: null,
-        subagent_count: 0,
-        lineage_root_id: null,
-      },
+      detail({ id: "older-fresh", sessionSource: "tui",
+        title: "Older Start Fresh Activity", message_count: 5,
+        started_at: 1700000000, last_active: 1700099999 }),
+      detail({ id: "newer-idle", sessionSource: "tui",
+        title: "Newer Start Idle", message_count: 3,
+        started_at: 1700050000, last_active: 1700050001 }),
     ]
-    // Gateway also reports the same rows (typical local case). The
-    // bug was that the .sort() at the end of the merge clobbered the
-    // activity-aware order from roots() with started_at-only order.
-    const GW_ROWS = [
+    // Gateway reports the same ids (typical local case). Guards the
+    // bug scubamount caught: the post-merge re-sort used started_at
+    // and clobbered roots()'s order.
+    const GW = [
       { id: "older-fresh", title: "Older Start Fresh Activity", preview: "ping",
         message_count: 5, started_at: 1700000000, source: "tui" },
       { id: "newer-idle", title: "Newer Start Idle", preview: "",
         message_count: 3, started_at: 1700050000, source: "tui" },
     ]
     const io = { ...NOIO, list: () => DISK }
-    const gw = new MockGateway({ "session.list": () => ({ sessions: GW_ROWS }) })
+    const gw = new MockGateway({ "session.list": () => ({ sessions: GW }) })
     const t = await mountNode(<Sessions focused io={io} />, { gw })
     await until(t, () => t.frame().includes("Sessions (2)"))
 
-    // The frame paints in rendered order. Find the line index of each
-    // row's title — older-fresh must appear first.
-    const f = t.frame()
-    const idxFresh = f.indexOf("Older Start Fresh Activity")
-    const idxIdle = f.indexOf("Newer Start Idle")
-    expect(idxFresh).toBeGreaterThanOrEqual(0)
-    expect(idxIdle).toBeGreaterThanOrEqual(0)
-    expect(idxFresh).toBeLessThan(idxIdle)
+    // List rows are the only lines carrying the ✕ delete glyph;
+    // Detail panel also prints the selected title, so filter to the
+    // list column before comparing order.
+    const order = () => {
+      const lines = t.frame().split("\n").filter(l => l.includes("✕"))
+      const a = lines.findIndex(l => l.includes("Older Start Fresh Activity"))
+      const b = lines.findIndex(l => l.includes("Newer Start Idle"))
+      expect(a).toBeGreaterThanOrEqual(0)
+      expect(b).toBeGreaterThanOrEqual(0)
+      return a < b ? "fresh-first" : "idle-first"
+    }
+
+    // default: active
+    expect(t.frame()).toContain("Active ▾")
+    expect(t.frame()).toContain("sort: active")
+    expect(order()).toBe("fresh-first")
+
+    // toggle → started
+    await act(async () => { await t.keys.typeText("o") })
+    await until(t, () => t.frame().includes("Start ▾"))
+    expect(t.frame()).toContain("sort: started")
+    expect(order()).toBe("idle-first")
+    expect(prefs.get("sessions")?.sort).toBe("started")
+
+    // toggle back
+    await act(async () => { await t.keys.typeText("o") })
+    await until(t, () => t.frame().includes("Active ▾"))
+    expect(order()).toBe("fresh-first")
+    expect(prefs.get("sessions")?.sort).toBe("active")
+
+    prefs.reset()
     t.destroy()
   })
 
@@ -373,7 +375,7 @@ describe("Sessions tab", () => {
 
     const wide = t.frame()
     // Header row present, value under Msgs column
-    expect(wide).toMatch(/Title\s+Source\s+Start\s+Active\s+Msgs/)
+    expect(wide).toMatch(/Title\s+Source\s+Start\s*▾?\s+Active\s*▾?\s+Msgs/)
     // started_at fixture is Nov 2023 → date, not HH:MM.
     expect(row(wide)).toMatch(/TUI\s+\w{3} \d+\s+—\s+7/)
     // Full title visible at 200 cols
@@ -409,7 +411,7 @@ describe("Sessions tab", () => {
     // the vbar is visible (it carves 1 col out of the body; header
     // mirrors it via paddingRight=VBAR_W, vbar forced always visible).
     const lines = t.frame().split("\n")
-    const hdr = lines.find(l => /Title\s+Source\s+Start\s+Active\s+Msgs/.test(l))!
+    const hdr = lines.find(l => /Title\s+Source\s+Start\s*▾?\s+Active\s*▾?\s+Msgs/.test(l))!
     const row = lines.find(l => l.includes("▸ Session 0"))!
     expect(hdr.indexOf("Title")).toBe(row.indexOf("Session 0"))
     expect(hdr.indexOf("Source")).toBe(row.indexOf("TUI"))
@@ -527,20 +529,6 @@ describe("Sessions tab", () => {
 // trigger io.subagents(parentId), render each child indented with "└─",
 // and let arrow keys traverse in/out of the child block. Only one
 // parent expands at a time; moving to another collapses the first.
-
-import type { SessionRow } from "../src/utils/hermes-home"
-
-// Stub SessionRow fields we actually consume; zero the rest.
-const detail = (over: Partial<SessionRow> & { id: string; sessionSource: string }): SessionRow => ({
-  source: { file: "/tmp/state.db", relative: "state.db", label: "state.db" },
-  model: null, started_at: 1699999000, ended_at: null, end_reason: null,
-  message_count: 0, tool_call_count: 0,
-  input_tokens: 0, output_tokens: 0,
-  cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0,
-  estimated_cost_usd: null, title: null, lastMessage: null, last_active: null,
-  parent_session_id: null, subagent_count: 0, lineage_root_id: null,
-  ...over,
-})
 
 describe("Sessions tab — tree expansion", () => {
   const PARENT = { id: "pid", title: "Parent with subs", preview: "", message_count: 3, started_at: 1700000000, source: "tui" }

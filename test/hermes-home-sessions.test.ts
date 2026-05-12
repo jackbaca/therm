@@ -141,7 +141,7 @@ describe("queryRecentSessions (gsk.13: root-only + subagent_count + tip projecti
     expect(ids).toEqual(["branch", "root"])
   })
 
-  test("projects compression root forward to tip (one row, tip identity and stats)", () => {
+  test("projects compression root forward to tip (one row, tip identity, root started_at)", () => {
     const db = seed()
     // Root (compressed) → continuation A (compressed) → continuation B (live tip).
     sess(db, "root", "tui", 1700000000,
@@ -159,52 +159,29 @@ describe("queryRecentSessions (gsk.13: root-only + subagent_count + tip projecti
     expect(rows[0].id).toBe("contB")               // tip's identity
     expect(rows[0].message_count).toBe(20)         // tip's stats
     expect(rows[0].title).toBe("Live tip")         // tip's title
-    expect(rows[0].started_at).toBe(1700002100)    // tip's started_at (sort is by activity)
+    expect(rows[0].started_at).toBe(1700000000)    // root's started_at (Detail: Started/Duration span chain)
     expect(rows[0].lineage_root_id).toBe("root")   // lineage pointer to original root
     expect(rows[0].end_reason).toBe(null)          // tip isn't ended
   })
 
-  test("orders by last activity, not start time", () => {
+  test("projected row carries both sort keys (root started_at, tip last_active)", () => {
+    // Regression guard for PR #27: the Sessions tab sorts by either
+    // started_at or last_active. A projected chain row must expose
+    // the root's start (for "started" sort + Detail panel) AND the
+    // tip's activity (for "active" sort) on the same row.
     const db = seed()
-    // older started, very recent message — should be #1
-    sess(db, "old-active", "tui", 1700000000)
-    msg(db, "old-active", "user", "recent ping", 1700099999)
-
-    // newer started, idle (no messages) — should be #2 by fallback
-    sess(db, "new-empty", "tui", 1700050000)
-
-    // middle started, middle activity
-    sess(db, "mid", "tui", 1700020000)
-    msg(db, "mid", "user", "older ping", 1700030000)
-    db.close()
-
-    const rows = queryRecentSessions(10)
-    expect(rows.map(r => r.id)).toEqual(["old-active", "new-empty", "mid"])
-  })
-
-  test("compression tip's last activity wins over root's start", () => {
-    const db = seed()
-    // Plain unrelated session started yesterday with a message just now.
-    sess(db, "plain", "tui", 1700000000)
-    msg(db, "plain", "user", "just now", 1700099000)
-
-    // Compression chain: root from a week ago, tip from today.
     sess(db, "root", "tui", 1600000000,
       { ended_at: 1600001000, end_reason: "compression" })
     sess(db, "tip", "tui", 1700099500,
       { parent_session_id: "root", message_count: 5, title: "tip" })
-    msg(db, "tip", "user", "tip ping", 1700099999)
-
+    msg(db, "tip", "user", "ping", 1700099999)
     db.close()
 
     const rows = queryRecentSessions(10)
-    expect(rows).toHaveLength(2)
-    // Tip's activity (1700099999) > plain's activity (1700099000), so
-    // the projected chain sorts above the plain root despite the
-    // chain's root started_at being a week earlier.
+    expect(rows).toHaveLength(1)
     expect(rows[0].id).toBe("tip")
-    expect(rows[0].lineage_root_id).toBe("root")
-    expect(rows[1].id).toBe("plain")
+    expect(rows[0].started_at).toBe(1600000000)    // root's
+    expect(rows[0].last_active).toBe(1700099999)   // tip's
   })
 
   test("non-chain roots get lineage_root_id = null", () => {
