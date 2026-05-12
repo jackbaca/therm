@@ -91,7 +91,6 @@ export const DEFAULTS = {
   "sessions.rename":   def("ctrl+r",               "Retitle session",                    "sessions"), // match oc session_rename
   "sessions.prev":     def("left",                 "Walk lineage back (continues from)", "sessions"),
   "sessions.next":     def("right",                "Walk lineage forward (compressed to)", "sessions"),
-  "sessions.sort":     def("o",                    "Toggle sort (active ↔ started)",     "sessions"), // ☨
   "agents.kill":       def("k",                    "Kill subagent",                      "agents"),	// k: I like this
   "agents.history":    def("h",                    "Spawn history",                      "agents"),	// k: keep
   "agents.install":    def("i",                    "Install distribution",               "agents"),	// ☨

@@ -744,6 +744,7 @@ export const Sessions = memo((props: Props) => {
       page: Math.max(1, (vscroll.current?.viewport.height ?? 10) - 1),
       scrollTo: n => vscroll.current?.scrollChildIntoView(rowId(n)),
       onActivate: () => rowActivate(sel),
+      onToggle: () => setSort(sort === "active" ? "started" : "active"),
       onRefresh: () => { void load(); toast.show({ variant: "info", message: "Reloaded", duration: 1000 }) },
       onDelete: () => {
         const v = visible[sel]
@@ -752,8 +753,6 @@ export const Sessions = memo((props: Props) => {
       onSearch: () => { setSearching(true); setQuery(""); setResults([]); setSearchSel(0) },
     })
     if (matched) return
-    if (keys.match("sessions.sort", key))
-      return setSort(sort === "active" ? "started" : "active")
     if (keys.match("sessions.rename", key)) return void rename()
     if (keys.match("sessions.prev", key) || keys.match("sessions.next", key)) {
       // Walk the compression chain. continuesFrom is the ancestor
@@ -848,7 +847,7 @@ export const Sessions = memo((props: Props) => {
           ["←→", "lineage"],
           [`${keys.print("list.activate")}/click`, "switch"],
           [keys.print("list.search"), "search"],
-          [keys.print("sessions.sort"), `sort: ${sort}`],
+          [keys.print("list.toggle"), `sort: ${sort}`],
           [keys.print("sessions.rename"), "rename"],
           [keys.print("list.delete"), "delete"],
           [keys.print("list.refresh"), "refresh"],

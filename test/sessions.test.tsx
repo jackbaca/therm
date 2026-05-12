@@ -94,7 +94,7 @@ describe("Sessions tab", () => {
     t.destroy()
   })
 
-  test("sort: defaults to last-activity; 'o' toggles to started and persists", async () => {
+  test("sort: defaults to last-activity; Space toggles to started and persists", async () => {
     prefs.reset()
     // "Older Start Fresh Activity" should top "active" sort;
     // "Newer Start Idle" should top "started" sort.
@@ -138,14 +138,14 @@ describe("Sessions tab", () => {
     expect(order()).toBe("fresh-first")
 
     // toggle → started
-    await act(async () => { await t.keys.typeText("o") })
+    await act(async () => { await t.keys.typeText(" ") })
     await until(t, () => t.frame().includes("Start ▾"))
     expect(t.frame()).toContain("sort: started")
     expect(order()).toBe("idle-first")
     expect(prefs.get("sessions")?.sort).toBe("started")
 
     // toggle back
-    await act(async () => { await t.keys.typeText("o") })
+    await act(async () => { await t.keys.typeText(" ") })
     await until(t, () => t.frame().includes("Active ▾"))
     expect(order()).toBe("fresh-first")
     expect(prefs.get("sessions")?.sort).toBe("active")
