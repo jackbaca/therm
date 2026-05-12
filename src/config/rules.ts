@@ -39,6 +39,8 @@ export const RULES: Record<string, Rule> = {
   "compression.target_ratio": float(0.05, 0.9),
   "prompt_caching.cache_ttl": raw =>
     /^\d+[smhd]$/.test(raw.trim()) ? null : "expected duration e.g. 5m, 1h",
+  "prompt_caching.long_lived_ttl": raw =>
+    /^\d+[smhd]$/.test(raw.trim()) ? null : "expected duration e.g. 5m, 1h",
 
   // turn/iteration budgets
   "agent.max_turns": int(1, 10000),
