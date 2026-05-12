@@ -289,9 +289,14 @@ function walkUp(sid: string): string {
 
 // ─── Readers ─────────────────────────────────────────────────────────
 
-/** Root-level sessions, newest first, compression chains projected to
- *  their tip (the resumable end), with lineage_root_id recording the
- *  original root when projection happened. Mirrors list_sessions_rich. */
+/** Root-level sessions, newest-started first, compression chains
+ *  projected to their tip (the resumable end), with lineage_root_id
+ *  recording the original root when projection happened. Mirrors
+ *  list_sessions_rich.
+ *
+ *  Each projected row carries BOTH the root's started_at and the tip's
+ *  last_active, so the Sessions tab can order by either without the
+ *  reader committing to one. See prefs.sessions.sort. */
 export function roots(limit = 30): SessionRow[] {
   const end = perf.mark("io:sessions.roots")
   try {
@@ -313,8 +318,9 @@ export function roots(limit = 30): SessionRow[] {
       const tid = tip(r.id)
       if (tid === r.id) return toRow(r)
       const t = one(tid)
-      // Tip stats replace the root's, but started_at stays the root's
-      // so chronological list order is preserved.
+      // Tip stats (incl. last_active) replace the root's, but
+      // started_at stays the root's so Detail's Started/Duration
+      // span the whole chain and "started" sort order is preserved.
       return t ? { ...toRow(t, r.id), started_at: r.started_at } : toRow(r)
     })
   } finally { end() }

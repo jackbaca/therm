@@ -159,9 +159,29 @@ describe("queryRecentSessions (gsk.13: root-only + subagent_count + tip projecti
     expect(rows[0].id).toBe("contB")               // tip's identity
     expect(rows[0].message_count).toBe(20)         // tip's stats
     expect(rows[0].title).toBe("Live tip")         // tip's title
-    expect(rows[0].started_at).toBe(1700000000)    // root's started_at (chronological stability)
+    expect(rows[0].started_at).toBe(1700000000)    // root's started_at (Detail: Started/Duration span chain)
     expect(rows[0].lineage_root_id).toBe("root")   // lineage pointer to original root
     expect(rows[0].end_reason).toBe(null)          // tip isn't ended
+  })
+
+  test("projected row carries both sort keys (root started_at, tip last_active)", () => {
+    // Regression guard for PR #27: the Sessions tab sorts by either
+    // started_at or last_active. A projected chain row must expose
+    // the root's start (for "started" sort + Detail panel) AND the
+    // tip's activity (for "active" sort) on the same row.
+    const db = seed()
+    sess(db, "root", "tui", 1600000000,
+      { ended_at: 1600001000, end_reason: "compression" })
+    sess(db, "tip", "tui", 1700099500,
+      { parent_session_id: "root", message_count: 5, title: "tip" })
+    msg(db, "tip", "user", "ping", 1700099999)
+    db.close()
+
+    const rows = queryRecentSessions(10)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].id).toBe("tip")
+    expect(rows[0].started_at).toBe(1600000000)    // root's
+    expect(rows[0].last_active).toBe(1700099999)   // tip's
   })
 
   test("non-chain roots get lineage_root_id = null", () => {
