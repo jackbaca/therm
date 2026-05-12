@@ -21,10 +21,16 @@ export type GutterProps = {
   streaming: boolean
 }
 
+export type TabDef = {
+  name: string
+  component: () => ReactNode
+}
+
 export type Plugin = {
   id: string
   name: string
   gutter?: (p: GutterProps) => ReactNode
+  tab?: TabDef
 }
 
 const reg: Plugin[] = []
@@ -35,6 +41,9 @@ export const register = (p: Plugin) => {
 }
 
 export const list = (): readonly Plugin[] => reg
+
+export const tabs = (): readonly { id: string; tab: TabDef }[] =>
+  reg.flatMap(p => p.tab ? [{ id: p.id, tab: p.tab }] : [])
 
 // Test-only — resets the registry between bun test cases.
 export const _reset = () => { reg.length = 0 }

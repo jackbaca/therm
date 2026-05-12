@@ -1,6 +1,6 @@
 import { describe, expect, test, beforeEach } from "bun:test"
 import { mountNode, until, type Harness } from "./harness"
-import { Gutter, list, register, _reset } from "../src/plugins"
+import { Gutter, list, register, tabs, _reset } from "../src/plugins"
 
 // Isolate across tests. The registry is a module singleton and the
 // bundled `demo.clock` side-imports on first load.
@@ -62,5 +62,43 @@ describe("Gutter", () => {
     register({ id: "dup", name: "Two", gutter: () => null })
     expect(list().length).toBe(1)
     expect(list()[0].name).toBe("One")
+  })
+})
+
+describe("plugin tabs", () => {
+  test("tabs() returns only plugins with a tab slot", () => {
+    _reset()
+    register({ id: "g", name: "G", gutter: () => null })
+    register({ id: "t", name: "T", tab: { name: "MyTab", component: () => <text>x</text> } })
+    register({ id: "gt", name: "GT",
+      gutter: () => null,
+      tab: { name: "Both", component: () => <text>y</text> },
+    })
+    const out = tabs()
+    expect(out.length).toBe(2)
+    expect(out.map(e => e.id)).toEqual(["t", "gt"])
+    expect(out.map(e => e.tab.name)).toEqual(["MyTab", "Both"])
+  })
+
+  test("plugin tab component renders the declared content", async () => {
+    _reset()
+    register({
+      id: "files-ish",
+      name: "FilesIsh",
+      tab: { name: "Stuff", component: () => <text>tab-body-xyz</text> },
+    })
+    const [entry] = tabs()
+    const t: Harness = await mountNode(entry.tab.component(), { width: 40, height: 3 })
+    await until(t, () => t.frame().includes("tab-body-xyz"))
+    expect(t.frame()).toContain("tab-body-xyz")
+    t.destroy()
+  })
+
+  test("preserves registration order", () => {
+    _reset()
+    register({ id: "a", name: "A", tab: { name: "A", component: () => null } })
+    register({ id: "b", name: "B", tab: { name: "B", component: () => null } })
+    register({ id: "c", name: "C", tab: { name: "C", component: () => null } })
+    expect(tabs().map(e => e.id)).toEqual(["a", "b", "c"])
   })
 })

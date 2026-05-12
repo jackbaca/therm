@@ -13,6 +13,7 @@ import { useTheme } from "../theme"
 import { list, type GutterProps } from "./host"
 
 import "./clock"
+import "./files"
 
 type Props = Omit<GutterProps, "theme">
 
@@ -30,4 +31,5 @@ export const Gutter = memo((p: Props) => {
   )
 })
 
-export { list, register, _reset } from "./host"
+export { list, register, tabs, _reset } from "./host"
+export type { Plugin, GutterProps, TabDef } from "./host"

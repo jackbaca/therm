@@ -41,12 +41,12 @@ import { SkinProvider, deriveSkin, type SkinState } from "./context/skin"
 import { useAppKeys } from "./app/useAppKeys"
 import { quit } from "./app/exit"
 import { Stash } from "./app/stash"
-import { TABS, TAB_MAX, CHAT_TAB, SESSIONS_TAB, AUTOMATION_TAB, CONFIG_TAB, SUB_TABS } from "./app/tabs"
+import { TABS, CHAT_TAB, SESSIONS_TAB, AUTOMATION_TAB, CONFIG_TAB, SUB_TABS } from "./app/tabs"
 import { activeProfileName } from "./service/hermes-profiles"
 import { rehome } from "./home/rehome"
 import { makeGoalHook } from "./app/goalHook"
 import type { Launch } from "./app/launch"
-import { Gutter } from "./plugins"
+import { Gutter, tabs as pluginTabs } from "./plugins"
 
 type AppProps = { initialTheme?: string; gateway?: Gateway; launch?: Launch }
 
@@ -517,6 +517,16 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     composer.current?.set(item)
     setFocusRegion("input")
   }, [])
+
+  // Plugin tabs append after the built-in four. Registry is a
+  // module-singleton populated at import time, so this is effectively
+  // a constant; memo to keep downstream memo children stable.
+  const extra = useMemo(() => pluginTabs(), [])
+  const all = useMemo(
+    () => [...TABS, ...extra.map(e => ({ name: e.tab.name, description: `Plugin: ${e.id}` }))],
+    [extra],
+  )
+  const tabMax = all.length - 1
   const subCount = SUB_TABS[tab]?.length ?? 0
   const cycleSub = useCallback((dir: -1 | 1) => {
     const labels = SUB_TABS[tab]
@@ -528,7 +538,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     })
   }, [tab])
   useAppKeys({
-    tab, tabMax: TAB_MAX, chatTab: CHAT_TAB, setTab,
+    tab, tabMax, chatTab: CHAT_TAB, setTab,
     subCount, cycleSub,
     focusRegion, setFocusRegion,
     streaming: turn.streaming,
@@ -623,10 +633,13 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
         case CONFIG_TAB: return <ConfigGroup focused={contentFocused}
                                              sub={subTabs[CONFIG_TAB] ?? 0}
                                              setSub={cfgSub} />
-        default: return null
+        default: {
+          const ext = extra[tab - TABS.length]
+          return ext ? ext.tab.component() : null
+        }
       }
     })()
-    const name = TABS[tab]?.name ?? "unknown"
+    const name = all[tab]?.name ?? "unknown"
     return <Profiler id={`tab:${name}`} onRender={perf.onRender}>{inner}</Profiler>
   }
 
@@ -644,7 +657,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
      <SkinProvider value={skin}>
       <box width="100%" height="100%" flexDirection="column"
            backgroundColor={theme.background} onMouseUp={onMouseUp}>
-        <TabBar tabs={TABS} activeTab={tab} onTabChange={goToTab} />
+        <TabBar tabs={all} activeTab={tab} onTabChange={goToTab} />
         <box flexGrow={1} flexDirection="row">
           <box flexGrow={1} flexDirection="column">
             <box flexGrow={1} position="relative">
@@ -693,3 +706,4 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     </Profiler>
   )
 }
+
