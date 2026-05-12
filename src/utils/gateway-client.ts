@@ -48,10 +48,6 @@ export function python(root: string, platform: NodeJS.Platform = process.platfor
   return paths.find(p => p && existsSync(p)) || (platform === "win32" ? "python" : "python3")
 }
 
-export function argv(bin: string): string[] {
-  return [bin, "-u", "-m", "tui_gateway.entry"]
-}
-
 function asEvent(v: unknown): GatewayEvent | null {
   if (v && typeof v === "object" && !Array.isArray(v) && typeof (v as { type?: unknown }).type === "string")
     return v as GatewayEvent
@@ -160,7 +156,7 @@ export class GatewayClient extends EventEmitter {
       this.push({ type: "gateway.start_timeout", payload: { cwd, python: bin } })
     }, STARTUP_MS)
 
-    const proc = Bun.spawn(argv(bin), {
+    const proc = Bun.spawn([bin, "-u", "-m", "tui_gateway.entry"], {
       cwd,
       env,
       stdin: "pipe",
