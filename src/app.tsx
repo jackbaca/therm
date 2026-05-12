@@ -46,6 +46,7 @@ import { activeProfileName } from "./service/hermes-profiles"
 import { rehome } from "./home/rehome"
 import { makeGoalHook } from "./app/goalHook"
 import type { Launch } from "./app/launch"
+import { Gutter } from "./plugins"
 
 type AppProps = { initialTheme?: string; gateway?: Gateway; launch?: Launch }
 
@@ -686,6 +687,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
             </Profiler>
           ) : null}
         </box>
+        <Gutter sid={sid} tab={tab} streaming={turn.streaming} />
       </box>
      </SkinProvider>
     </Profiler>
