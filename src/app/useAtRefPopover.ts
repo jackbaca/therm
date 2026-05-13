@@ -37,27 +37,29 @@ export function match(word: string): AtRefItem[] {
   return KEYWORDS.filter(k => k.text.toLowerCase().startsWith(q) && k.text !== word)
 }
 
-// Find the @-word the caret is at the end of. Returns {word, start}
-// or null when not applicable. Bails on slash-command input so the
-// two popovers never contend.
-export function atWordAt(input: string): { word: string; start: number } | null {
+// Find the @-word the caret sits inside. Walks back from `cursor`
+// (byte offset into the full buffer, defaults to end) to the nearest
+// word boundary and checks for a leading `@`. Bails when line 1
+// starts with `/` so the slash and @-ref popovers never contend.
+export function atWordAt(input: string, cursor = input.length): { word: string; start: number } | null {
   if (input.startsWith("/")) return null
-  const end = input.length
-  let i = end
+  let i = cursor
   while (i > 0 && !/\s/.test(input[i - 1])) i--
-  if (i >= end || input[i] !== "@") return null
-  return { word: input.slice(i, end), start: i }
+  if (input[i] !== "@") return null
+  let j = cursor
+  while (j < input.length && !/\s/.test(input[j])) j++
+  return { word: input.slice(i, j), start: i }
 }
 
-export function useAtRefPopover(input: string) {
+export function useAtRefPopover(input: string, cursor?: number) {
   const gw = useGateway()
   const ready = useGatewayReady()
   const [items, setItems] = useState<AtRefItem[]>([])
-  const [cursor, setCursor] = useState(0)
+  const [sel, setCursor] = useState(0)
   const seq = useRef(0)
   const dismissed = useRef<string | null>(null)
 
-  const spot = atWordAt(input)
+  const spot = atWordAt(input, cursor)
 
   useEffect(() => {
     if (!spot || !ready) { setItems([]); setCursor(0); return }
@@ -81,8 +83,8 @@ export function useAtRefPopover(input: string) {
 
   const open = spot !== null && items.length > 0
 
-  const accept = (src: string, idx = cursor): string | null => {
-    const at = atWordAt(src)
+  const accept = (src: string, idx = sel, off?: number): string | null => {
+    const at = atWordAt(src, off)
     const it = items[idx]
     if (!at || !it) return null
     const trail = it.text.endsWith(":") || it.text.endsWith("/") ? "" : " "
@@ -95,5 +97,5 @@ export function useAtRefPopover(input: string) {
     setItems([])
   }
 
-  return { open, items, cursor, setCursor, accept, dismiss }
+  return { open, items, cursor: sel, setCursor, accept, dismiss }
 }

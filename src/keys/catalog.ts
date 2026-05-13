@@ -50,6 +50,7 @@ export const DEFAULTS = {
   "session.interrupt": def("escape",               "Interrupt (double-tap while streaming)", "global"),
   "session.new":       def("<leader>n",            "New session",                        "global"),
   "session.compress":  def("<leader>c",            "Compress context",                   "global"),
+  "input.stash":       def("<leader>p",            "Stash prompt draft",                 "global"),
   "session.timeline":  def("<leader>g",            "Session timeline",                   "global"),
   "theme.pick":        def("<leader>t",            "Switch theme",                       "global"),
   "model.pick":        def("<leader>m",            "Switch model",                       "global"),

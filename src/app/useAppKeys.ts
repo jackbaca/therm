@@ -57,6 +57,7 @@ type Opts = {
   onDetachLast: () => boolean
   onNotice: (text: string) => void
   onToggleSidebar: () => void
+  onStash: () => void
 }
 
 export function useAppKeys(o: Opts) {
@@ -96,9 +97,18 @@ export function useAppKeys(o: Opts) {
     if (Selection.key(renderer, key)) { key.stopPropagation(); return }
 
     // oc parity: input_clear (ctrl+c) with non-empty buffer clears and
-    // consumes; app_exit (also ctrl+c) fires on the next press.
+    // consumes; app_exit (also ctrl+c) fires on the next press. A draft
+    // of ≥20 chars is pushed to prompt history first so Ctrl+C doesn't
+    // silently eat a half-written message — ↑ brings it back.
     if (keys.match("input.clear", key) && c && !c.isEmpty()) {
+      const v = c.value().trim()
+      if (v.length >= 20) c.remember(v)
       c.set("")
+      key.stopPropagation()
+      return
+    }
+    if (keys.match("input.stash", key)) {
+      o.onStash()
       key.stopPropagation()
       return
     }

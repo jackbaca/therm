@@ -54,6 +54,9 @@ import { useSession } from "./app/useSession"
 import { SkinProvider, deriveSkin, SKINS, type SkinState } from "./app/skin"
 import { useAppKeys, redraw } from "./app/useAppKeys"
 import { quit } from "./app/exit"
+import { Stash } from "./app/stash"
+import { DialogSelect } from "./ui/dialog-select"
+import { trunc, ago } from "./ui/fmt"
 import { TABS, TAB_MAX, CHAT_TAB, SESSIONS_TAB, AUTOMATION_TAB, CONFIG_TAB, SUB_TABS, TAB_SLASH } from "./app/tabs"
 import { activeProfileName } from "./utils/hermes-profiles"
 import { rehome } from "./home/rehome"
@@ -612,6 +615,44 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
         case "queue":
           if (!arg) { dispatch({ kind: "system", text: `${queueRef.current.length} queued` }); return }
           setQueue(q => [...q, arg]); return
+        case "stash": {
+          const c = composer.current
+          if (arg === "pop") {
+            const e = Stash.pop()
+            if (!e) return toast.show({ variant: "info", message: "stash empty" })
+            c?.set(e.text); setFocusRegion("input"); return
+          }
+          if (arg === "list") {
+            const list = Stash.all()
+            if (list.length === 0) return toast.show({ variant: "info", message: "stash empty" })
+            dialog.replace(
+              <DialogSelect
+                title="Stashed prompts"
+                filterable={list.length > 6}
+                options={list.map(e => ({
+                  title: trunc(e.text.replace(/\n/g, " ⏎ "), 50),
+                  value: String(e.at),
+                  hint: ago(e.at),
+                }))}
+                onSelect={o => {
+                  const e = list.find(x => String(x.at) === o.value)
+                  if (e) { Stash.drop(e.at); c?.set(e.text); setFocusRegion("input") }
+                  dialog.clear()
+                }}
+              />,
+            )
+            return
+          }
+          // Bare /stash with a non-empty buffer parks the text and
+          // clears the composer for a quick follow-up /cmd; with an
+          // arg, the arg itself is stashed.
+          const text = arg || c?.value().trim() || ""
+          if (!text) return toast.show({ variant: "info", message: "nothing to stash — /stash list" })
+          const n = Stash.push(text)
+          if (!arg) c?.set("")
+          toast.show({ variant: "info", message: `stashed (${n}) — /stash pop to restore` })
+          return
+        }
         case "copy": {
           const all = turnRef.current.messages.filter(m => m.role === "assistant")
           const n = arg ? Math.min(Math.max(1, parseInt(arg, 10) || 0), all.length) : all.length
@@ -770,6 +811,10 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
 
   // ── Send ──────────────────────────────────────────────────────────
   const send = useCallback(async (raw: string) => {
+    // Bare exit/quit/:q — oc lets these through as literals so a
+    // reflex `exit⏎` works without the leading slash.
+    if (["exit", "quit", ":q", ":q!", ":wq"].includes(raw.trim()))
+      return quit(renderer, sid, title, gw)
     // Slash-shaped input resolves against the merged catalog: exact
     // name/alias wins, else unique prefix. This covers the "typed with
     // arg" path the popover can't — e.g. `/mod gpt-4`, `/q follow-up`.
@@ -1070,6 +1115,18 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     },
     onNotice: (text) => dispatch({ kind: "system", text }),
     onToggleSidebar: () => setHideSidebar(v => !v),
+    onStash: () => {
+      const c = composer.current
+      const v = c?.value().trim() ?? ""
+      if (!v) {
+        const e = Stash.pop()
+        if (!e) return toast.show({ variant: "info", message: "stash empty" })
+        c?.set(e.text); return
+      }
+      const n = Stash.push(v)
+      c?.set("")
+      toast.show({ variant: "info", message: `stashed (${n})` })
+    },
   })
 
   // ── Control bridge ────────────────────────────────────────────────

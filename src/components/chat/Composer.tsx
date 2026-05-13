@@ -24,6 +24,8 @@ export type ComposerHandle = {
   set: (v: string) => void
   /** Insert text at the cursor (verbatim, multi-line ok). */
   insert: (text: string) => void
+  /** Append to prompt history without sending (draft save on Ctrl+C). */
+  remember: (text: string) => void
   /** Logical line count of the current buffer. */
   lines: () => number
   /** True iff the buffer is empty (no text, no whitespace-only). */
@@ -72,16 +74,19 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
   // Mirror of the textarea buffer. The renderable is the source of truth;
   // this drives React-side derivations (popover matching, row count, hints).
   const [input, setInput] = useState("")
+  const [caret, setCaret] = useState(0)
 
-  // Slash and @-ref popovers key off the first line only — both grammars
-  // are single-line prefixes, and a newline is a hard boundary.
+  // Slash popover keys off the first line only — the grammar is a
+  // single-line prefix and a newline is a hard boundary. @-ref is
+  // cursor-relative over the full buffer so mid-prompt file mentions
+  // work on any line.
   const head = useMemo(() => {
     const i = input.indexOf("\n")
     return i < 0 ? input : input.slice(0, i)
   }, [input])
 
   const pop = useSlashPopover(head, props.cmds)
-  const at = useAtRefPopover(head)
+  const at = useAtRefPopover(input, caret)
 
   const write = useCallback((v: string) => {
     ta.current?.setText(v)
@@ -122,7 +127,8 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
   }
 
   const atAccept = (idx?: number) => {
-    const next = live.current.at.accept(live.current.input, idx)
+    const off = ta.current?.cursorOffset
+    const next = live.current.at.accept(live.current.input, idx, off)
     if (next !== null) write(next)
   }
 
@@ -202,12 +208,11 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     live.current.props.onSend(text)
   }
 
-  const multi = () => live.current.input.includes("\n")
-
   useImperativeHandle(ref, () => ({
     value: () => live.current.input,
     set: write,
     insert: (text) => ta.current?.insertText(text),
+    remember: hist.push,
     lines: () => (ta.current?.lineCount ?? 1),
     isEmpty: () => live.current.input.trim().length === 0,
     popOpen: () => live.current.pop.open || live.current.at.open,
@@ -229,8 +234,31 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
       if (a.open) return a.dismiss()
       write("")
     },
-    historyUp: () => { if (multi()) return false; hist.up(); return true },
-    historyDown: () => { if (multi()) return false; hist.down(); return true },
+    // History nav is cursor-aware: ↑ fires when the caret is on the
+    // first line, ↓ on the last. On a multi-line buffer the first
+    // press jumps to the edge, the second navigates — ↑↑ from
+    // mid-buffer reaches history without the textarea eating either
+    // key. Uses cursorOffset rather than visualCursor.visualRow since
+    // the latter is viewport-relative and drifts once the buffer
+    // scrolls past maxHeight.
+    historyUp: () => {
+      const t = ta.current
+      if (!t) return false
+      const buf = live.current.input
+      if (t.cursorOffset > 0 && buf.lastIndexOf("\n", t.cursorOffset - 1) >= 0) return false
+      if (buf.includes("\n") && t.cursorOffset !== 0) { t.cursorOffset = 0; return true }
+      hist.up()
+      return true
+    },
+    historyDown: () => {
+      const t = ta.current
+      if (!t) return false
+      const buf = live.current.input
+      if (buf.indexOf("\n", t.cursorOffset) >= 0) return false
+      if (buf.includes("\n") && t.cursorOffset !== buf.length) { t.cursorOffset = buf.length; return true }
+      hist.down()
+      return true
+    },
   }), [hist.up, hist.down, pop.setCursor, write])
 
   const label = !props.ready ? "Connecting..."
@@ -316,7 +344,19 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
         <box width={1} />
         <textarea
           ref={ta}
-          onContentChange={() => setInput(ta.current?.plainText ?? "")}
+          onContentChange={() => {
+            const t = ta.current
+            setInput(t?.plainText ?? "")
+            setCaret(t?.cursorOffset ?? 0)
+          }}
+          onCursorChange={() => {
+            // Only worth a re-render when @-completion might retarget;
+            // otherwise ←/→ in a long prompt would reconcile Composer
+            // on every keystroke for no observable effect.
+            if (!live.current.input.includes("@")) return
+            const off = ta.current?.cursorOffset ?? 0
+            setCaret(c => c === off ? c : off)
+          }}
           onSubmit={submit}
           onPaste={paste}
           keyBindings={bindings}
