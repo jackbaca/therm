@@ -13,10 +13,12 @@ import { TabShell } from "../ui/shell"
 import { HintBar } from "../ui/hint"
 import { KVBlock } from "../ui/kv"
 
-function usageColor(pct: number, theme: Theme): string {
-  if (pct >= 95) return theme.error.toString()
-  if (pct >= 80) return theme.warning.toString()
-  return theme.success.toString()
+import type { RGBA } from "@opentui/core"
+
+function usageColor(pct: number, theme: Theme): RGBA {
+  if (pct >= 95) return theme.error
+  if (pct >= 80) return theme.warning
+  return theme.success
 }
 
 function bar(pct: number, w: number): string {

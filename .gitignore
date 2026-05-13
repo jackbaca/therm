@@ -43,3 +43,4 @@ issues.jsonl
 *.code-workspace
 AGENTS.local.md
 .worktrees/
+!test/AGENTS.md
