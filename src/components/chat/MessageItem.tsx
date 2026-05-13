@@ -8,7 +8,7 @@ import { DiffBlock, isDiff } from "./DiffBlock"
 import { PromptCard, type PromptCardHandle } from "./PromptCard"
 import { ChafaImage } from "../../ui/ChafaImage"
 import { useTheme } from "../../theme"
-import { useSkin } from "../../app/skin"
+import { useSkin } from "../../context/skin"
 import { mathify } from "../../utils/math-unicode"
 
 export type { Message }

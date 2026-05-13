@@ -1,7 +1,7 @@
 import { describe, expect, test, beforeEach } from "bun:test"
 import { act } from "react"
 import { mountNode, until } from "./harness"
-import * as prefs from "../src/utils/preferences"
+import * as prefs from "../src/context/preferences"
 import { Tool } from "../src/components/chat/tool"
 import type { ToolPart } from "../src/types/message"
 

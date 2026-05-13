@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, memo } from "react"
 import { useKeyboard, useTerminalDimensions } from "@opentui/react"
 import type { RGBA } from "@opentui/core"
-import { cache, type Analytics as Data, type NameRow } from "../utils/hermes-analytics"
+import { cache, type Analytics as Data, type NameRow } from "../service/hermes-analytics"
 import { io } from "../io"
 import { useKeys } from "../keys"
 import { useTheme } from "../theme"

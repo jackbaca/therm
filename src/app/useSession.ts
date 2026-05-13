@@ -1,9 +1,9 @@
 // Session lifecycle: create, resume, switch, interrupt, branch, compress, undo.
 
 import { useMemo, useCallback } from "react"
-import * as preferences from "../utils/preferences"
-import { sdb } from "../utils/sessions-db"
-import { useGateway } from "./gateway"
+import * as preferences from "../context/preferences"
+import { sdb } from "../service/sessions-db"
+import { useGateway } from "../context/gateway"
 import { transcriptToMessages } from "./turnReducer"
 import type { Launch } from "./launch"
 import type {
@@ -11,7 +11,7 @@ import type {
   SessionCreateResponse,
   SessionInfo,
   TranscriptMessage,
-} from "../utils/gateway-types"
+} from "../context/wire"
 import type { Message, Usage } from "../types/message"
 
 /** session.compress response shape — see upstream fc7f55f49.

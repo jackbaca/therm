@@ -6,13 +6,38 @@
 
 ## Style Guide
 
+### Directory Layout
+
+```
+src/
+  app/        shell orchestration: app.tsx, useAppKeys, useStream, slash, bridge, control
+  context/    cross-cutting providers + RPC: gateway, skin, wire (types), gateway-client, events, preferences, helper
+  service/    ~/.hermes I/O: hermes-home, hermes-kanban, hermes-profiles, sessions-db, …
+  home/       reactive store over service/ readers (useHome, home.invalidate)
+  utils/      pure helpers: clipboard, selection, perf, tokens, fmt, math-unicode, …
+  ui/         reusable TUI primitives: dialog, toast, command, spinner, kv, shell, Splash
+  components/ chat+sidebar+avatar renderables
+  tabs/       top-level tab bodies (one file per sub-tab)
+  dialogs/    modal dialog bodies (openX functions)
+  keys/       keybinding catalog, chord parser, list nav
+  theme/      theme resolver + 33 JSON themes
+  config/     config schema, lane routing (RPC vs cli.exec)
+  io/         Worker bridge for sync bun:sqlite off main thread
+  types/      message, part
+```
+
+When deciding where something goes: does it touch `~/.hermes`? →
+`service/`. Is it a React context provider? → `context/` (or `ui/` if
+it also renders overlay JSX). Is it stateless and domain-agnostic? →
+`utils/`. Does it only make sense inside `AppInner`? → `app/`.
+
 ### Module Shape
 
 Non-component modules with 4+ exports self-reexport at the bottom of the
 file so consumers get a single namespace instead of wide destructuring:
 
 ```ts
-// src/utils/preferences.ts
+// src/context/preferences.ts
 export function get<K>(k: K) { ... }
 export function set<K>(k: K, v: V) { ... }
 
@@ -21,7 +46,7 @@ export * as prefs from "./preferences"
 
 ```ts
 // consumer
-import { prefs } from "../utils/preferences"
+import { prefs } from "../context/preferences"
 prefs.get("animations")
 ```
 

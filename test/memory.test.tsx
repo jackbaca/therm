@@ -5,7 +5,7 @@ import { act } from "react"
 import { mkdirSync, writeFileSync } from "fs"
 import { mountNode, until, MockGateway } from "./harness"
 import { Memory } from "../src/tabs/Memory"
-import { hermesPath } from "../src/utils/hermes-home"
+import { hermesPath } from "../src/service/hermes-home"
 import { home } from "../src/home"
 
 describe("Memory tab (t_cfbfd0c8)", () => {

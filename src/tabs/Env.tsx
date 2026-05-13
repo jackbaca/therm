@@ -1,7 +1,7 @@
 import { useState, useCallback, memo } from "react"
 import { useKeyboard } from "@opentui/react"
 import { useKeys, handleListKey, useFollow } from "../keys"
-import { writeEnvVar, removeEnvVar, ENV_CATALOG } from "../utils/hermes-home"
+import { writeEnvVar, removeEnvVar, ENV_CATALOG } from "../service/hermes-home"
 import { useHome, home } from "../home"
 import { useTheme } from "../theme"
 import { useDialog } from "../ui/dialog"

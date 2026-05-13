@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test"
-import { build, classifyTools, drill, cells, type Section } from "../src/utils/context-segments"
-import type { ToolInfo } from "../src/utils/hermes-home"
+import { build, classifyTools, drill, cells, type Section } from "../src/service/context-segments"
+import type { ToolInfo } from "../src/service/hermes-home"
 
 const mkSection = (id: string, label: string, tokens: number, text = "x"): Section => ({
   id, label, tokens, chars: tokens * 4, text,

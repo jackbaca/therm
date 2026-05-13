@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test"
 import { act } from "react"
 import { mountNode } from "./harness"
 import { Context } from "../src/tabs/Context"
-import type { SessionInfo } from "../src/utils/gateway-types"
+import type { SessionInfo } from "../src/context/wire"
 import type { Message } from "../src/types/message"
 
 // Strip ANSI so regex matches the visual text, not escape codes.

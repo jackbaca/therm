@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test"
 import { act } from "react"
 import { mountNode, until, MockGateway } from "./harness"
 import { Cron } from "../src/tabs/Cron"
-import * as prefs from "../src/utils/preferences"
+import * as prefs from "../src/context/preferences"
 import { handleListKey, useKeys, type Keys } from "../src/keys"
 import { useKeyboard } from "@opentui/react"
 

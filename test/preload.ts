@@ -64,7 +64,7 @@ afterEach(async () => {
   // preferences.ts is likewise a module singleton backed by a file in
   // the sandbox; tests that set() a key (e.g. keys.test, app rebind test)
   // would otherwise leak overrides into later tests via disk.
-  const prefs = await import("../src/utils/preferences")
+  const prefs = await import("../src/context/preferences")
   prefs.reset()
   rmSync(join(cfg, "tui.json"), { force: true })
 })

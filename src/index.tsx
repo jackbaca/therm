@@ -11,8 +11,8 @@ import { App } from "./app";
 import { parseLaunch, HELP, VERSION } from "./app/launch";
 import * as perf from "./utils/perf";
 import { warm as warmIO } from "./io";
-import * as control from "./utils/control";
-import * as preferences from "./utils/preferences";
+import * as control from "./app/control";
+import * as preferences from "./context/preferences";
 import { resetTerminalModes, installExitResetHooks } from "./utils/terminal-reset";
 import { warmup as warmTokens } from "./utils/tokens";
 

@@ -1,10 +1,10 @@
 import { describe, expect, test, spyOn } from "bun:test"
 import { act } from "react"
 import { mount, until, MockGateway } from "./harness"
-import * as prefs from "../src/utils/preferences"
+import * as prefs from "../src/context/preferences"
 import * as exit from "../src/app/exit"
 import { DOUBLE_TAB_MS } from "../src/app/useAppKeys"
-import type { GatewayEvent } from "../src/utils/gateway-types"
+import type { GatewayEvent } from "../src/context/wire"
 
 describe("app", () => {
   test("boots and renders chat tab with status bar", async () => {

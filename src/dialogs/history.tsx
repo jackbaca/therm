@@ -10,8 +10,8 @@
 import { useEffect, useState } from "react"
 import { useTheme, type Theme } from "../theme"
 import type { DialogContext } from "../ui/dialog"
-import type { Gateway } from "../app/gateway"
-import type { TranscriptMessage } from "../utils/gateway-types"
+import type { Gateway } from "../context/gateway"
+import type { TranscriptMessage } from "../context/wire"
 import { trunc } from "../ui/fmt"
 
 type Res = { count: number; messages: TranscriptMessage[] }

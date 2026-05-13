@@ -13,7 +13,7 @@
 
 import type { Source, ToolInfo } from "./hermes-home"
 import { makeSource } from "./hermes-home"
-import { count as tok } from "./tokens"
+import { count as tok } from "../utils/tokens"
 
 /** A parsed section of the system prompt */
 export type Section = {

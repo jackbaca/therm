@@ -3,8 +3,8 @@
 // Mirrors upstream hermes_cli/kanban_db.py::kanban_home() resolution.
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { setHome } from "../src/utils/hermes-home"
-import { kanbanRoot, resetKanban } from "../src/utils/hermes-kanban"
+import { setHome } from "../src/service/hermes-home"
+import { kanbanRoot, resetKanban } from "../src/service/hermes-kanban"
 
 const HH = process.env.HERMES_HOME!   // preload.ts sandboxes this
 

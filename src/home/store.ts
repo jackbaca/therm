@@ -34,8 +34,8 @@ import {
   type SessionRow,
   type SkillUsage,
   type CuratorState,
-} from "../utils/hermes-home"
-import type { MemoryActivity } from "../utils/memory-activity"
+} from "../service/hermes-home"
+import type { MemoryActivity } from "../service/memory-activity"
 import { count as tokenCount } from "../utils/tokens"
 import { io } from "../io"
 

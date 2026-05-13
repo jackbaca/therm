@@ -3,13 +3,13 @@ import { SIDE_PIPE } from "../ui/borders"
 import { useKeyboard, useTerminalDimensions } from "@opentui/react"
 import type { ScrollBoxRenderable } from "@opentui/core"
 import { useKeys, handleListKey } from "../keys"
-import { sdb } from "../utils/sessions-db"
-import type { SessionRow, SessionHit, LineageInfo, PeekMsg } from "../utils/sessions-db"
+import { sdb } from "../service/sessions-db"
+import type { SessionRow, SessionHit, LineageInfo, PeekMsg } from "../service/sessions-db"
 import { io as dbio } from "../io"
 import type {
   SessionListItem, SessionListResponse,
-} from "../utils/gateway-types"
-import { useGateway } from "../app/gateway"
+} from "../context/wire"
+import { useGateway } from "../context/gateway"
 import { useTheme } from "../theme"
 import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
@@ -23,8 +23,8 @@ import { openConfirm } from "../dialogs/confirm"
 import { openTextPrompt } from "../dialogs/text-prompt"
 import { fmt, cost, trunc, ago, when, span, stamp } from "../ui/fmt"
 import { home } from "../home"
-import { prefs } from "../utils/preferences"
-import type { SessionsPrefs } from "../utils/preferences"
+import { prefs } from "../context/preferences"
+import type { SessionsPrefs } from "../context/preferences"
 
 // Architecture: herm's Sessions tab is a **local state.db reader**.
 // Stock tui_gateway exposes only ~30% of what the tab needs via RPC

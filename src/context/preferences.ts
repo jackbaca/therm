@@ -79,7 +79,7 @@ const DEFAULTS: Required<Pick<TuiPreferences, "mouse" | "targetFps">> = {
   targetFps: 30,
 }
 
-import { configDir } from "./paths"
+import { configDir } from "../utils/paths"
 
 function configFile() { return join(configDir(), "tui.json") }
 

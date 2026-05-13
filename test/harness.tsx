@@ -13,14 +13,14 @@ import { act, type ReactNode } from "react"
 import { testRender } from "@opentui/react/test-utils"
 import type { MockInput, MockMouse, TestRenderer } from "@opentui/core/testing"
 import { App } from "../src/app"
-import type { Gateway } from "../src/app/gateway"
-import { GatewayProvider } from "../src/app/gateway"
+import type { Gateway } from "../src/context/gateway"
+import { GatewayProvider } from "../src/context/gateway"
 import { ThemeProvider } from "../src/theme"
 import { KeysProvider } from "../src/keys"
 import { DialogProvider } from "../src/ui/dialog"
 import { ToastProvider } from "../src/ui/toast"
 import { CommandProvider } from "../src/ui/command"
-import type { GatewayEvent } from "../src/utils/gateway-types"
+import type { GatewayEvent } from "../src/context/wire"
 
 type Handler = (params: Record<string, unknown>) => unknown | Promise<unknown>
 

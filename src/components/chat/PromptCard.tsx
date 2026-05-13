@@ -18,7 +18,7 @@ import {
 import { LEFT_BAR } from "../../ui/borders"
 import type { ParsedKey, SubmitEvent } from "@opentui/core"
 import { useTheme } from "../../theme"
-import { useGateway } from "../../app/gateway"
+import { useGateway } from "../../context/gateway"
 import type { PromptPart, PromptReq, Part } from "../../types/message"
 
 export type PromptCardHandle = {

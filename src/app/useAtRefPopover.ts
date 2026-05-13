@@ -9,7 +9,7 @@
 // only drives the popover UI and text insertion.
 
 import { useEffect, useRef, useState } from "react"
-import { useGateway, useGatewayReady } from "./gateway"
+import { useGateway, useGatewayReady } from "../context/gateway"
 import { frecency } from "./frecency"
 
 export type AtRefItem = {

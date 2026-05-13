@@ -1,9 +1,9 @@
 // Maps a GatewayEvent to a turn-reducer Action plus fire-and-forget side effects.
 
 import * as perf from "../utils/perf"
-import * as spawnHistory from "./spawnHistory"
-import type { GatewayEvent, GatewaySkin, SessionInfo } from "../utils/gateway-types"
-import type { Action } from "./turnReducer"
+import * as spawnHistory from "../app/spawnHistory"
+import type { GatewayEvent, GatewaySkin, SessionInfo } from "../context/wire"
+import type { Action } from "../app/turnReducer"
 import { pid, type Usage } from "../types/message"
 
 export type Side = {

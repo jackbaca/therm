@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { act } from "react"
 import { mount, until } from "./harness"
-import type { GatewayEvent } from "../src/utils/gateway-types"
+import type { GatewayEvent } from "../src/context/wire"
 
 describe("prompts", () => {
   test("approval: digit quick-pick sends matching choice", async () => {

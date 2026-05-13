@@ -1,6 +1,6 @@
 import { memo, useEffect, type ReactNode } from "react"
 import type { Message } from "../types/message"
-import type { SessionInfo } from "../utils/gateway-types"
+import type { SessionInfo } from "../context/wire"
 import { Sessions } from "./Sessions"
 import { Context } from "./Context"
 import { Analytics } from "./Analytics"

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { act } from "react"
 import { mountNode, until } from "./harness"
 import { ConfirmStep, type InstallResult } from "../src/dialogs/install-distribution"
-import type { DistributionManifest } from "../src/utils/hermes-profiles"
+import type { DistributionManifest } from "../src/service/hermes-profiles"
 
 const manifest: DistributionManifest = {
   name: "my-dist",

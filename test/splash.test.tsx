@@ -2,8 +2,8 @@ import { describe, test, expect, beforeEach, afterAll } from "bun:test"
 import { act } from "react"
 import { mount, until } from "./harness"
 import { openStateDb } from "./fixtures/state-db"
-import { resetDb } from "../src/utils/sessions-db"
-import { loadTips, splitTip } from "../src/utils/tips"
+import { resetDb } from "../src/service/sessions-db"
+import { loadTips, splitTip } from "../src/service/tips"
 
 // Sentinel for "splash frame is painted". Must be splash-unique because the
 // sidebar avatar also renders braille — can't key on /[⠁-⣿]/ anymore.

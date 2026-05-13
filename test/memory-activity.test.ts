@@ -1,6 +1,6 @@
 import { describe, expect, test, beforeAll } from "bun:test"
 import { openStateDb } from "./fixtures/state-db"
-import { extract, readMemoryActivity } from "../src/utils/memory-activity"
+import { extract, readMemoryActivity } from "../src/service/memory-activity"
 
 const row = (name: string, args: Record<string, unknown>, ts = 1000) => ({
   ts, session_id: "s1", title: "Test",

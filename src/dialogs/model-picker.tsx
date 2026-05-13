@@ -11,8 +11,8 @@ import { useDialog } from "../ui/dialog"
 import { DialogSelect, type SelectOption } from "../ui/dialog-select"
 import { useTheme } from "../theme"
 import { useToast } from "../ui/toast"
-import type { Gateway } from "../app/gateway"
-import type { ConfigSetResponse, ModelOptionsResponse } from "../utils/gateway-types"
+import type { Gateway } from "../context/gateway"
+import type { ConfigSetResponse, ModelOptionsResponse } from "../context/wire"
 
 type Step = "provider" | "model"
 

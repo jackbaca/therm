@@ -24,7 +24,7 @@
 
 import { Database, type Statement } from "bun:sqlite"
 import { homedir } from "os"
-import * as perf from "./perf"
+import * as perf from "../utils/perf"
 
 const HERMES = process.env.HERMES_HOME || `${process.env.HOME || homedir()}/.hermes`
 // Source provenance mirrors hermes-home.ts makeSource("state.db") —

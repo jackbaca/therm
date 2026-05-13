@@ -15,7 +15,7 @@
 
 import { useEffect, useRef, type ReactNode } from "react"
 import type { TextRenderable } from "@opentui/core"
-import { prefs } from "../utils/preferences"
+import { prefs } from "../context/preferences"
 
 export const Ticker = (p: {
   active: boolean

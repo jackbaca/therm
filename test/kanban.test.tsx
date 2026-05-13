@@ -3,11 +3,11 @@ import { act } from "react"
 import { Database } from "bun:sqlite"
 import { mkdirSync, writeFileSync, rmSync } from "node:fs"
 import { mountNode, MockGateway, until } from "./harness"
-import { hermesPath } from "../src/utils/hermes-home"
+import { hermesPath } from "../src/service/hermes-home"
 import {
   board, boardOf, detail, assignees, tailLog, q, resetKanban,
   currentBoard, listBoards, parseDiagnostics, maxSeverity, sortDiags,
-} from "../src/utils/hermes-kanban"
+} from "../src/service/hermes-kanban"
 import { Kanban } from "../src/tabs/Kanban"
 
 const now = Math.floor(Date.now() / 1000)
@@ -859,7 +859,7 @@ describe("patchTask direct writes", () => {
   }
 
   test("title + body in one txn ⇒ single 'edited' event", async () => {
-    const { patchTask } = await import("../src/utils/hermes-kanban")
+    const { patchTask } = await import("../src/service/hermes-kanban")
     // Seed by re-using t4 (done) so we have a stable target.
     expect(patchTask("default", "t4", {
       title: "draft memo v2", body: "revised body",
@@ -873,7 +873,7 @@ describe("patchTask direct writes", () => {
   })
 
   test("priority ⇒ 'reprioritized' event with JSON payload", async () => {
-    const { patchTask } = await import("../src/utils/hermes-kanban")
+    const { patchTask } = await import("../src/service/hermes-kanban")
     expect(patchTask("default", "t4", { priority: 7 })).toBe(true)
     expect(read("t4")!.priority).toBe(7)
     const es = events("t4").filter(e => e.kind === "reprioritized")
@@ -887,7 +887,7 @@ describe("patchTask direct writes", () => {
   })
 
   test("empty title rejected, unknown id returns false", async () => {
-    const { patchTask } = await import("../src/utils/hermes-kanban")
+    const { patchTask } = await import("../src/service/hermes-kanban")
     expect(() => patchTask("default", "t4", { title: "   " })).toThrow(/empty/)
     expect(patchTask("default", "does-not-exist", { title: "x" })).toBe(false)
   })
@@ -953,7 +953,7 @@ describe("Kanban detail pane", () => {
 // ─── Persistence (filter masks + open boards) ────────────────────────
 describe("Kanban preferences round-trip", () => {
   test("filter chip toggle persists across remount", async () => {
-    const prefsMod = await import("../src/utils/preferences")
+    const prefsMod = await import("../src/context/preferences")
     prefsMod.reset()
     // Start clean — no saved kanban prefs.
     prefsMod.set("kanban", undefined as never)

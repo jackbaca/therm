@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { readFileSync } from "fs"
-import { filter, matchSub, resolve, sort, LOCAL_COMMANDS, LOCAL_NAMES, type SlashCommand } from "../src/commands/slash"
+import { filter, matchSub, resolve, sort, LOCAL_COMMANDS, LOCAL_NAMES, type SlashCommand } from "../src/app/slashCommands"
 
 const cmd = (over: Partial<SlashCommand>): SlashCommand => ({
   name: "x", description: "", category: "Session", aliases: [], argsHint: "",

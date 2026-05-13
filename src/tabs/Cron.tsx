@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, memo } from "react";
 import { useTerminalDimensions } from "@opentui/react";
-import { useGateway } from "../app/gateway";
+import { useGateway } from "../context/gateway";
 import { useListKeys, useFollow } from "../keys";
 import { useTheme } from "../theme";
 import { useDialog } from "../ui/dialog";
@@ -12,7 +12,7 @@ import { KVBlock } from "../ui/kv";
 import { Col, Hdr, VBAR } from "../ui/table";
 import { openTextPrompt } from "../dialogs/text-prompt";
 import { ago, until } from "../ui/fmt";
-import { readCronOutput, type CronOutput } from "../utils/hermes-home";
+import { readCronOutput, type CronOutput } from "../service/hermes-home";
 
 type CronJob = {
   id: string

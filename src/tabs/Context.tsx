@@ -17,10 +17,10 @@ import { useKeyboard } from "@opentui/react"
 
 import type { Message } from "../types/message"
 import { text as msgText } from "../types/message"
-import type { ToolInfo, HermesConfig } from "../utils/hermes-home"
-import type { SessionInfo } from "../utils/gateway-types"
+import type { ToolInfo, HermesConfig } from "../service/hermes-home"
+import type { SessionInfo } from "../context/wire"
 import { useHome, home } from "../home"
-import { useGateway } from "../app/gateway"
+import { useGateway } from "../context/gateway"
 import { useKeys, handleListKey } from "../keys"
 import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
@@ -34,7 +34,7 @@ import {
   classifyTools,
   toolTokens,
   type Segment,
-} from "../utils/context-segments"
+} from "../service/context-segments"
 import { FileLink } from "../components/ui/FileLink"
 import { useTheme, type Theme } from "../theme"
 import { TabShell } from "../ui/shell"

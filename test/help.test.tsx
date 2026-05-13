@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { mountNode, until, type Harness } from "./harness"
 import { HelpDialog } from "../src/dialogs/help"
 import { DEFAULTS } from "../src/keys"
-import * as prefs from "../src/utils/preferences"
+import * as prefs from "../src/context/preferences"
 
 describe("HelpDialog", () => {
   test("renders every bound catalog action", async () => {

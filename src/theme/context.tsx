@@ -11,14 +11,15 @@
  *   <text fg={theme.text}>
  */
 
-import { createContext, useContext, useState, useCallback, useMemo } from "react";
+import { createContext, useState, useCallback, useMemo } from "react";
+import { makeUse } from "../context/helper"
 import type { ReactNode } from "react";
 import type { SyntaxStyle } from "@opentui/core";
 import type { Theme, ThemeJson } from "./types";
 import { resolveTheme } from "./resolve";
 import { DEFAULT_THEMES, DEFAULT_THEME } from "./builtin";
 import { syntax } from "./syntax";
-import * as preferences from "../utils/preferences";
+import * as preferences from "../context/preferences";
 
 interface ThemeContext {
   /** Resolved theme — all RGBA values ready for JSX props */
@@ -104,8 +105,4 @@ export const ThemeProvider = ({
 };
 
 /** Access the current theme. Must be inside <ThemeProvider>. */
-export const useTheme = (): ThemeContext => {
-  const ctx = useContext(Ctx);
-  if (!ctx) throw new Error("useTheme() must be used inside <ThemeProvider>");
-  return ctx;
-};
+export const useTheme = makeUse(Ctx, "useTheme");

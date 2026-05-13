@@ -5,7 +5,7 @@
 // future needs (prompt_symbol, welcome, etc.).
 
 import { createContext, useContext, memo, type ReactNode } from "react"
-import type { GatewaySkin } from "../utils/gateway-types"
+import type { GatewaySkin } from "../context/wire"
 
 /** Hermes built-in skin ids (hermes_cli/skin_engine.py::_BUILTIN_SKINS). */
 export const SKINS = [

@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test"
 import { act } from "react"
 import { mount, until } from "./harness"
-import * as prefs from "../src/utils/preferences"
+import * as prefs from "../src/context/preferences"
 
 describe("/keys rebind dialog", () => {
   test("opens via slash; lists actions; Enter → spec prompt → writes override", async () => {
