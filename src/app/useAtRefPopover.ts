@@ -10,6 +10,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useGateway, useGatewayReady } from "./gateway"
+import { frecency } from "./frecency"
 
 export type AtRefItem = {
   readonly text: string
@@ -72,7 +73,14 @@ export function useAtRefPopover(input: string, cursor?: number) {
         .then(r => {
           if (seq.current !== me) return
           const seen = new Set(fixed.map(k => k.text))
-          setItems([...fixed, ...(r.items ?? []).filter(i => !seen.has(i.text))])
+          // Frecency lifts previously-accepted paths above alphabetic/
+          // relevance order from the gateway; ties preserve server
+          // order (stable sort).
+          const ranked = (r.items ?? []).filter(i => !seen.has(i.text))
+            .map(i => ({ i, s: frecency.score(i.text) }))
+            .sort((a, b) => b.s - a.s)
+            .map(x => x.i)
+          setItems([...fixed, ...ranked])
           setCursor(0)
         })
         .catch(() => { if (seq.current === me) { setItems(fixed); setCursor(0) } })
@@ -87,6 +95,9 @@ export function useAtRefPopover(input: string, cursor?: number) {
     const at = atWordAt(src, off)
     const it = items[idx]
     if (!at || !it) return null
+    // Bump for path-like completions (has `:` and not a fixed keyword
+    // prefix like `@url:`/`@folder:`).
+    if (it.text.includes(":") && !it.text.endsWith(":")) frecency.bump(it.text)
     const trail = it.text.endsWith(":") || it.text.endsWith("/") ? "" : " "
     return src.slice(0, at.start) + it.text + trail + src.slice(at.start + at.word.length)
   }

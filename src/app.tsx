@@ -1,12 +1,11 @@
 import { useRenderer, useTerminalDimensions } from "@opentui/react"
 import { Profiler, useState, useEffect, useRef, useCallback, useMemo, useReducer } from "react"
 import * as perf from "./utils/perf"
-import * as spawnHistory from "./app/spawnHistory"
-import { setBridge, enabled as controlEnabled } from "./utils/control"
 import { hasInterp, interpolate } from "./utils/interpolate"
-import { GatewayProvider, useGateway, useGatewayEvent, useGatewayRestart, type Gateway } from "./app/gateway"
-import type { GatewayEvent, SessionInfo, TranscriptMessage, ImageAttachResponse } from "./utils/gateway-types"
+import { GatewayProvider, useGateway, useGatewayRestart, type Gateway } from "./app/gateway"
+import type { SessionInfo, TranscriptMessage, ImageAttachResponse } from "./utils/gateway-types"
 import type { Message, Usage } from "./types/message"
+import { text as msgText } from "./types/message"
 import { CLOUD_MIN } from "./components/chat/ThoughtCloud"
 import type { AvatarState } from "./components/avatar/states"
 import { TabBar } from "./components/tabs/TabBar"
@@ -15,7 +14,7 @@ import { Chat } from "./tabs/Chat"
 import { SessionsGroup } from "./tabs/SessionsGroup"
 import { Automation } from "./tabs/Automation"
 import { ConfigGroup } from "./tabs/ConfigGroup"
-import { copySelection } from "./utils/clipboard"
+import { copySelection, copy as clipCopy } from "./utils/clipboard"
 import { ThemeProvider, useTheme } from "./theme"
 import { DialogProvider, useDialog } from "./ui/dialog"
 import { ToastProvider, useToast } from "./ui/toast"
@@ -24,7 +23,6 @@ import { KeysProvider } from "./keys"
 import { Splash } from "./ui/Splash"
 import { lastReal } from "./utils/sessions-db"
 import { readChangelog } from "./utils/hermes-home"
-import { openAlert } from "./dialogs/alert"
 import { openMessage } from "./dialogs/message"
 import { parseEikon, type ParsedEikon } from "./components/avatar/eikon"
 import { bundledEikonPath } from "./components/avatar/bundled"
@@ -33,10 +31,11 @@ import type { PromptWire } from "./components/chat/MessageItem"
 import { resolve as resolveSlash } from "./commands/slash"
 import { useSlashCommands } from "./app/useSlashCommands"
 import { useSlash } from "./app/slash"
+import { useStream } from "./app/useStream"
+import { useBridge } from "./app/bridge"
 import { Composer, type ComposerHandle } from "./components/chat/Composer"
 import * as preferences from "./utils/preferences"
 import { turnReducer, initialTurn, transcriptToMessages } from "./app/turnReducer"
-import { mapEvent } from "./app/gatewayEvents"
 import { useSession } from "./app/useSession"
 import { SkinProvider, deriveSkin, type SkinState } from "./app/skin"
 import { useAppKeys } from "./app/useAppKeys"
@@ -159,13 +158,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const [pick, setPick] = useState<Message | undefined>(undefined)
   const [skin, setSkin] = useState<SkinState>(() => deriveSkin(undefined))
   const inflight = useRef(false)
-  // Client-side interrupt latch: flipped on Esc×2 before the gateway has
-  // confirmed the stop. Stream-mutation events still in the stdio pipe
-  // (already written by the agent thread before it saw the interrupt
-  // flag) are dropped until the NEXT user send — not message.complete —
-  // because run_agent's worker thread can keep emitting after the
-  // monitor thread's InterruptedError has already ended the turn.
-  const interrupted = useRef(false)
   // /undo snapshots the tail it pops (Message[]) so /redo can replay
   // the head user-turn's text. Client-only; gateway session.undo is a
   // hard delete with no unrevert. Cleared on reset/session-switch.
@@ -249,8 +241,15 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     setQueue(q => [...q, t])
   }, [busy, gw, toast])
   const onAttach = useCallback((r: ImageAttachResponse) => setAttachments(a => [...a, r]), [])
+
+  const stream = useStream({
+    dispatch, session, launchRef, sidRef, sessionStart, goalHook,
+    setSid, setInfo, setReady, setTitle, setBusy, setUsage, setStatus, setSkin, setErrorPulse,
+  })
+  intr.current = stream.doInterrupt
+
   const reset = useCallback(() => {
-    interrupted.current = false
+    stream.interrupted.current = false
     undone.current = []
     dispatch({ kind: "reset" })
     setUsage(undefined)
@@ -442,7 +441,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       text = await interpolate(gw, raw)
       setStatus("")
     }
-    interrupted.current = false
+    stream.interrupted.current = false
     // Echo attachments into the user's transcript message as MEDIA: lines
     // so ChafaImage renders them inline. Gateway also tracks them in
     // session["attached_images"] for the agent-side enrichment — these
@@ -518,135 +517,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     composer.current?.set(item)
     setFocusRegion("input")
   }, [])
-  const copyLast = useCallback(() => {
-    const msgs = turnRef.current.messages
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      const m = msgs[i]
-      if (m.role !== "assistant") continue
-      const text = m.parts.filter(p => p.type === "text").map(p => p.content).join("")
-      if (!text) continue
-      process.stdout.write(`\x1b]52;c;${Buffer.from(text).toString("base64")}\x07`)
-      return true
-    }
-    return false
-  }, [])
-  // Delta batching: streamed text/reasoning chunks are accumulated in
-  // a ref and flushed at most once per 16ms. Every delta otherwise
-  // triggers an O(messages) array spread + O(content) string concat +
-  // full markdown re-parse of the streaming block. Any non-delta
-  // action flushes synchronously first so part ordering is preserved.
-  const deltas = useRef({ text: "", think: "", timer: null as ReturnType<typeof setTimeout> | null })
-
-  const flush = useCallback(() => {
-    const d = deltas.current
-    if (d.timer) { clearTimeout(d.timer); d.timer = null }
-    if (d.think) { dispatch({ kind: "thinking", text: d.think, final: false }); d.think = "" }
-    if (d.text) { dispatch({ kind: "message.delta", chunk: d.text }); d.text = "" }
-  }, [])
-
-  // Events that mutate the in-progress assistant turn. Everything else
-  // (system messages, session.info, toasts, completion, side channels)
-  // is orthogonal to the stream and must pass the interrupt gate.
-  const STREAM_EVENTS = useRef(new Set<GatewayEvent["type"]>([
-    "message.start",
-    "message.delta", "reasoning.delta", "reasoning.available", "thinking.delta",
-    "tool.start", "tool.progress", "tool.generating",
-  ])).current
-
-  const handle = useCallback((ev: GatewayEvent) => {
-    // The agent's stream-retry loop (run_agent._call) classifies the
-    // force-closed httpx socket from an interrupt as a transient drop
-    // and emits "Reconnecting…" lifecycle status before the top-of-loop
-    // interrupt guard catches it. Drain those (and any ghost stream
-    // events from the clear_interrupt race) until the next user send.
-    if (interrupted.current) {
-      if (STREAM_EVENTS.has(ev.type)) return
-      if (ev.type === "status.update" && ev.payload?.kind === "lifecycle") return
-    }
-    const action = mapEvent(ev, {
-      onReady: () => {
-        session.boot(launchRef.current).then((r) => {
-          setSid(r.id)
-          sessionStart.current = Date.now()
-          if (r.messages.length) dispatch({ kind: "load", messages: r.messages })
-          if (r.note) toast.show({ variant: "info", message: r.note })
-        })
-      },
-      onSessionInfo: (si) => {
-        setInfo(si)
-        setReady(true)
-        if (si.session_id) setSid(si.session_id)
-        const bad = (si.mcp_servers ?? []).filter(s => !s.connected)
-        if (bad.length) dispatch({
-          kind: "system",
-          text: `MCP: ${bad.length} server(s) failed to connect — ${bad.map(s => s.name + (s.error ? ` (${s.error})` : "")).join(", ")}`,
-        })
-        gw.request<{ title: string; session_key?: string }>("session.title").then(r => {
-          setTitle(r.title ?? "")
-          if (r.session_key) preferences.set("lastSessionId", r.session_key)
-        }).catch(() => {})
-        gw.request<{ value?: string }>("config.get", { key: "busy" }).then(r => {
-          const m = r.value
-          if (m === "queue" || m === "steer" || m === "interrupt") setBusy(m)
-        }).catch(() => {})
-      },
-      onUsage: (u) => setUsage(u),
-      onTurnComplete: () => {
-        setStatus("")
-        spawnHistory.flush(gw, sidRef.current)
-        goalHook.check(sidRef.current)
-      },
-      onBackground: (tid, text) => {
-        const head = text.split("\n")[0].slice(0, 80)
-        dispatch({ kind: "system", text: `◷ background task ${tid} complete — ${head}` })
-        toast.show({
-          variant: "info", title: "Background task complete", message: head,
-          duration: 8000,
-          action: { label: "view", run: () => openAlert(dialog, `Background task ${tid}`, text) },
-        })
-      },
-      onBtw: (text) => {
-        const head = text.split("\n")[0].slice(0, 80)
-        dispatch({ kind: "system", text: `◈ btw — ${head}` })
-        toast.show({
-          variant: "info", title: "btw", message: head, duration: 8000,
-          action: { label: "view", run: () => openAlert(dialog, "btw", text) },
-        })
-      },
-      onStatus: (text) => setStatus(text),
-      onSkin: (s) => setSkin(deriveSkin(s)),
-    })
-    if (!action) return
-    const d = deltas.current
-    if (action.kind === "message.delta") {
-      if (d.think) flush()
-      d.text += action.chunk
-      d.timer ??= setTimeout(flush, 16)
-      return
-    }
-    if (action.kind === "thinking" && !action.final) {
-      if (d.text) flush()
-      d.think += action.text
-      d.timer ??= setTimeout(flush, 16)
-      return
-    }
-    flush()
-    if (action.kind === "error") setErrorPulse(true)
-    dispatch(action)
-  }, [session, dialog, toast, gw, flush, goalHook])
-
-  useGatewayEvent(handle)
-
-  const doInterrupt = useCallback(() => {
-    interrupted.current = true
-    // Drop any 16ms-batched deltas that haven't hit the reducer yet —
-    // flushing them would append post-interrupt text.
-    const d = deltas.current
-    if (d.timer) { clearTimeout(d.timer); d.timer = null }
-    d.text = ""; d.think = ""
-    session.interrupt()
-  }, [session])
-  intr.current = doInterrupt
   const subCount = SUB_TABS[tab]?.length ?? 0
   const cycleSub = useCallback((dir: -1 | 1) => {
     const labels = SUB_TABS[tab]
@@ -675,17 +545,21 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       setSplash(false); summoned.current = false
       return true
     },
-    onInterrupt: doInterrupt,
+    onInterrupt: stream.doInterrupt,
     // queue.flush is just an interrupt — the drain effect auto-fires
     // the head once turn.streaming flips false.
     queued: queue.length,
-    onFlushQueue: doInterrupt,
+    onFlushQueue: stream.doInterrupt,
     onQuit: () => quit(renderer, sid, title, gw),
     onInterruptNotice: () => {
       setEscHint(true)
       setTimeout(() => setEscHint(false), 5000)
     },
-    onCopyLast: () => { copyLast() },
+    onCopyLast: () => {
+      const m = [...turnRef.current.messages].reverse()
+        .find(x => x.role === "assistant" && msgText(x))
+      if (m) void clipCopy(msgText(m))
+    },
     onAttachClipboard: attachClipboard,
     // Client-side drop only. Gateway's session["attached_images"] still
     // has the orphaned path until the next prompt.submit drains it, or
@@ -710,31 +584,10 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       toast.show({ variant: "info", message: `stashed (${n})` })
     },
   })
-  const state = useRef({ tab, ready, streaming: turn.streaming, messages: turn.messages, sid, focusRegion })
-  state.current = { tab, ready, streaming: turn.streaming, messages: turn.messages, sid, focusRegion }
-  useEffect(() => {
-    if (!controlEnabled) return
-    setBridge({
-      tab: () => state.current.tab,
-      setTab,
-      send: (msg: string) => {
-        if (!state.current.ready || state.current.streaming) return
-        dispatch({ kind: "user", text: msg })
-        gw.request("prompt.submit", { text: msg }).catch(() => {})
-        setTab(CHAT_TAB)
-      },
-      ready: () => state.current.ready,
-      streaming: () => state.current.streaming,
-      messages: () => state.current.messages.length,
-      session: () => state.current.sid,
-      input: () => composer.current?.value() ?? "",
-      setInput: (v: string) => composer.current?.set(v),
-      focusRegion: () => state.current.focusRegion,
-      setFocusRegion,
-      renderer: () => renderer,
-      logs: (n?: number) => gw.tail(n),
-    })
-  }, [gw, renderer])
+  useBridge({
+    tab, ready, streaming: turn.streaming, messages: turn.messages, sid, focusRegion,
+    setTab, setFocusRegion, dispatch, composer,
+  })
 
   const contentFocused = focusRegion === "content" && !turn.streaming
   // At most one pending prompt (gateway blocks on the answer). The

@@ -62,4 +62,29 @@ Baseline:  810/810 tests, 1 pre-existing tsc error (`test/context.test.tsx:136`)
 - SolidJS / Effect-ts adoption
 - `packages/opencode` non-TUI test patterns (llm-server, Effect layers)
 - `utils/` → `context/`+`service/` dir rename (too much churn for one branch; file kanban card)
+- Composer extmark-backed parts model — styled @-chips and atomic paste-backspace need `@opentui/core` extmark API wiring through the textarea ref + a part↔extmark sync layer (~oc 200L). Standalone card.
 - Upstream gateway RPCs (log in `docs/UPSTREAM.md`)
+
+## Chat interaction parity checklist (acceptance, verified @ 833 tests)
+
+| Behavior | oc ref | herm | test |
+|---|---|---|---|
+| `/` opens slash popover, live filter | component/prompt | useSlashPopover | app:437 |
+| `@` cursor-relative, any line | component/prompt/autocomplete | useAtRefPopover `atWordAt` | atref.test |
+| `@` frecency ranking | component/prompt/frecency | app/frecency | atref:frecency, frecency.test |
+| `!` at col 0 → shell mode | component/prompt:894 | Composer mode + useAppKeys | shell-mode.test ×4 |
+| Esc/⌫@0 exits shell mode | component/prompt:909,919 | useAppKeys:155 | shell-mode.test |
+| `exit`/`quit`/`:q` literal quits | component/prompt submit | app.tsx send() | app:quit literal |
+| Edge-row ↑/↓ history (two-step) | component/prompt:930 | Composer.historyUp/Down | composer.test |
+| Ctrl+C clears buffer, saves ≥20 draft | config/keybind input_clear | useAppKeys:103 | app.test input.clear |
+| `/stash` · pop · list | — (oc uses file-based) | app/stash + slash.tsx | stash.test |
+| `/undo` → `/redo` replay | routes/session:626 | app/slash.tsx undone stack | redo.test ×2 |
+| Slash while streaming → per-cmd policy | — | Composer.submit routes /→onSend | composer:streaming-slash |
+| Plain text while streaming → busy mode | — | app.tsx onEnqueue tri-state | app:queue tests |
+| Dialog focus-restore on close | ui/dialog | ui/dialog refocus | dialog-focus.test |
+| Selection-aware Esc (clears not closes) | util/selection | utils/selection | selection.test |
+| Approval body: `$ cmd` + pattern_keys | routes/session/permission | PromptCard.Approval | prompt-card.test |
+| Footer esc-hint + model/usage | component/prompt footer | Composer footer | composer:footer |
+| Spinner: ref-mutation, no setState | Tail | ui/spinner | spinner.test |
+
+All 30 recon axes from Wave-0 either landed, were filed in UPSTREAM.md (2), or are out-of-scope above (2).
