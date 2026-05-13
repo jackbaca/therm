@@ -296,7 +296,7 @@ export async function profileStats(dir: string): Promise<ProfileStats> {
   const dbPath = join(dir, "state.db")
   if (existsSync(dbPath)) {
     try {
-      const db = new Database(dbPath, { readonly: true })
+      const db = new Database(dbPath, { readwrite: true, create: false })
       const r = db.query("SELECT COUNT(*) AS s FROM sessions WHERE message_count > 0")
         .get() as { s: number }
       const m = db.query("SELECT COALESCE(SUM(message_count), 0) AS m FROM sessions")

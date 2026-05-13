@@ -55,10 +55,12 @@ export const setHome = (h: string) => {
   resetDb()
 }
 
-/** Shared readonly handle. Null when state.db doesn't exist yet. */
+/** Shared read handle. Null when state.db doesn't exist yet.
+ *  RW-no-create, not readonly — Bun 1.3.x readonly mode can fail on
+ *  WAL DBs before sidecars exist (gh#29). We only SELECT on it. */
 export const stateDb = (): Database | null => {
   if (conn.ro) return conn.ro
-  try { return (conn.ro = new Database(conn.path, { readonly: true })) }
+  try { return (conn.ro = new Database(conn.path, { readwrite: true, create: false })) }
   catch { return null }
 }
 
