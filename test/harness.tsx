@@ -120,6 +120,7 @@ export type Harness = {
   settle: () => Promise<void>
   resize: (w: number, h: number) => void
   destroy: () => void
+  [Symbol.asyncDispose]: () => Promise<void>
 }
 
 type Opts = {
@@ -186,6 +187,7 @@ async function render(node: ReactNode, gw: MockGateway, opts: Opts): Promise<Har
     settle,
     resize: setup.resize,
     destroy: () => setup.renderer.destroy(),
+    [Symbol.asyncDispose]: async () => setup.renderer.destroy(),
   }
 }
 

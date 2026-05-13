@@ -20,7 +20,10 @@ function save(list: Entry[]) {
 
 export function push(text: string): number {
   const list = load()
-  list.push({ text, at: Date.now() })
+  // Monotonic key: two pushes in the same ms must not collide, since
+  // drop() keys on `at` alone.
+  const at = Math.max(Date.now(), (list[list.length - 1]?.at ?? 0) + 1)
+  list.push({ text, at })
   if (list.length > MAX) list.shift()
   save(list)
   return list.length

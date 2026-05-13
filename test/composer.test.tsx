@@ -210,6 +210,13 @@ describe("composer", () => {
     expect(atWordAt("foo@bar")).toBeNull()           // not word-initial
     expect(atWordAt("a @b c")).toBeNull()            // caret not at end of @-word
     expect(atWordAt("a @b")).toEqual({ word: "@b", start: 2 })
+    // cursor-relative: works mid-buffer and on later lines
+    expect(atWordAt("a @b c", 4)).toEqual({ word: "@b", start: 2 })
+    expect(atWordAt("a @b c", 3)).toEqual({ word: "@b", start: 2 })
+    expect(atWordAt("a @b c", 2)).toEqual({ word: "@b", start: 2 })
+    expect(atWordAt("a @b c", 1)).toBeNull()
+    expect(atWordAt("line1\n@f here", 8)).toEqual({ word: "@f", start: 6 })
+    expect(atWordAt("line1\nx @f", 10)).toEqual({ word: "@f", start: 8 })
   })
 
   test("@ opens atref popover; Tab inserts; Esc dismisses without clearing", async () => {
