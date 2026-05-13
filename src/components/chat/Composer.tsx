@@ -44,6 +44,9 @@ type Props = {
   ready: boolean
   streaming: boolean
   status?: string
+  model?: string
+  /** Set for ~5s after the first Esc of the interrupt double-tap. */
+  escHint?: boolean
   queue?: ReadonlyArray<string>
   attachments?: ReadonlyArray<ImageAttachResponse>
   cmds: ReadonlyArray<SlashCommand>
@@ -384,11 +387,17 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
         <text>
           <span fg={dot}>● </span>
           <span fg={theme.textMuted}>{label}</span>
+          {props.streaming && props.escHint
+            ? <span fg={theme.warning}>  esc again to interrupt</span>
+            : props.streaming
+            ? <span fg={theme.textMuted}>  esc×2 interrupt</span>
+            : null}
         </text>
         <box flexGrow={1} />
         {props.streaming && (props.queue?.length ?? 0) > 0 ? (
-          <text fg={theme.textMuted}>{keys.print("queue.flush")} to send queued now</text>
+          <text fg={theme.textMuted}>{keys.print("queue.flush")} to send queued now  </text>
         ) : null}
+        {props.model ? <text fg={theme.textMuted}>{props.model}</text> : null}
       </box>
     </box>
   )

@@ -127,6 +127,13 @@ const Approval = forwardRef<PromptCardHandle, {
         <box paddingLeft={2} minHeight={1}>
           <text fg={theme.text} wrapMode="word">$ {p.req.command}</text>
         </box>
+        {p.req.pattern_keys?.length ? (
+          <box paddingLeft={2} minHeight={1}>
+            <text fg={theme.textMuted} wrapMode="word">
+              matched: {p.req.pattern_keys.join(", ")}
+            </text>
+          </box>
+        ) : null}
       </box>
       <box flexDirection="row" gap={2} flexShrink={0}
            paddingX={2} paddingY={1} backgroundColor={theme.backgroundElement}>

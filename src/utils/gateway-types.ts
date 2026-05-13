@@ -23,7 +23,7 @@ export type GatewayEvent =
   | { type: "tool.generating"; payload: { name?: string } }
   | { type: "tool.complete"; payload: { tool_id: string; name?: string; summary?: string; error?: string; inline_diff?: string } }
   | { type: "clarify.request"; payload: { request_id: string; question: string; choices: string[] | null } }
-  | { type: "approval.request"; payload: { command: string; description: string } }
+  | { type: "approval.request"; payload: { command: string; description: string; pattern_keys?: string[] } }
   | { type: "sudo.request"; payload: { request_id: string } }
   | { type: "secret.request"; payload: { request_id: string; prompt: string; env_var: string } }
   | { type: "background.complete"; payload: { task_id: string; text: string } }

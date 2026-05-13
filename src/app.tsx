@@ -132,6 +132,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     setFocusRegion(t === CHAT_TAB ? "input" : "content")
   }, [])
   const [status, setStatus] = useState("")
+  const [escHint, setEscHint] = useState(false)
   const [eikon, setEikon] = useState<ParsedEikon | undefined>(undefined)
   const [queue, setQueue] = useState<string[]>([])
   const [busy, setBusy] = useState<"queue" | "steer" | "interrupt">("queue")
@@ -1102,7 +1103,10 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     queued: queue.length,
     onFlushQueue: doInterrupt,
     onQuit: () => quit(renderer, sid, title, gw),
-    onInterruptNotice: () => dispatch({ kind: "interrupt.notice", text: "Press Escape again to interrupt" }),
+    onInterruptNotice: () => {
+      setEscHint(true)
+      setTimeout(() => setEscHint(false), 5000)
+    },
     onCopyLast: () => { copyLast() },
     onAttachClipboard: attachClipboard,
     // Client-side drop only. Gateway's session["attached_images"] still
@@ -1233,6 +1237,8 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
                 ref={composer}
                 focused={inputFocused} ready={ready} streaming={turn.streaming}
                 status={status}
+                model={info?.model}
+                escHint={escHint}
                 queue={queue}
                 attachments={attachments}
                 cmds={cmds}

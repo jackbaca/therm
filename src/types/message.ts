@@ -46,7 +46,7 @@ export type PromptPart = {
 }
 
 export type PromptReq =
-  | { variant: "approval"; command: string; description: string }
+  | { variant: "approval"; command: string; description: string; pattern_keys?: string[] }
   | { variant: "clarify"; request_id: string; question: string; choices: string[] | null }
   | { variant: "sudo"; request_id: string }
   | { variant: "secret"; request_id: string; prompt: string; env_var: string }
