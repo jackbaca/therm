@@ -704,6 +704,10 @@ export const Kanban = memo((props: { focused?: boolean }) => {
     gw.request<Sh>("shell.exec", { command: `hermes kanban --board ${q(at)} ${argv}` }).then(r => {
       if (r.code !== 0) throw new Error((r.stderr || r.stdout || `exit ${r.code}`).trim())
       if (ok) toast.show({ variant: "success", message: ok })
+      // Drop cached handles before re-read — the shell-backed write
+      // came from another process; a handle opened before the board
+      // existed (or under a since-rotated path) stays null/stale (gh#29).
+      resetKanban()
       load()
       return r.stdout
     }).catch((e: Error) => void toast.show({ variant: "error", message: trunc(e.message, 120) })),

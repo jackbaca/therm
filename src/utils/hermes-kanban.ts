@@ -208,9 +208,9 @@ const resolve = (): string => {
 let slug = resolve()
 
 /** Two cached handles per board slug: [ro, rw]. `null` = open attempted
- *  and failed (no DB yet); `undefined` = not yet attempted. Separate
- *  handles because bun:sqlite's readonly flag is per-connection and we
- *  want reads to never block on a write handle taking the lock. */
+ *  and failed (no DB yet); `undefined` = not yet attempted. `ro` is
+ *  opened RW-no-create (gh#29) and used only for SELECTs; `rw` runs
+ *  the WAL/foreign_keys pragmas and serves patches. */
 type Handles = { ro: Database | null; rw: Database | null }
 const handles = new Map<string, Handles>()
 
@@ -233,8 +233,12 @@ const pair = (s: string): Handles => {
 
 const dbOf = (s: string): Database | null => {
   const h = pair(s)
-  if (h.ro !== null) return h.ro
-  try { h.ro = new Database(dbPath(s), { readonly: true }) } catch { h.ro = null }
+  if (h.ro) return h.ro
+  // Not { readonly: true } — Bun 1.3.x readonly mode can fail with
+  // "unable to open database file" on WAL DBs whose sidecars don't
+  // exist yet (gh#29). RW-no-create is safe: we only SELECT on this
+  // handle, and create:false still throws when the file is absent.
+  try { h.ro = new Database(dbPath(s), { readwrite: true, create: false }) } catch { h.ro = null }
   return h.ro
 }
 
