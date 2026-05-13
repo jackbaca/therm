@@ -1,5 +1,6 @@
 /**
- * Local TUI preferences — persisted to ~/.config/herm/tui.json
+ * Local TUI preferences — persisted to $HERM_CONFIG_DIR/tui.json
+ * (defaults to ~/.hermes/herm/tui.json; see utils/paths.ts).
  *
  * Compatible with OpenCode's tui.json schema pattern:
  *   - JSON file in XDG config dir
