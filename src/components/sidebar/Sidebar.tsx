@@ -3,7 +3,7 @@ import { AnimatedAvatar } from "../avatar/AnimatedAvatar"
 import type { ParsedEikon } from "../avatar/eikon"
 import { useTheme } from "../../theme"
 import type { AvatarState } from "../avatar/states"
-import type { SessionInfo } from "../../utils/gateway-types"
+import type { SessionInfo } from "../../context/wire"
 import type { Usage } from "../../types/message"
 import { useGitBranch, rtrunc } from "../../utils/git"
 import { Tail } from "../chat/ThoughtCloud"
@@ -20,8 +20,6 @@ const PAD_L = 12
 const INNER = WIDTH - 4
 
 const trunc = (s: string, max: number) => s.length <= max ? s : s.slice(0, max - 1) + "…"
-
-// ─── Primitives (pillar-colored) ─────────────────────────────────────
 
 const Section = memo((props: {
   title: string; hint?: string
@@ -62,8 +60,6 @@ const Row = (props: { label: string; value: string; strong?: boolean }) => {
     </box>
   )
 }
-
-// ─── Main ────────────────────────────────────────────────────────────
 
 export const Sidebar = memo((props: {
   agentState?: AvatarState

@@ -5,8 +5,8 @@
 import { createContext, useContext, useEffect, useRef, useState, useMemo, useCallback } from "react"
 import type { ReactNode } from "react"
 import { EventEmitter } from "events"
-import { GatewayClient } from "../utils/gateway-client"
-import type { GatewayEvent } from "../utils/gateway-types"
+import { GatewayClient } from "../context/gateway-client"
+import type { GatewayEvent } from "../context/wire"
 
 /** Minimal surface consumers depend on. GatewayClient satisfies this. */
 export interface Gateway extends EventEmitter {

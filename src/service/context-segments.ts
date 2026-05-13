@@ -13,9 +13,7 @@
 
 import type { Source, ToolInfo } from "./hermes-home"
 import { makeSource } from "./hermes-home"
-import { count as tok } from "./tokens"
-
-// ─── Types ───────────────────────────────────────────────────────────
+import { count as tok } from "../utils/tokens"
 
 /** A parsed section of the system prompt */
 export type Section = {
@@ -40,8 +38,6 @@ export type Segment = {
 /** Grid cell */
 type Cell = { readonly id: string }
 
-// ─── Constants ───────────────────────────────────────────────────────
-
 const GRID = 256
 // Chars-per-token fallback for ToolInfo (description/param lengths are
 // char counts; the text itself is not retained in the snapshot — so we
@@ -53,8 +49,6 @@ const MEMORY_IDS = new Set(["soul", "memory", "user", "mem0"])
 
 /** Parsed-section IDs that are residual system-prompt framing */
 const SYSTEM_PROMPT_IDS = new Set(["project", "meta", "other"])
-
-// ─── System Prompt Parser ────────────────────────────────────────────
 
 /** Parse raw system prompt text into sections by structural delimiters */
 export function parse(text: string): Section[] {
@@ -150,8 +144,6 @@ export function parse(text: string): Section[] {
   return sections.sort((a, b) => text.indexOf(a.text) - text.indexOf(b.text))
 }
 
-// ─── Tool Classification ─────────────────────────────────────────────
-
 /** Classify tools by origin. MCP tools always have `mcp_` prefix — this is
  *  a guaranteed convention (mcp_tool.py:2394 collision guard). */
 export function classifyTools(
@@ -171,8 +163,6 @@ export function classifyTools(
 export function toolTokens(tool: ToolInfo): number {
   return Math.ceil((tool.descriptionLength + tool.paramsLength) / CPT)
 }
-
-// ─── Segment Builder ─────────────────────────────────────────────────
 
 type Opts = {
   contextLength: number
@@ -199,8 +189,6 @@ export function build(opts: Opts): Segment[] {
 
   const byId = new Map<string, Section>()
   for (const s of opts.sections) byId.set(s.id, s)
-
-  // ── 1. System Prompt (framing only — project + meta + other) ──
   const promptChildren: Segment[] = opts.sections
     .filter(sec => SYSTEM_PROMPT_IDS.has(sec.id) && sec.tokens > 0)
     .map(sec => ({
@@ -220,8 +208,6 @@ export function build(opts: Opts): Segment[] {
       children: promptChildren,
     })
   }
-
-  // ── 2. System Tools (non-MCP) ──
   const { system: sysTools, mcp: mcpTools } = classifyTools(opts.tools)
   const sysToolsTok = sysTools.reduce((s, t) => s + toolTokens(t), 0)
   if (sysToolsTok > 0) {
@@ -232,8 +218,6 @@ export function build(opts: Opts): Segment[] {
       percent: pct(sysToolsTok),
     })
   }
-
-  // ── 3. MCP Tools ──
   const mcpToolsTok = mcpTools.reduce((s, t) => s + toolTokens(t), 0)
   if (mcpToolsTok > 0) {
     result.push({
@@ -243,8 +227,6 @@ export function build(opts: Opts): Segment[] {
       percent: pct(mcpToolsTok),
     })
   }
-
-  // ── 4. Memory (SOUL + Notes + Profile + Mem0) ──
   const memChildren: Segment[] = opts.sections
     .filter(sec => MEMORY_IDS.has(sec.id) && sec.tokens > 0)
     .map(sec => ({
@@ -264,8 +246,6 @@ export function build(opts: Opts): Segment[] {
       children: memChildren,
     })
   }
-
-  // ── 5. Skills (catalog injected into system prompt) ──
   const skillsSec = byId.get("skills")
   const skillsTok = skillsSec?.tokens ?? opts.skillsTokens ?? 0
   if (skillsTok > 0) {
@@ -277,14 +257,10 @@ export function build(opts: Opts): Segment[] {
       section: skillsSec,
     })
   }
-
-  // ── 6. Conversation ──
   if (opts.conversationTokens > 0) {
     const ct = Math.min(opts.conversationTokens, opts.inputTokens || opts.conversationTokens)
     result.push({ id: "conversation", label: "Conversation", tokens: ct, percent: pct(ct) })
   }
-
-  // ── 7. Free ──
   const taken = result.reduce((s, g) => s + g.tokens, 0)
   const free = Math.max(0, opts.contextLength - taken)
   result.push({ id: "free", label: "Free", tokens: free, percent: pct(free) })
@@ -304,8 +280,6 @@ export function drill(group: Segment): Segment[] {
     percent: total > 0 ? (c.tokens / total) * 100 : 0,
   }))
 }
-
-// ─── Grid Generator ──────────────────────────────────────────────────
 
 /** Generate 256 cells from segments, proportional to percent */
 export function cells(segments: ReadonlyArray<Segment>, fallback = "free"): Cell[] {

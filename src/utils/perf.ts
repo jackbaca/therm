@@ -21,8 +21,6 @@ const level = process.env.PERF ?? ""
 const enabled = level === "1" || level === "verbose"
 const verbose = level === "verbose"
 
-// ── Timing ────────────────────────────────────────────────────────────
-
 type Timing = { count: number; total: number; min: number; max: number; last: number }
 
 const timings = new Map<string, Timing>()
@@ -50,8 +48,6 @@ export const mark = enabled
     }
   }
   : (_: string) => noop
-
-// ── Boot stages ───────────────────────────────────────────────────────
 // One-shot milestones measured from process start (Bun.nanoseconds()
 // origin). ESM imports hoist, so mark() can't bracket the import graph;
 // callers pass the absolute ms-since-spawn instead.
@@ -61,8 +57,6 @@ export const boot = (label: string, ms: number) => {
   if (enabled) log(`🚀 boot:${label} ${ms.toFixed(1)}ms`)
 }
 
-// ── Counters ──────────────────────────────────────────────────────────
-
 const counters = new Map<string, number>()
 
 /** Increment a named counter. */
@@ -71,8 +65,6 @@ export const count = enabled
     counters.set(label, (counters.get(label) ?? 0) + n)
   }
   : (_label: string, _n?: number) => {}
-
-// ── Memory ────────────────────────────────────────────────────────────
 
 type Snapshot = { label: string; rss: number; heap: number; external: number; ts: number }
 
@@ -104,8 +96,6 @@ export const monitor = enabled
   }
   : (_ms?: number) => noop
 
-// ── React Profiler ────────────────────────────────────────────────────
-
 type RenderEntry = { count: number; total: number; max: number; last: number }
 
 const renders = new Map<string, RenderEntry>()
@@ -130,8 +120,6 @@ export const onRender = enabled
     }
   }
   : (_id: string, _phase: string, _actual: number) => {}
-
-// ── Report ────────────────────────────────────────────────────────────
 
 /** Dump all collected profiling data to stderr. */
 const report = () => {
@@ -223,8 +211,6 @@ export const data = () => {
     ),
   }
 }
-
-// ── Internal ──────────────────────────────────────────────────────────
 
 const log = (msg: string) => process.stderr.write(msg + "\n")
 

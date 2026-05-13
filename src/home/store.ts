@@ -34,12 +34,10 @@ import {
   type SessionRow,
   type SkillUsage,
   type CuratorState,
-} from "../utils/hermes-home"
-import type { MemoryActivity } from "../utils/memory-activity"
+} from "../service/hermes-home"
+import type { MemoryActivity } from "../service/memory-activity"
 import { count as tokenCount } from "../utils/tokens"
 import { io } from "../io"
-
-// ─── State shape ──────────────────────────────────────────────────────
 
 export interface HomeState {
   config: HermesConfig | null
@@ -152,8 +150,6 @@ const DEPENDENTS: ReadonlyMap<SliceKey, readonly SliceKey[]> = (() => {
   }
   return m
 })()
-
-// ─── Store ────────────────────────────────────────────────────────────
 
 const DEBOUNCE_MS = 50
 

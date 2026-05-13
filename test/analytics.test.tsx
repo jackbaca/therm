@@ -2,7 +2,7 @@ import { describe, test, expect, beforeAll } from "bun:test"
 import { act } from "react"
 import { mountNode, until } from "./harness"
 import { openStateDb } from "./fixtures/state-db"
-import { analytics, cache } from "../src/utils/hermes-analytics"
+import { analytics, cache } from "../src/service/hermes-analytics"
 import { Analytics } from "../src/tabs/Analytics"
 
 // ─── fixture ─────────────────────────────────────────────────────────

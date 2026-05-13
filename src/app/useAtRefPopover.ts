@@ -9,7 +9,8 @@
 // only drives the popover UI and text insertion.
 
 import { useEffect, useRef, useState } from "react"
-import { useGateway, useGatewayReady } from "./gateway"
+import { useGateway, useGatewayReady } from "../context/gateway"
+import { frecency } from "./frecency"
 
 export type AtRefItem = {
   readonly text: string
@@ -37,27 +38,29 @@ export function match(word: string): AtRefItem[] {
   return KEYWORDS.filter(k => k.text.toLowerCase().startsWith(q) && k.text !== word)
 }
 
-// Find the @-word the caret is at the end of. Returns {word, start}
-// or null when not applicable. Bails on slash-command input so the
-// two popovers never contend.
-export function atWordAt(input: string): { word: string; start: number } | null {
+// Find the @-word the caret sits inside. Walks back from `cursor`
+// (byte offset into the full buffer, defaults to end) to the nearest
+// word boundary and checks for a leading `@`. Bails when line 1
+// starts with `/` so the slash and @-ref popovers never contend.
+export function atWordAt(input: string, cursor = input.length): { word: string; start: number } | null {
   if (input.startsWith("/")) return null
-  const end = input.length
-  let i = end
+  let i = cursor
   while (i > 0 && !/\s/.test(input[i - 1])) i--
-  if (i >= end || input[i] !== "@") return null
-  return { word: input.slice(i, end), start: i }
+  if (input[i] !== "@") return null
+  let j = cursor
+  while (j < input.length && !/\s/.test(input[j])) j++
+  return { word: input.slice(i, j), start: i }
 }
 
-export function useAtRefPopover(input: string) {
+export function useAtRefPopover(input: string, cursor?: number) {
   const gw = useGateway()
   const ready = useGatewayReady()
   const [items, setItems] = useState<AtRefItem[]>([])
-  const [cursor, setCursor] = useState(0)
+  const [sel, setCursor] = useState(0)
   const seq = useRef(0)
   const dismissed = useRef<string | null>(null)
 
-  const spot = atWordAt(input)
+  const spot = atWordAt(input, cursor)
 
   useEffect(() => {
     if (!spot || !ready) { setItems([]); setCursor(0); return }
@@ -70,7 +73,14 @@ export function useAtRefPopover(input: string) {
         .then(r => {
           if (seq.current !== me) return
           const seen = new Set(fixed.map(k => k.text))
-          setItems([...fixed, ...(r.items ?? []).filter(i => !seen.has(i.text))])
+          // Frecency lifts previously-accepted paths above alphabetic/
+          // relevance order from the gateway; ties preserve server
+          // order (stable sort).
+          const ranked = (r.items ?? []).filter(i => !seen.has(i.text))
+            .map(i => ({ i, s: frecency.score(i.text) }))
+            .sort((a, b) => b.s - a.s)
+            .map(x => x.i)
+          setItems([...fixed, ...ranked])
           setCursor(0)
         })
         .catch(() => { if (seq.current === me) { setItems(fixed); setCursor(0) } })
@@ -81,10 +91,13 @@ export function useAtRefPopover(input: string) {
 
   const open = spot !== null && items.length > 0
 
-  const accept = (src: string, idx = cursor): string | null => {
-    const at = atWordAt(src)
+  const accept = (src: string, idx = sel, off?: number): string | null => {
+    const at = atWordAt(src, off)
     const it = items[idx]
     if (!at || !it) return null
+    // Bump for path-like completions (has `:` and not a fixed keyword
+    // prefix like `@url:`/`@folder:`).
+    if (it.text.includes(":") && !it.text.endsWith(":")) frecency.bump(it.text)
     const trail = it.text.endsWith(":") || it.text.endsWith("/") ? "" : " "
     return src.slice(0, at.start) + it.text + trail + src.slice(at.start + at.word.length)
   }
@@ -95,5 +108,5 @@ export function useAtRefPopover(input: string) {
     setItems([])
   }
 
-  return { open, items, cursor, setCursor, accept, dismiss }
+  return { open, items, cursor: sel, setCursor, accept, dismiss }
 }

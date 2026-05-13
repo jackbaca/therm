@@ -17,7 +17,7 @@ import { join } from "path"
 const HOME = process.env.HOME!
 const HERMES_HOME = process.env.HERMES_HOME || join(HOME, ".hermes")
 
-// Same discovery order as the app (see src/utils/gateway-client.ts):
+// Same discovery order as the app (see src/context/gateway-client.ts):
 // HERMES_AGENT_ROOT overrides; otherwise look under HERMES_HOME.
 const CANDIDATES = [
   process.env.HERMES_AGENT_ROOT,

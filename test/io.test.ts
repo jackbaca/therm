@@ -1,6 +1,6 @@
 import { describe, test, expect, afterAll } from "bun:test"
-import { roots } from "../src/utils/sessions-db"
-import { analytics } from "../src/utils/hermes-analytics"
+import { roots } from "../src/service/sessions-db"
+import { analytics } from "../src/service/hermes-analytics"
 
 // The sandbox state.db is seeded by analytics.test's beforeAll; bun
 // test files execute in sorted order so it exists by the time this

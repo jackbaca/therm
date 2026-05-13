@@ -8,7 +8,7 @@ import { measureText, type ASCIIFontName } from "@opentui/core"
 import type { BoxRenderable } from "@opentui/core"
 import { useTheme } from "../theme"
 import { frame } from "./splash-art"
-import { randomTip, splitTip } from "../utils/tips"
+import { randomTip, splitTip } from "../service/tips"
 import { VERSION } from "../app/launch"
 
 export type SplashInfo = {

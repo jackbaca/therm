@@ -1,7 +1,7 @@
 import { useState, useCallback, memo } from "react"
 import { useKeyboard } from "@opentui/react"
 import { useKeys, handleListKey, useFollow } from "../keys"
-import { writeEnvVar, removeEnvVar, ENV_CATALOG } from "../utils/hermes-home"
+import { writeEnvVar, removeEnvVar, ENV_CATALOG } from "../service/hermes-home"
 import { useHome, home } from "../home"
 import { useTheme } from "../theme"
 import { useDialog } from "../ui/dialog"
@@ -12,15 +12,11 @@ import { Col, Hdr, VBAR } from "../ui/table"
 import { openTextPrompt } from "../dialogs/text-prompt"
 import { openConfirm } from "../dialogs/confirm"
 
-// ─── Types ────────────────────────────────────────────────────────
-
 type Row =
   | { type: "header"; category: string; collapsed: boolean }
   | { type: "var"; key: string; value: string | undefined }
 
 const mask = (val: string) => "•".repeat(Math.min(val.length, 12))
-
-// ─── Var Row ──────────────────────────────────────────────────────
 
 const VarRow = memo((props: {
   id: string
@@ -46,8 +42,6 @@ const VarRow = memo((props: {
     </box>
   )
 })
-
-// ─── Main Component ───────────────────────────────────────────────
 
 export const Env = memo((props: { focused?: boolean }) => {
   const theme = useTheme().theme

@@ -1,7 +1,6 @@
 // Single-line text prompt dialog. Enter submits, Esc cancels.
 
 import { useState } from "react"
-import { useKeyboard } from "@opentui/react"
 import { useTheme } from "../theme"
 import type { DialogContext } from "../ui/dialog"
 
@@ -10,19 +9,11 @@ type Props = {
   label?: string
   initial?: string
   onSubmit: (value: string) => void
-  onCancel: () => void
 }
 
 const TextPrompt = (props: Props) => {
   const theme = useTheme().theme
   const [value, setValue] = useState(props.initial ?? "")
-
-  // Native <input> owns text/paste/cursor; global bus only handles Esc
-  // (DialogProvider also clears on Esc, but it doesn't resolve the
-  // promise — onCancel does).
-  useKeyboard((key) => {
-    if (key.name === "escape") return props.onCancel()
-  })
 
   return (
     <box flexDirection="column" width={60}>
@@ -59,9 +50,9 @@ export function openTextPrompt(
     dialog.replace(
       <TextPrompt
         title={opts.title} label={opts.label} initial={opts.initial}
-        onSubmit={(v) => { dialog.clear(); resolve(v) }}
-        onCancel={() => { dialog.clear(); resolve(null) }}
+        onSubmit={(v) => { resolve(v); dialog.clear() }}
       />,
+      () => resolve(null),
     )
   })
 }

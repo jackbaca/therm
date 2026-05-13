@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, memo, type ReactNode } from "react";
 import { useKeyboard } from "@opentui/react";
 import { useKeys, handleListKey, useFollow } from "../keys";
-import { useGateway } from "../app/gateway";
+import { useGateway } from "../context/gateway";
 import { useTheme } from "../theme";
 import { useToast } from "../ui/toast";
 import { useDialog } from "../ui/dialog";
@@ -15,10 +15,8 @@ import { check as checkRule } from "../config/rules";
 import { buildFields, groupOf, sections, GROUPS, EFFECT_GLYPH, type Field, type Section } from "../config";
 import { readSlots, assign, resetAux, AUX_TASKS, type Slot } from "../config/models";
 import { openModelPicker } from "../dialogs/model-picker";
-import { managedSystem, makeSource } from "../utils/hermes-home";
+import { managedSystem, makeSource } from "../service/hermes-home";
 import { FileLink } from "../components/ui/FileLink";
-
-// ─── Helpers ─────────────────────────────────────────────────────────
 
 const flatten = (obj: Record<string, unknown>, prefix = ""): [string, unknown][] =>
   Object.entries(obj).flatMap(([k, v]) => {
@@ -49,8 +47,6 @@ const getNested = (obj: Record<string, unknown>, path: string): unknown => {
   }
   return cur;
 };
-
-// ─── Field Row ───────────────────────────────────────────────────────
 
 const FieldRow = memo((props: {
   id: string;
@@ -128,8 +124,6 @@ const FieldRow = memo((props: {
     </box>
   );
 });
-
-// ─── Model slots (synthetic `models` category) ───────────────────────
 // Main + 9 aux-task slots from config.yaml. Enter opens the same
 // provider→model picker as Ctrl+M but routed through assign(); `x`
 // resets an aux slot to auto. Writes apply immediately (not queued
@@ -159,8 +153,6 @@ const SlotRow = memo((p: { id: string; s: Slot; on: boolean }) => {
     </box>
   );
 });
-
-// ─── Main Component ──────────────────────────────────────────────────
 
 export const Config = memo((props: { focused?: boolean }) => {
   const theme = useTheme().theme;

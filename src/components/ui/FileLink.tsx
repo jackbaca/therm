@@ -7,7 +7,7 @@
 
 import { useState, memo } from "react";
 import { TextAttributes } from "@opentui/core";
-import type { Source } from "../../utils/hermes-home";
+import type { Source } from "../../service/hermes-home";
 import { openFile } from "../../utils/open-file";
 import { useTheme } from "../../theme";
 

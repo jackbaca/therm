@@ -24,15 +24,13 @@
 
 import { Database, type Statement } from "bun:sqlite"
 import { homedir } from "os"
-import * as perf from "./perf"
+import * as perf from "../utils/perf"
 
 const HERMES = process.env.HERMES_HOME || `${process.env.HOME || homedir()}/.hermes`
 // Source provenance mirrors hermes-home.ts makeSource("state.db") —
 // inlined to keep this module leaf (hermes-home re-exports from here).
 export type Source = { file: string; relative: string; label: string }
 const SRC: Source = { file: `${HERMES}/state.db`, relative: "state.db", label: "state.db" }
-
-// ─── Connection ──────────────────────────────────────────────────────
 // One readonly handle, opened on first use. SQLite readonly connections
 // see writes from other processes (WAL or rollback), so the gateway
 // appending messages while herm holds this open is fine. Writes
@@ -55,10 +53,12 @@ export const setHome = (h: string) => {
   resetDb()
 }
 
-/** Shared readonly handle. Null when state.db doesn't exist yet. */
+/** Shared read handle. Null when state.db doesn't exist yet.
+ *  RW-no-create, not readonly — Bun 1.3.x readonly mode can fail on
+ *  WAL DBs before sidecars exist (gh#29). We only SELECT on it. */
 export const stateDb = (): Database | null => {
   if (conn.ro) return conn.ro
-  try { return (conn.ro = new Database(conn.path, { readonly: true })) }
+  try { return (conn.ro = new Database(conn.path, { readwrite: true, create: false })) }
   catch { return null }
 }
 
@@ -83,8 +83,6 @@ const q = (sql: string): Statement | null => {
   if (!s) stmts.set(sql, (s = db.query(sql)))
   return s
 }
-
-// ─── Types ───────────────────────────────────────────────────────────
 
 /** A row from the sessions table enriched for the list/detail view. */
 export interface SessionRow {
@@ -140,8 +138,6 @@ export interface PeekMsg {
   tool_calls: string | null
   at: number
 }
-
-// ─── parent→child classification ─────────────────────────────────────
 //
 // parent_session_id is overloaded across three unrelated relationships
 // in hermes-agent. The ONLY discriminator is (parent.end_reason,
@@ -178,8 +174,6 @@ export const kind = (
   if (parent.end_reason === "branched") return "branch"
   return "subagent"
 }
-
-// ─── Shared SQL ──────────────────────────────────────────────────────
 
 // Column projection shared by roots()/children()/one(). Aliased `s`.
 // First-user-msg, last-user-msg, last-active, and subagent_count are
@@ -287,11 +281,14 @@ function walkUp(sid: string): string {
   return cur
 }
 
-// ─── Readers ─────────────────────────────────────────────────────────
-
-/** Root-level sessions, newest first, compression chains projected to
- *  their tip (the resumable end), with lineage_root_id recording the
- *  original root when projection happened. Mirrors list_sessions_rich. */
+/** Root-level sessions, newest-started first, compression chains
+ *  projected to their tip (the resumable end), with lineage_root_id
+ *  recording the original root when projection happened. Mirrors
+ *  list_sessions_rich.
+ *
+ *  Each projected row carries BOTH the root's started_at and the tip's
+ *  last_active, so the Sessions tab can order by either without the
+ *  reader committing to one. See prefs.sessions.sort. */
 export function roots(limit = 30): SessionRow[] {
   const end = perf.mark("io:sessions.roots")
   try {
@@ -313,8 +310,9 @@ export function roots(limit = 30): SessionRow[] {
       const tid = tip(r.id)
       if (tid === r.id) return toRow(r)
       const t = one(tid)
-      // Tip stats replace the root's, but started_at stays the root's
-      // so chronological list order is preserved.
+      // Tip stats (incl. last_active) replace the root's, but
+      // started_at stays the root's so Detail's Started/Duration
+      // span the whole chain and "started" sort order is preserved.
       return t ? { ...toRow(t, r.id), started_at: r.started_at } : toRow(r)
     })
   } finally { end() }
@@ -400,8 +398,6 @@ export const systemPrompt = (): { id: string; text: string } | null =>
       WHERE system_prompt IS NOT NULL AND length(system_prompt) > 1000
       ORDER BY started_at DESC LIMIT 1`,
   )?.get() as { id: string; text: string } | undefined) ?? null
-
-// ─── Goal state ──────────────────────────────────────────────────────
 // hermes_cli/goals.py persists GoalState as JSON in state_meta keyed
 // 'goal:<sid>'. status: active | paused | done | cleared. Only the
 // fields herm consumes are surfaced.
@@ -455,8 +451,6 @@ export function goalState(sid: string): GoalState | null {
     }
   } catch { return null }
 }
-
-// ─── Search ──────────────────────────────────────────────────────────
 // FTS5 over messages_fts — same table/triggers SessionDB builds, so
 // results match `hermes sessions search` and the session_search tool.
 
@@ -489,8 +483,6 @@ export function search(query: string, limit = 30): SessionHit[] {
     ).slice(0, limit)
   } finally { end() }
 }
-
-// ─── Writes ──────────────────────────────────────────────────────────
 // Fresh RW handle per call — writes are rare (user-initiated) and a
 // long-lived writer would hold locks the gateway's own connection
 // wants. Callers should prefer the session.delete RPC and fall back
@@ -515,3 +507,5 @@ export function remove(sid: string): boolean {
     return true
   } finally { db.close() }
 }
+
+export * as sdb from "./sessions-db"

@@ -1,25 +1,15 @@
-/**
- * Dialog overlay system — modal stack with backdrop.
- *
- * Usage:
- *   <DialogProvider><App /></DialogProvider>
- *
- *   const dialog = useDialog()
- *   dialog.replace(<MyContent />, () => revert())
- *   dialog.clear()
- */
-
-import { createContext, useContext, useState, useCallback, useMemo, useRef } from "react"
+import { createContext, useState, useCallback, useMemo, useRef } from "react"
+import { makeUse } from "../context/helper"
 import type { ReactNode } from "react"
-import { useKeyboard, useTerminalDimensions } from "@opentui/react"
-import { RGBA } from "@opentui/core"
+import { useKeyboard, useTerminalDimensions, useRenderer } from "@opentui/react"
+import { RGBA, type Renderable } from "@opentui/core"
 import { useKeys } from "../keys"
 import { useTheme } from "../theme"
 
-type DialogEntry = {
+type Entry = {
   readonly element: ReactNode
   readonly onClose?: () => void
-  /** When true, DialogProvider does NOT auto-close this entry on the
+  /** When true, the provider does not auto-close this entry on the
    *  cancel key — the dialog owns Esc itself (e.g. a multi-view form
    *  where Esc first backs out of a sub-picker). */
   readonly ownCancel?: boolean
@@ -28,14 +18,12 @@ type DialogEntry = {
 export type DialogContext = {
   readonly replace: (element: ReactNode, onClose?: () => void, opts?: { ownCancel?: boolean }) => void
   readonly clear: () => void
-  readonly stack: ReadonlyArray<DialogEntry>
+  readonly stack: ReadonlyArray<Entry>
   /** Scheduling-independent open probe. `stack.length > 0` is only
    *  reliable once React has committed the provider's setState; a
-   *  keypress arriving between replace() and that commit would read
-   *  stack=[] (stale closure in the tab's useKeyboard) and leak
-   *  through. `open()` reads a ref set synchronously inside
-   *  replace()/clear(), so key-guards are correct from the same
-   *  microtask the dialog was requested in. */
+   *  keypress arriving between replace() and that commit reads stack=[]
+   *  (stale closure in the tab's useKeyboard) and leaks through.
+   *  `open()` reads a ref set synchronously by replace()/clear(). */
   readonly open: () => boolean
 }
 
@@ -44,39 +32,77 @@ const Ctx = createContext<DialogContext | null>(null)
 const BACKDROP = RGBA.fromInts(0, 0, 0, 150)
 
 export const DialogProvider = ({ children }: { children: ReactNode }) => {
-  const [stack, setStack] = useState<DialogEntry[]>([])
-  // Mirror of stack.length > 0, written synchronously from the
-  // setters so callers observing through open() never see a gap.
+  const renderer = useRenderer()
+  const [stack, setStack] = useState<Entry[]>([])
   const gate = useRef(false)
+  const prev = useRef<Renderable | null>(null)
+
+  // Refocus whatever held focus before the first dialog opened. The
+  // renderable may have been destroyed (tab switched underneath) or
+  // detached from the tree, so walk from root to confirm it's still
+  // reachable before calling focus(). setTimeout lets the closing
+  // dialog's own <input focused> unmount first — focusing into a node
+  // that's about to be removed is a no-op in OpenTUI but still bumps
+  // currentFocusedRenderable, which would then go stale.
+  const refocus = useCallback(() => {
+    setTimeout(() => {
+      if (gate.current) return
+      const target = prev.current
+      if (!target || target.isDestroyed) { prev.current = null; return }
+      const reachable = (node: Renderable): boolean => {
+        for (const c of node.getChildren()) {
+          if (c === target || reachable(c)) return true
+        }
+        return false
+      }
+      if (reachable(renderer.root)) target.focus()
+      prev.current = null
+    }, 0)
+  }, [renderer])
 
   const replace = useCallback((element: ReactNode, onClose?: () => void, opts?: { ownCancel?: boolean }) => {
+    // Capture focus only on the first open of a chain; a dialog that
+    // replaces another (or opens immediately after clear()) should
+    // restore to the original composer/textarea, not to whatever the
+    // intermediate dialog's <input> happened to focus.
+    if (!gate.current && !prev.current) {
+      prev.current = renderer.currentFocusedRenderable
+      prev.current?.blur()
+    }
     gate.current = true
-    setStack([{ element, onClose, ownCancel: opts?.ownCancel }])
-  }, [])
+    setStack(cur => {
+      for (const e of cur) e.onClose?.()
+      return [{ element, onClose, ownCancel: opts?.ownCancel }]
+    })
+  }, [renderer])
 
   const clear = useCallback(() => {
     gate.current = false
-    setStack(prev => {
-      const top = prev[prev.length - 1]
-      if (top?.onClose) top.onClose()
+    setStack(cur => {
+      for (const e of cur) e.onClose?.()
       return []
     })
-  }, [])
+    refocus()
+  }, [refocus])
 
   const open = useCallback(() => gate.current, [])
 
   const keys = useKeys()
   useKeyboard((key) => {
     if (stack.length === 0) return
+    // An active text selection owns Esc (clear highlight) before the
+    // dialog does. Selection.key in useAppKeys handles the general
+    // case; this guard covers dialogs whose own <input> grabbed focus.
+    if (renderer.getSelection()?.getSelectedText()) return
     const top = stack[stack.length - 1]
-    if (top?.ownCancel) return // dialog handles its own Esc
+    if (top?.ownCancel) return
     if (keys.match("dialog.cancel", key)) clear()
   })
 
   const value = useMemo<DialogContext>(
     () => ({ replace, clear, stack, open }),
     [replace, clear, stack, open])
-  const top = stack.length > 0 ? stack[stack.length - 1] : undefined
+  const top = stack[stack.length - 1]
 
   return (
     <Ctx.Provider value={value}>
@@ -86,9 +112,15 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
   )
 }
 
-const Overlay = ({ entry, onClose }: { entry: DialogEntry; onClose: () => void }) => {
+const Overlay = ({ entry, onClose }: { entry: Entry; onClose: () => void }) => {
   const dims = useTerminalDimensions()
   const theme = useTheme().theme
+  const renderer = useRenderer()
+  // Dismiss only when both halves of the click land on the backdrop
+  // with no selection in between. A mouseup alone (e.g. the tail of
+  // the click that opened this dialog, or a drag-select that ended
+  // over the scrim) must not close.
+  const armed = useRef(false)
 
   return (
     <box
@@ -101,7 +133,12 @@ const Overlay = ({ entry, onClose }: { entry: DialogEntry; onClose: () => void }
       backgroundColor={BACKDROP}
       justifyContent="center"
       alignItems="center"
-      onMouseDown={onClose}
+      onMouseDown={() => { armed.current = !renderer.getSelection() }}
+      onMouseUp={() => {
+        if (!armed.current) return
+        armed.current = false
+        onClose()
+      }}
     >
       <box
         backgroundColor={theme.backgroundPanel}
@@ -111,6 +148,7 @@ const Overlay = ({ entry, onClose }: { entry: DialogEntry; onClose: () => void }
         padding={1}
         flexDirection="column"
         onMouseDown={(e) => { e.stopPropagation() }}
+        onMouseUp={(e) => { armed.current = false; e.stopPropagation() }}
       >
         {entry.element}
       </box>
@@ -118,8 +156,4 @@ const Overlay = ({ entry, onClose }: { entry: DialogEntry; onClose: () => void }
   )
 }
 
-export const useDialog = (): DialogContext => {
-  const ctx = useContext(Ctx)
-  if (!ctx) throw new Error("useDialog() must be inside <DialogProvider>")
-  return ctx
-}
+export const useDialog = makeUse(Ctx, "useDialog")

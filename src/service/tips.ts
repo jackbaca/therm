@@ -6,7 +6,7 @@
 
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { hermesAgentRoot } from "./gateway-client"
+import { hermesAgentRoot } from "../context/gateway-client"
 
 const FALLBACK = [
   "`@file:path/to/file.py` injects file contents directly into your message.",

@@ -20,7 +20,7 @@
  * on dangerous tabs (Config, Sessions) unless safe=false is passed.
  */
 
-import * as perf from "./perf"
+import * as perf from "../utils/perf"
 import { TABS, TAB_MAX, CHAT_TAB } from "../app/tabs"
 
 const PORT = Number(process.env.CONTROL_PORT) || 7777
@@ -97,8 +97,6 @@ export function isDangerous(tab: number, keyName: string, ctrl: boolean): boolea
   return set.has(id)
 }
 
-// ─── Key injection ───────────────────────────────────────────────────
-
 interface ParsedKey {
   name: string
   ctrl: boolean
@@ -139,8 +137,6 @@ function injectKey(renderer: unknown, key: ParsedKey): boolean {
   if (!r?.keyInput?.processParsedKey) return false
   return r.keyInput.processParsedKey(key)
 }
-
-// ─── Focus tree query ────────────────────────────────────────────────
 
 interface FocusNode {
   type: string
@@ -226,8 +222,6 @@ function countNodes(node: unknown): { total: number; focusable: number; focused:
   walk(node)
   return result
 }
-
-// ─── Request handler ─────────────────────────────────────────────────
 
 async function handle(req: Request): Promise<Response> {
   const url = new URL(req.url)

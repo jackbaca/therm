@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, memo } from "react"
 import { useKeyboard, useTerminalDimensions } from "@opentui/react"
 import type { RGBA } from "@opentui/core"
-import { cache, type Analytics as Data, type NameRow } from "../utils/hermes-analytics"
+import { cache, type Analytics as Data, type NameRow } from "../service/hermes-analytics"
 import { io } from "../io"
 import { useKeys } from "../keys"
 import { useTheme } from "../theme"
@@ -10,8 +10,6 @@ import { TabShell } from "../ui/shell"
 import { HintBar } from "../ui/hint"
 import { Col, Hdr } from "../ui/table"
 import { fmt, cost, trunc } from "../ui/fmt"
-
-// ─── Charts ──────────────────────────────────────────────────────────
 
 const BLOCKS = " ▁▂▃▄▅▆▇█"
 
@@ -89,8 +87,6 @@ const Rank = memo((p: { title: string; rows: NameRow[] | null; fg: RGBA; n?: num
     </box>
   )
 })
-
-// ─── Tab ─────────────────────────────────────────────────────────────
 
 export const Analytics = memo((props: { focused?: boolean }) => {
   const theme = useTheme().theme

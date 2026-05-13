@@ -10,7 +10,7 @@ import { useKeys } from "../keys"
 import { useTheme } from "../theme"
 import { DialogSelect, type SelectOption } from "../ui/dialog-select"
 import type { DialogContext } from "../ui/dialog"
-import type { ProfileInfo } from "../utils/hermes-profiles"
+import type { ProfileInfo } from "../service/hermes-profiles"
 import { openFile } from "../utils/open-file"
 import { openDistributionInfo } from "./distribution-info"
 

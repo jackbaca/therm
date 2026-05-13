@@ -254,8 +254,6 @@ export function validateName(name: string, existing: string[]): string | null {
   if (["hermes", "default", "test", "tmp", "root", "sudo"].includes(name)) return "reserved name"
   return null
 }
-
-// ── Lazy per-profile stats ───────────────────────────────────────────
 //
 // Counts that require opening that profile's state.db or reading its
 // cron/jobs.json. Not part of listProfiles() — fetched on selection so
@@ -296,7 +294,7 @@ export async function profileStats(dir: string): Promise<ProfileStats> {
   const dbPath = join(dir, "state.db")
   if (existsSync(dbPath)) {
     try {
-      const db = new Database(dbPath, { readonly: true })
+      const db = new Database(dbPath, { readwrite: true, create: false })
       const r = db.query("SELECT COUNT(*) AS s FROM sessions WHERE message_count > 0")
         .get() as { s: number }
       const m = db.query("SELECT COALESCE(SUM(message_count), 0) AS m FROM sessions")
@@ -316,3 +314,5 @@ export async function profileStats(dir: string): Promise<ProfileStats> {
   } catch { crons = existsSync(join(dir, "cron")) ? 0 : null }
   return { sessions, messages, crons, prefs: readPrefs(dir) }
 }
+
+export * as Profiles from "./hermes-profiles"

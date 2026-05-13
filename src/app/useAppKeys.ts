@@ -17,6 +17,7 @@ export function redraw(renderer: {
 }
 import { useRef, useEffect, type RefObject } from "react"
 import { editInEditor } from "../utils/editor"
+import { Selection } from "../utils/selection"
 import { useKeys, conflicts } from "../keys"
 import { print as chordPrint } from "../keys/chord"
 import type { ComposerHandle } from "../components/chat/Composer"
@@ -56,6 +57,7 @@ type Opts = {
   onDetachLast: () => boolean
   onNotice: (text: string) => void
   onToggleSidebar: () => void
+  onStash: () => void
 }
 
 export function useAppKeys(o: Opts) {
@@ -88,11 +90,25 @@ export function useAppKeys(o: Opts) {
   useKeyboard((key) => {
     const c = o.composer.current
 
+    // An active text selection pre-empts every shell binding: Esc
+    // clears it (not the dialog, not the interrupt counter), Ctrl+C
+    // copies it (not input.clear/app.exit), any other key clears it
+    // unless the selection belongs to the focused textarea.
+    if (Selection.key(renderer, key)) { key.stopPropagation(); return }
+
     // oc parity: input_clear (ctrl+c) with non-empty buffer clears and
-    // consumes; app_exit (also ctrl+c) fires on the next press. Selection
-    // copy is NOT on ctrl+c — drag-select already copies on mouseup.
+    // consumes; app_exit (also ctrl+c) fires on the next press. A draft
+    // of ≥20 chars is pushed to prompt history first so Ctrl+C doesn't
+    // silently eat a half-written message — ↑ brings it back.
     if (keys.match("input.clear", key) && c && !c.isEmpty()) {
+      const v = c.value().trim()
+      if (v.length >= 20) c.remember(v)
       c.set("")
+      key.stopPropagation()
+      return
+    }
+    if (keys.match("input.stash", key)) {
+      o.onStash()
       key.stopPropagation()
       return
     }
@@ -133,6 +149,15 @@ export function useAppKeys(o: Opts) {
     // handles Esc-to-close; tabs/composer/interrupt all sit behind the
     // overlay and shouldn't move.
     if (o.dialogOpen()) return
+
+    // Shell mode: Esc exits (pre-empts the interrupt double-tap);
+    // backspace at offset 0 also exits.
+    if (c?.mode() === "shell") {
+      if (key.name === "escape") { c.setMode("normal"); key.stopPropagation(); return }
+      if (key.name === "backspace" && !key.ctrl && !key.meta && c.caret() === 0) {
+        c.setMode("normal"); key.stopPropagation(); return
+      }
+    }
 
     // Interrupt the turn so the drain effect fires the queued head now.
     // Only meaningful mid-stream with something queued; otherwise fall
@@ -276,6 +301,17 @@ export function useAppKeys(o: Opts) {
     // swallowing the key would starve dialog/select renderables that share
     // the global key bus while focusRegion is still "input".
     if (o.focusRegion === "input" && !o.streaming) {
+      // `!` at the very start of the buffer enters shell mode. Only in
+      // normal mode with no popover; the key is consumed so the `!`
+      // literal never lands in the textarea. Kitty may report base
+      // `1` + shift when the terminal doesn't send the shifted codepoint.
+      if ((key.name === "!" || (key.name === "1" && key.shift))
+          && !key.ctrl && !key.meta && key.eventType !== "release"
+          && c && c.mode() === "normal" && !c.popOpen() && c.caret() === 0) {
+        c.setMode("shell")
+        key.stopPropagation()
+        return
+      }
       if (key.name === "up") return void c?.historyUp()
       if (key.name === "down") return void c?.historyDown()
       // Backspace on an empty buffer with attachments → detach the last.

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, memo } from "react";
 import { useTerminalDimensions } from "@opentui/react";
-import { useGateway } from "../app/gateway";
+import { useGateway } from "../context/gateway";
 import { useListKeys, useFollow } from "../keys";
 import { useTheme } from "../theme";
 import { useDialog } from "../ui/dialog";
@@ -12,9 +12,7 @@ import { KVBlock } from "../ui/kv";
 import { Col, Hdr, VBAR } from "../ui/table";
 import { openTextPrompt } from "../dialogs/text-prompt";
 import { ago, until } from "../ui/fmt";
-import { readCronOutput, type CronOutput } from "../utils/hermes-home";
-
-// ─── Types ───────────────────────────────────────────────────────────
+import { readCronOutput, type CronOutput } from "../service/hermes-home";
 
 type CronJob = {
   id: string
@@ -83,8 +81,6 @@ const sec = (iso?: string) => iso ? new Date(iso).getTime() / 1000 : null
 const last = (iso?: string) => { const t = sec(iso); return t ? ago(t) : "—" }
 const next = (iso?: string) => { const t = sec(iso); return t ? until(t) : "—" }
 
-// ─── Job Row ─────────────────────────────────────────────────────────
-
 const JobRow = memo((props: {
   id: string;
   job: CronJob;
@@ -116,8 +112,6 @@ const JobRow = memo((props: {
     </box>
   );
 });
-
-// ─── Detail Panel ────────────────────────────────────────────────────
 
 const DetailPanel = memo((props: { job: CronJob; reloadKey: number }) => {
   const theme = useTheme().theme;
@@ -170,8 +164,6 @@ const DetailPanel = memo((props: { job: CronJob; reloadKey: number }) => {
   );
 });
 
-// ─── Main Component ──────────────────────────────────────────────────
-
 export const Cron = memo((props: { focused?: boolean }) => {
   const theme = useTheme().theme;
   const gw = useGateway();
@@ -197,8 +189,6 @@ export const Cron = memo((props: { focused?: boolean }) => {
   }, [gw]);
 
   useEffect(() => { load(); }, [load]);
-
-  // ── Actions (stable via live ref) ─────────────────────────────────
 
   const create = useCallback(async () => {
     const schedule = await openTextPrompt(dialog, {

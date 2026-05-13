@@ -1,8 +1,8 @@
 import { describe, test, expect, beforeEach, afterAll } from "bun:test"
 import { parseLaunch, type Launch } from "../src/app/launch"
 import { openStateDb } from "./fixtures/state-db"
-import { resetDb, lastReal, byId } from "../src/utils/sessions-db"
-import * as preferences from "../src/utils/preferences"
+import { resetDb, lastReal, byId } from "../src/service/sessions-db"
+import * as preferences from "../src/context/preferences"
 import { useSession, normalize } from "../src/app/useSession"
 import { MockGateway, mountNode } from "./harness"
 

@@ -17,10 +17,10 @@ import { useKeyboard } from "@opentui/react"
 
 import type { Message } from "../types/message"
 import { text as msgText } from "../types/message"
-import type { ToolInfo, HermesConfig } from "../utils/hermes-home"
-import type { SessionInfo } from "../utils/gateway-types"
+import type { ToolInfo, HermesConfig } from "../service/hermes-home"
+import type { SessionInfo } from "../context/wire"
 import { useHome, home } from "../home"
-import { useGateway } from "../app/gateway"
+import { useGateway } from "../context/gateway"
 import { useKeys, handleListKey } from "../keys"
 import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
@@ -34,15 +34,13 @@ import {
   classifyTools,
   toolTokens,
   type Segment,
-} from "../utils/context-segments"
+} from "../service/context-segments"
 import { FileLink } from "../components/ui/FileLink"
 import { useTheme, type Theme } from "../theme"
 import { TabShell } from "../ui/shell"
 import { HintBar } from "../ui/hint"
 import { categorical } from "../utils/categorical"
 import type { RGBA } from "@opentui/core"
-
-// ─── Types ───────────────────────────────────────────────────────────
 
 type Props = {
   description?: string
@@ -54,15 +52,11 @@ type Props = {
 
 type Wire = { input: number; output: number; total: number; calls: number }
 
-// ─── Constants ───────────────────────────────────────────────────────
-
 // Conservative fallback when gateway hasn't surfaced info.context_max
 // yet (fresh session, pre-session.info). Real value comes from
 // SessionInfo.context_max on the wire.
 const DEFAULT_CTX = 128_000
 const COLS = 16
-
-// ─── Colors ──────────────────────────────────────────────────────────
 
 // Slot assignment for the categorical ramp. Order matters only in that it
 // fixes each id to a stable hue family across themes; `free` is not a slot
@@ -100,8 +94,6 @@ export function clr(id: string, theme: Theme): RGBA {
   return ramp(theme)[SLOT[id] ?? SLOT.other]
 }
 
-// ─── Utilities ───────────────────────────────────────────────────────
-
 const fmt = (n: number) => {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 10_000) return `${Math.round(n / 1000)}k`
@@ -115,8 +107,6 @@ const bar = (pct: number, w = 20) => {
   const f = Math.round((Math.max(0, Math.min(100, pct)) / 100) * w)
   return `[${"█".repeat(f)}${"░".repeat(Math.max(0, w - f))}]`
 }
-
-// ─── Detail Panels ──────────────────────────────────────────────────
 
 /** Generic section detail — renders the raw document body as markdown. */
 const SectionPanel = memo(({ seg, theme }: { seg: Segment; theme: Theme }) => {
@@ -294,8 +284,6 @@ const FreePanel = memo(({ seg, theme, ctxLen, comp, onEditThreshold }: {
 // Stable empty default so memo comparison and downstream useEffect
 // deps don't see a fresh [] reference on every render.
 const NO_MESSAGES: readonly Message[] = Object.freeze([])
-
-// ─── Main Component ──────────────────────────────────────────────────
 
 export const Context = memo(({ messages = NO_MESSAGES as Message[], info, focused }: Props) => {
   const config = useHome("config")

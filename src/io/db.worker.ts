@@ -4,7 +4,7 @@
 // ignore env writes entirely), so the parent passes its resolved
 // HERMES_HOME per request and we rebind the reader path explicitly.
 
-import { setHome } from "../utils/sessions-db"
+import { setHome } from "../service/sessions-db"
 import { FNS, type Fn } from "./fns"
 
 type Req = { id: number; home: string; fn: Fn; args: unknown[] }

@@ -5,7 +5,7 @@ import { EventEmitter } from "events"
 import { homedir } from "os"
 import { resolve, delimiter } from "path"
 import { existsSync } from "fs"
-import type { GatewayEvent } from "./gateway-types"
+import type { GatewayEvent } from "./wire"
 
 const LOG_MAX = 200
 const LOG_PREVIEW = 240
@@ -26,19 +26,26 @@ type Pending = {
   reject: (e: Error) => void
 }
 
-function python(root: string): string {
+export function python(root: string, platform: NodeJS.Platform = process.platform): string {
   const env = process.env.HERMES_PYTHON?.trim()
   if (env) return env
 
   const venv = process.env.VIRTUAL_ENV?.trim()
-  const paths = [
-    venv && resolve(venv, "bin/python"),
-    resolve(root, "venv/bin/python"),
-    resolve(root, "venv/bin/python3"),
-    resolve(root, ".venv/bin/python"),
-    resolve(root, ".venv/bin/python3"),
-  ]
-  return paths.find(p => p && existsSync(p)) || "python3"
+  const paths = platform === "win32"
+    ? [
+        venv && resolve(venv, "Scripts", "python.exe"),
+        resolve(root, "venv", "Scripts", "python.exe"),
+        resolve(root, ".venv", "Scripts", "python.exe"),
+      ]
+    : [
+        venv && resolve(venv, "bin", "python"),
+        venv && resolve(venv, "bin", "python3"),
+        resolve(root, "venv", "bin", "python"),
+        resolve(root, "venv", "bin", "python3"),
+        resolve(root, ".venv", "bin", "python"),
+        resolve(root, ".venv", "bin", "python3"),
+      ]
+  return paths.find(p => p && existsSync(p)) || (platform === "win32" ? "python" : "python3")
 }
 
 function asEvent(v: unknown): GatewayEvent | null {
@@ -149,7 +156,7 @@ export class GatewayClient extends EventEmitter {
       this.push({ type: "gateway.start_timeout", payload: { cwd, python: bin } })
     }, STARTUP_MS)
 
-    const proc = Bun.spawn(["sh", "-c", `exec ${bin} -m tui_gateway.entry`], {
+    const proc = Bun.spawn([bin, "-u", "-m", "tui_gateway.entry"], {
       cwd,
       env,
       stdin: "pipe",

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { isDangerous } from "../src/utils/control"
+import { isDangerous } from "../src/app/control"
 import { TABS } from "../src/app/tabs"
 
 const idx = (name: string) => TABS.findIndex(t => t.name === name)

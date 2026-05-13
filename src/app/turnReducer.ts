@@ -4,7 +4,7 @@
 
 import type { Message, Part, TextPart, ToolPart, PromptPart, PromptReq, Usage } from "../types/message"
 import { mid, pid } from "../types/message"
-import type { SubagentPayload, TranscriptMessage } from "../utils/gateway-types"
+import type { SubagentPayload, TranscriptMessage } from "../context/wire"
 
 export type TurnState = {
   messages: Message[]
@@ -172,8 +172,6 @@ export function turnReducer(state: TurnState, a: Action): TurnState {
   }
 }
 
-// ── Constructors ────────────────────────────────────────────────────
-
 function userMessage(text: string): Message {
   return {
     id: mid(), role: "user",
@@ -220,8 +218,6 @@ export function transcriptToMessages(rows: TranscriptMessage[]): Message[] {
       timestamp: Date.now() / 1000,
     }))
 }
-
-// ── Internals ───────────────────────────────────────────────────────
 
 function assistant(parts: Part[]): Message {
   return { id: mid(), role: "assistant", parts, timestamp: Date.now() / 1000 }

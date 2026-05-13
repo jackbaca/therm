@@ -38,7 +38,7 @@ import { useState, useRef, useEffect, useMemo } from "react"
 import { useKeyboard } from "@opentui/react"
 import type { TextareaRenderable } from "@opentui/core"
 import { useTheme } from "../theme"
-import { useGateway } from "../app/gateway"
+import { useGateway } from "../context/gateway"
 import type { DialogContext } from "../ui/dialog"
 import { DialogSelect } from "../ui/dialog-select"
 import type { SelectOption } from "../ui/dialog-select"
@@ -305,8 +305,6 @@ const Form = (p: {
     if (field === "triage" && key.name === "space") return setTriage(t => !t)
     if (SELECTY.has(field) && key.name === "space") return openPicker()
   })
-
-  // ── Picker views ────────────────────────────────────────────────
   if (picker?.kind === "assignee") {
     const opts: SelectOption[] = [
       { title: "(unassigned)", value: "" },
@@ -390,8 +388,6 @@ const Form = (p: {
       </box>
     )
   }
-
-  // ── Form view ───────────────────────────────────────────────────
   const lbl = (f: Field, text: string) => (
     <box width={13} flexShrink={0}>
       <text fg={field === f ? theme.accent : theme.textMuted}>
