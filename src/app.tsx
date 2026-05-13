@@ -362,7 +362,19 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     const r = await session.compress()
     if (!r) return
     if (r.info) setInfo(r.info)
-    if (r.usage) setUsage(r.usage)
+    // Gateway returns r.usage via _get_usage(), but its context_used
+    // reads comp.last_prompt_tokens — set by the last *model turn*,
+    // not updated by compression. r.after_tokens IS the fresh
+    // estimate_request_tokens_rough() of the compacted transcript, so
+    // splice it over context_used so the gauge drops now instead of
+    // after the next turn (gh#20).
+    setUsage(u => {
+      const base = r.usage ?? u
+      const max = r.usage?.context_max ?? u?.context_max
+      if (typeof r.after_tokens !== "number" || typeof max !== "number") return base
+      return { ...(base ?? { input: 0, output: 0, total: 0 }),
+               context_used: r.after_tokens, context_max: max }
+    })
     if (Array.isArray(r.messages)) {
       dispatch({ kind: "load", messages: transcriptToMessages(r.messages) })
     }
