@@ -48,6 +48,7 @@ export const DEFAULTS = {
   "queue.flush":       def("<leader>u",            "Interrupt and send queued now",      "global"), // ☨
   "session.interrupt": def("escape",               "Interrupt (double-tap while streaming)", "global"),
   "session.new":       def("<leader>n",            "New session",                        "global"),
+  "session.redo":      def("<leader>r",            "Redo last undo",                     "global"),
   "session.compress":  def("<leader>c",            "Compress context",                   "global"),
   "input.stash":       def("<leader>p",            "Stash prompt draft",                 "global"),
   "session.timeline":  def("<leader>g",            "Session timeline",                   "global"),

@@ -30,6 +30,11 @@ export type ComposerHandle = {
   lines: () => number
   /** True iff the buffer is empty (no text, no whitespace-only). */
   isEmpty: () => boolean
+  /** Composer mode — used by useAppKeys for Esc/backspace-@0 exit. */
+  mode: () => "normal" | "shell"
+  setMode: (m: "normal" | "shell") => void
+  /** Textarea cursorOffset (caret-aware `!` at 0 → shell mode entry). */
+  caret: () => number
   popOpen: () => boolean
   popNav: (d: -1 | 1) => void
   popAccept: () => void
@@ -52,6 +57,9 @@ type Props = {
   cmds: ReadonlyArray<SlashCommand>
   onSend: (text: string) => void
   onSlash: (cmd: SlashCommand) => void
+  /** Shell-mode submit (`!` at cursor 0). Not a prompt turn — routed
+   *  to shell.exec and rendered as a transcript $ cmd / stdout pair. */
+  onShell?: (command: string) => void
   onAttach?: (r: ImageAttachResponse) => void
   onEnqueue?: (text: string) => void
   onDequeue?: (i: number) => void
@@ -78,6 +86,11 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
   // this drives React-side derivations (popover matching, row count, hints).
   const [input, setInput] = useState("")
   const [caret, setCaret] = useState(0)
+  // `!` at cursor 0 (empty or line start) flips to shell mode; submit
+  // routes to onShell, Esc/backspace@0 return to normal. Slash/@ and
+  // history are disabled in shell mode (oc: computePromptTraits).
+  const [mode, setMode] = useState<"normal" | "shell">("normal")
+  const modeRef = useRef(mode); modeRef.current = mode
 
   // Slash popover keys off the first line only — the grammar is a
   // single-line prefix and a newline is a hard boundary. @-ref is
@@ -88,8 +101,8 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     return i < 0 ? input : input.slice(0, i)
   }, [input])
 
-  const pop = useSlashPopover(head, props.cmds)
-  const at = useAtRefPopover(input, caret)
+  const pop = useSlashPopover(mode === "normal" ? head : "", props.cmds)
+  const at = useAtRefPopover(mode === "normal" ? input : "", caret)
 
   const write = useCallback((v: string) => {
     ta.current?.setText(v)
@@ -190,6 +203,15 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
       if (c) select(c)
       return
     }
+    if (modeRef.current === "shell") {
+      const text = live.current.input.trim()
+      if (!text) return
+      hist.push(text)
+      write("")
+      setMode("normal")
+      live.current.props.onShell?.(text)
+      return
+    }
     const text = live.current.input.trim()
     if (live.current.props.streaming) {
       if (!text || !live.current.props.ready) return
@@ -218,6 +240,9 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     remember: hist.push,
     lines: () => (ta.current?.lineCount ?? 1),
     isEmpty: () => live.current.input.trim().length === 0,
+    mode: () => modeRef.current,
+    setMode,
+    caret: () => ta.current?.cursorOffset ?? 0,
     popOpen: () => live.current.pop.open || live.current.at.open,
     popNav: (d) => {
       const a = live.current.at
@@ -246,7 +271,7 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     // scrolls past maxHeight.
     historyUp: () => {
       const t = ta.current
-      if (!t) return false
+      if (!t || modeRef.current === "shell") return false
       const buf = live.current.input
       if (t.cursorOffset > 0 && buf.lastIndexOf("\n", t.cursorOffset - 1) >= 0) return false
       if (buf.includes("\n") && t.cursorOffset !== 0) { t.cursorOffset = 0; return true }
@@ -255,7 +280,7 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     },
     historyDown: () => {
       const t = ta.current
-      if (!t) return false
+      if (!t || modeRef.current === "shell") return false
       const buf = live.current.input
       if (buf.indexOf("\n", t.cursorOffset) >= 0) return false
       if (buf.includes("\n") && t.cursorOffset !== buf.length) { t.cursorOffset = buf.length; return true }
@@ -339,11 +364,12 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
       <box
         border
         borderStyle="single"
-        borderColor={props.focused ? theme.borderActive : theme.border}
+        borderColor={mode === "shell" ? theme.primary
+          : props.focused ? theme.borderActive : theme.border}
         flexDirection="row"
         position="relative"
       >
-        <box width={1}><text fg={theme.primary}>{">"}</text></box>
+        <box width={1}><text fg={theme.primary}>{mode === "shell" ? "$" : ">"}</text></box>
         <box width={1} />
         <textarea
           ref={ta}
@@ -366,7 +392,7 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
           wrapMode="word"
           minHeight={1}
           maxHeight={MAX_ROWS}
-          placeholder={props.streaming ? "Type to queue... (Enter queues, click chip to edit)" : "Message Hermes... (/ for commands, Shift+Enter for newline)"}
+          placeholder={mode === "shell" ? "Run a shell command (30s cap, cwd) — esc or ⌫ to exit" : props.streaming ? "Type to queue... (Enter queues, click chip to edit)" : "Message Hermes... (/ for commands, Shift+Enter for newline)"}
           focused={props.focused}
           textColor={theme.text}
           focusedTextColor={theme.text}
@@ -386,8 +412,10 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
       <box height={1} flexDirection="row" paddingX={1}>
         <text>
           <span fg={dot}>● </span>
-          <span fg={theme.textMuted}>{label}</span>
-          {props.streaming && props.escHint
+          <span fg={theme.textMuted}>{mode === "shell" ? "Shell" : label}</span>
+          {mode === "shell"
+            ? <span fg={theme.textMuted}>  esc exit shell mode</span>
+            : props.streaming && props.escHint
             ? <span fg={theme.warning}>  esc again to interrupt</span>
             : props.streaming
             ? <span fg={theme.textMuted}>  esc×2 interrupt</span>

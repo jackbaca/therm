@@ -150,6 +150,15 @@ export function useAppKeys(o: Opts) {
     // overlay and shouldn't move.
     if (o.dialogOpen()) return
 
+    // Shell mode: Esc exits (pre-empts the interrupt double-tap);
+    // backspace at offset 0 also exits (oc parity).
+    if (c?.mode() === "shell") {
+      if (key.name === "escape") { c.setMode("normal"); key.stopPropagation(); return }
+      if (key.name === "backspace" && !key.ctrl && !key.meta && c.caret() === 0) {
+        c.setMode("normal"); key.stopPropagation(); return
+      }
+    }
+
     // Interrupt the turn so the drain effect fires the queued head now.
     // Only meaningful mid-stream with something queued; otherwise fall
     // through (leader was already consumed, so no stray "u" reaches the
@@ -292,6 +301,18 @@ export function useAppKeys(o: Opts) {
     // swallowing the key would starve dialog/select renderables that share
     // the global key bus while focusRegion is still "input".
     if (o.focusRegion === "input" && !o.streaming) {
+      // `!` at the very start of the buffer enters shell mode. Only in
+      // normal mode with no popover; the key is consumed so the `!`
+      // literal never lands in the textarea (oc: component/prompt
+      // enabled = cursorOffset 0). Kitty may report base `1` + shift
+      // when the terminal doesn't send the shifted codepoint.
+      if ((key.name === "!" || (key.name === "1" && key.shift))
+          && !key.ctrl && !key.meta && key.eventType !== "release"
+          && c && c.mode() === "normal" && !c.popOpen() && c.caret() === 0) {
+        c.setMode("shell")
+        key.stopPropagation()
+        return
+      }
       if (key.name === "up") return void c?.historyUp()
       if (key.name === "down") return void c?.historyDown()
       // Backspace on an empty buffer with attachments → detach the last.

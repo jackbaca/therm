@@ -1,0 +1,519 @@
+// Slash dispatch + command-palette registration. Pulled out of AppInner
+// so the ~40 case handlers and their imports don't weigh on app.tsx.
+//
+// `run` reads every per-render value through `ctx.current`, so it is
+// identity-stable (empty deps) and can be passed as `<Composer onSlash>`
+// without breaking the memo firewall. This replaces the previous
+// 20-dep useCallback whose identity churned on every session.info.
+
+import React from "react"
+import { useCallback, useEffect, useRef, type RefObject } from "react"
+import { useRenderer } from "@opentui/react"
+import { useGateway } from "./gateway"
+import { useDialog } from "../ui/dialog"
+import { useToast } from "../ui/toast"
+import { useCommand } from "../ui/command"
+import { useTheme } from "../theme"
+import { DialogSelect } from "../ui/dialog-select"
+import { trunc, ago } from "../ui/fmt"
+import { HelpDialog } from "../dialogs/help"
+import { openKeys } from "../dialogs/keys"
+import { openLogs } from "../dialogs/logs"
+import { openThemePicker } from "../dialogs/theme-picker"
+import { openModelPicker } from "../dialogs/model-picker"
+import { openEikonPicker } from "../dialogs/eikon-picker"
+import { openTextPrompt } from "../dialogs/text-prompt"
+import { openConfirm } from "../dialogs/confirm"
+import { openRollback } from "../dialogs/rollback"
+import { openHistory } from "../dialogs/history"
+import { openStatus, openUsage, openProfile } from "../dialogs/info"
+import { openChafa } from "../dialogs/chafa"
+import { SKINS, type SkinState } from "./skin"
+import { copy as clipCopy } from "../utils/clipboard"
+import * as preferences from "../utils/preferences"
+import { redraw } from "./useAppKeys"
+import { quit } from "./exit"
+import { Stash } from "./stash"
+import { useHome, home } from "../home"
+import { TAB_SLASH } from "./tabs"
+import { transcriptToMessages, type Action, type TurnState } from "./turnReducer"
+import type { SlashCommand } from "../commands/slash"
+import type { ComposerHandle } from "../components/chat/Composer"
+import type { SessionInfo, TranscriptMessage, ImageAttachResponse } from "../utils/gateway-types"
+import type { Message, Usage } from "../types/message"
+import { text as msgText } from "../types/message"
+import type { useSession } from "./useSession"
+
+export type SlashCtx = {
+  dispatch: React.Dispatch<Action>
+  session: ReturnType<typeof useSession>
+  turnRef: RefObject<TurnState>
+  queueRef: RefObject<string[]>
+  sendRef: RefObject<(raw: string) => void>
+  composer: RefObject<ComposerHandle | null>
+  summoned: RefObject<boolean>
+  /** Tails popped by /undo (LIFO). /redo replays the head user
+   *  message's text; any other send clears it. Client-only —
+   *  gateway session.undo hard-deletes with no unrevert. */
+  undone: RefObject<Message[][]>
+
+  ready: boolean
+  info: SessionInfo | null
+  sid: string
+  title: string
+  skin: SkinState
+
+  setQueue: React.Dispatch<React.SetStateAction<string[]>>
+  setFocusRegion: (r: "input" | "content") => void
+  setSplash: (v: boolean) => void
+  setAttachments: React.Dispatch<React.SetStateAction<ImageAttachResponse[]>>
+  setInfo: (i: SessionInfo) => void
+  setUsage: (u: Usage | undefined) => void
+  setTitle: (t: string) => void
+
+  newSession: () => Promise<void>
+  switchSession: (id: string) => Promise<void>
+  rewind: (m: Message) => Promise<void>
+  goTo: (tab: number, sub: number) => void
+  attachClipboard: () => void
+}
+
+export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void {
+  const gw = useGateway()
+  const dialog = useDialog()
+  const toast = useToast()
+  const themeCtx = useTheme()
+  const cmd = useCommand()
+  const renderer = useRenderer()
+  const cfg = useHome("config")
+
+  const ctx = useRef(c); ctx.current = c
+  const gate = useRef(cfg); gate.current = cfg
+
+  // `/clear`, `/new`, `/undo` discard conversation state. Mirrors
+  // upstream's `approvals.destructive_slash_confirm` config gate
+  // (b9c001116) — upstream's gateway-side check never fires for herm
+  // because these commands short-circuit in `run` below (local
+  // intercept, never reaches gateway). `HERMES_TUI_NO_CONFIRM` is the
+  // kill switch. Arg `now|once|approve|yes|always` skips the dialog;
+  // `always` also flips the config key off, same shape as /reload-mcp.
+  const destructive = useCallback((
+    arg: string,
+    opts: { title: string; body: string; yes: string },
+    action: () => void,
+  ) => {
+    const a = arg.trim().toLowerCase()
+    const skip = a === "now" || a === "once" || a === "approve" || a === "yes" || a === "always"
+    const on = gate.current?.approvals?.destructive_slash_confirm ?? true
+    const bypass = !on || process.env.HERMES_TUI_NO_CONFIRM === "1"
+    const persist = a === "always"
+    const fire = () => {
+      if (persist) {
+        void import("../config/lane").then(({ writeConfig }) =>
+          writeConfig(gw, [{ key: "approvals.destructive_slash_confirm", to: false }])
+            .then(r => {
+              if (r.failed.length) {
+                toast.show({ variant: "warning", message: `couldn't persist: ${r.failed[0].err}` })
+                return
+              }
+              home.invalidate("config")
+              toast.show({ variant: "success", message: `${opts.yes} · future runs silent` })
+            })
+            .catch((e: Error) => toast.show({ variant: "error", message: e.message })))
+      }
+      action()
+    }
+    if (skip || bypass) return fire()
+    void openConfirm(dialog, { title: opts.title, body: opts.body, yes: opts.yes, danger: true })
+      .then(ok => { if (ok) fire() })
+  }, [gw, dialog, toast])
+
+  const pickEikon = useCallback(() =>
+    openEikonPicker(dialog, (p) => preferences.set("eikonPath", p)), [dialog])
+
+  const applyTitle = useCallback((t: string) => {
+    gw.request<{ title: string }>("session.title", { title: t })
+      .then(r => {
+        ctx.current.setTitle(r.title)
+        ctx.current.dispatch({ kind: "system", text: `Title: ${r.title}` })
+      })
+      .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
+  }, [gw, toast])
+
+  // Compress wrapper — re-hydrates transcript + session info from the
+  // RPC response. Gateway-side `agent._compress_context` ends the old
+  // SessionDB session and opens a continuation with a new session_id;
+  // without dispatching `messages` here, `turn.messages` stays stuck on
+  // the pre-compaction list until the user reopens the session, at
+  // which point the old messages vanish, reading as corruption.
+  // Mirrors Ink TUI (ui-tui/src/app/slash/commands/session.ts). Upstream
+  // also emits status.update{kind:"compressing"} events that already
+  // feed the status bar via gatewayEvents.ts.
+  const runCompress = useCallback(async () => {
+    toast.show({ variant: "info", message: "Compressing session…" })
+    const r = await ctx.current.session.compress()
+    if (!r) return
+    if (r.info) ctx.current.setInfo(r.info)
+    if (r.usage) ctx.current.setUsage(r.usage)
+    if (Array.isArray(r.messages)) {
+      ctx.current.dispatch({ kind: "load", messages: transcriptToMessages(r.messages) })
+    }
+    if (!r.summary) return
+    const s = r.summary
+    if (s.noop) {
+      toast.show({ variant: "info",
+        message: s.headline ?? `No changes · ~${r.before_tokens ?? 0} tokens` })
+      return
+    }
+    const lines = [s.headline, s.token_line, s.note].filter(Boolean).join("\n")
+    if (lines) ctx.current.dispatch({ kind: "system", text: lines })
+    toast.show({ variant: "success",
+      message: s.headline ?? `Compressed ${r.before_messages ?? 0}→${r.after_messages ?? 0} messages` })
+  }, [toast])
+
+  const run = useCallback((c: SlashCommand, arg = "") => {
+    const x = ctx.current
+    if (c.target === "local") {
+      switch (c.name) {
+        case "clear":
+          destructive(arg,
+            { title: "Clear session?", body: "Discards the in-memory transcript. Your session on disk is unchanged; reload to restore.", yes: "clear" },
+            () => x.dispatch({ kind: "reset" }))
+          return
+        case "new":
+          destructive(arg,
+            { title: "Start a new session?", body: "Ends the current session and starts a fresh one. The existing session remains saved and resumable.", yes: "new session" },
+            () => { void x.newSession() })
+          return
+        case "theme": openThemePicker(dialog, themeCtx); return
+        case "help": dialog.replace(<HelpDialog />); return
+        case "keys": openKeys(dialog); return
+        case "logs": openLogs(dialog); return
+        case "eikon": pickEikon(); return
+        case "title":
+          if (arg) { applyTitle(arg); return }
+          openTextPrompt(dialog, { title: "Session Title", initial: x.title })
+            .then(v => { if (v) applyTitle(v) })
+          return
+        case "rollback": openRollback(dialog, gw, toast); return
+        case "history": openHistory(dialog, gw); return
+        case "status": openStatus(dialog, x.info, x.sid); return
+        case "usage": openUsage(dialog, gw); return
+        case "profile": openProfile(dialog); return
+        case "chafa":
+          if (!arg.trim()) { toast.show({ variant: "info", message: "usage: /chafa <path>" }); return }
+          openChafa(dialog, arg.trim())
+          return
+        case "splash": x.summoned.current = true; x.setSplash(true); return
+        case "skin": {
+          const name = arg.trim()
+          if (!name) {
+            x.dispatch({ kind: "system",
+              text: `skin: ${x.skin.skin?.name ?? "—"}\n  ${SKINS.join("  ")}` })
+            return
+          }
+          if (!(SKINS as readonly string[]).includes(name)) {
+            toast.show({ variant: "error", message: `unknown skin: ${name}` })
+            return
+          }
+          // Gateway write emits skin.changed → setSkin → eikon effect
+          // re-resolves via bundledEikonPath(name). Clearing the pref
+          // lets that precedence take over; themeCtx.set is a no-op if
+          // no herm theme exists for this skin yet.
+          gw.request<{ value?: string; warning?: string }>("config.set",
+            { key: "skin", value: name })
+            .then(r => {
+              if (r.warning) toast.show({ variant: "warning", message: r.warning })
+              if (themeCtx.has(name)) themeCtx.set(name)
+              preferences.set("eikonPath", undefined)
+              x.dispatch({ kind: "system", text: `skin → ${name}` })
+            })
+            .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
+          return
+        }
+        case "resume":
+          if (arg) { void x.switchSession(arg); return }
+          x.goTo(TAB_SLASH.sessions.tab, TAB_SLASH.sessions.sub); return
+        case "branch":
+          x.session.branch(arg || undefined).then(id => id
+            ? void x.switchSession(id)
+            : toast.show({ variant: "error", message: "branch failed" }))
+          return
+        case "compress": void runCompress(); return
+        case "undo":
+          destructive(arg,
+            { title: "Undo last turn?", body: "Pops the last user + assistant pair from the transcript. /redo in this session to restore.", yes: "undo" },
+            () => {
+              // Capture the tail before the server pops it so /redo can
+              // replay. The snapshot is everything from the last user
+              // message onward (user + assistant[+tool] run).
+              const msgs = x.turnRef.current.messages
+              const at = msgs.map(m => m.role).lastIndexOf("user")
+              if (at >= 0) x.undone.current.push(msgs.slice(at))
+              x.session.undo().then(() =>
+                gw.request<{ messages: TranscriptMessage[] }>("session.history")
+                  .then(r => x.dispatch({ kind: "load", messages: transcriptToMessages(r.messages ?? []) }))
+                  .catch(() => {}))
+            })
+          return
+        case "redo": {
+          const tail = x.undone.current.pop()
+          const head = tail?.find(m => m.role === "user")
+          if (!head) { toast.show({ variant: "info", message: "nothing to redo" }); return }
+          x.sendRef.current(msgText(head))
+          return
+        }
+        case "retry": {
+          const last = [...x.turnRef.current.messages].reverse().find(m => m.role === "user")
+          if (!last) { toast.show({ variant: "info", message: "nothing to retry" }); return }
+          void x.rewind(last).then(() => x.sendRef.current(msgText(last)))
+          return
+        }
+        case "model":
+          if (!arg) { openModelPicker(dialog, gw); return }
+          gw.request<{ value?: string; warning?: string }>("config.set",
+            { key: "model", value: arg })
+            .then(r => {
+              if (r.warning) toast.show({ variant: "warning", message: r.warning })
+              x.dispatch({ kind: "system", text: `model → ${r.value ?? arg}` })
+            })
+            .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
+          return
+        case "quit": quit(renderer, x.sid, x.title, gw); return
+        case "queue":
+          if (!arg) { x.dispatch({ kind: "system", text: `${x.queueRef.current.length} queued` }); return }
+          x.setQueue(q => [...q, arg]); return
+        case "stash": {
+          const comp = x.composer.current
+          if (arg === "pop") {
+            const e = Stash.pop()
+            if (!e) return toast.show({ variant: "info", message: "stash empty" })
+            comp?.set(e.text); x.setFocusRegion("input"); return
+          }
+          if (arg === "list") {
+            const list = Stash.all()
+            if (list.length === 0) return toast.show({ variant: "info", message: "stash empty" })
+            dialog.replace(
+              <DialogSelect
+                title="Stashed prompts"
+                filterable={list.length > 6}
+                options={list.map(e => ({
+                  title: trunc(e.text.replace(/\n/g, " ⏎ "), 50),
+                  value: String(e.at),
+                  hint: ago(e.at),
+                }))}
+                onSelect={o => {
+                  const e = list.find(s => String(s.at) === o.value)
+                  if (e) { Stash.drop(e.at); comp?.set(e.text); x.setFocusRegion("input") }
+                  dialog.clear()
+                }}
+              />,
+            )
+            return
+          }
+          // Bare /stash with a non-empty buffer parks the text and
+          // clears the composer for a quick follow-up /cmd; with an
+          // arg, the arg itself is stashed.
+          const text = arg || comp?.value().trim() || ""
+          if (!text) return toast.show({ variant: "info", message: "nothing to stash — /stash list" })
+          const n = Stash.push(text)
+          if (!arg) comp?.set("")
+          toast.show({ variant: "info", message: `stashed (${n}) — /stash pop to restore` })
+          return
+        }
+        case "copy": {
+          const all = x.turnRef.current.messages.filter(m => m.role === "assistant")
+          const n = arg ? Math.min(Math.max(1, parseInt(arg, 10) || 0), all.length) : all.length
+          const m = all[n - 1]
+          if (!m) { toast.show({ variant: "info", message: "nothing to copy" }); return }
+          const body = msgText(m)
+          void clipCopy(body)
+          toast.show({ variant: "success", message: `copied ${body.length} chars` })
+          return
+        }
+        case "paste": x.attachClipboard(); return
+        case "image":
+          if (!arg) { toast.show({ variant: "info", message: "usage: /image <path>" }); return }
+          gw.request<ImageAttachResponse>("image.attach", { path: arg })
+            .then(r => r.attached
+              ? x.setAttachments(a => [...a, r])
+              : toast.show({ variant: "warning", message: r.message ?? "attach failed" }))
+            .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
+          return
+        case "background":
+          if (!arg) { toast.show({ variant: "info", message: "usage: /background <prompt>" }); return }
+          gw.request<{ task_id?: string }>("prompt.background", { text: arg })
+            .then(r => toast.show(r.task_id
+              ? { variant: "success", message: `background ${r.task_id} started` }
+              : { variant: "error", message: "background start failed" }))
+            .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
+          return
+        case "voice":
+          gw.request<{ enabled?: boolean; tts?: boolean }>("voice.toggle",
+            { action: (arg || "status").toLowerCase() })
+            .then(r => x.dispatch({ kind: "system",
+              text: `voice ${r.enabled ? "on" : "off"}${r.tts ? " · tts on" : ""}` }))
+            .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
+          return
+        case "mouse": {
+          const want = arg === "on" ? true : arg === "off" ? false : !renderer.useMouse
+          renderer.useMouse = want
+          preferences.set("mouse", want)
+          toast.show({ variant: "info", message: `mouse ${want ? "on" : "off"}` })
+          return
+        }
+        case "redraw": redraw(renderer); return
+        case "compact":
+        case "setup":
+          x.dispatch({ kind: "system",
+            text: `/${c.name} is an Ink-TUI command and has no effect in herm` })
+          return
+        case "steer": {
+          const fire = (text: string) =>
+            gw.request<{ status?: string; text?: string }>("session.steer", { text })
+              .then(r => toast.show(r.status === "queued"
+                ? { variant: "success", message: "Queued — lands on next tool result" }
+                : { variant: "info", message: "No turn running; send as a normal message" }))
+              .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
+          if (arg) { void fire(arg); return }
+          openTextPrompt(dialog, { title: "Steer", label: "Note to inject on next tool result" })
+            .then(text => { if (text) void fire(text) })
+          return
+        }
+        case "reload-mcp": {
+          // Reloading MCP invalidates prompt cache (tool schemas are baked into
+          // the system prompt), so the next turn re-sends full input tokens.
+          // `now`/`always` args skip our dialog for muscle-memory users.
+          // Gateway-side `status:confirm_required` is still handled for
+          // defense-in-depth — in practice we pre-empt it by passing confirm.
+          const a = arg.trim().toLowerCase()
+          const skip = a === "now" || a === "once" || a === "approve" || a === "yes" || a === "always"
+          const fire = (always: boolean) =>
+            gw.request<{ status?: string; message?: string }>("reload.mcp", { confirm: true, always })
+              .then(r => r.status === "confirm_required"
+                ? toast.show({ variant: "warning", message: r.message ?? "reload requires confirmation" })
+                : toast.show({ variant: "success", message: always
+                    ? "MCP servers reloaded · future /reload-mcp runs silently"
+                    : "MCP servers reloaded" }))
+              .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
+          if (skip) { void fire(a === "always"); return }
+          void openConfirm(dialog, {
+            title: "Reload MCP servers?",
+            body: "Rebuilds the MCP tool set. Invalidates the prompt cache, so the next message re-sends full input tokens.",
+            yes: "reload", danger: true,
+          }).then(ok => { if (ok) void fire(false) })
+          return
+        }
+        case "reload":
+          gw.request<{ updated?: number }>("reload.env", {})
+            .then(r => {
+              const n = Number(r.updated ?? 0)
+              toast.show({ variant: "success",
+                message: `Reloaded .env (${n} var${n === 1 ? "" : "s"} updated) · /new to apply` })
+            })
+            .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
+          return
+        case "reload-skills":
+          gw.request<{ output: string; result: { added?: unknown[]; removed?: unknown[]; total?: number } }>(
+            "skills.reload", {})
+            .then(r => {
+              x.dispatch({ kind: "system", text: r.output })
+              const n = Number(r.result?.total ?? 0)
+              toast.show({ variant: "success", message: `Skills reloaded (${n} available)` })
+            })
+            .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
+          return
+        case "save":
+          gw.request<{ file: string }>("session.save")
+            .then(r => toast.show({ variant: "success", message: `Saved → ${r.file}` }))
+            .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
+          return
+      }
+    }
+    if (c.target !== "gateway" || !x.ready) return
+    const jump = TAB_SLASH[c.name]
+    if (jump !== undefined && !arg) { x.goTo(jump.tab, jump.sub); return }
+    const full = `/${c.name}${arg ? " " + arg : ""}`
+    // slash.exec owns the persistent HermesCLI subprocess; mid-stream it
+    // races the agent turn. Enqueue as `/cmd arg` and let the drain path
+    // (send → resolveSlash → slash) dispatch once idle.
+    if (x.turnRef.current.streaming) { x.setQueue(q => [...q, full]); return }
+    // slash.exec runs in a persistent HermesCLI subprocess; commands that
+    // it rejects (skills, quick_commands, plugins, pending-input cmds)
+    // fall through to command.dispatch, which returns a typed payload.
+    // Upstream Ink does the same (see createSlashHandler.ts).
+    x.dispatch({ kind: "user", text: full })
+    gw.request<{ output?: string; warning?: string }>("slash.exec", { command: full })
+      .then(res => {
+        if (res?.warning) x.dispatch({ kind: "system", text: `⚠ ${res.warning}` })
+        if (res?.output) x.dispatch({ kind: "system", text: res.output })
+      })
+      .catch(() => {
+        type Dispatch = {
+          type?: string; output?: string; target?: string
+          message?: string; notice?: string; name?: string
+        }
+        gw.request<Dispatch>("command.dispatch", { name: c.name, arg })
+          .then(d => {
+            // `notice` is an optional system line attached to a `send`
+            // payload — e.g. /goal set returns {type:send, notice:"⊙
+            // Goal set (…)", message: goal} so the user sees the set
+            // confirmation before the kickoff prompt fires.
+            if (d.notice) x.dispatch({ kind: "system", text: d.notice })
+            if (d.type === "exec" || d.type === "plugin")
+              return x.dispatch({ kind: "system", text: d.output || "(no output)" })
+            if (d.type === "alias" && d.target)
+              return void x.sendRef.current(`/${d.target}${arg ? " " + arg : ""}`)
+            if ((d.type === "skill" || d.type === "send") && d.message) {
+              if (d.type === "skill")
+                x.dispatch({ kind: "system", text: `⚡ loading skill: ${d.name ?? c.name}` })
+              return void x.sendRef.current(d.message)
+            }
+            x.dispatch({ kind: "system", text: `/${c.name}: unknown` })
+          })
+          .catch((e: Error) => x.dispatch({ kind: "system", text: `error: ${e.message}` }))
+      })
+  }, [gw, dialog, toast, themeCtx, renderer, destructive, pickEikon, applyTitle, runCompress])
+
+  // Palette entries. Closures read through `ctx.current` so the effect
+  // runs once (cmd is a stable context value) instead of re-registering
+  // on every session.info tick.
+  useEffect(() => cmd.register([
+    { title: "Help", value: "help", action: "help.open", category: "General",
+      onSelect: () => dialog.replace(<HelpDialog />) },
+    { title: "Keybindings", value: "keys", description: "View & rebind shortcuts", category: "General",
+      onSelect: () => openKeys(dialog) },
+    { title: "Gateway Logs", value: "logs", description: "Show gateway stderr", category: "General",
+      onSelect: () => openLogs(dialog) },
+    { title: "Switch Theme", value: "theme", action: "theme.pick", category: "General",
+      onSelect: () => openThemePicker(dialog, themeCtx) },
+    { title: "Switch Model", value: "model", action: "model.pick", category: "General",
+      onSelect: () => openModelPicker(dialog, gw) },
+    { title: "Pick Avatar", value: "eikon", description: "Choose sidebar .eikon avatar", category: "General",
+      onSelect: () => pickEikon() },
+    { title: "Rollback", value: "rollback", description: "Browse & restore checkpoints", category: "Session",
+      onSelect: () => openRollback(dialog, gw, toast) },
+    { title: "History", value: "history", action: "session.timeline", category: "Session",
+      onSelect: () => openHistory(dialog, gw) },
+    { title: "Status", value: "status", action: "status.open", category: "Info",
+      onSelect: () => openStatus(dialog, ctx.current.info, ctx.current.sid) },
+    { title: "Usage", value: "usage", description: "Tokens · context · cost", category: "Info",
+      onSelect: () => openUsage(dialog, gw) },
+    { title: "Profile", value: "profile", description: "Active profile details", category: "Info",
+      onSelect: () => openProfile(dialog) },
+    { title: "New Session", value: "new-session", action: "session.new", category: "Session",
+      onSelect: () => destructive("",
+        { title: "Start a new session?", body: "Ends the current session and starts a fresh one. The existing session remains saved and resumable.", yes: "new session" },
+        () => { void ctx.current.newSession() }) },
+    { title: "Compress Session", value: "compress", action: "session.compress", category: "Session",
+      onSelect: () => runCompress() },
+    { title: "Undo Last Turn", value: "undo", description: "Pop last user+assistant pair", category: "Session",
+      onSelect: () => run({ name: "undo", target: "local" } as SlashCommand) },
+    { title: "Redo", value: "redo", action: "session.redo", category: "Session",
+      onSelect: () => run({ name: "redo", target: "local" } as SlashCommand) },
+    { title: "Branch Session", value: "branch", description: "Fork the current conversation", category: "Session",
+      onSelect: () => ctx.current.session.branch() },
+  ]), [cmd, dialog, themeCtx, gw, toast, destructive, pickEikon, runCompress, run])
+
+  return run
+}
