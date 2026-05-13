@@ -50,6 +50,9 @@ interface TuiPreferences {
    *  cursor position or transient toggles. */
   kanban?: KanbanPrefs
   sessions?: SessionsPrefs
+  /** Opaque plugin storage. Per-plugin keys are namespaced at the api
+   *  layer (`${id}.${key}`); `enabled` holds the id→bool override map. */
+  plugin?: Record<string, unknown>
 }
 
 /** Persisted Sessions-tab state. */

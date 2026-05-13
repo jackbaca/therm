@@ -46,7 +46,7 @@ import { activeProfileName } from "./service/hermes-profiles"
 import { rehome } from "./home/rehome"
 import { makeGoalHook } from "./app/goalHook"
 import type { Launch } from "./app/launch"
-import { Gutter, tabs as pluginTabs } from "./plugins"
+import { PluginProvider, usePlugins } from "./plugins/runtime"
 
 type AppProps = { initialTheme?: string; gateway?: Gateway; launch?: Launch }
 
@@ -57,7 +57,9 @@ export const App = (props: AppProps) => (
         <KeysProvider>
           <DialogProvider>
             <CommandProvider>
-              <AppInner launch={props.launch ?? { mode: "new" }} />
+              <PluginProvider>
+                <AppInner launch={props.launch ?? { mode: "new" }} />
+              </PluginProvider>
             </CommandProvider>
           </DialogProvider>
         </KeysProvider>
@@ -73,6 +75,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const themeCtx = useTheme()
   const toast = useToast()
   const renderer = useRenderer()
+  const plugins = usePlugins()
   const session = useSession()
   const dims = useTerminalDimensions()
   const goalHook = useMemo(() => makeGoalHook(dialog, toast), [dialog, toast])
@@ -518,15 +521,20 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     setFocusRegion("input")
   }, [])
 
-  // Plugin tabs append after the built-in four. Registry is a
-  // module-singleton populated at import time, so this is effectively
-  // a constant; memo to keep downstream memo children stable.
-  const extra = useMemo(() => pluginTabs(), [])
+  // Plugin routes append after the built-in four. `plugins.routes`
+  // rebuilds when a plugin registers or is (de)activated; built-in
+  // indices (CHAT_TAB…CONFIG_TAB) stay stable.
+  const extra = plugins.routes
   const all = useMemo(
-    () => [...TABS, ...extra.map(e => ({ name: e.tab.name, description: `Plugin: ${e.id}` }))],
+    () => [...TABS, ...extra.map(r => ({ name: r.name, description: r.description ?? "Plugin" }))],
     [extra],
   )
   const tabMax = all.length - 1
+  // Late-bind the plugin router to this shell's tab navigator so
+  // `api.route.navigate(name)` can drive `goTo`. `bind` is idempotent.
+  useEffect(() => {
+    plugins.bind(goTo, () => all[tab]?.name)
+  }, [plugins, goTo, all, tab])
   const subCount = SUB_TABS[tab]?.length ?? 0
   const cycleSub = useCallback((dir: -1 | 1) => {
     const labels = SUB_TABS[tab]
@@ -634,8 +642,8 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
                                              sub={subTabs[CONFIG_TAB] ?? 0}
                                              setSub={cfgSub} />
         default: {
-          const ext = extra[tab - TABS.length]
-          return ext ? ext.tab.component() : null
+          const r = extra[tab - TABS.length]
+          return r ? r.render() : null
         }
       }
     })()
@@ -700,7 +708,10 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
             </Profiler>
           ) : null}
         </box>
-        <Gutter sid={sid} tab={tab} streaming={turn.streaming} />
+        <box height={1} flexShrink={0} paddingX={1} overflow="hidden">
+          <plugins.Slot name="app_bottom" mode="single_winner"
+                        sid={sid} tab={tab} streaming={turn.streaming} />
+        </box>
       </box>
      </SkinProvider>
     </Profiler>
