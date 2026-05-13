@@ -1,8 +1,10 @@
 // Window onto the kanban board(s) under ~/.hermes/.
 //
 // Kanban is deliberately profile-agnostic (the board IS the
-// coordination primitive between profiles), so this reads the
-// HERMES_HOME-relative paths and shows every tenant's tasks.
+// coordination primitive between profiles). Paths anchor on the
+// shared Hermes root — NOT the active profile's HERMES_HOME — so
+// herm sees the same boards `hermes kanban` does even when running
+// under ~/.hermes/profiles/<name>. See kanbanRoot() below (gh#28).
 //
 // Upstream 5ec6baa40 introduced multi-project boards. Resolution
 // chain for the *default-active* board mirrors
@@ -193,13 +195,26 @@ export const sortDiags = (ds: Diag[]): Diag[] =>
 const DEFAULT = "default"
 const SLUG = /^[a-z0-9][a-z0-9_-]{0,63}$/
 
+/** Shared Hermes root for kanban paths — mirrors upstream
+ *  hermes_cli/kanban_db.py::kanban_home(). HERMES_KANBAN_HOME wins
+ *  when set; otherwise collapse …/profiles/<name> to the parent root
+ *  so the TUI reads the same boards the CLI does (gh#28). Exported
+ *  for tests. */
+export const kanbanRoot = (): string => {
+  const pin = (process.env.HERMES_KANBAN_HOME ?? "").trim()
+  if (pin) return pin.replace(/[\\/]+$/, "")
+  return hermesPath("").replace(/[\\/]+$/, "").replace(/[\\/]profiles[\\/][^\\/]+$/, "")
+}
+
+const kp = (rel: string) => `${kanbanRoot()}/${rel}`
+
 /** Active board slug per the CLI's resolution chain. Herm shows every
  *  board; this only picks which section is focused on mount. */
 const resolve = (): string => {
   const env = (process.env.HERMES_KANBAN_BOARD ?? "").trim().toLowerCase()
   if (SLUG.test(env)) return env
   try {
-    const txt = readFileSync(hermesPath("kanban/current"), "utf-8").trim().toLowerCase()
+    const txt = readFileSync(kp("kanban/current"), "utf-8").trim().toLowerCase()
     if (SLUG.test(txt)) return txt
   } catch {}
   return DEFAULT
@@ -218,10 +233,10 @@ export const currentBoard = () => slug
 
 /** default keeps legacy <root>/kanban.db; others live under boards/<slug>/. */
 const dbPath = (s: string) =>
-  hermesPath(s === DEFAULT ? "kanban.db" : `kanban/boards/${s}/kanban.db`)
+  kp(s === DEFAULT ? "kanban.db" : `kanban/boards/${s}/kanban.db`)
 
 const logsDir = (s: string) =>
-  hermesPath(s === DEFAULT ? "kanban/logs" : `kanban/boards/${s}/logs`)
+  kp(s === DEFAULT ? "kanban/logs" : `kanban/boards/${s}/logs`)
 
 const pair = (s: string): Handles => {
   const cached = handles.get(s)
@@ -271,7 +286,7 @@ export const resetKanban = () => {
 /** Enumerate boards on disk. 'default' always first; others sorted. */
 export function listBoards(): Board[] {
   const out = new Map<string, string>([[DEFAULT, "Default"]])
-  const dir = hermesPath("kanban/boards")
+  const dir = kp("kanban/boards")
   if (existsSync(dir))
     for (const e of readdirSync(dir, { withFileTypes: true })) {
       if (!e.isDirectory() || !SLUG.test(e.name)) continue
@@ -499,7 +514,7 @@ export function tailLogOf(s: string, id: string, bytes = 16_384): string | null 
  *  no longer exists; show it so the operator can reassign *away*). */
 export function assignees(s: string = slug): string[] {
   const seen = new Set<string>()
-  const dir = hermesPath("profiles")
+  const dir = kp("profiles")
   if (existsSync(dir))
     for (const e of readdirSync(dir, { withFileTypes: true }))
       if (e.isDirectory()) seen.add(e.name)
