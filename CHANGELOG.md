@@ -1,3 +1,23 @@
+# [1.5.0](https://github.com/liftaris/herm/compare/v1.4.0...v1.5.0) (2026-05-13)
+
+
+### Bug Fixes
+
+* **clipboard:** skip native safety net on OSC52-capable terminals ([2837592](https://github.com/liftaris/herm/commit/2837592be67573b6f59bf7331b2d42dfc6f5fa8e))
+* **gateway:** support Windows Python launch ([943ad34](https://github.com/liftaris/herm/commit/943ad3460ec08344b2b9a1c395abe726e7c3bdfd))
+* **kanban:** collapse profiles/<name> to shared Hermes root (t_a3be99c2) ([35230eb](https://github.com/liftaris/herm/commit/35230eb77119f776023ace8d810f807bfea6e312)), closes [gh#29](https://github.com/gh/issues/29)
+* **kanban:** drop readonly sqlite opens; reset handles after shell writes (t_f3075a04) ([642dc4b](https://github.com/liftaris/herm/commit/642dc4b9e266ff822832c9fad3d25a435c6e84b0)), closes [gh#29](https://github.com/gh/issues/29) [gh#28](https://github.com/gh/issues/28)
+* **sessions-tab:** apply activity-sort to gateway+disk merged list ([a790908](https://github.com/liftaris/herm/commit/a7909087f0eabbb0803c9daef41e402cc122c25f))
+* **sessions:** order /resume picker by last activity, not start time ([e9d1ce4](https://github.com/liftaris/herm/commit/e9d1ce4fb77e63864d0274760eff7ea2d124f4a0))
+* **sidebar:** refresh context gauge from after_tokens on /compress (t_6a261090) ([ebee865](https://github.com/liftaris/herm/commit/ebee865d2391f1e655db77dc4e2dd2e9919d82b1))
+
+
+### Features
+
+* **chat:** footer esc-hint + model, approval pattern_keys (t_cfbfd0c8) ([541132c](https://github.com/liftaris/herm/commit/541132c7837ea680b962114a1bd546737e9655cb))
+* **composer:** cursor-relative @, edge-row history, draft-save, /stash (t_cfbfd0c8) ([af507cc](https://github.com/liftaris/herm/commit/af507cc72732c8a5d25640aede8152ababdcf02b))
+* **sessions:** user-toggleable sort (active/started), persisted ([929d2d7](https://github.com/liftaris/herm/commit/929d2d7af7747dd0c9c5c260e6aa6e6b6a7a8489))
+
 # [1.4.0](https://github.com/liftaris/herm/compare/v1.3.0...v1.4.0) (2026-05-11)
 
 
