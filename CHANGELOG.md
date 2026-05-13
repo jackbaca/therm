@@ -1,3 +1,59 @@
+# [1.4.0](https://github.com/liftaris/herm/compare/v1.3.0...v1.4.0) (2026-05-11)
+
+
+### Bug Fixes
+
+* **new-profile:** Tab walks fields, Space toggles alias ([40f3bb1](https://github.com/liftaris/herm/commit/40f3bb15eedc9f023756f1af6ef0eea2b2ce1666))
+* **session:** re-hydrate on /compress; close outgoing sid on /new + switch ([9eb6c82](https://github.com/liftaris/herm/commit/9eb6c828b040613233e0b682e9831696b50cf8c1))
+* **sessions:** make resume discovery robust ([1350991](https://github.com/liftaris/herm/commit/13509916a4f4b9863f147334d16998a4920b782b))
+* **table:** gate Marquee text duplication on overflow ([d3ab576](https://github.com/liftaris/herm/commit/d3ab57659c228a5a5a6fc6c12b2eb1a94db4677a))
+
+
+### Features
+
+* **agents:** distribution badge + detail block ([479760d](https://github.com/liftaris/herm/commit/479760df8e46eab4c605eedc521acfb8a7baa73e))
+* **agents:** distribution Info + Update actions in profile menu ([28f3252](https://github.com/liftaris/herm/commit/28f3252a1f24d7a44c0858f950a43bca99ee0047))
+* **chat:** horizontal rule above non-first user messages ([3de8b22](https://github.com/liftaris/herm/commit/3de8b2261cf43f8bd7dcde2d9609e3addb99357b))
+* **config:** surface openrouter.min_coding_score in Config tab ([d00dc0c](https://github.com/liftaris/herm/commit/d00dc0c92f98220ad6426834e77ac7615d402ae9))
+* **curator:** archived-skills pane with 'a' keybind + restore ([1f08e4d](https://github.com/liftaris/herm/commit/1f08e4d24ddbc87e2ec9b32feae42cd55cc23cd5))
+* **goals:** parse checklist + decomposed, surface M/N in done toast ([bb5f0a2](https://github.com/liftaris/herm/commit/bb5f0a27a375c03e4514679cd37cc7d113cc452f))
+* **kanban:** specify action for triage tasks ([a6ba672](https://github.com/liftaris/herm/commit/a6ba672c6652fa52e6d9c3a3867c61ca77004c8a))
+* **kanban:** surface per-task diagnostics via CLI --json ([51e923d](https://github.com/liftaris/herm/commit/51e923d8b20e734f3b5f363d6e44d8fae43c534f))
+* **kanban:** surface per-task max_retries in detail pane ([f21ad4a](https://github.com/liftaris/herm/commit/f21ad4aca404e17f9bec80ac49bdc96ec19d410b))
+* **new-task:** Skills field with type-to-filter + chip commit ([bc66405](https://github.com/liftaris/herm/commit/bc66405b9c9f9ea764d5efdc53ee5e162fc95b99))
+* **profile:** DistributionManifest in hermes-profiles data layer ([a7ab05f](https://github.com/liftaris/herm/commit/a7ab05f66da5cd362bb70c77e6f1d415f67436ae))
+* **profile:** install distribution — source → preview → confirm ([6c15c19](https://github.com/liftaris/herm/commit/6c15c19a8aa6c5bfb8f81c224dc73fad0bb5e0af))
+* **slash:** honor approvals.destructive_slash_confirm for /clear /new /undo ([b21abb6](https://github.com/liftaris/herm/commit/b21abb6a7bb2c315cd72674e926a822540ead8b1))
+* **tabs:** consolidate 12 tabs into 4 groups ([d5d0f3b](https://github.com/liftaris/herm/commit/d5d0f3b76753a010f03a65beae1cec28148f087c))
+* **usage:** add reasoning row to /usage dialog ([c69f8a4](https://github.com/liftaris/herm/commit/c69f8a465dbbe67a59fd65932c5340a10c96fda8))
+
+
+### Performance Improvements
+
+* **app:** stabilize callback props into memo'd children ([f6acdd6](https://github.com/liftaris/herm/commit/f6acdd683c9b191430b1d1b8e6badb43046d13f7))
+
+# [1.3.0](https://github.com/liftaris/herm/compare/v1.2.2...v1.3.0) (2026-05-09)
+
+
+### Bug Fixes
+
+* **kanban:** ↑/↓ in the new-task body move the cursor, not focus ([631166e](https://github.com/liftaris/herm/commit/631166e35c1fe4d6c83c5ae88ddd1832214b1746))
+* **kanban:** Esc in a new-task sub-picker backs out one level, not all ([4d255a0](https://github.com/liftaris/herm/commit/4d255a083c24a6d0342845d87e789cf13a688080))
+* **kanban:** tighten pane spacing + fix markdown-body overlap ([227139f](https://github.com/liftaris/herm/commit/227139f153d28f3b02ebe2af523b7dbb54b585d8))
+* **steer+queue:** immediate dispatch during streaming + response parity ([f4b6c7d](https://github.com/liftaris/herm/commit/f4b6c7d9a5863c3c4bff62ace671cb27c1381ed2))
+* use launch cwd instead of hermes-agent root for gateway ([fb56183](https://github.com/liftaris/herm/commit/fb56183adcd2598193b2e6d9545f0102d7715ae1))
+
+
+### Features
+
+* **context:** show live system prompt from gateway, not state.db ([53493a9](https://github.com/liftaris/herm/commit/53493a95cfbfcb6c563edaae532f0271bfa608bd))
+* **dialog-select:** filterable=false for fixed-choice pickers ([65c73ed](https://github.com/liftaris/herm/commit/65c73ed877344319eab5f4e82adb5e7f295f0135))
+* direct Alt+1..9 tab switching (no leader needed) ([7c19018](https://github.com/liftaris/herm/commit/7c190185f51a8091e256bbd4fe1a40d8dbbc84be))
+* **kanban:** editable detail pane + Tab-into-pane nav + persisted filters ([df26ebe](https://github.com/liftaris/herm/commit/df26ebe03b9c5e6d98e242685dcbde72a1af1757))
+* **kanban:** form-style new-task dialog ([9c0fab6](https://github.com/liftaris/herm/commit/9c0fab6187ffff5e90f22fa679f7c679bc28d88f))
+* **keys:** tab nav on Alt+←/→ instead of Ctrl+←/→ ([413a6b0](https://github.com/liftaris/herm/commit/413a6b0adaa20552255176cf1b6b09bd72db4694))
+* **slash:** /reload-skills calls skills.reload RPC ([e4f8d07](https://github.com/liftaris/herm/commit/e4f8d071a9de42aff9d741fccecb87f71c234057))
+
 ## [1.2.2](https://github.com/liftaris/herm/compare/v1.2.1...v1.2.2) (2026-05-09)
 
 
