@@ -37,7 +37,7 @@ Non-component modules with 4+ exports self-reexport at the bottom of the
 file so consumers get a single namespace instead of wide destructuring:
 
 ```ts
-// src/utils/preferences.ts
+// src/context/preferences.ts
 export function get<K>(k: K) { ... }
 export function set<K>(k: K, v: V) { ... }
 
@@ -46,7 +46,7 @@ export * as prefs from "./preferences"
 
 ```ts
 // consumer
-import { prefs } from "../utils/preferences"
+import { prefs } from "../context/preferences"
 prefs.get("animations")
 ```
 

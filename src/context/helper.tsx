@@ -1,9 +1,8 @@
-// oc co-locates every provider in context/ via createSimpleContext; that
-// factory relies on Solid's run-once components. React providers need
-// per-render hook calls + useMemo on the value object, which can't be
-// factored without either breaking hook rules or losing the memo. So
-// herm keeps providers hand-written and this module only dedups the
-// useContext null-check.
+// A full provider factory (init -> Provider+use) doesn't fit React:
+// providers call hooks per-render and memo the returned value, so a
+// factory would either call hooks inside useMemo or lose the memo.
+// Providers stay hand-written; this module only dedups the useContext
+// null-check.
 
 import { useContext } from "react"
 
