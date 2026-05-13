@@ -9,8 +9,6 @@ import { HintBar } from "../ui/hint";
 import { KVBlock } from "../ui/kv";
 import { Col, Hdr, VBAR } from "../ui/table";
 
-// ─── Types ────────────────────────────────────────────────────────────
-
 // Wire shape from tui_gateway's `toolsets.list`. v1 only guarantees the
 // first four; the rest are optional so a future tui_gateway that passes
 // get_toolset_info()/get_available_toolsets() through lands here without
@@ -27,8 +25,6 @@ type Toolset = {
 }
 
 type Kind = "core" | "platform" | "mcp"
-
-// ─── Classification ───────────────────────────────────────────────────
 
 // Name-only heuristic — tui_gateway doesn't expose includes/is_composite
 // on the wire yet, so composites fold into their name-derived bucket.
@@ -55,8 +51,6 @@ const group = (list: Toolset[]): Section[] => {
     .map(k => ({ kind: k, items: by[k] }))
 }
 
-// ─── Toolset Row ──────────────────────────────────────────────────────
-
 const Row = memo((props: {
   id: string;
   ts: Toolset;
@@ -81,8 +75,6 @@ const Row = memo((props: {
     </box>
   );
 });
-
-// ─── Detail Panel ─────────────────────────────────────────────────────
 
 const DetailPanel = memo((props: { ts: Toolset }) => {
   const theme = useTheme().theme;
@@ -121,8 +113,6 @@ const DetailPanel = memo((props: { ts: Toolset }) => {
     </box>
   );
 });
-
-// ─── Main Component ───────────────────────────────────────────────────
 
 export const Toolsets = memo((props: { focused?: boolean }) => {
   const theme = useTheme().theme;

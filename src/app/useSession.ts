@@ -2,7 +2,7 @@
 
 import { useMemo, useCallback } from "react"
 import * as preferences from "../utils/preferences"
-import * as sdb from "../utils/sessions-db"
+import { sdb } from "../utils/sessions-db"
 import { useGateway } from "./gateway"
 import { transcriptToMessages } from "./turnReducer"
 import type { Launch } from "./launch"

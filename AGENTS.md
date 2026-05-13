@@ -6,6 +6,32 @@
 
 ## Style Guide
 
+### Module Shape
+
+Non-component modules with 4+ exports self-reexport at the bottom of the
+file so consumers get a single namespace instead of wide destructuring:
+
+```ts
+// src/utils/preferences.ts
+export function get<K>(k: K) { ... }
+export function set<K>(k: K, v: V) { ... }
+
+export * as prefs from "./preferences"
+```
+
+```ts
+// consumer
+import { prefs } from "../utils/preferences"
+prefs.get("animations")
+```
+
+Do not add barrel `index.ts` files to multi-sibling directories — they
+force every sibling to evaluate on any import. Import the specific file.
+
+Do not use `// ─── Section ───` divider comments. Comments describe
+invariants, platform quirks, or non-obvious ordering — never "what this
+block does" narration or task/migration history.
+
 ### General Principles
 
 - Keep things in one function unless composable or reusable

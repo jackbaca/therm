@@ -128,8 +128,6 @@ async function preview(
   )
 }
 
-// ── Step 1: source prompt ─────────────────────────────────────────────
-
 const Step1 = (p: { onSubmit: (source: string) => void; onCancel: () => void }) => {
   const theme = useTheme().theme
   const [value, setValue] = useState("")
@@ -163,8 +161,6 @@ const Step1 = (p: { onSubmit: (source: string) => void; onCancel: () => void }) 
   )
 }
 
-// ── Step 2: loading ───────────────────────────────────────────────────
-
 const Loading = (p: { label: string; onCancel: () => void }) => {
   const theme = useTheme().theme
   useKeyboard((key) => {
@@ -197,8 +193,6 @@ const ErrorBox = (p: { title: string; body: string; onClose: () => void }) => {
     </box>
   )
 }
-
-// ── Step 3: preview + confirm ─────────────────────────────────────────
 
 type Field = "name" | "alias"
 const ORDER: readonly Field[] = ["name", "alias"] as const

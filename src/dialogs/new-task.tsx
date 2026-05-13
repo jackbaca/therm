@@ -305,8 +305,6 @@ const Form = (p: {
     if (field === "triage" && key.name === "space") return setTriage(t => !t)
     if (SELECTY.has(field) && key.name === "space") return openPicker()
   })
-
-  // ── Picker views ────────────────────────────────────────────────
   if (picker?.kind === "assignee") {
     const opts: SelectOption[] = [
       { title: "(unassigned)", value: "" },
@@ -390,8 +388,6 @@ const Form = (p: {
       </box>
     )
   }
-
-  // ── Form view ───────────────────────────────────────────────────
   const lbl = (f: Field, text: string) => (
     <box width={13} flexShrink={0}>
       <text fg={field === f ? theme.accent : theme.textMuted}>

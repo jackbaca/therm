@@ -104,8 +104,6 @@ const RollbackDialog = (props: Props) => {
     })
   })
 
-  // ── Render ────────────────────────────────────────────────────────
-
   if (!data) return (
     <box width={60} height={3}>
       <text fg={theme.textMuted}>Loading checkpoints…</text>

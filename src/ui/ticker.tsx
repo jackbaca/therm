@@ -15,7 +15,7 @@
 
 import { useEffect, useRef, type ReactNode } from "react"
 import type { TextRenderable } from "@opentui/core"
-import * as prefs from "../utils/preferences"
+import { prefs } from "../utils/preferences"
 
 export const Ticker = (p: {
   active: boolean
@@ -69,8 +69,6 @@ export const Ticker = (p: {
     </box>
   )
 }
-
-// ─── Inline markdown → spans ─────────────────────────────────────────
 // Just enough for a one-line peek: **bold**, `code`, _italic_/*italic*.
 // Block syntax (headings, lists, fences) was already flattened by the
 // caller's whitespace collapse; we strip the markers we don't style.

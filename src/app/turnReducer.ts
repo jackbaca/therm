@@ -172,8 +172,6 @@ export function turnReducer(state: TurnState, a: Action): TurnState {
   }
 }
 
-// ── Constructors ────────────────────────────────────────────────────
-
 function userMessage(text: string): Message {
   return {
     id: mid(), role: "user",
@@ -220,8 +218,6 @@ export function transcriptToMessages(rows: TranscriptMessage[]): Message[] {
       timestamp: Date.now() / 1000,
     }))
 }
-
-// ── Internals ───────────────────────────────────────────────────────
 
 function assistant(parts: Part[]): Message {
   return { id: mid(), role: "assistant", parts, timestamp: Date.now() / 1000 }

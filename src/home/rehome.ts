@@ -22,7 +22,7 @@ import { setHome as setHermesHome } from "../utils/hermes-home"
 import { setHome as setDbHome } from "../utils/sessions-db"
 import { cache as analyticsCache } from "../utils/hermes-analytics"
 import { resetKanban } from "../utils/hermes-kanban"
-import * as prefs from "../utils/preferences"
+import { prefs } from "../utils/preferences"
 import { home } from "./store"
 
 /** Rebind all HERMES_HOME readers to `newHome` and refresh reactive

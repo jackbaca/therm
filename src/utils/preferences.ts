@@ -15,8 +15,6 @@ import { join } from "path"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs"
 import { useSyncExternalStore } from "react"
 
-// ─── Schema ──────────────────────────────────────────────────────────
-
 export type DetailMode = "hidden" | "collapsed" | "expanded"
 
 interface TuiPreferences {
@@ -28,8 +26,6 @@ interface TuiPreferences {
   mouse?: boolean
   /** Target render FPS */
   targetFps?: number
-
-  // ─── Herm extensions ─────────────────────────────────────────────
   /** Last active session ID — stub-reuse check on fresh launch */
   lastSessionId?: string
   /** Path to a .eikon avatar file for the sidebar */
@@ -83,13 +79,9 @@ const DEFAULTS: Required<Pick<TuiPreferences, "mouse" | "targetFps">> = {
   targetFps: 30,
 }
 
-// ─── Paths ───────────────────────────────────────────────────────────
-
 import { configDir } from "./paths"
 
 function configFile() { return join(configDir(), "tui.json") }
-
-// ─── Load ────────────────────────────────────────────────────────────
 
 let cached: TuiPreferences | null = null
 
@@ -131,8 +123,6 @@ export function load(): TuiPreferences {
   }
 }
 
-// ─── Save ────────────────────────────────────────────────────────────
-
 /**
  * Persist current preferences to disk.
  * Merges provided partial into existing prefs before writing.
@@ -158,8 +148,6 @@ function save(partial?: Partial<TuiPreferences>): void {
   }
 }
 
-// ─── Convenience ─────────────────────────────────────────────────────
-
 /** Get a single preference value */
 export function get<K extends keyof TuiPreferences>(key: K): TuiPreferences[K] {
   return load()[key]
@@ -170,8 +158,6 @@ export function set<K extends keyof TuiPreferences>(key: K, value: TuiPreference
   save({ [key]: value } as Partial<TuiPreferences>)
   for (const l of listeners) l()
 }
-
-// ─── Reactive ────────────────────────────────────────────────────────
 
 const listeners = new Set<() => void>()
 
@@ -188,3 +174,5 @@ function subscribe(l: () => void): () => void {
 export function usePref<K extends keyof TuiPreferences>(key: K): TuiPreferences[K] {
   return useSyncExternalStore(subscribe, () => load()[key])
 }
+
+export * as prefs from "./preferences"

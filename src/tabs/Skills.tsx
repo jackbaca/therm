@@ -31,8 +31,6 @@ const iso = (s: string | null | undefined): number | null => {
   return Number.isFinite(t) ? Math.floor(t / 1000) : null;
 }
 
-// ─── Skill Row ───────────────────────────────────────────────────────
-
 const SkillRow = memo((props: {
   id: string;
   skill: SkillInfo;
@@ -63,8 +61,6 @@ const SkillRow = memo((props: {
   );
 });
 
-// ─── Hub Result Row ──────────────────────────────────────────────────
-
 const HitRow = memo((props: { hit: Hit; selected: boolean; onHover: () => void }) => {
   const theme = useTheme().theme;
   const on = props.selected;
@@ -77,8 +73,6 @@ const HitRow = memo((props: { hit: Hit; selected: boolean; onHover: () => void }
     </box>
   );
 });
-
-// ─── Detail Panel ────────────────────────────────────────────────────
 
 const line = (e: LineageEvent): string => {
   switch (e.kind) {
@@ -155,8 +149,6 @@ const DetailPanel = memo((props: { skill: SkillInfo; usage?: SkillUsage; events:
   );
 });
 
-// ─── Empty State ─────────────────────────────────────────────────────
-
 const EmptyState = memo((props: { searching: boolean }) => {
   const theme = useTheme().theme;
   return (
@@ -171,8 +163,6 @@ const EmptyState = memo((props: { searching: boolean }) => {
     </box>
   );
 });
-
-// ─── Curator History Panel ───────────────────────────────────────────
 // Right-hand pane (swaps with DetailPanel on `h`). Browsable list of
 // logs/curator/{id}/ runs with counts from run.json; Enter toggles
 // REPORT.md rendered through <markdown>. Independent selection so the
@@ -257,8 +247,6 @@ const HistoryPanel = memo((props: { focused: boolean }) => {
     </box>
   );
 });
-
-// ─── Main Component ──────────────────────────────────────────────────
 
 export const Skills = memo((props: { focused?: boolean }) => {
   const theme = useTheme().theme;

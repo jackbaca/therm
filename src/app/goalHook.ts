@@ -12,7 +12,7 @@
 // react to completion.
 
 import type { DialogContext } from "../ui/dialog"
-import * as prefs from "../utils/preferences"
+import { prefs } from "../utils/preferences"
 import { openCountdown } from "../dialogs/countdown"
 import { io } from "../io"
 

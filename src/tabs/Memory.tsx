@@ -13,8 +13,6 @@ import { TabShell } from "../ui/shell"
 import { HintBar } from "../ui/hint"
 import { KVBlock } from "../ui/kv"
 
-// ─── Helpers ──────────────────────────────────────────────────────────
-
 function usageColor(pct: number, theme: Theme): string {
   if (pct >= 95) return theme.error.toString()
   if (pct >= 80) return theme.warning.toString()
@@ -37,8 +35,6 @@ const DESC: Record<string, string> = {
   byterover: "Persistent knowledge tree via brv CLI.",
   supermemory: "Semantic long-term memory with profile recall and session ingest.",
 }
-
-// ─── Component ────────────────────────────────────────────────────────
 
 export const Memory = memo((props: { focused?: boolean }) => {
   const theme = useTheme().theme
@@ -156,8 +152,6 @@ export const Memory = memo((props: { focused?: boolean }) => {
   )
 })
 
-// ─── Provider Detail ──────────────────────────────────────────────────
-
 type MemoryCfg = {
   memory_enabled: boolean
   user_profile_enabled: boolean
@@ -235,8 +229,6 @@ const ProviderDetail = memo((props: {
   )
 })
 
-// ─── Activity Feed ────────────────────────────────────────────────────
-
 const OP_GLYPH = { write: "+", read: "?" } as const
 
 const ActivityFeed = memo((props: { items: MemoryActivity[]; own: string }) => {
@@ -274,8 +266,6 @@ const ActivityFeed = memo((props: { items: MemoryActivity[]; own: string }) => {
     </box>
   )
 })
-
-// ─── Capacity Bar ─────────────────────────────────────────────────────
 
 const CapacityBar = memo((props: { title: string; info: MemoryFileInfo | null }) => {
   const theme = useTheme().theme

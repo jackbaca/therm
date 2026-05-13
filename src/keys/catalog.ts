@@ -29,7 +29,6 @@ export type Def = { chord: string; desc: string; scope: Scope }
 const def = (chord: string, desc: string, scope: Scope): Def => ({ chord, desc, scope })
 
 export const DEFAULTS = {
-  // ── global ──────────────────────────────────────────────────────
   "leader":            def("ctrl+x",               "Leader prefix",                      "global"),
   "app.exit":          def("ctrl+c",               "Quit",                               "global"),
   // Same chord as app.exit, disjoint on buffer-empty. oc parity:
@@ -56,8 +55,6 @@ export const DEFAULTS = {
   "model.pick":        def("<leader>m",            "Switch model",                       "global"),
   // "tool.details":      def("<leader>d",            "Cycle tool-trail detail",            "global"), // ø tool_details=none k: I need to see if it warrants a shortcut. defer
   "status.open":       def("<leader>s",            "Show status",                        "global"),
-
-  // ── list (shared across tabs + list-shaped dialogs) ─────────────
   // ☨ — oc has no generic list surface; nearest are per-dialog
   //     session_*/stash_* bindings and messages_* scroll.
   "list.up":           def("up",                   "Move selection up",                  "list"),
@@ -72,20 +69,14 @@ export const DEFAULTS = {
   "list.new":          def("n",                    "Create",                             "list"), // k: keep
   "list.search":       def("/",                    "Filter",                             "list"),
   "list.toggle":       def("space",                "Toggle item",                        "list"),
-
-  // ── dialog ──────────────────────────────────────────────────────
   // ☨ — oc dialogs hardcode return/escape/y/n per-component.
   "dialog.accept":     def("return",               "Accept",                             "dialog"),
   "dialog.cancel":     def("escape",               "Cancel / close",                     "dialog"),
   "dialog.confirm":    def("y",                    "Yes",                                "dialog"),
   "dialog.deny":       def("n",                    "No",                                 "dialog"),
   "dialog.copy":       def("c",                    "Copy body",                          "dialog"),
-
-  // ── composer (fed to <textarea keyBindings> via toBindings) ───── // k: I think you need to ELI5 what you mean here
   "input.submit":      def("return",               "Send",                               "composer"),
   "input.newline":     def("shift+return,ctrl+return,alt+return,ctrl+j", "Insert newline", "composer"),
-
-  // ── tab-specific ────────────────────────────────────────────────
   // ☨ — herm admin tabs (Cron/Env/Skills/Agents/Config) have no oc
   //     counterpart; sessions.rename diverges from oc's session-
   //     dialog ctrl+r.

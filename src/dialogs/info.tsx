@@ -30,8 +30,6 @@ const InfoDialog = (props: { title: string; rows: Row[]; note?: string }) => {
   )
 }
 
-// ── /status ──────────────────────────────────────────────────────────
-
 export function openStatus(dialog: DialogContext, info: SessionInfo | null, sid: string) {
   const toolsets = Object.keys(info?.tools ?? {})
   const nTools = Object.values(info?.tools ?? {}).reduce((n, v) => n + v.length, 0)
@@ -51,8 +49,6 @@ export function openStatus(dialog: DialogContext, info: SessionInfo | null, sid:
     ]} />,
   )
 }
-
-// ── /usage ───────────────────────────────────────────────────────────
 
 const UsageDialog = ({ gw }: { gw: Gateway }) => {
   const theme = useTheme().theme
@@ -86,8 +82,6 @@ const UsageDialog = ({ gw }: { gw: Gateway }) => {
 
 export const openUsage = (dialog: DialogContext, gw: Gateway) =>
   dialog.replace(<UsageDialog gw={gw} />)
-
-// ── /profile ─────────────────────────────────────────────────────────
 
 const ProfileDialog = () => {
   const [p, setP] = useState<import("../utils/hermes-profiles").ProfileInfo | null | undefined>(undefined)

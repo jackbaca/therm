@@ -3,7 +3,7 @@ import { SIDE_PIPE } from "../ui/borders"
 import { useKeyboard, useTerminalDimensions } from "@opentui/react"
 import type { ScrollBoxRenderable } from "@opentui/core"
 import { useKeys, handleListKey } from "../keys"
-import * as sdb from "../utils/sessions-db"
+import { sdb } from "../utils/sessions-db"
 import type { SessionRow, SessionHit, LineageInfo, PeekMsg } from "../utils/sessions-db"
 import { io as dbio } from "../io"
 import type {
@@ -23,7 +23,7 @@ import { openConfirm } from "../dialogs/confirm"
 import { openTextPrompt } from "../dialogs/text-prompt"
 import { fmt, cost, trunc, ago, when, span, stamp } from "../ui/fmt"
 import { home } from "../home"
-import * as prefs from "../utils/preferences"
+import { prefs } from "../utils/preferences"
 import type { SessionsPrefs } from "../utils/preferences"
 
 // Architecture: herm's Sessions tab is a **local state.db reader**.
@@ -50,14 +50,10 @@ const cmp = (s: Sort) => {
   return (a: Row, b: Row) => k(b) - k(a)
 }
 
-// ─── Formatting ──────────────────────────────────────────────────────
-
 const badge = (src: string): string => ({
   cli: "CLI", tui: "TUI", api_server: "API", discord: "Discord",
   telegram: "Telegram", slack: "Slack", whatsapp: "WhatsApp", signal: "Signal",
 } as Record<string, string>)[src] ?? src
-
-// ─── Transcript Peek ─────────────────────────────────────────────────
 //
 // Purpose: decide whether to load a session without replacing the
 // current chat. So: conversation only. Tool chatter is collapsed to
@@ -161,8 +157,6 @@ const Peek = memo((props: { sid: string; total: number; peek: Peeker }) => {
     </box>
   )
 })
-
-// ─── Detail Panel ────────────────────────────────────────────────────
 //
 // Data provenance:
 //   RPC (session.list): id, title, preview (first user msg), source,
@@ -265,8 +259,6 @@ const Detail = memo((props: {
   )
 })
 
-// ─── Search Detail Panel ─────────────────────────────────────────────
-
 const SearchDetail = memo((props: { result: SessionHit }) => {
   const theme = useTheme().theme
   const r = props.result
@@ -312,7 +304,6 @@ const SearchDetail = memo((props: { result: SessionHit }) => {
     </TabShell>
   )
 })
-// ─── Rows ────────────────────────────────────────────────────────────
 // Col/Hdr live in ui/table; header pads by VBAR_W so its grow column
 // matches body rows inside the forced-visible v-bar scrollbox.
 
@@ -421,8 +412,6 @@ const SearchItem = memo((props: {
     </box>
   )
 })
-
-// ─── Main ────────────────────────────────────────────────────────────
 
 // Data-layer ops are injectable so tests don't fight analytics.test
 // for the shared sandbox state.db. Defaults go through the io worker
@@ -615,8 +604,6 @@ export const Sessions = memo((props: Props) => {
     }, 150)
     return () => { if (debounce.current) clearTimeout(debounce.current) }
   }, [query, searching])
-
-  // ── Stable row callbacks (identity never changes) ────────────────
   // Hover-to-select is onMouseMove, not onMouseOver — the latter fires
   // when scrollChildIntoView moves rows under a stationary cursor and
   // would snap sel back during ↓-repeat (the "stutter"). Mouse motion

@@ -39,8 +39,6 @@ import type { MemoryActivity } from "../utils/memory-activity"
 import { count as tokenCount } from "../utils/tokens"
 import { io } from "../io"
 
-// ─── State shape ──────────────────────────────────────────────────────
-
 export interface HomeState {
   config: HermesConfig | null
   memory: MemoryFileInfo | null
@@ -152,8 +150,6 @@ const DEPENDENTS: ReadonlyMap<SliceKey, readonly SliceKey[]> = (() => {
   }
   return m
 })()
-
-// ─── Store ────────────────────────────────────────────────────────────
 
 const DEBOUNCE_MS = 50
 

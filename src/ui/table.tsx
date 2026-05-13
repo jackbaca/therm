@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState, type ReactNode } from "react"
 import type { RGBA } from "@opentui/core"
 import { useTheme } from "../theme"
-import * as prefs from "../utils/preferences"
+import { prefs } from "../utils/preferences"
 
 // Flex-cell column primitive for list tabs. Replaces the .padEnd(N)
 // single-<text> pattern that bleeds whenever a value exceeds its pad

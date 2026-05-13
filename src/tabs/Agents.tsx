@@ -41,8 +41,6 @@ import { tree as buildTree, totals as treeTotals, summary, spark, heat, peak, ty
 //     (`delegation.pause`), `k` interrupts the selected child
 //     (`subagent.interrupt`).
 
-// ─── Profiles pane ───────────────────────────────────────────────────
-
 const ProfileRow = memo((props: {
   id: string
   p: ProfileInfo; idx: number; selected: boolean
@@ -158,8 +156,6 @@ const ProfileDetail = memo((props: { p: ProfileInfo; stats?: ProfileStats }) => 
     </scrollbox>
   )
 })
-
-// ─── Delegation pane ─────────────────────────────────────────────────
 
 const HOT = ["⠀", "⠁", "⠃", "⠇", "⠏", "⠟", "⠿", "⡿", "⣿"] as const
 
@@ -290,8 +286,6 @@ const DelegDetail = memo((props: { r: DelegationRecord; live?: Live; agg?: Agg; 
   )
 })
 
-// ─── Main ────────────────────────────────────────────────────────────
-
 type ShellResult = { stdout: string; stderr: string; code: number }
 type Pane = "profiles" | "deleg"
 type View = "list" | "detail"
@@ -415,8 +409,6 @@ export const Agents = memo((props: Props) => {
       if (r.code !== 0) throw new Error((r.stderr || r.stdout || "exit " + r.code).trim())
       return r.stdout
     }), [gw])
-
-  // ── Stable callbacks ──────────────────────────────────────────────
   const pHover = useCallback((i: number) => setPSel(i), [])
   const dHover = useCallback((i: number) => setDSel(i), [])
 
@@ -564,7 +556,6 @@ export const Agents = memo((props: Props) => {
       })
       .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
   }, [gw, sh, dialog, toast, loadProfiles])
-
 
   const selected = profiles[pSel]
   const statGen = useRef(0)

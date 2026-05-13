@@ -2,7 +2,7 @@
 // surface is the three leaf sqlite modules — no hermes-home / yaml /
 // tokens — so the worker bundle stays ~15 KB.
 
-import * as sdb from "../utils/sessions-db"
+import { sdb } from "../utils/sessions-db"
 import { analytics } from "../utils/hermes-analytics"
 import { readMemoryActivity } from "../utils/memory-activity"
 

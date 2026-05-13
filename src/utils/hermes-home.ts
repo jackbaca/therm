@@ -14,8 +14,6 @@ import { openSync, readSync, closeSync, readdirSync, readFileSync } from "node:f
 import { homedir } from "os";
 import { parse as parseYaml } from "yaml";
 import { count as tokenCount } from "./tokens";
-
-// ─── Path Resolution ─────────────────────────────────────────────────
 //
 // Mutable cell — profile switch (herm-q73) rebinds this at runtime so
 // every hermesPath() caller follows without a process restart. Same
@@ -46,8 +44,6 @@ export const managedSystem = async (): Promise<string | null> => {
   return (await Bun.file(hermesPath(".managed")).exists()) ? "NixOS" : null
 }
 
-// ─── Source Provenance ────────────────────────────────────────────────
-
 /** Every piece of data extracted from ~/.hermes/ carries its origin file. */
 export interface Source {
   file: string; // absolute path
@@ -64,8 +60,6 @@ export const makeSource = (
   relative,
   label: label ?? relative.split("/").pop() ?? relative,
 });
-
-// ─── Types ───────────────────────────────────────────────────────────
 
 /** Subset of config.yaml we care about */
 export interface HermesConfig {
@@ -454,8 +448,6 @@ export interface ToolsInfo {
   tools: ToolInfo[];
 }
 
-// ─── Readers ─────────────────────────────────────────────────────────
-
 /** Read and parse config.yaml */
 export async function readConfig(): Promise<HermesConfig | null> {
   try {
@@ -550,8 +542,6 @@ export async function readLiveSessions(): Promise<
     return {};
   }
 }
-
-// ─── Session store ───────────────────────────────────────────────────
 // Everything session-shaped lives in sessions-db.ts now — one readonly
 // handle, one parent→child classification rule, shared SQL. These
 // aliases preserve the old hermes-home API for home/store.ts and
@@ -747,8 +737,6 @@ export async function readCronOutput(
   return { at: st.mtime, path, text };
 }
 
-// ─── Env File CRUD ──────────────────────────────────────────────────
-
 const ENV_PATH = hermesPath(".env");
 
 /** Parse ~/.hermes/.env into Record<string, string> */
@@ -801,8 +789,6 @@ export async function removeEnvVar(key: string): Promise<void> {
   await Bun.write(ENV_PATH, lines.join("\n"));
 }
 
-// ─── Provider Catalog ───────────────────────────────────────────────
-
 export const ENV_CATALOG: ReadonlyArray<{ category: string; keys: string[] }> = [
   {
     category: "LLM Providers",
@@ -832,3 +818,5 @@ export const ENV_CATALOG: ReadonlyArray<{ category: string; keys: string[] }> = 
     keys: ["API_SERVER_KEY", "MEM0_API_KEY"],
   },
 ];
+
+export * as HermesHome from "./hermes-home"

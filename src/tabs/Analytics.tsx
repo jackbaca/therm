@@ -11,8 +11,6 @@ import { HintBar } from "../ui/hint"
 import { Col, Hdr } from "../ui/table"
 import { fmt, cost, trunc } from "../ui/fmt"
 
-// ─── Charts ──────────────────────────────────────────────────────────
-
 const BLOCKS = " ▁▂▃▄▅▆▇█"
 
 // Multi-row vertical bar chart. Each column is one datum; each row is
@@ -89,8 +87,6 @@ const Rank = memo((p: { title: string; rows: NameRow[] | null; fg: RGBA; n?: num
     </box>
   )
 })
-
-// ─── Tab ─────────────────────────────────────────────────────────────
 
 export const Analytics = memo((props: { focused?: boolean }) => {
   const theme = useTheme().theme

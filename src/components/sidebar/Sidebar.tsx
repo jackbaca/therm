@@ -21,8 +21,6 @@ const INNER = WIDTH - 4
 
 const trunc = (s: string, max: number) => s.length <= max ? s : s.slice(0, max - 1) + "…"
 
-// ─── Primitives (pillar-colored) ─────────────────────────────────────
-
 const Section = memo((props: {
   title: string; hint?: string
   open: boolean; onToggle: () => void
@@ -62,8 +60,6 @@ const Row = (props: { label: string; value: string; strong?: boolean }) => {
     </box>
   )
 }
-
-// ─── Main ────────────────────────────────────────────────────────────
 
 export const Sidebar = memo((props: {
   agentState?: AvatarState

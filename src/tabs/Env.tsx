@@ -12,15 +12,11 @@ import { Col, Hdr, VBAR } from "../ui/table"
 import { openTextPrompt } from "../dialogs/text-prompt"
 import { openConfirm } from "../dialogs/confirm"
 
-// ─── Types ────────────────────────────────────────────────────────
-
 type Row =
   | { type: "header"; category: string; collapsed: boolean }
   | { type: "var"; key: string; value: string | undefined }
 
 const mask = (val: string) => "•".repeat(Math.min(val.length, 12))
-
-// ─── Var Row ──────────────────────────────────────────────────────
 
 const VarRow = memo((props: {
   id: string
@@ -46,8 +42,6 @@ const VarRow = memo((props: {
     </box>
   )
 })
-
-// ─── Main Component ───────────────────────────────────────────────
 
 export const Env = memo((props: { focused?: boolean }) => {
   const theme = useTheme().theme

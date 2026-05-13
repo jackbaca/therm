@@ -21,8 +21,6 @@ import { useTheme } from "../../theme"
 import { useGateway } from "../../app/gateway"
 import type { PromptPart, PromptReq, Part } from "../../types/message"
 
-// ── Shared ───────────────────────────────────────────────────────────
-
 export type PromptCardHandle = {
   /** Offer a key to the pending card. Returns true if consumed. */
   feed: (key: ParsedKey) => boolean
@@ -68,8 +66,6 @@ const Pill = (p: { on: boolean; hot: string; label: string; onPick: () => void }
     </box>
   )
 }
-
-// ── Approval ─────────────────────────────────────────────────────────
 
 const CHOICES = ["once", "session", "always", "deny"] as const
 type Choice = typeof CHOICES[number]
@@ -149,8 +145,6 @@ const Approval = forwardRef<PromptCardHandle, {
     </Frame>
   )
 })
-
-// ── Clarify ──────────────────────────────────────────────────────────
 
 const Clarify = forwardRef<PromptCardHandle, {
   req: Extract<PromptReq, { variant: "clarify" }>
@@ -248,8 +242,6 @@ const Clarify = forwardRef<PromptCardHandle, {
   )
 })
 
-// ── Masked (sudo / secret) ───────────────────────────────────────────
-
 const Masked = forwardRef<PromptCardHandle, {
   title: string
   note: string
@@ -302,8 +294,6 @@ const Masked = forwardRef<PromptCardHandle, {
   )
 })
 
-// ── Answered (collapsed) ─────────────────────────────────────────────
-
 const Outcome = memo(({ part }: { part: PromptPart }) => {
   const theme = useTheme().theme
   const a = part.answered!
@@ -323,8 +313,6 @@ const Outcome = memo(({ part }: { part: PromptPart }) => {
     </box>
   )
 })
-
-// ── Dispatch ─────────────────────────────────────────────────────────
 
 export const PromptCard = memo(forwardRef<PromptCardHandle, {
   part: PromptPart

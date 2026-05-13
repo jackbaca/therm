@@ -9,7 +9,7 @@
 // launch; a live toggle (herm-907.6) will re-render via usePref() at
 // the toggle site, and these stay plain functions.
 
-import * as prefs from "../utils/preferences"
+import { prefs } from "../utils/preferences"
 
 const h12 = () => prefs.get("timeFormat") === "12h"
 const abs = () => prefs.get("timeStyle") === "absolute"
@@ -80,3 +80,5 @@ export const dur = (s: number): string =>
   s >= 3600 ? `${Math.floor(s / 3600)}h${Math.floor((s % 3600) / 60)}m`
   : s >= 60 ? `${Math.floor(s / 60)}m${Math.floor(s % 60)}s`
   : `${Math.floor(s)}s`
+
+export * as Fmt from "./fmt"

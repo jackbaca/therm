@@ -18,8 +18,6 @@ import { openModelPicker } from "../dialogs/model-picker";
 import { managedSystem, makeSource } from "../utils/hermes-home";
 import { FileLink } from "../components/ui/FileLink";
 
-// ─── Helpers ─────────────────────────────────────────────────────────
-
 const flatten = (obj: Record<string, unknown>, prefix = ""): [string, unknown][] =>
   Object.entries(obj).flatMap(([k, v]) => {
     const key = prefix ? `${prefix}.${k}` : k;
@@ -49,8 +47,6 @@ const getNested = (obj: Record<string, unknown>, path: string): unknown => {
   }
   return cur;
 };
-
-// ─── Field Row ───────────────────────────────────────────────────────
 
 const FieldRow = memo((props: {
   id: string;
@@ -128,8 +124,6 @@ const FieldRow = memo((props: {
     </box>
   );
 });
-
-// ─── Model slots (synthetic `models` category) ───────────────────────
 // Main + 9 aux-task slots from config.yaml. Enter opens the same
 // provider→model picker as Ctrl+M but routed through assign(); `x`
 // resets an aux slot to auto. Writes apply immediately (not queued
@@ -159,8 +153,6 @@ const SlotRow = memo((p: { id: string; s: Slot; on: boolean }) => {
     </box>
   );
 });
-
-// ─── Main Component ──────────────────────────────────────────────────
 
 export const Config = memo((props: { focused?: boolean }) => {
   const theme = useTheme().theme;

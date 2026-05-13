@@ -136,7 +136,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const [eikon, setEikon] = useState<ParsedEikon | undefined>(undefined)
   const [queue, setQueue] = useState<string[]>([])
   const [busy, setBusy] = useState<"queue" | "steer" | "interrupt">("queue")
-  // ── Live refs for memo stability ──────────────────────────────────
   // The global useKeyboard re-renders AppInner on every key/mouse
   // event; memo() on Chat/Composer/etc is the only firewall. Callbacks
   // that land as props on those children must NOT take `turn.*` or
@@ -146,7 +145,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   // instead (same shape as sidRef/cmdsRef/sendRef below).
   const turnRef = useRef(turn); turnRef.current = turn
   const queueRef = useRef(queue); queueRef.current = queue
-  // ── Splash ────────────────────────────────────────────────────────
   // Welcome-state chrome over an empty transcript. Composer stays live
   // underneath; first send dismisses. `/splash` re-summons mid-session
   // (Esc-dismissable in that case only).
@@ -211,8 +209,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const onAvatarHold = useCallback((s: AvatarState) => {
     if (s === "error") setErrorPulse(false)
   }, [])
-
-  // ── Thought cloud ─────────────────────────────────────────────────
   // Auto-follows the "non-text" phase of a turn: open while the model is
   // reasoning or running tools (`streaming && !hasContent`), close once
   // text is flowing (`hasContent`) or the turn ends. A manual force
@@ -266,8 +262,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     setQueue(q => [...q, t])
   }, [busy, gw, toast])
   const onAttach = useCallback((r: ImageAttachResponse) => setAttachments(a => [...a, r]), [])
-
-  // ── Session reset / lifecycle ─────────────────────────────────────
   const reset = useCallback(() => {
     interrupted.current = false
     dispatch({ kind: "reset" })
@@ -322,8 +316,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       setSwitching(false)
     }
   }, [reset, session, goToTab])
-
-  // ── Profile switch ────────────────────────────────────────────────
   // Rebind every HERMES_HOME reader, respawn the gateway subprocess
   // under the new env, and re-run the boot path. prefs.reload (inside
   // rehome) retints theme/eikon/keys via usePref; home.reset repaints
@@ -382,8 +374,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     toast.show({ variant: "success",
       message: s.headline ?? `Compressed ${r.before_messages ?? 0}→${r.after_messages ?? 0} messages` })
   }, [session, toast, dispatch])
-
-  // ── Eikon avatar ──────────────────────────────────────────────────
   const loadEikon = useCallback((path: string) => {
     Bun.file(path).text()
       .then(t => setEikon(parseEikon(t)))
@@ -402,8 +392,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const pickEikon = useCallback(() => {
     openEikonPicker(dialog, (path) => preferences.set("eikonPath", path))
   }, [dialog])
-
-  // ── Title ─────────────────────────────────────────────────────────
   const applyTitle = useCallback((t: string) => {
     gw.request<{ title: string }>("session.title", { title: t })
       .then(r => { setTitle(r.title); dispatch({ kind: "system", text: `Title: ${r.title}` }) })
@@ -414,8 +402,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     openTextPrompt(dialog, { title: "Session Title", initial: title })
       .then(v => { if (v) applyTitle(v) })
   }, [dialog, title, applyTitle])
-
-  // ── Message actions ───────────────────────────────────────────────
   // turnsFrom counts user turns at-or-after m — each session.undo pops
   // one user+assistant pair server-side. Reads turnRef (not turn) so
   // rewind/fork/msgMenu stay identity-stable across streaming deltas;
@@ -462,8 +448,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     if (turnRef.current.streaming) return
     openMessage(dialog, m, { rewind, fork })
   }, [dialog, rewind, fork])
-
-  // ── Attachments ───────────────────────────────────────────────────
   // Gateway owns the canonical list (session["attached_images"]); chips
   // are a client-side mirror. prompt.submit drains server-side, so clear
   // here too. No image.detach RPC yet — chips are display-only.
@@ -474,8 +458,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
         : toast.show({ variant: "info", message: r.message ?? "No image in clipboard" }))
       .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
   }, [gw, toast])
-
-  // ── Destructive slash gate ────────────────────────────────────────
   // `/clear`, `/new`, `/undo` discard conversation state. Mirrors
   // upstream's `approvals.destructive_slash_confirm` config gate
   // (b9c001116) — upstream's gateway-side check never fires for herm
@@ -514,8 +496,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     void openConfirm(dialog, { title: opts.title, body: opts.body, yes: opts.yes, danger: true })
       .then(ok => { if (ok) fire() })
   }, [cfg, dialog, gw, toast])
-
-  // ── Slash dispatch ────────────────────────────────────────────────
   // `slash` and `send` reference each other (skill/alias dispatch needs
   // to submit a turn; typed `/cmd` in send() resolves via slash). The
   // cycle is broken with a forward ref — same shape as upstream Ink's
@@ -576,7 +556,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
             .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
           return
         }
-        // ── parity: session-mutating (slash-worker can't service these) ──
         case "resume":
           if (arg) { void switchSession(arg); return }
           goTo(TAB_SLASH.sessions.tab, TAB_SLASH.sessions.sub); return
@@ -809,8 +788,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   }, [ready, dialog, themeCtx, newSession, gw, pickEikon, editTitle,
       applyTitle, toast, info, sid, title, switchSession, session, runCompress, rewind, renderer,
       attachClipboard, goTo, skin, destructive])
-
-  // ── Send ──────────────────────────────────────────────────────────
   const send = useCallback(async (raw: string) => {
     // Bare exit/quit/:q — oc lets these through as literals so a
     // reflex `exit⏎` works without the leading slash.
@@ -873,8 +850,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     void switchSession(splashLast.id)
     return true
   }, [splash, splashLast, composing, switchSession])
-
-  // ── Queue drain ───────────────────────────────────────────────────
   // Purely client-side: prompts typed while streaming accumulate in
   // `queue`; on idle the head auto-submits. turnReducer doesn't flip
   // `streaming` until the gateway emits message.start (async), so a
@@ -896,8 +871,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     composer.current?.set(item)
     setFocusRegion("input")
   }, [])
-
-  // ── Copy last assistant ───────────────────────────────────────────
   const copyLast = useCallback(() => {
     const msgs = turnRef.current.messages
     for (let i = msgs.length - 1; i >= 0; i--) {
@@ -910,8 +883,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     }
     return false
   }, [])
-
-  // ── Gateway events ────────────────────────────────────────────────
   // Delta batching: streamed text/reasoning chunks are accumulated in
   // a ref and flushed at most once per 16ms. Every delta otherwise
   // triggers an O(messages) array spread + O(content) string concat +
@@ -1018,8 +989,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   }, [session, dialog, toast, gw, flush, goalHook])
 
   useGatewayEvent(handle)
-
-  // ── Command palette ───────────────────────────────────────────────
   useEffect(() => cmd.register([
     { title: "Help", value: "help", action: "help.open", category: "General",
       onSelect: () => dialog.replace(<HelpDialog />) },
@@ -1067,8 +1036,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     session.interrupt()
   }, [session])
   intr.current = doInterrupt
-
-  // ── Keyboard ──────────────────────────────────────────────────────
   const subCount = SUB_TABS[tab]?.length ?? 0
   const cycleSub = useCallback((dir: -1 | 1) => {
     const labels = SUB_TABS[tab]
@@ -1132,8 +1099,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       toast.show({ variant: "info", message: `stashed (${n})` })
     },
   })
-
-  // ── Control bridge ────────────────────────────────────────────────
   const state = useRef({ tab, ready, streaming: turn.streaming, messages: turn.messages, sid, focusRegion })
   state.current = { tab, ready, streaming: turn.streaming, messages: turn.messages, sid, focusRegion }
   useEffect(() => {
@@ -1161,8 +1126,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   }, [gw, renderer])
 
   const contentFocused = focusRegion === "content" && !turn.streaming
-
-  // ── Inline prompt wiring ──────────────────────────────────────────
   // At most one pending prompt (gateway blocks on the answer). The
   // card mounts inside MessageList; key routing and composer-defocus
   // live here because the shell owns both. `prompt` is computed above

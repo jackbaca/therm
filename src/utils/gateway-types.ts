@@ -2,8 +2,6 @@
 
 import type { Usage } from "../types/message"
 
-// ── Events (server → client) ────────────────────────────────────────
-
 export type GatewayEvent =
   | { type: "gateway.ready"; payload?: { skin?: GatewaySkin } }
   | { type: "gateway.stderr"; payload: { line: string } }
@@ -183,8 +181,6 @@ export type SessionInfo = {
   /** platform-appropriate update invocation */
   update_command?: string
 }
-
-// ── RPC responses ───────────────────────────────────────────────────
 
 export type SessionCreateResponse = {
   session_id: string
