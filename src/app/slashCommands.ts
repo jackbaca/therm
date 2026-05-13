@@ -33,7 +33,7 @@ export type SlashCommand = {
  * subprocess) belongs here — see docs/slash-parity-audit.md.
  */
 export const LOCAL_NAMES = new Set([
-  "clear", "new", "theme", "help", "keys", "logs", "eikon", "title",
+  "clear", "new", "theme", "help", "keys", "logs", "eikon", "eikons", "title",
   "rollback", "save", "history", "status", "usage", "profile", "steer",
   "reload", "reload-mcp", "reload-skills", "chafa", "splash", "skin",
   // parity: session-mutating commands the slash-worker can't service
@@ -57,6 +57,7 @@ export const LOCAL_COMMANDS: ReadonlyArray<SlashCommand> = [
   { name: "keys",  description: "Rebind keyboard shortcuts",  category: "Client", aliases: [],       argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "logs",  description: "Show gateway stderr log",    category: "Client", aliases: [],       argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "eikon", description: "Pick sidebar avatar",        category: "Client", aliases: [],       argsHint: "", subcommands: [], source: "local", target: "local" },
+  { name: "eikons", description: "Browse eikon.sh (suspend)",  category: "Client", aliases: [],       argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "title", description: "Set session title",          category: "Client", aliases: [],       argsHint: "[text]", subcommands: [], source: "local", target: "local" },
   { name: "rollback", description: "Browse & restore checkpoints", category: "Client", aliases: [], argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "history",  description: "Server-side transcript viewer", category: "Info",   aliases: [], argsHint: "", subcommands: [], source: "local", target: "local" },
