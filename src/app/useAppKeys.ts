@@ -17,6 +17,7 @@ export function redraw(renderer: {
 }
 import { useRef, useEffect, type RefObject } from "react"
 import { editInEditor } from "../utils/editor"
+import { Selection } from "../utils/selection"
 import { useKeys, conflicts } from "../keys"
 import { print as chordPrint } from "../keys/chord"
 import type { ComposerHandle } from "../components/chat/Composer"
@@ -88,9 +89,14 @@ export function useAppKeys(o: Opts) {
   useKeyboard((key) => {
     const c = o.composer.current
 
+    // An active text selection pre-empts every shell binding: Esc
+    // clears it (not the dialog, not the interrupt counter), Ctrl+C
+    // copies it (not input.clear/app.exit), any other key clears it
+    // unless the selection belongs to the focused textarea.
+    if (Selection.key(renderer, key)) { key.stopPropagation(); return }
+
     // oc parity: input_clear (ctrl+c) with non-empty buffer clears and
-    // consumes; app_exit (also ctrl+c) fires on the next press. Selection
-    // copy is NOT on ctrl+c — drag-select already copies on mouseup.
+    // consumes; app_exit (also ctrl+c) fires on the next press.
     if (keys.match("input.clear", key) && c && !c.isEmpty()) {
       c.set("")
       key.stopPropagation()
