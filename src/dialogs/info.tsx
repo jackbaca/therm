@@ -8,10 +8,10 @@ import { useTheme } from "../theme"
 import { KVBlock } from "../ui/kv"
 import { fmt, cost } from "../ui/fmt"
 import type { DialogContext } from "../ui/dialog"
-import type { Gateway } from "../app/gateway"
-import type { SessionInfo, SessionUsageResponse } from "../utils/gateway-types"
-import { listProfiles, activeProfileName } from "../utils/hermes-profiles"
-import { hermesPath } from "../utils/hermes-home"
+import type { Gateway } from "../context/gateway"
+import type { SessionInfo, SessionUsageResponse } from "../context/wire"
+import { listProfiles, activeProfileName } from "../service/hermes-profiles"
+import { hermesPath } from "../service/hermes-home"
 
 type Row = [string, string | undefined, RGBA?]
 
@@ -29,8 +29,6 @@ const InfoDialog = (props: { title: string; rows: Row[]; note?: string }) => {
     </box>
   )
 }
-
-// ── /status ──────────────────────────────────────────────────────────
 
 export function openStatus(dialog: DialogContext, info: SessionInfo | null, sid: string) {
   const toolsets = Object.keys(info?.tools ?? {})
@@ -51,8 +49,6 @@ export function openStatus(dialog: DialogContext, info: SessionInfo | null, sid:
     ]} />,
   )
 }
-
-// ── /usage ───────────────────────────────────────────────────────────
 
 const UsageDialog = ({ gw }: { gw: Gateway }) => {
   const theme = useTheme().theme
@@ -87,10 +83,8 @@ const UsageDialog = ({ gw }: { gw: Gateway }) => {
 export const openUsage = (dialog: DialogContext, gw: Gateway) =>
   dialog.replace(<UsageDialog gw={gw} />)
 
-// ── /profile ─────────────────────────────────────────────────────────
-
 const ProfileDialog = () => {
-  const [p, setP] = useState<import("../utils/hermes-profiles").ProfileInfo | null | undefined>(undefined)
+  const [p, setP] = useState<import("../service/hermes-profiles").ProfileInfo | null | undefined>(undefined)
   const active = activeProfileName()
   useEffect(() => {
     listProfiles().then(ps => setP(ps.find(x => x.name === active) ?? null))

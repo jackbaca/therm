@@ -1,24 +1,24 @@
 import { useState, memo } from "react"
-import type { MemoryProviderInfo, MemoryFileInfo } from "../utils/hermes-home"
-import type { MemoryActivity } from "../utils/memory-activity"
+import type { MemoryProviderInfo, MemoryFileInfo } from "../service/hermes-home"
+import type { MemoryActivity } from "../service/memory-activity"
 import { useHome, home } from "../home"
 import { ago } from "../ui/fmt"
 import { useTheme, type Theme } from "../theme"
 import { useListKeys } from "../keys"
 import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
-import { useGateway } from "../app/gateway"
+import { useGateway } from "../context/gateway"
 import { openConfirm } from "../dialogs/confirm"
 import { TabShell } from "../ui/shell"
 import { HintBar } from "../ui/hint"
 import { KVBlock } from "../ui/kv"
 
-// ─── Helpers ──────────────────────────────────────────────────────────
+import type { RGBA } from "@opentui/core"
 
-function usageColor(pct: number, theme: Theme): string {
-  if (pct >= 95) return theme.error.toString()
-  if (pct >= 80) return theme.warning.toString()
-  return theme.success.toString()
+function usageColor(pct: number, theme: Theme): RGBA {
+  if (pct >= 95) return theme.error
+  if (pct >= 80) return theme.warning
+  return theme.success
 }
 
 function bar(pct: number, w: number): string {
@@ -37,8 +37,6 @@ const DESC: Record<string, string> = {
   byterover: "Persistent knowledge tree via brv CLI.",
   supermemory: "Semantic long-term memory with profile recall and session ingest.",
 }
-
-// ─── Component ────────────────────────────────────────────────────────
 
 export const Memory = memo((props: { focused?: boolean }) => {
   const theme = useTheme().theme
@@ -156,8 +154,6 @@ export const Memory = memo((props: { focused?: boolean }) => {
   )
 })
 
-// ─── Provider Detail ──────────────────────────────────────────────────
-
 type MemoryCfg = {
   memory_enabled: boolean
   user_profile_enabled: boolean
@@ -235,8 +231,6 @@ const ProviderDetail = memo((props: {
   )
 })
 
-// ─── Activity Feed ────────────────────────────────────────────────────
-
 const OP_GLYPH = { write: "+", read: "?" } as const
 
 const ActivityFeed = memo((props: { items: MemoryActivity[]; own: string }) => {
@@ -274,8 +268,6 @@ const ActivityFeed = memo((props: { items: MemoryActivity[]; own: string }) => {
     </box>
   )
 })
-
-// ─── Capacity Bar ─────────────────────────────────────────────────────
 
 const CapacityBar = memo((props: { title: string; info: MemoryFileInfo | null }) => {
   const theme = useTheme().theme

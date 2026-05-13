@@ -1,4 +1,4 @@
-import { SKINS } from "../app/skin"
+import { SKINS } from "../context/skin"
 import { SCHEMA, SCHEMA_KEYS, type ConfigEffect } from "./schema"
 import { route } from "./lane"
 

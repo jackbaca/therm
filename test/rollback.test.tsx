@@ -4,7 +4,7 @@ import { mountNode, until, MockGateway } from "./harness"
 import { openRollback } from "../src/dialogs/rollback"
 import { useDialog } from "../src/ui/dialog"
 import { useToast } from "../src/ui/toast"
-import { useGateway } from "../src/app/gateway"
+import { useGateway } from "../src/context/gateway"
 
 const POINTS = [
   { hash: "a1b2c3d4e5f6", timestamp: Math.floor(Date.now() / 1000) - 120, message: "write parser" },

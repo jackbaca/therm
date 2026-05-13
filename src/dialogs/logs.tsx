@@ -4,7 +4,7 @@
 // chose to surface.
 
 import { useTheme } from "../theme"
-import { useGateway } from "../app/gateway"
+import { useGateway } from "../context/gateway"
 import { useDialog } from "../ui/dialog"
 
 const ERRLIKE = /error|fail|traceback|exception|\b[45]\d\d\b|refused|denied|unauthori/i

@@ -11,7 +11,8 @@
  *   ]), [])
  */
 
-import { createContext, useContext, useState, useCallback, useRef, useMemo } from "react"
+import { createContext, useState, useCallback, useRef, useMemo } from "react"
+import { makeUse } from "../context/helper"
 import type { ReactNode } from "react"
 import { useKeyboard } from "@opentui/react"
 import { useKeys, type ActionId } from "../keys"
@@ -97,8 +98,4 @@ export const CommandProvider = ({ children }: { children: ReactNode }) => {
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 
-export const useCommand = (): CommandContext => {
-  const ctx = useContext(Ctx)
-  if (!ctx) throw new Error("useCommand() must be inside <CommandProvider>")
-  return ctx
-}
+export const useCommand = makeUse(Ctx, "useCommand")

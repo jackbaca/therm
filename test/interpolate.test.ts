@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test"
 import { interpolate, hasInterp, INTERP_RE } from "../src/utils/interpolate"
-import type { Gateway } from "../src/app/gateway"
+import type { Gateway } from "../src/context/gateway"
 
 const gw = (fn: (cmd: string) => { stdout?: string; stderr?: string } | Error): Gateway => ({
   request: async (method: string, params?: Record<string, unknown>) => {

@@ -1,6 +1,6 @@
 import { memo } from "react"
 import { useTheme } from "../../theme"
-import type { SessionInfo } from "../../utils/gateway-types"
+import type { SessionInfo } from "../../context/wire"
 import type { Usage } from "../../types/message"
 import { formatTokens } from "../../utils/tokens"
 

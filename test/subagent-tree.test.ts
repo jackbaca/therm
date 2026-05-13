@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test"
-import { tree, totals, summary, spark, heat, peak, type Live } from "../src/utils/subagent-tree"
-import type { DelegationRecord } from "../src/utils/gateway-types"
+import { tree, totals, summary, spark, heat, peak, type Live } from "../src/service/subagent-tree"
+import type { DelegationRecord } from "../src/context/wire"
 
 const rec = (id: string, parent: string | null, depth: number, o: Partial<DelegationRecord> = {}): DelegationRecord => ({
   subagent_id: id, parent_id: parent, depth, goal: id,

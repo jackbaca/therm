@@ -7,10 +7,10 @@ import {
   parseDiagnostics, maxSeverity, sortDiags,
   type Task, type Status, type Detail, type Board,
   type Diag, type Severity,
-} from "../utils/hermes-kanban"
+} from "../service/hermes-kanban"
 import { useKeys } from "../keys"
 import { useTheme } from "../theme"
-import { useGateway } from "../app/gateway"
+import { useGateway } from "../context/gateway"
 import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
 import { DialogSelect } from "../ui/dialog-select"
@@ -23,7 +23,7 @@ import { TabShell } from "../ui/shell"
 import { HintBar } from "../ui/hint"
 import { KVBlock } from "../ui/kv"
 import { ago, trunc } from "../ui/fmt"
-import { load as loadPrefs, set as setPref, type KanbanPrefs } from "../utils/preferences"
+import { load as loadPrefs, set as setPref, type KanbanPrefs } from "../context/preferences"
 
 // Operator surface for every kanban board under ~/.hermes/.
 //
@@ -66,8 +66,6 @@ const HEAD: Record<Status, string> = {
   triage: "triage", todo: "todo", ready: "ready",
   running: "running", blocked: "blocked", done: "done",
 }
-
-// ── Filter chips ────────────────────────────────────────────────────
 // Each chip cycles off → include → exclude → off. Per-group
 // semantics: a group with no `in` chips passes everything not
 // `ex`'d; once any chip is `in`, the group passes ONLY `in` values
@@ -117,8 +115,6 @@ const indexDiags = (rows: ReturnType<typeof parseDiagnostics>): Map<string, Diag
     if (r.diagnostics.length > 0) out.set(r.task_id, sortDiags(r.diagnostics))
   return out
 }
-
-// ── Persistence (t_cce26780) ───────────────────────────────────────
 // Masks + open-set round-trip through ~/.config/herm/tui.json under
 // the `kanban` key. Keyed by slug. Maps/Sets flatten to entry arrays
 // for JSON.
@@ -162,8 +158,6 @@ const persist = (masks: Map<string, Mask>, open: Set<string>) => {
     masks: maskToPrefs(masks),
   })
 }
-
-// ── Card ────────────────────────────────────────────────────────────
 // Title + bottom rule. The Ticker is always mounted; `active` gates
 // its interval. This avoids the conditional-mount path where the
 // inner renderable is swapped while the mouse is over it — OpenTUI's
@@ -275,8 +269,6 @@ type Section = {
   board: Board; cols: ColSpec[]; chips: Chip[]
   total: number; shown: number; running: number; cap: number
 }
-
-// ── Detail pane ────────────────────────────────────────────────────
 // Fields are ordered top-to-bottom to match the layout. The
 // `editable` flag gates whether Tab/↑↓ can land on a row and whether
 // Enter opens an editor. Non-editable rows (runs/events/comments)
@@ -725,8 +717,6 @@ export const Kanban = memo((props: { focused?: boolean }) => {
       toast.show({ variant: "error", message: trunc((e as Error).message, 120) })
     }
   }, [at, toast, load])
-
-  // ── Cross-board nav ───────────────────────────────────────────────
   // enterTop/enterBottom land on the first/last reachable tier of
   // the target section so ↑↓ read as one continuous vertical walk.
   // Tab always lands at head (it's the "skip past this board"
@@ -791,8 +781,6 @@ export const Kanban = memo((props: { focused?: boolean }) => {
       }),
   [dialog, gw, toast, load])
 
-  // ── Actions ────────────────────────────────────────────────────────
-
   const live = useRef({ task, at, sec })
   live.current = { task, at, sec }
 
@@ -855,8 +843,6 @@ export const Kanban = memo((props: { focused?: boolean }) => {
       body: `${t.id}  ·  ${trunc(t.title, 60)}\n\nMoves to 'archived' and ends any open run. Children stay; their dependency on this task is treated as satisfied.`,
     }).then(ok => { if (ok) void sh(`archive ${q(t.id)}`, `Archived ${t.id}`) }),
   [dialog, sh])
-
-  // ── specify (triage → todo via auxiliary LLM) ─────────────────────
   // Stdout is NDJSON, one line per task. Single-task form emits one
   // row; --all emits N. Both use the same parser: count ok rows, pick
   // the first to show in the success toast.
@@ -920,8 +906,6 @@ export const Kanban = memo((props: { focused?: boolean }) => {
       return void toast.show({ variant: "info", message: `No worker log for ${t.id}` })
     setPane({ kind: "log", slug: s, id: t.id, text })
   }, [toast])
-
-  // ── Pane-field editors ──────────────────────────────────────────
   // Invoked by Enter when tier=pane. Each one targets the CURRENT
   // task (live.current.task) via the right write path: patchTask
   // for fields the dashboard writes directly, shell.exec for status

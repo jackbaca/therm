@@ -11,7 +11,7 @@
 
 import { memo } from "react"
 import type { ToolPart as Part } from "../../../types/message"
-import type { DetailMode } from "../../../utils/preferences"
+import type { DetailMode } from "../../../context/preferences"
 import { InlineTool } from "./frame"
 import { isDiff } from "../DiffBlock"
 import { Subagent } from "./Subagent"

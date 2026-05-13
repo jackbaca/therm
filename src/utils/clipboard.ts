@@ -124,3 +124,5 @@ export function copySelection(renderer: { getSelection: () => { getSelectedText:
   renderer.clearSelection()
   return true
 }
+
+export * as Clipboard from "./clipboard"

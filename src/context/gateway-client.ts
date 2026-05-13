@@ -5,7 +5,7 @@ import { EventEmitter } from "events"
 import { homedir } from "os"
 import { resolve, delimiter } from "path"
 import { existsSync } from "fs"
-import type { GatewayEvent } from "./gateway-types"
+import type { GatewayEvent } from "./wire"
 
 const LOG_MAX = 200
 const LOG_PREVIEW = 240

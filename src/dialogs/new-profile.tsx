@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useKeyboard } from "@opentui/react"
 import { useTheme } from "../theme"
-import { validateName } from "../utils/hermes-profiles"
+import { validateName } from "../service/hermes-profiles"
 import type { DialogContext } from "../ui/dialog"
 
 type Result = { name: string; cloneFrom: string | null; alias: boolean }

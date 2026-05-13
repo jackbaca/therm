@@ -7,7 +7,7 @@ import { mkdirSync, rmSync } from "fs"
 import { mount, mountNode, until, MockGateway } from "./harness"
 import { openCountdown } from "../src/dialogs/countdown"
 import { useDialog } from "../src/ui/dialog"
-import { goalState, resetDb } from "../src/utils/sessions-db"
+import { goalState, resetDb } from "../src/service/sessions-db"
 
 // ─── goalState reader ────────────────────────────────────────────────
 

@@ -76,8 +76,6 @@ export type Detail = Task & {
 }
 
 export type Board = { slug: string; name: string }
-
-// ── Diagnostics ────────────────────────────────────────────────────
 // Fetched by shelling `hermes kanban --board <slug> diagnostics --json`.
 // Parsed here so Kanban.tsx holds only the UI shape. The Python rule
 // engine (hermes_cli/kanban_diagnostics.py, ~650 LOC) owns all rule
@@ -526,8 +524,6 @@ export function assignees(s: string = slug): string[] {
   } catch {}
   return [...seen].sort()
 }
-
-// ── Direct writes ──────────────────────────────────────────────────
 // Scoped to the same field set plugins/kanban/dashboard/plugin_api.py
 // PATCH /tasks/:id writes directly: title, body, priority. Every raw
 // write is wrapped in BEGIN IMMEDIATE and followed by a task_events
@@ -610,8 +606,6 @@ export function patchTask(s: string, id: string, patch: PatchFields): boolean {
 
   return true
 }
-
-// ── Current-board shims ────────────────────────────────────────────
 // Kept for callers that don't care about multi-board (rehome, tests).
 
 export const board = () => boardOf(slug)
@@ -623,3 +617,5 @@ export const tailLog = (id: string, bytes?: number) => tailLogOf(slug, id, bytes
  *  and toast messages readable for plain ids). */
 export const q = (s: string): string =>
   /^[A-Za-z0-9._\/:+=-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`
+
+export * as Kanban from "./hermes-kanban"

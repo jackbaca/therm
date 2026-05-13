@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { readFileSync } from "fs"
-import { filter, matchSub, resolve, sort, LOCAL_COMMANDS, LOCAL_NAMES, type SlashCommand } from "../src/commands/slash"
+import { filter, matchSub, resolve, sort, LOCAL_COMMANDS, LOCAL_NAMES, type SlashCommand } from "../src/app/slashCommands"
 
 const cmd = (over: Partial<SlashCommand>): SlashCommand => ({
   name: "x", description: "", category: "Session", aliases: [], argsHint: "",
@@ -37,13 +37,13 @@ describe("slash", () => {
     expect(LOCAL_COMMANDS.some(c => c.name === "logs")).toBe(true)
   })
 
-  // Parity guard — every `case "x"` in app.tsx's slash() switch must be
-  // in LOCAL_NAMES, otherwise the gateway catalog tags it target:"gateway"
+  // Parity guard — every `case "x"` in app/slash.tsx must be in
+  // LOCAL_NAMES, otherwise the gateway catalog tags it target:"gateway"
   // and the handler is unreachable.
   test("LOCAL_NAMES ⊇ slash() switch cases", () => {
-    const src = readFileSync(new URL("../src/app.tsx", import.meta.url), "utf8")
-    const body = src.slice(src.indexOf("const slash = useCallback"),
-                           src.indexOf("const send = useCallback"))
+    const src = readFileSync(new URL("../src/app/slash.tsx", import.meta.url), "utf8")
+    const body = src.slice(src.indexOf("const run = useCallback"),
+                           src.indexOf('if (c.target !== "gateway"'))
     const cases = [...body.matchAll(/case "([a-z-]+)":/g)].map(m => m[1])
     expect(cases.length).toBeGreaterThan(20)
     const missing = cases.filter(n => !LOCAL_NAMES.has(n))

@@ -82,8 +82,6 @@ export function hex(c: RGB | null): string | undefined {
   if (!c) return undefined
   return `#${c.r.toString(16).padStart(2, "0")}${c.g.toString(16).padStart(2, "0")}${c.b.toString(16).padStart(2, "0")}`
 }
-
-// ─── Rendering pipeline ─────────────────────────────────────────────────
 //
 // renderChafa() shells the chafa binary and returns parsed rows. Cached by
 // (resolved path, mtime, width) — re-renders on the same file at the same

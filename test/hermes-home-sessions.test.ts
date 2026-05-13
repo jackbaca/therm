@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, afterAll } from "bun:test"
 import { openStateDb } from "./fixtures/state-db"
-import { searchSessions, queryRecentSessions, querySubagents, queryLineage } from "../src/utils/hermes-home"
-import { kind, resetDb, peek, lastReal, chainTip } from "../src/utils/sessions-db"
+import { searchSessions, queryRecentSessions, querySubagents, queryLineage } from "../src/service/hermes-home"
+import { kind, resetDb, peek, lastReal, chainTip } from "../src/service/sessions-db"
 
 // Seeds a clean state.db and exercises the real SQL paths in
 // sessions-db.ts via the hermes-home re-exports.

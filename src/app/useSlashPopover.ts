@@ -1,7 +1,7 @@
 // Popover filtering and ghost text for the slash-command composer.
 
 import { useMemo, useEffect, useState } from "react"
-import { matchSub, type SlashCommand } from "../commands/slash"
+import { matchSub, type SlashCommand } from "./slashCommands"
 import { score } from "../utils/fuzzy"
 
 function best(q: string, cmd: SlashCommand) {

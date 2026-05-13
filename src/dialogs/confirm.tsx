@@ -21,7 +21,7 @@ const Confirm = (props: Props) => {
   const keys = useKeys()
   useKeyboard((key) => {
     if (keys.match("dialog.confirm", key) || keys.match("dialog.accept", key)) return props.onConfirm()
-    if (keys.match("dialog.deny", key) || keys.match("dialog.cancel", key)) return props.onCancel()
+    if (keys.match("dialog.deny", key)) return props.onCancel()
   })
   return (
     <box flexDirection="column" width={54}>
@@ -47,12 +47,10 @@ export function openConfirm(
   opts: Omit<Props, "onConfirm" | "onCancel">,
 ): Promise<boolean> {
   return new Promise((resolve) => {
+    const done = (v: boolean) => { resolve(v); dialog.clear() }
     dialog.replace(
-      <Confirm
-        {...opts}
-        onConfirm={() => { dialog.clear(); resolve(true) }}
-        onCancel={() => { dialog.clear(); resolve(false) }}
-      />,
+      <Confirm {...opts} onConfirm={() => done(true)} onCancel={() => done(false)} />,
+      () => resolve(false),
     )
   })
 }

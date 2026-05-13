@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { score } from "../src/utils/fuzzy"
 import { rank } from "../src/app/useSlashPopover"
-import type { SlashCommand } from "../src/commands/slash"
+import type { SlashCommand } from "../src/app/slashCommands"
 
 describe("fuzzy score", () => {
   test("subsequence matches return > 0", () => {

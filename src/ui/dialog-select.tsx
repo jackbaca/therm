@@ -44,6 +44,12 @@ export const DialogSelect = (props: Props) => {
   const filterable = props.filterable ?? true
   const [filter, setFilter] = useState("")
   const [cursor, setCursor] = useState(0)
+  // Suppress synthetic mouse-over after a keyboard nav or filter
+  // reflow: when the list shrinks/scrolls under a stationary pointer,
+  // OpenTUI fires onMouseOver for whatever row now sits beneath it,
+  // which would snap the cursor back. Only honor the pointer once it
+  // has genuinely moved.
+  const mode = useRef<"kb" | "mouse">("kb")
   const sb = useRef<ScrollBoxRenderable | null>(null)
   const theme = useTheme().theme
 
@@ -93,7 +99,7 @@ export const DialogSelect = (props: Props) => {
       : undefined
     const consumed = handleListKey(keys, key, {
       count: filtered.length,
-      setSel: setCursor,
+      setSel: (fn) => { mode.current = "kb"; setCursor(fn) },
       scrollTo,
       page: Math.max(1, (sb.current?.viewport.height ?? 10) - 1),
       onActivate: () => { const item = filtered[cursor]; if (item) props.onSelect(item) },
@@ -117,7 +123,7 @@ export const DialogSelect = (props: Props) => {
         <>
           <input
             value={filter}
-            onInput={setFilter}
+            onInput={(v) => { mode.current = "kb"; setFilter(v) }}
             placeholder={props.placeholder ?? "Type to filter..."}
             focused={true}
             textColor={theme.text}
@@ -155,7 +161,8 @@ export const DialogSelect = (props: Props) => {
                 id={rowId(i)}
                 flexDirection="row"
                 backgroundColor={active ? theme.backgroundElement : undefined}
-                onMouseMove={() => setCursor(i)}
+                onMouseMove={() => { mode.current = "mouse"; setCursor(c => c === i ? c : i) }}
+                onMouseOver={() => { if (mode.current === "mouse") setCursor(i) }}
                 onMouseDown={() => props.onSelect(item)}
                 paddingLeft={1}
                 paddingRight={1}

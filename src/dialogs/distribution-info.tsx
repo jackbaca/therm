@@ -11,8 +11,8 @@ import { KVBlock } from "../ui/kv"
 import { KVLink } from "../components/ui/FileLink"
 import { ago } from "../ui/fmt"
 import type { DialogContext } from "../ui/dialog"
-import type { DistributionManifest } from "../utils/hermes-profiles"
-import type { Source } from "../utils/hermes-home"
+import type { DistributionManifest } from "../service/hermes-profiles"
+import type { Source } from "../service/hermes-home"
 
 type Props = {
   profile: string

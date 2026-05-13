@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs"
 import { join, resolve } from "path"
 import { tmpdir } from "os"
-import { python } from "../src/utils/gateway-client"
+import { python } from "../src/context/gateway-client"
 
 const withEnv = <T>(key: string, value: string | undefined, fn: () => T): T => {
   const prev = process.env[key]

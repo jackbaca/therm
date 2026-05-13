@@ -11,7 +11,7 @@
 // here is derivable from config + the stock tui_gateway surface.
 
 import { writeConfig, type WriteResult } from "./lane"
-import type { ConfigSetResponse } from "../utils/gateway-types"
+import type { ConfigSetResponse } from "../context/wire"
 
 type Gw = {
   request<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T>

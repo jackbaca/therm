@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test"
 import { act } from "react"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { mountNode, until, MockGateway } from "./harness"
-import { hermesPath } from "../src/utils/hermes-home"
+import { hermesPath } from "../src/service/hermes-home"
 import { Skills } from "../src/tabs/Skills"
 
 describe("Skills tab", () => {
@@ -97,7 +97,7 @@ describe("Skills tab", () => {
   })
 
   test("h opens curator history pane; listCuratorRuns reads run.json counts", async () => {
-    const { listCuratorRuns } = await import("../src/utils/hermes-home")
+    const { listCuratorRuns } = await import("../src/service/hermes-home")
     const base = hermesPath("logs/curator/20260430-120000")
     mkdirSync(base, { recursive: true })
     writeFileSync(`${base}/run.json`, JSON.stringify({
@@ -135,7 +135,7 @@ describe("Skills tab", () => {
   })
 
   test("indexCuratorLineage: per-skill events across runs; DetailPanel renders (c8w.2)", async () => {
-    const { indexCuratorLineage } = await import("../src/utils/hermes-home")
+    const { indexCuratorLineage } = await import("../src/service/hermes-home")
     const a = hermesPath("logs/curator/20260420-100000")
     const b = hermesPath("logs/curator/20260425-100000")
     mkdirSync(a, { recursive: true }); mkdirSync(b, { recursive: true })

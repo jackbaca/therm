@@ -9,7 +9,7 @@ import { useState, useMemo } from "react"
 import { VBAR } from "../ui/table"
 import { useKeyboard } from "@opentui/react"
 import { useTheme } from "../theme"
-import * as prefs from "../utils/preferences"
+import { prefs } from "../context/preferences"
 import {
   useKeys, DEFAULTS, conflictsWith, parse,
   type ActionId, type Scope, type Chord,

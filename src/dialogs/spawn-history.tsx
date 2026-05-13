@@ -1,7 +1,7 @@
-import type { Gateway } from "../app/gateway"
+import type { Gateway } from "../context/gateway"
 import type { DialogContext } from "../ui/dialog"
 import { DialogSelect } from "../ui/dialog-select"
-import type { SpawnTreeEntry, SpawnTreeSnapshot, SpawnSubagent } from "../utils/gateway-types"
+import type { SpawnTreeEntry, SpawnTreeSnapshot, SpawnSubagent } from "../context/wire"
 import { useTheme } from "../theme"
 import { dur, when, fmt, trunc } from "../ui/fmt"
 

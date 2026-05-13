@@ -1,6 +1,4 @@
 import { SCHEMA, type ConfigSchemaEntry, type ConfigEffect } from "./schema"
-
-// ─── RPC alias map ───────────────────────────────────────────────────
 //
 // `config.set` on the gateway accepts a short whitelist of ALIAS keys,
 // not dotted paths (anything else → 4002). Several of these mutate the
@@ -34,8 +32,6 @@ export const RPC_ALIAS: Record<string, RpcAlias> = {
   custom_prompt: { alias: "prompt" },
 }
 
-// ─── lane routing ────────────────────────────────────────────────────
-
 export type Lane =
   | { via: "rpc"; alias: string; toWire?: (v: unknown) => string }
   | { via: "cli" }
@@ -50,8 +46,6 @@ export const route = (key: string): Lane => {
   if (s && (s.type === "list" || s.type === "dict")) return { via: "readonly" }
   return { via: "cli" }
 }
-
-// ─── value coercion for cli.exec ─────────────────────────────────────
 //
 // `hermes config set` parses the string argv[2] with heuristics
 // (true/false/on/off/yes/no → bool, all-digits → int, digits.digits →
@@ -66,8 +60,6 @@ export const toCliString = (key: string, v: unknown): string => {
   if (t === "float") return String(Number(v))
   return String(v ?? "")
 }
-
-// ─── write engine ────────────────────────────────────────────────────
 
 export type Diff = { key: string; to: unknown }
 export type WriteResult = {
@@ -122,8 +114,6 @@ export const writeConfig = async (gw: Gw, diffs: Diff[]): Promise<WriteResult> =
   return { ok, failed, warnings }
 }
 
-// ─── effect aggregation ──────────────────────────────────────────────
-
 const EFFECT_RANK: Record<ConfigEffect, number> = { live: 0, session: 1, restart: 2 }
 
 export const maxEffect = (keys: string[]): ConfigEffect =>
@@ -131,8 +121,6 @@ export const maxEffect = (keys: string[]): ConfigEffect =>
     const e = SCHEMA[k]?.effect ?? "live"
     return EFFECT_RANK[e] > EFFECT_RANK[acc] ? e : acc
   }, "live")
-
-// ─── verification ────────────────────────────────────────────────────
 
 const get = (obj: Record<string, unknown>, path: string): unknown => {
   let cur: unknown = obj

@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test"
 import { act, createRef, useState } from "react"
 import { mountNode, until, MockGateway, type Harness } from "./harness"
 import { Composer, type ComposerHandle } from "../src/components/chat/Composer"
-import * as prefs from "../src/utils/preferences"
-import type { SlashCommand } from "../src/commands/slash"
-import { LOCAL_COMMANDS } from "../src/commands/slash"
+import * as prefs from "../src/context/preferences"
+import type { SlashCommand } from "../src/app/slashCommands"
+import { LOCAL_COMMANDS } from "../src/app/slashCommands"
 import { atWordAt } from "../src/app/useAtRefPopover"
 
 async function setup(gw = new MockGateway()) {
@@ -210,6 +210,13 @@ describe("composer", () => {
     expect(atWordAt("foo@bar")).toBeNull()           // not word-initial
     expect(atWordAt("a @b c")).toBeNull()            // caret not at end of @-word
     expect(atWordAt("a @b")).toEqual({ word: "@b", start: 2 })
+    // cursor-relative: works mid-buffer and on later lines
+    expect(atWordAt("a @b c", 4)).toEqual({ word: "@b", start: 2 })
+    expect(atWordAt("a @b c", 3)).toEqual({ word: "@b", start: 2 })
+    expect(atWordAt("a @b c", 2)).toEqual({ word: "@b", start: 2 })
+    expect(atWordAt("a @b c", 1)).toBeNull()
+    expect(atWordAt("line1\n@f here", 8)).toEqual({ word: "@f", start: 6 })
+    expect(atWordAt("line1\nx @f", 10)).toEqual({ word: "@f", start: 8 })
   })
 
   test("@ opens atref popover; Tab inserts; Esc dismisses without clearing", async () => {
@@ -386,12 +393,12 @@ describe("composer", () => {
 })
 
 describe("composer: paste → file drop detection", () => {
-  type Drop = import("../src/utils/gateway-types").DropDetectResponse
+  type Drop = import("../src/context/wire").DropDetectResponse
   async function dropSetup(respond: (text: string) => Drop) {
     const gw = new MockGateway()
     gw.on$("input.detect_drop", p => respond(String(p.text)))
     const ref = createRef<ComposerHandle>()
-    const attached: Array<import("../src/utils/gateway-types").ImageAttachResponse> = []
+    const attached: Array<import("../src/context/wire").ImageAttachResponse> = []
     const t: Harness = await mountNode(
       <box flexDirection="column" flexGrow={1} width="100%" height="100%">
         <box flexGrow={1} />

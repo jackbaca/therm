@@ -18,10 +18,8 @@ import {
 import { LEFT_BAR } from "../../ui/borders"
 import type { ParsedKey, SubmitEvent } from "@opentui/core"
 import { useTheme } from "../../theme"
-import { useGateway } from "../../app/gateway"
+import { useGateway } from "../../context/gateway"
 import type { PromptPart, PromptReq, Part } from "../../types/message"
-
-// ── Shared ───────────────────────────────────────────────────────────
 
 export type PromptCardHandle = {
   /** Offer a key to the pending card. Returns true if consumed. */
@@ -68,8 +66,6 @@ const Pill = (p: { on: boolean; hot: string; label: string; onPick: () => void }
     </box>
   )
 }
-
-// ── Approval ─────────────────────────────────────────────────────────
 
 const CHOICES = ["once", "session", "always", "deny"] as const
 type Choice = typeof CHOICES[number]
@@ -127,6 +123,13 @@ const Approval = forwardRef<PromptCardHandle, {
         <box paddingLeft={2} minHeight={1}>
           <text fg={theme.text} wrapMode="word">$ {p.req.command}</text>
         </box>
+        {p.req.pattern_keys?.length ? (
+          <box paddingLeft={2} minHeight={1}>
+            <text fg={theme.textMuted} wrapMode="word">
+              matched: {p.req.pattern_keys.join(", ")}
+            </text>
+          </box>
+        ) : null}
       </box>
       <box flexDirection="row" gap={2} flexShrink={0}
            paddingX={2} paddingY={1} backgroundColor={theme.backgroundElement}>
@@ -142,8 +145,6 @@ const Approval = forwardRef<PromptCardHandle, {
     </Frame>
   )
 })
-
-// ── Clarify ──────────────────────────────────────────────────────────
 
 const Clarify = forwardRef<PromptCardHandle, {
   req: Extract<PromptReq, { variant: "clarify" }>
@@ -241,8 +242,6 @@ const Clarify = forwardRef<PromptCardHandle, {
   )
 })
 
-// ── Masked (sudo / secret) ───────────────────────────────────────────
-
 const Masked = forwardRef<PromptCardHandle, {
   title: string
   note: string
@@ -295,8 +294,6 @@ const Masked = forwardRef<PromptCardHandle, {
   )
 })
 
-// ── Answered (collapsed) ─────────────────────────────────────────────
-
 const Outcome = memo(({ part }: { part: PromptPart }) => {
   const theme = useTheme().theme
   const a = part.answered!
@@ -316,8 +313,6 @@ const Outcome = memo(({ part }: { part: PromptPart }) => {
     </box>
   )
 })
-
-// ── Dispatch ─────────────────────────────────────────────────────────
 
 export const PromptCard = memo(forwardRef<PromptCardHandle, {
   part: PromptPart
