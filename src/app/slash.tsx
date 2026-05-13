@@ -68,7 +68,7 @@ export type SlashCtx = {
   setSplash: (v: boolean) => void
   setAttachments: React.Dispatch<React.SetStateAction<ImageAttachResponse[]>>
   setInfo: (i: SessionInfo) => void
-  setUsage: (u: Usage | undefined) => void
+  setUsage: React.Dispatch<React.SetStateAction<Usage | undefined>>
   setTitle: (t: string) => void
 
   newSession: () => Promise<void>
@@ -154,7 +154,18 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
     const r = await ctx.current.session.compress()
     if (!r) return
     if (r.info) ctx.current.setInfo(r.info)
-    if (r.usage) ctx.current.setUsage(r.usage)
+    // r.usage.context_used reads comp.last_prompt_tokens which is set by
+    // the last *model turn*, not updated by compression. r.after_tokens
+    // IS the fresh rough estimate of the compacted transcript, so splice
+    // it over context_used so the gauge drops now instead of after the
+    // next turn (gh#20).
+    ctx.current.setUsage(u => {
+      const base = r.usage ?? u
+      const max = r.usage?.context_max ?? u?.context_max
+      if (typeof r.after_tokens !== "number" || typeof max !== "number") return base
+      return { ...(base ?? { input: 0, output: 0, total: 0 }),
+               context_used: r.after_tokens, context_max: max }
+    })
     if (Array.isArray(r.messages)) {
       ctx.current.dispatch({ kind: "load", messages: transcriptToMessages(r.messages) })
     }
