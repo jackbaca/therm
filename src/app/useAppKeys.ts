@@ -151,7 +151,7 @@ export function useAppKeys(o: Opts) {
     if (o.dialogOpen()) return
 
     // Shell mode: Esc exits (pre-empts the interrupt double-tap);
-    // backspace at offset 0 also exits (oc parity).
+    // backspace at offset 0 also exits.
     if (c?.mode() === "shell") {
       if (key.name === "escape") { c.setMode("normal"); key.stopPropagation(); return }
       if (key.name === "backspace" && !key.ctrl && !key.meta && c.caret() === 0) {
@@ -303,9 +303,8 @@ export function useAppKeys(o: Opts) {
     if (o.focusRegion === "input" && !o.streaming) {
       // `!` at the very start of the buffer enters shell mode. Only in
       // normal mode with no popover; the key is consumed so the `!`
-      // literal never lands in the textarea (oc: component/prompt
-      // enabled = cursorOffset 0). Kitty may report base `1` + shift
-      // when the terminal doesn't send the shifted codepoint.
+      // literal never lands in the textarea. Kitty may report base
+      // `1` + shift when the terminal doesn't send the shifted codepoint.
       if ((key.name === "!" || (key.name === "1" && key.shift))
           && !key.ctrl && !key.meta && key.eventType !== "release"
           && c && c.mode() === "normal" && !c.popOpen() && c.caret() === 0) {

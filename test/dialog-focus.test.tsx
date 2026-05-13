@@ -7,8 +7,7 @@ import { useDialog } from "../src/ui/dialog"
 import { openConfirm } from "../src/dialogs/confirm"
 
 // Probe that holds a focused <input> and exposes the renderer's
-// currentFocusedRenderable + a dialog handle — the oc sync-fixture
-// pattern, React edition.
+// currentFocusedRenderable + a dialog handle.
 let probe: { dialog: ReturnType<typeof useDialog>; focused: () => Renderable | null }
 
 const Probe = () => {

@@ -88,7 +88,7 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
   const [caret, setCaret] = useState(0)
   // `!` at cursor 0 (empty or line start) flips to shell mode; submit
   // routes to onShell, Esc/backspace@0 return to normal. Slash/@ and
-  // history are disabled in shell mode (oc: computePromptTraits).
+  // history are disabled in shell mode.
   const [mode, setMode] = useState<"normal" | "shell">("normal")
   const modeRef = useRef(mode); modeRef.current = mode
 

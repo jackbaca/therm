@@ -410,7 +410,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     newSession, switchSession, rewind, goTo, attachClipboard,
   })
   const send = useCallback(async (raw: string) => {
-    // Bare exit/quit/:q — oc lets these through as literals so a
+    // Bare exit/quit/:q — pass through as literals so a
     // reflex `exit⏎` works without the leading slash.
     if (["exit", "quit", ":q", ":q!", ":wq"].includes(raw.trim()))
       return quit(renderer, sid, title, gw)
@@ -465,8 +465,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   // Shell mode submit — `shell.exec` is a plain subprocess (no pty,
   // 30s cap, gateway cwd) with detect_dangerous_command blocklist.
   // Output lands in the transcript as $ cmd / stdout system messages,
-  // not part of the agent's conversation history (parity with oc's
-  // session.shell messages appearing inline but typed distinctly).
+  // not part of the agent's conversation history.
   const onShell = useCallback((command: string) => {
     setSplash(false)
     dispatch({ kind: "system", text: `$ ${command}` })
