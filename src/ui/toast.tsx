@@ -9,7 +9,8 @@
  *   toast.error(new Error("oops"))
  */
 
-import { createContext, useContext, useState, useCallback, useRef, useMemo, useEffect } from "react"
+import { createContext, useState, useCallback, useRef, useMemo, useEffect } from "react"
+import { makeUse } from "../context/helper"
 import type { ReactNode } from "react"
 import { useTheme } from "../theme"
 import type { RGBA } from "@opentui/core"
@@ -123,8 +124,4 @@ const ToastOverlay = ({ items }: { items: ReadonlyArray<ToastEntry> }) => {
   )
 }
 
-export const useToast = (): ToastContext => {
-  const ctx = useContext(Ctx)
-  if (!ctx) throw new Error("useToast() must be inside <ToastProvider>")
-  return ctx
-}
+export const useToast = makeUse(Ctx, "useToast")

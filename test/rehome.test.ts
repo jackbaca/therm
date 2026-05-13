@@ -19,14 +19,14 @@ describe("rehome", () => {
   const A = mkdtempSync(join(tmpdir(), "herm-rehome-a-"))
   const B = mkdtempSync(join(tmpdir(), "herm-rehome-b-"))
   let rehome: typeof import("../src/home/rehome").rehome
-  let hermesPath: typeof import("../src/utils/hermes-home").hermesPath
+  let hermesPath: typeof import("../src/service/hermes-home").hermesPath
   let home: typeof import("../src/home/store").home
 
   beforeAll(async () => {
     seed(A, "soul-a")
     seed(B, "soul-b")
     rehome = (await import("../src/home/rehome")).rehome
-    hermesPath = (await import("../src/utils/hermes-home")).hermesPath
+    hermesPath = (await import("../src/service/hermes-home")).hermesPath
     home = (await import("../src/home/store")).home
   })
 
@@ -60,7 +60,7 @@ describe("rehome", () => {
   })
 
   test("clears analytics cache", async () => {
-    const { cache } = await import("../src/utils/hermes-analytics")
+    const { cache } = await import("../src/service/hermes-analytics")
     cache.set(7, { days: 7 } as never)
     rehome(A)
     expect(cache.size).toBe(0)
@@ -70,7 +70,7 @@ describe("rehome", () => {
     // HERM_CONFIG_DIR pins configDir() in tests, so path-rebind can't be
     // asserted here — verify the listener fires. In production (no
     // HERM_CONFIG_DIR) configDir() follows HERMES_HOME via paths.ts.
-    const prefs = await import("../src/utils/preferences")
+    const prefs = await import("../src/context/preferences")
     let n = 0
     const off = (prefs as unknown as { subscribe: (l: () => void) => () => void })
       .subscribe?.(() => { n++ })

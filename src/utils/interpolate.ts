@@ -5,7 +5,7 @@
 // terminal tool. Stdout+stderr are trimmed and spliced in place;
 // a failed/timed-out command substitutes `(error)`.
 
-import type { Gateway } from "../app/gateway"
+import type { Gateway } from "../context/gateway"
 
 export const INTERP_RE = /\{!(.+?)\}/g
 

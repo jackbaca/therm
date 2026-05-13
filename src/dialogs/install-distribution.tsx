@@ -24,9 +24,9 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { useTheme } from "../theme"
 import { useKeys } from "../keys"
-import type { Gateway } from "../app/gateway"
+import type { Gateway } from "../context/gateway"
 import type { DialogContext } from "../ui/dialog"
-import { readDistributionManifest, type DistributionManifest } from "../utils/hermes-profiles"
+import { readDistributionManifest, type DistributionManifest } from "../service/hermes-profiles"
 import { Spinner } from "../ui/spinner"
 
 type ShellResult = { stdout: string; stderr: string; code: number }

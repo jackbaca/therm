@@ -2,10 +2,10 @@ import { describe, test, expect } from "bun:test"
 import { act } from "react"
 import { mountNode, until, MockGateway } from "./harness"
 import { Sessions, fold } from "../src/tabs/Sessions"
-import type { SessionHit } from "../src/utils/hermes-home"
-import type { SessionRow } from "../src/utils/hermes-home"
-import type { PeekMsg } from "../src/utils/sessions-db"
-import * as prefs from "../src/utils/preferences"
+import type { SessionHit } from "../src/service/hermes-home"
+import type { SessionRow } from "../src/service/hermes-home"
+import type { PeekMsg } from "../src/service/sessions-db"
+import * as prefs from "../src/context/preferences"
 
 const ROWS = [
   { id: "sid-a", title: "First session", preview: "hey", message_count: 4, started_at: 1700000000, source: "tui" },

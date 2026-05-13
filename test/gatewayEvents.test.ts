@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { mapEvent, type Side } from "../src/app/gatewayEvents"
-import type { GatewayEvent } from "../src/utils/gateway-types"
+import { mapEvent, type Side } from "../src/context/events"
+import type { GatewayEvent } from "../src/context/wire"
 
 function map(ev: GatewayEvent, side: Partial<Side> = {}) {
   const calls: Record<string, unknown[]> = {}

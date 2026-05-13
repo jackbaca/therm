@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { act } from "react"
 import { mountNode, until } from "./harness"
 import { useDialog } from "../src/ui/dialog"
-import { useGateway } from "../src/app/gateway"
+import { useGateway } from "../src/context/gateway"
 import { openModelPicker } from "../src/dialogs/model-picker"
 import { useEffect } from "react"
 

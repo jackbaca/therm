@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, memo, type ReactNode } from "react";
-import { useGateway } from "../app/gateway";
+import { useGateway } from "../context/gateway";
 import { useListKeys, useFollow } from "../keys";
 import { useTheme } from "../theme";
 import { useDialog } from "../ui/dialog";

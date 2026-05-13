@@ -13,7 +13,7 @@ import { useKeys, handleListKey } from "../keys"
 import { useTheme } from "../theme"
 import type { DialogContext } from "../ui/dialog"
 import type { useToast } from "../ui/toast"
-import type { Gateway } from "../app/gateway"
+import type { Gateway } from "../context/gateway"
 import { DiffBlock } from "../components/chat/DiffBlock"
 import { ago, trunc } from "../ui/fmt"
 

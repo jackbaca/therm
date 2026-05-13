@@ -8,8 +8,8 @@ import { Agents } from "../src/tabs/Agents"
 import {
   listProfiles, validateName, activeProfileName, profileNameFrom, stickyDefault, profileStats,
   readDistributionManifest,
-} from "../src/utils/hermes-profiles"
-import type { DelegationRecord, DelegationStatus } from "../src/utils/gateway-types"
+} from "../src/service/hermes-profiles"
+import type { DelegationRecord, DelegationStatus } from "../src/context/wire"
 
 // ─── fixture ─────────────────────────────────────────────────────────
 

@@ -13,7 +13,7 @@ import { readdir, stat } from "node:fs/promises";
 import { openSync, readSync, closeSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "os";
 import { parse as parseYaml } from "yaml";
-import { count as tokenCount } from "./tokens";
+import { count as tokenCount } from "../utils/tokens";
 //
 // Mutable cell — profile switch (herm-q73) rebinds this at runtime so
 // every hermesPath() caller follows without a process restart. Same

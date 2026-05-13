@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, memo } from "react"
 import { VBAR } from "../ui/table"
 import { useKeyboard, useTerminalDimensions } from "@opentui/react"
 import { useKeys, handleListKey, useFollow } from "../keys"
-import { useGateway, useGatewayEvent } from "../app/gateway"
+import { useGateway, useGatewayEvent } from "../context/gateway"
 import { trail } from "../app/spawnHistory"
 import { useTheme } from "../theme"
 import { useDialog } from "../ui/dialog"
@@ -22,10 +22,10 @@ import { dur, trunc, fmt, ago } from "../ui/fmt"
 import {
   listProfiles, stickyDefault, profileStats,
   type ProfileInfo, type ProfileStats, type DistributionManifest,
-} from "../utils/hermes-profiles"
-import type { Source } from "../utils/hermes-home"
-import type { DelegationStatus, DelegationRecord } from "../utils/gateway-types"
-import { tree as buildTree, totals as treeTotals, summary, spark, heat, peak, type Agg } from "../utils/subagent-tree"
+} from "../service/hermes-profiles"
+import type { Source } from "../service/hermes-home"
+import type { DelegationStatus, DelegationRecord } from "../context/wire"
+import { tree as buildTree, totals as treeTotals, summary, spark, heat, peak, type Agg } from "../service/subagent-tree"
 
 // Two panes:
 //   Profiles (left)   — filesystem scan of `<root>/profiles/`. Each

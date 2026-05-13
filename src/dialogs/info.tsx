@@ -8,10 +8,10 @@ import { useTheme } from "../theme"
 import { KVBlock } from "../ui/kv"
 import { fmt, cost } from "../ui/fmt"
 import type { DialogContext } from "../ui/dialog"
-import type { Gateway } from "../app/gateway"
-import type { SessionInfo, SessionUsageResponse } from "../utils/gateway-types"
-import { listProfiles, activeProfileName } from "../utils/hermes-profiles"
-import { hermesPath } from "../utils/hermes-home"
+import type { Gateway } from "../context/gateway"
+import type { SessionInfo, SessionUsageResponse } from "../context/wire"
+import { listProfiles, activeProfileName } from "../service/hermes-profiles"
+import { hermesPath } from "../service/hermes-home"
 
 type Row = [string, string | undefined, RGBA?]
 
@@ -84,7 +84,7 @@ export const openUsage = (dialog: DialogContext, gw: Gateway) =>
   dialog.replace(<UsageDialog gw={gw} />)
 
 const ProfileDialog = () => {
-  const [p, setP] = useState<import("../utils/hermes-profiles").ProfileInfo | null | undefined>(undefined)
+  const [p, setP] = useState<import("../service/hermes-profiles").ProfileInfo | null | undefined>(undefined)
   const active = activeProfileName()
   useEffect(() => {
     listProfiles().then(ps => setP(ps.find(x => x.name === active) ?? null))

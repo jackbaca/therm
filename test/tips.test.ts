@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test"
-import { loadTips, splitTip, randomTip } from "../src/utils/tips"
+import { loadTips, splitTip, randomTip } from "../src/service/tips"
 
 describe("tips", () => {
   test("loadTips parses hermes_cli/tips.py into a flat string list", () => {

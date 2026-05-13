@@ -4,8 +4,8 @@
 // re-running (and re-registering) on every key event.
 
 import { useEffect, useRef, type RefObject } from "react"
-import { setBridge, enabled } from "../utils/control"
-import { useGateway } from "./gateway"
+import { setBridge, enabled } from "./control"
+import { useGateway } from "../context/gateway"
 import { useRenderer } from "@opentui/react"
 import { CHAT_TAB } from "./tabs"
 import type { Action, TurnState } from "./turnReducer"

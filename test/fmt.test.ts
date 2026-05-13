@@ -1,6 +1,6 @@
 import { describe, expect, it, setSystemTime, afterEach } from "bun:test"
 import { trunc, fmt, cost, span, dur, until, ago, stamp, when } from "../src/ui/fmt"
-import * as prefs from "../src/utils/preferences"
+import * as prefs from "../src/context/preferences"
 
 describe("fmt", () => {
   afterEach(() => setSystemTime())

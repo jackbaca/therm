@@ -7,10 +7,10 @@ import {
   parseDiagnostics, maxSeverity, sortDiags,
   type Task, type Status, type Detail, type Board,
   type Diag, type Severity,
-} from "../utils/hermes-kanban"
+} from "../service/hermes-kanban"
 import { useKeys } from "../keys"
 import { useTheme } from "../theme"
-import { useGateway } from "../app/gateway"
+import { useGateway } from "../context/gateway"
 import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
 import { DialogSelect } from "../ui/dialog-select"
@@ -23,7 +23,7 @@ import { TabShell } from "../ui/shell"
 import { HintBar } from "../ui/hint"
 import { KVBlock } from "../ui/kv"
 import { ago, trunc } from "../ui/fmt"
-import { load as loadPrefs, set as setPref, type KanbanPrefs } from "../utils/preferences"
+import { load as loadPrefs, set as setPref, type KanbanPrefs } from "../context/preferences"
 
 // Operator surface for every kanban board under ~/.hermes/.
 //

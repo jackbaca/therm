@@ -10,7 +10,7 @@
  * otherwise "gateway" (forwarded as /{name} to the Hermes API).
  */
 
-import { SKINS } from "../app/skin"
+import { SKINS } from "../context/skin"
 
 export type SlashSource = "command" | "skill" | "plugin" | "mcp" | "local"
 

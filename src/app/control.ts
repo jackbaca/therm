@@ -20,7 +20,7 @@
  * on dangerous tabs (Config, Sessions) unless safe=false is passed.
  */
 
-import * as perf from "./perf"
+import * as perf from "../utils/perf"
 import { TABS, TAB_MAX, CHAT_TAB } from "../app/tabs"
 
 const PORT = Number(process.env.CONTROL_PORT) || 7777

@@ -4,8 +4,8 @@
 // runs at a time per session); `flush()` is called from the app-level
 // onTurnComplete side-effect.
 
-import type { Gateway } from "./gateway"
-import type { SubagentPayload, SpawnSubagent } from "../utils/gateway-types"
+import type { Gateway } from "../context/gateway"
+import type { SubagentPayload, SpawnSubagent } from "../context/wire"
 
 type Event = "start" | "thinking" | "tool" | "progress" | "complete"
 

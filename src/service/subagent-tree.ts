@@ -3,7 +3,7 @@
 // thinner (DelegationRecord has no tokens/cost; those arrive via
 // subagent.complete into `live`), so aggregate() takes both.
 
-import type { DelegationRecord } from "./gateway-types"
+import type { DelegationRecord } from "../context/wire"
 
 // Per-node enrichment accumulated from subagent.* push events between
 // registry polls. Mirrors the `Live` shape in Agents.tsx.

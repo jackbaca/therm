@@ -4,7 +4,7 @@
 
 import type { Message, Part, TextPart, ToolPart, PromptPart, PromptReq, Usage } from "../types/message"
 import { mid, pid } from "../types/message"
-import type { SubagentPayload, TranscriptMessage } from "../utils/gateway-types"
+import type { SubagentPayload, TranscriptMessage } from "../context/wire"
 
 export type TurnState = {
   messages: Message[]

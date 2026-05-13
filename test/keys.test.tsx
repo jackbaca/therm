@@ -4,7 +4,7 @@ import type { ParsedKey } from "@opentui/core"
 import { useKeyboard } from "@opentui/react"
 import { mountNode, until, type Harness } from "./harness"
 import { useKeys, type Keys } from "../src/keys"
-import * as prefs from "../src/utils/preferences"
+import * as prefs from "../src/context/preferences"
 
 function Probe(props: { onKeys: (k: Keys) => void; onFire?: (id: string) => void }) {
   const keys = useKeys()

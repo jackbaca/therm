@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import { act } from "react"
 import { mount, until, MockGateway } from "./harness"
-import * as prefs from "../src/utils/preferences"
-import { matchSub, LOCAL_COMMANDS } from "../src/commands/slash"
+import * as prefs from "../src/context/preferences"
+import { matchSub, LOCAL_COMMANDS } from "../src/app/slashCommands"
 
 const type = async (t: Awaited<ReturnType<typeof mount>>, s: string) => {
   await act(async () => { await t.keys.typeText(s) })

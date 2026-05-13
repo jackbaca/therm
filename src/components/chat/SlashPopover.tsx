@@ -12,8 +12,8 @@ import { useMemo, memo } from "react"
 import type { RGBA } from "@opentui/core"
 import { useTheme } from "../../theme"
 import type { Theme } from "../../theme"
-import type { SlashCommand, SlashSource } from "../../commands/slash"
-import { sort } from "../../commands/slash"
+import type { SlashCommand, SlashSource } from "../../app/slashCommands"
+import { sort } from "../../app/slashCommands"
 
 type Props = {
   readonly commands: ReadonlyArray<SlashCommand>

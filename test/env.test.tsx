@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach } from "bun:test"
 import { act } from "react"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { mountNode, until } from "./harness"
-import { hermesPath } from "../src/utils/hermes-home"
+import { hermesPath } from "../src/service/hermes-home"
 import { Env } from "../src/tabs/Env"
 
 // hermes-home resolves ENV_PATH at import time from the sandbox

@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect, memo, type ReactNode } from "react"
 import type { RGBA, TextNodeRenderable } from "@opentui/core"
 import { useTheme } from "../theme"
-import { prefs } from "../utils/preferences"
+import { prefs } from "../context/preferences"
 
 const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 const MS = 80

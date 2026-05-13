@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useCallback, useMemo, useRef } from "react"
+import { createContext, useState, useCallback, useMemo, useRef } from "react"
+import { makeUse } from "../context/helper"
 import type { ReactNode } from "react"
 import { useKeyboard, useTerminalDimensions, useRenderer } from "@opentui/react"
 import { RGBA, type Renderable } from "@opentui/core"
@@ -155,8 +156,4 @@ const Overlay = ({ entry, onClose }: { entry: Entry; onClose: () => void }) => {
   )
 }
 
-export const useDialog = (): DialogContext => {
-  const ctx = useContext(Ctx)
-  if (!ctx) throw new Error("useDialog() must be inside <DialogProvider>")
-  return ctx
-}
+export const useDialog = makeUse(Ctx, "useDialog")

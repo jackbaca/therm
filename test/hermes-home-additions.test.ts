@@ -2,7 +2,7 @@ import { describe, test, expect, beforeAll } from "bun:test"
 import { mkdirSync, writeFileSync } from "fs"
 import { join } from "path"
 import { count as tokenCount } from "../src/utils/tokens"
-import { readCronOutput } from "../src/utils/hermes-home"
+import { readCronOutput } from "../src/service/hermes-home"
 
 const HH = process.env.HERMES_HOME!
 
@@ -31,7 +31,7 @@ beforeAll(() => {
 
 describe("hermes-home readers", () => {
   test("SoulInfo.content exposes raw SOUL.md body", async () => {
-    const { readSoul } = await import("../src/utils/hermes-home")
+    const { readSoul } = await import("../src/service/hermes-home")
     const s = await readSoul()
     expect(s).not.toBeNull()
     expect(s!.content).toContain("You are a test agent")
@@ -75,7 +75,7 @@ describe("hermes-home readers", () => {
   })
 
   test("readChangelog: first bullet → headline; null when missing", async () => {
-    const { readChangelog } = await import("../src/utils/hermes-home")
+    const { readChangelog } = await import("../src/service/hermes-home")
     expect(readChangelog()).toBeNull()
     mkdirSync(join(HH, "herm"), { recursive: true })
     writeFileSync(

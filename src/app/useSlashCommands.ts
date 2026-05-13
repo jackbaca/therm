@@ -9,14 +9,14 @@
 // All names carry a leading "/"; herm stores them bare.
 
 import { useCallback, useEffect, useState } from "react"
-import { useGateway, useGatewayReady } from "./gateway"
+import { useGateway, useGatewayReady } from "../context/gateway"
 import {
   LOCAL_COMMANDS,
   LOCAL_NAMES,
   sort,
   type SlashCommand,
-} from "../commands/slash"
-import type { CommandsCatalogResponse } from "../utils/gateway-types"
+} from "./slashCommands"
+import type { CommandsCatalogResponse } from "../context/wire"
 
 const bare = (s: string) => (s[0] === "/" ? s.slice(1) : s)
 

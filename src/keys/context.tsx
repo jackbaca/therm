@@ -9,10 +9,11 @@
 // provider disarms in a microtask (after other useKeyboard subscribers on
 // the same event have read `leader`) and restores focus.
 
-import { createContext, useContext, useMemo, useRef, useCallback, useState, type ReactNode } from "react"
+import { createContext, useMemo, useRef, useCallback, useState, type ReactNode } from "react"
+import { makeUse } from "../context/helper"
 import { useKeyboard, useRenderer } from "@opentui/react"
 import type { ParsedKey, Renderable } from "@opentui/core"
-import { usePref } from "../utils/preferences"
+import { usePref } from "../context/preferences"
 import { DEFAULTS, type ActionId, type Scope } from "./catalog"
 import { parse, match as chordMatch, print as chordPrint, type Chord } from "./chord"
 
@@ -105,8 +106,4 @@ export const KeysProvider = ({ children }: { children: ReactNode }) => {
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 
-export const useKeys = (): Keys => {
-  const ctx = useContext(Ctx)
-  if (!ctx) throw new Error("useKeys() must be inside <KeysProvider>")
-  return ctx
-}
+export const useKeys = makeUse(Ctx, "useKeys")

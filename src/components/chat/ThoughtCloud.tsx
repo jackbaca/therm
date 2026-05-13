@@ -8,7 +8,7 @@ import { memo, useEffect, useRef, useState } from "react"
 import type { BorderCharacters, MouseEvent } from "@opentui/core"
 import type { Message, Part, ThinkingPart, ToolPart } from "../../types/message"
 import { Tool } from "./tool"
-import { usePref } from "../../utils/preferences"
+import { usePref } from "../../context/preferences"
 import { useTheme } from "../../theme"
 
 export const CLOUD_MIN = 12
