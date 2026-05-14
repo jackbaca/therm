@@ -73,6 +73,37 @@ done
 [[ -z "$F" ]] || { echo "FAIL: preview did not clear"; exit 1; }
 echo "PASS: preview cleared"
 
+# --- editor path: write a WIP with studio header, activate → panel renders.
+ffmpeg -hide_banner -loglevel error -f lavfi \
+  -i "nullsrc=s=256x128,format=gray,geq=lum=255*gte(X\,128)" \
+  -frames:v 1 -y /tmp/e2e-step.png
+bun -e '
+const S=["idle","listening","thinking","speaking","working","error"]
+const K={symbols:"braille",invert:true,contrast:1,zoom:1,ox:0.5,oy:0.5}
+const out=[JSON.stringify({eikon:1,name:"e2e",width:48,height:24,author:"e2e",glyph:"◆",studio:{src:"/tmp/e2e-step.png",base:K,per:{}}})]
+for(const s of S){out.push(JSON.stringify({state:s,fps:12,frame_count:1,loop_from:1}));out.push(JSON.stringify({f:0,data:" "}))}
+await Bun.write(process.argv[1],out.join("\n")+"\n")
+' "$HH/herm/eikon-wip.eikon"
+j "/plugin/herm.eikon-studio" '{"on":true}'  >/dev/null
+j /push '{"type":"tool.complete","payload":{"tool_id":"e2e"}}' >/dev/null
+for i in $(seq 1 20); do req "/frame?grep=EIKON%20STUDIO" | grep -q STUDIO && break; sleep 0.2; done
+req "/frame?grep=EIKON%20STUDIO" | grep -q STUDIO || { echo "FAIL: panel not mounted"; req /frame | head -40; exit 1; }
+req "/frame?grep=braille" | grep -q "◂ braille ▸" || { echo "FAIL: symbols row missing"; exit 1; }
+echo "PASS: editor panel visible"
+
+# Drive a key: 'l' → symbols cycles to block.
+j /key '{"name":"l","safe":false}' >/dev/null
+for i in $(seq 1 20); do req "/frame?grep=block" | grep -q "◂ block ▸" && break; sleep 0.2; done
+req "/frame?grep=block" | grep -q "◂ block ▸" || { echo "FAIL: knob did not change"; req /frame | head -40; exit 1; }
+echo "PASS: knob edit via /key"
+
+# Enter → commit → panel gone, badge ◌.
+j /key '{"name":"return","safe":false}' >/dev/null
+for i in $(seq 1 20); do req "/frame?grep=EIKON%20STUDIO" | grep -q STUDIO || break; sleep 0.2; done
+req "/frame?grep=EIKON%20STUDIO" | grep -q STUDIO && { echo "FAIL: panel did not close on commit"; exit 1; }
+req "/frame?grep=wip" | grep -q "◌ wip" || { echo "FAIL: watching badge missing after commit"; exit 1; }
+echo "PASS: commit → watching"
+
 # Deactivate plugin, confirm idempotent.
 j "/plugin/herm.eikon-studio" '{"on":false}' | jq -e '.ok==true' >/dev/null
 echo "PASS: e2e-eikon-studio ok"

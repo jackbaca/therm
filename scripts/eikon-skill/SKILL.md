@@ -36,18 +36,17 @@ background, roughly square crop, centered."
    terminal: bash ~/.hermes/skills/creative/eikon/scripts/preview.sh "<path>"
    ```
 
-   This writes `~/.hermes/herm/eikon-wip.eikon`. The plugin picks it up on
-   the next `tool.complete` event — so the user sees the result in the
-   sidebar immediately after your terminal call returns. Include the
-   poster (script prints it) inline in chat so it's also visible if the
-   sidebar is hidden.
+   This writes `~/.hermes/herm/eikon-wip.eikon` with a `studio` header so
+   the plugin opens the **knob editor** in the sidebar (symbols, invert,
+   contrast, zoom, pan). It picks up on the next `tool.complete` — the
+   user sees the result immediately after your terminal call returns.
+   Include the poster (script prints it) inline in chat too.
 
-3. **Iterate.** Ask "Does that read?" Offer:
-   - `--no-invert` if subject is light-on-dark (script forwards it)
-   - `--symbols block` for chunkier output
-   - a different crop/image
-
-   Re-run preview.sh with new args; the sidebar updates each time.
+3. **Iterate.** Tell the user: "Sidebar is now the editor — `j/k` pick a
+   knob, `h/l` or arrows adjust, `Enter` when done. Or tell me what to
+   change and I'll do it." You can also re-run preview.sh with
+   `--no-invert` / `--symbols block` to adjust for them; each run
+   rewrites the WIP and the sidebar follows.
 
 4. **Per-state images (optional).** If the user wants distinct states, ask
    for up to 5 more images and run with `--state <name>`:
@@ -58,14 +57,16 @@ background, roughly square crop, centered."
 
    The script merges into the existing WIP, overwriting only that state.
 
-5. **Bake.** When they're happy:
+5. **Bake.** When they're happy, ask for a name. For the glyph, **offer to
+   pick one** that fits the silhouette (single emoji or unicode char), and
+   use theirs if they specify. Then:
 
    ```bash
    terminal: bash ~/.hermes/skills/creative/eikon/scripts/preview.sh --bake <name> --glyph "<char>" --author "<user>"
    ```
 
-   Writes `~/.hermes/eikons/<name>.eikon`, clears the WIP (sidebar reverts
-   to the new real avatar). Tell the user `/eikon` will now list it.
+   Writes `~/.hermes/eikons/<name>.eikon`, clears the WIP. The sidebar
+   reverts to the real avatar; tell the user `/eikon` will now list it.
 
 6. **Offer publish.** `eikon publish ~/.hermes/eikons/<name>.eikon` (from
    the eikon repo's CLI) opens a PR to the catalog.

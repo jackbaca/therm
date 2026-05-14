@@ -87,6 +87,7 @@ export const Sidebar = memo((props: {
   onAvatarHold?: (s: AvatarState) => void
 }) => {
   const theme = useTheme().theme
+  const p = usePlugins()
   const state = props.agentState ?? "idle"
   const info = props.info
 
@@ -114,6 +115,8 @@ export const Sidebar = memo((props: {
       <box padding={1} flexDirection="column" flexGrow={1} overflow="hidden"
            border={["top", "left", "right"]} borderStyle="double"
            borderColor={theme.hermAvatar}>
+        <p.Slot name="sidebar_content" mode="replace" sid="">
+        <box flexDirection="column" flexGrow={1}>
 
         {/* Flat identity block — Title is primary (always rendered so the
             block doesn't reflow when `/title` fires), then Profile
@@ -152,6 +155,8 @@ export const Sidebar = memo((props: {
 
         <box flexGrow={1} />
         <ContextGauge info={info} usage={props.usage} width={INNER} />
+        </box>
+        </p.Slot>
       </box>
     </box>
   )

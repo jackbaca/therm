@@ -61,9 +61,12 @@ data=$(jq -Rs . <<<"${frame%$'\n'}")
 emit_state() { printf '{"state":"%s","fps":12,"frame_count":1,"loop_from":1}\n{"f":0,"data":%s}\n' "$1" "$2"; }
 
 if [[ -z "$state" || ! -f "$WIP" ]]; then
-  # Fresh WIP: all 6 states share the frame.
+  # Fresh WIP: all 6 states share the frame. Include `studio` header so the
+  # herm eikon-studio plugin opens the knob editor on pickup.
+  K=$(printf '{"symbols":"%s","invert":%s,"contrast":1,"zoom":1,"ox":0.5,"oy":0.5}' "$symbols" "$([[ -n $invert ]] && echo true || echo false)")
   {
-    printf '{"eikon":1,"name":"wip","width":%d,"height":%d,"author":"%s","glyph":"◆"}\n' "$W" "$H" "${USER:-unknown}"
+    printf '{"eikon":1,"name":"wip","width":%d,"height":%d,"author":"%s","glyph":"◆","studio":{"src":%s,"base":%s,"per":{}}}\n' \
+      "$W" "$H" "${USER:-unknown}" "$(jq -Rn --arg p "$img" '$p')" "$K"
     for s in "${STATES[@]}"; do emit_state "$s" "$data"; done
   } > "$WIP"
 else

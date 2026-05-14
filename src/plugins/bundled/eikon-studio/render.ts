@@ -99,6 +99,9 @@ export function render(src: string, k: Knobs): Rendered {
   const chafaArgs = [
     `--size=${W}x${H}`, "--format=symbols", "--stretch",
     `--symbols=${k.symbols}`, "--colors=none", "--dither=none",
+    // chafa's default --preprocess auto-levels the input, which would
+    // undo eq=contrast upstream. Only skip it when we own contrast.
+    ...(caps.ffmpeg ? ["--preprocess", "off"] : []),
     ...(k.invert ? ["--invert"] : []),
   ]
 
