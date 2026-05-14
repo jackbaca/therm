@@ -2,6 +2,7 @@ import { useState, memo, type ReactNode } from "react"
 import { AnimatedAvatar } from "../avatar/AnimatedAvatar"
 import type { ParsedEikon } from "../avatar/eikon"
 import { useTheme } from "../../theme"
+import { usePlugins } from "../../plugins/runtime"
 import type { AvatarState } from "../avatar/states"
 import type { SessionInfo } from "../../context/wire"
 import type { Usage } from "../../types/message"
@@ -47,6 +48,18 @@ const Section = memo((props: {
   )
 })
 
+// The avatar cell is a `replace` slot so a plugin (eikon-studio) can
+// temporarily supplant the live eikon with a WIP preview. With no
+// contributor the default child renders unchanged.
+const Avatar = (props: { state: AvatarState; eikon?: ParsedEikon; onHold?: (s: AvatarState) => void }) => {
+  const p = usePlugins()
+  return (
+    <p.Slot name="sidebar_avatar" mode="replace" state={props.state} eikon={props.eikon}>
+      <AnimatedAvatar state={props.state} eikon={props.eikon} onHold={props.onHold} />
+    </p.Slot>
+  )
+}
+
 const Row = (props: { label: string; value: string; strong?: boolean }) => {
   const theme = useTheme().theme
   return (
@@ -87,7 +100,7 @@ export const Sidebar = memo((props: {
       {/* Avatar (bust) — also the anchor for the thought-cloud tail */}
       <box position="relative" flexDirection="column" height={24} overflow="hidden"
            onMouseDown={props.onAvatar}>
-        <AnimatedAvatar state={state} eikon={props.eikon} onHold={props.onAvatarHold} />
+        <Avatar state={state} eikon={props.eikon} onHold={props.onAvatarHold} />
         {props.cloud ? (
           <box position="absolute" left={0} top={0}>
             <Tail run={!!props.pulse} />
