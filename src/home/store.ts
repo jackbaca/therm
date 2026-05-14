@@ -270,7 +270,9 @@ export class HomeStore {
           name = null
         }
       } catch {
-        continue
+        // TOCTOU: file may have been deleted between existsSync and
+        // statSync. Fall through — dir/name already default to the
+        // parent directory, which the watch logic below handles.
       }
       if (!existsSync(dir)) continue
       try {
