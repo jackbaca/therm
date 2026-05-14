@@ -36,17 +36,18 @@ background, roughly square crop, centered."
    terminal: bash ~/.hermes/skills/creative/eikon/scripts/preview.sh "<path>"
    ```
 
-   This writes `~/.hermes/herm/eikon-wip.eikon` with a `studio` header so
-   the plugin opens the **knob editor** in the sidebar (symbols, invert,
-   contrast, zoom, pan). It picks up on the next `tool.complete` — the
-   user sees the result immediately after your terminal call returns.
-   Include the poster (script prints it) inline in chat too.
+   This writes `~/.hermes/herm/eikon-wip.eikon` with a `studio` header.
+   The plugin picks it up on the next `tool.complete`, enters editing
+   mode, and **navigates herm to the Eikon tab** — the user sees a
+   full-screen editor (preview + knob list + six-state strip) while the
+   sidebar avatar also mirrors the WIP. Include the poster inline in
+   chat too in case the terminal is narrow.
 
-3. **Iterate.** Tell the user: "Sidebar is now the editor — `j/k` pick a
-   knob, `h/l` or arrows adjust, `Enter` when done. Or tell me what to
-   change and I'll do it." You can also re-run preview.sh with
-   `--no-invert` / `--symbols block` to adjust for them; each run
-   rewrites the WIP and the sidebar follows.
+3. **Iterate.** Tell the user: "Eikon tab is open — `j/k` pick a knob,
+   `h/l` or arrows adjust, `tab` cycles state, `Enter` commits, `b`
+   bakes. Or tell me what to change." You can also re-run preview.sh
+   with `--no-invert` / `--symbols block`; each run rewrites the WIP and
+   the tab follows.
 
 4. **Per-state images (optional).** If the user wants distinct states, ask
    for up to 5 more images and run with `--state <name>`:

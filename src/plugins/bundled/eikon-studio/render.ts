@@ -20,6 +20,8 @@ export type Symbols = "braille" | "block" | "ascii" | "sextant"
 export type Knobs = {
   symbols: Symbols
   invert: boolean
+  flipH: boolean
+  flipV: boolean
   /** 0.5–3.0; 1.0 = source. Requires ffmpeg. */
   contrast: number
   /** Crop side as fraction of min(iw,ih). 1.0 = largest centered square. */
@@ -29,7 +31,7 @@ export type Knobs = {
   oy: number
 }
 
-export const K0: Knobs = { symbols: "braille", invert: true, contrast: 1.0, zoom: 1.0, ox: 0.5, oy: 0.5 }
+export const K0: Knobs = { symbols: "braille", invert: true, flipH: false, flipV: false, contrast: 1.0, zoom: 1.0, ox: 0.5, oy: 0.5 }
 
 export const caps = {
   chafa: chafaBin(),
@@ -62,6 +64,8 @@ function vf(k: Knobs): string {
   const side = `min(iw\\,ih)*${z}`
   return [
     `crop=${side}:${side}:(iw-${side})*${ox}:(ih-${side})*${oy}`,
+    ...(k.flipH ? ["hflip"] : []),
+    ...(k.flipV ? ["vflip"] : []),
     `eq=contrast=${c}`,
   ].join(",")
 }
@@ -76,7 +80,7 @@ function box(out: string): string[] {
 const cache = new Map<string, string[]>()
 const CAP = 16
 const keyOf = (src: string, k: Knobs) =>
-  `${src}|${k.symbols}|${k.invert ? 1 : 0}|${k.contrast.toFixed(2)}|${k.zoom.toFixed(3)}|${k.ox.toFixed(3)}|${k.oy.toFixed(3)}|${caps.ffmpeg ? 1 : 0}`
+  `${src}|${k.symbols}|${+k.invert}${+k.flipH}${+k.flipV}|${k.contrast.toFixed(2)}|${k.zoom.toFixed(3)}|${k.ox.toFixed(3)}|${k.oy.toFixed(3)}|${caps.ffmpeg ? 1 : 0}`
 
 function put(key: string, v: string[]) {
   if (cache.size >= CAP) cache.delete(cache.keys().next().value!)

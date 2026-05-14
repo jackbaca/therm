@@ -73,34 +73,38 @@ done
 [[ -z "$F" ]] || { echo "FAIL: preview did not clear"; exit 1; }
 echo "PASS: preview cleared"
 
-# --- editor path: write a WIP with studio header, activate → panel renders.
+# --- editor tab path: WIP with studio header → plugin opens editing mode
+# and navigates to the Eikon tab.
 ffmpeg -hide_banner -loglevel error -f lavfi \
   -i "nullsrc=s=256x128,format=gray,geq=lum=255*gte(X\,128)" \
   -frames:v 1 -y /tmp/e2e-step.png
 bun -e '
 const S=["idle","listening","thinking","speaking","working","error"]
-const K={symbols:"braille",invert:true,contrast:1,zoom:1,ox:0.5,oy:0.5}
-const out=[JSON.stringify({eikon:1,name:"e2e",width:48,height:24,author:"e2e",glyph:"◆",studio:{src:"/tmp/e2e-step.png",base:K,per:{}}})]
+const K={symbols:"braille",invert:true,flipH:false,flipV:false,contrast:1,zoom:1,ox:0.5,oy:0.5}
+const out=[JSON.stringify({eikon:1,name:"e2e",width:48,height:24,author:"e2e",glyph:"◆",studio:{src:"/tmp/e2e-step.png",base:K,per:{},name:"e2e",glyph:"◆"}})]
 for(const s of S){out.push(JSON.stringify({state:s,fps:12,frame_count:1,loop_from:1}));out.push(JSON.stringify({f:0,data:" "}))}
 await Bun.write(process.argv[1],out.join("\n")+"\n")
 ' "$HH/herm/eikon-wip.eikon"
-j "/plugin/herm.eikon-studio" '{"on":true}'  >/dev/null
+j "/plugin/herm.eikon-studio" '{"on":true}' >/dev/null
 j /push '{"type":"tool.complete","payload":{"tool_id":"e2e"}}' >/dev/null
-for i in $(seq 1 20); do req "/frame?grep=EIKON%20STUDIO" | grep -q STUDIO && break; sleep 0.2; done
-req "/frame?grep=EIKON%20STUDIO" | grep -q STUDIO || { echo "FAIL: panel not mounted"; req /frame | head -40; exit 1; }
+for i in $(seq 1 30); do req "/frame?grep=EIKON%20STUDIO" | grep -q STUDIO && break; sleep 0.2; done
+req "/frame?grep=EIKON%20STUDIO" | grep -q STUDIO || { echo "FAIL: editor tab not mounted"; req /frame | head -50; exit 1; }
+req /status | jq -e '.tabName=="Eikon" or .tab>=4' >/dev/null || { echo "FAIL: not navigated to Eikon tab"; req /status; exit 1; }
 req "/frame?grep=braille" | grep -q "◂ braille ▸" || { echo "FAIL: symbols row missing"; exit 1; }
-echo "PASS: editor panel visible"
+# Sidebar avatar slot should also be showing the WIP badge.
+req "/frame?grep=wip" | grep -q "◉ wip" || { echo "FAIL: sidebar badge missing in editing"; exit 1; }
+echo "PASS: editor tab visible + sidebar preview"
 
 # Drive a key: 'l' → symbols cycles to block.
 j /key '{"name":"l","safe":false}' >/dev/null
 for i in $(seq 1 20); do req "/frame?grep=block" | grep -q "◂ block ▸" && break; sleep 0.2; done
-req "/frame?grep=block" | grep -q "◂ block ▸" || { echo "FAIL: knob did not change"; req /frame | head -40; exit 1; }
+req "/frame?grep=block" | grep -q "◂ block ▸" || { echo "FAIL: knob did not change"; req /frame | head -50; exit 1; }
 echo "PASS: knob edit via /key"
 
-# Enter → commit → panel gone, badge ◌.
+# Enter → commit → editor leaves editing (tab shows empty-state), badge ◌.
 j /key '{"name":"return","safe":false}' >/dev/null
-for i in $(seq 1 20); do req "/frame?grep=EIKON%20STUDIO" | grep -q STUDIO || break; sleep 0.2; done
-req "/frame?grep=EIKON%20STUDIO" | grep -q STUDIO && { echo "FAIL: panel did not close on commit"; exit 1; }
+for i in $(seq 1 20); do req "/frame?grep=No%20image%20loaded" | grep -q loaded && break; sleep 0.2; done
+req "/frame?grep=No%20image%20loaded" | grep -q loaded || { echo "FAIL: tab did not return to empty-state"; exit 1; }
 req "/frame?grep=wip" | grep -q "◌ wip" || { echo "FAIL: watching badge missing after commit"; exit 1; }
 echo "PASS: commit → watching"
 
