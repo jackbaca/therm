@@ -2,7 +2,7 @@
 // Right: knob list. The sidebar_avatar slot mirrors the same `doc` via
 // the shared store, so the herm sidebar stays in sync while you edit.
 
-import { useMemo, useRef, useState } from "react"
+import { useMemo, useRef, useState, useEffect } from "react"
 import { useKeyboard } from "@opentui/react"
 import type { ParsedKey } from "@opentui/core"
 import type { HermPluginApi } from "../../types"
@@ -10,6 +10,8 @@ import { caps, K0, type Knobs } from "./render"
 import { STATES, ROWS, liveRows, rowDef, step, pan, eff, edit, cycle, fork, fresh, resetKnobs, type Row, type Session } from "./knobs"
 import type { AvatarState } from "../../../components/avatar/states"
 import { useStore } from "./store"
+import * as prefs from "../../../context/preferences"
+import { basename, extname } from "node:path"
 
 const W = 48
 const H = 24
@@ -100,12 +102,26 @@ export function Tab(props: {
   onBake: () => void
   onDiscard: () => void
   onSess: (fn: (s: Session) => Session) => void
+  onPick: (name: string) => void
+  installed: () => { name: string; hasSource: boolean }[]
 }) {
   const t = props.api.theme.current
   const snap = useStore()
   const [row, setRow] = useState<Row>("symbols")
   const rows = useMemo(liveRows, [])
   const debounced = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // On first mount with no session, try to open the currently active
+  // eikon (eikonPath pref) so the user lands on a populated editor.
+  const tried = useRef(false)
+  useEffect(() => {
+    if (tried.current || snap.sess) return
+    tried.current = true
+    const p = prefs.get("eikonPath") as string | undefined
+    if (!p) return
+    const name = basename(p, ".eikon")
+    props.onPick(name)
+  }, [])
 
   const s = snap.sess
   const k = s ? eff(s, s.state) : K0
@@ -175,15 +191,32 @@ export function Tab(props: {
       return nudge(kk => step(kk, row, 1))
   })
 
-  if (!s || !snap.doc) return (
-    <box flexGrow={1} flexDirection="column" alignItems="center" justifyContent="center">
-      <text fg={t.textMuted}>No image loaded.</text>
-      <box height={1} />
-      <text fg={t.text}>Press <span fg={t.accent}>o</span> or <span fg={t.accent}>Enter</span> to open a source image.</text>
-      <box height={1} />
-      <text fg={t.textMuted}>Or ask the agent — the eikon skill writes the WIP and this tab picks it up.</text>
-    </box>
-  )
+  if (!s || !snap.doc) {
+    const xs = props.installed()
+    return (
+      <box flexGrow={1} flexDirection="column" alignItems="center" justifyContent="center">
+        <text fg={t.textMuted}>No image loaded.</text>
+        <box height={1} />
+        <text fg={t.text}>Press <span fg={t.accent}>o</span> to open a source image, or pick an installed eikon:</text>
+        <box height={1} />
+        <box flexDirection="column">
+          {xs.length === 0
+            ? <text fg={t.textMuted}>  (none installed)</text>
+            : xs.map(x => (
+                <box key={x.name} height={1} onMouseDown={() => props.onPick(x.name)}>
+                  <text>
+                    <span fg={t.accent}>  · </span>
+                    <span fg={t.text}>{x.name}</span>
+                    {x.hasSource ? null : <span fg={t.textMuted}>  (no source — preview only)</span>}
+                  </text>
+                </box>
+              ))}
+        </box>
+        <box height={1} />
+        <text fg={t.textMuted}>Or ask the agent — the eikon skill writes the WIP and this tab picks it up.</text>
+      </box>
+    )
+  }
 
   const clip = snap.doc.states.get(s.state)
 

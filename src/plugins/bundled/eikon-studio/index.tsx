@@ -123,18 +123,37 @@ const plugin: HermPlugin = {
       api.route.navigate("Eikon")
     }
 
-    // Reopen an installed eikon for editing: resolve its source/ image,
-    // or fall back on studio.src from the header if source/ is empty.
+    // Reopen an installed eikon for editing: resolve its source/ image.
+    // Knob state is restored from the baked header's `studio` block so
+    // prior edits (pan, contrast, per-state forks) survive the round-trip.
     const reopen = (name: string) => {
       const src = layout.findSource(name)
-      if (src) return open(src)
       const f = layout.file(name)
+      const load = (path: string, meta?: Partial<Session>) => {
+        resetCache()
+        const sess: Session = {
+          src: path, dims: probe(path),
+          base: meta?.base ?? { ...K0 }, per: meta?.per ?? {},
+          state: "idle", name: meta?.name ?? name, glyph: meta?.glyph ?? "◆",
+        }
+        rebuild(sess)
+        api.route.navigate("Eikon")
+      }
+      if (src) {
+        if (existsSync(f)) {
+          Bun.file(f).text().then(t => {
+            const m = parseEikon(t).meta.studio as Partial<Session> | undefined
+            load(src, m)
+          }).catch(() => load(src))
+          return
+        }
+        return load(src)
+      }
       if (!existsSync(f)) return api.ui.toast({ variant: "error", message: `${name}: not installed` })
       Bun.file(f).text().then(t => {
         const doc = parseEikon(t)
-        const meta = doc.meta.studio as { src?: string } | undefined
-        if (meta?.src && existsSync(meta.src)) return open(meta.src)
-        // No source → watching-only; knobs can't re-rasterize.
+        const meta = doc.meta.studio as Partial<Session> & { src?: string } | undefined
+        if (meta?.src && existsSync(meta.src)) return load(meta.src, meta)
         store.set({ mode: "watching", doc })
         api.route.navigate("Eikon")
         api.ui.toast({ variant: "info", message: `${name}: no source/ image — preview only` })
@@ -217,7 +236,7 @@ const plugin: HermPlugin = {
     api.route.register([{
       name: "Eikon",
       description: "Eikon studio",
-      render: () => <Tab api={api} onOpen={open} onSess={onSess} onCommit={() => void commit()} onBake={() => void bake()} onDiscard={discard} />,
+      render: () => <Tab api={api} onOpen={open} onSess={onSess} onCommit={() => void commit()} onBake={() => void bake()} onDiscard={discard} onPick={reopen} installed={layout.list} />,
     }])
 
     api.command.register([

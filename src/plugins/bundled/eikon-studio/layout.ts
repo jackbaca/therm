@@ -41,14 +41,15 @@ export function list(): { name: string; file: string; source: string; hasSource:
 const IMG = /\.(png|jpe?g|webp|gif|bmp)$/i
 const VID = /\.(mp4|webm|mov|mkv)$/i
 
-/** Find a usable base source file for editing. Preference: base.* → idle.* → first image → first video. */
+/** Find a usable base source file for editing. Preference:
+ *  base.* → idle.* → <name>.* → first image → first video. */
 export function findSource(name: string): string | undefined {
   const src = source(name)
   if (!existsSync(src)) return undefined
   const files = readdirSync(src).filter(f => IMG.test(f) || VID.test(f))
   if (files.length === 0) return undefined
   const by = (stem: string) => files.find(f => basename(f, extname(f)).toLowerCase() === stem)
-  return join(src, by("base") ?? by("idle") ?? files.find(f => IMG.test(f)) ?? files[0]!)
+  return join(src, by("base") ?? by("idle") ?? by(name) ?? files.find(f => IMG.test(f)) ?? files[0]!)
 }
 
 /** Copy an external source file into <name>/source/, named by role.
