@@ -28,8 +28,9 @@ test("browse(): installs pick into $HERMES_HOME/eikons and returns it", async ()
 
   const got = await browse(fake)
   expect(got?.name).toBe("stub")
-  expect(got?.path).toBe(join(HH, "eikons", "stub.eikon"))
+  expect(got?.path).toBe(join(HH, "eikons", "stub", "stub.eikon"))
   expect(existsSync(got!.path)).toBe(true)
+  expect(existsSync(join(HH, "eikons", "stub", "source"))).toBe(true)
   expect((await Bun.file(got!.path).text())).toBe(body)
 
   delete process.env.EIKON_CMD

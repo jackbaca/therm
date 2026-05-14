@@ -13,8 +13,7 @@
 // tool.complete / message.complete gateway event. A `studio:{src,...}`
 // header in that file enters editing and navigates to the tab.
 
-import { statSync, mkdirSync, rmSync } from "node:fs"
-import { join } from "node:path"
+import { statSync, mkdirSync, rmSync, existsSync } from "node:fs"
 import { AnimatedAvatar } from "../../../components/avatar/AnimatedAvatar"
 import { parseEikon, type ParsedEikon, type EikonState } from "../../../components/avatar/eikon"
 import { hermesPath } from "../../../service/hermes-home"
@@ -24,6 +23,7 @@ import { render, probe, caps, K0, W, H, reset as resetCache, type Knobs } from "
 import { STATES, fresh, eff, type Session } from "./knobs"
 import { Tab } from "./Tab"
 import * as store from "./store"
+import * as layout from "./layout"
 
 export const WIP_PATH = () => hermesPath("herm/eikon-wip.eikon")
 
@@ -123,6 +123,24 @@ const plugin: HermPlugin = {
       api.route.navigate("Eikon")
     }
 
+    // Reopen an installed eikon for editing: resolve its source/ image,
+    // or fall back on studio.src from the header if source/ is empty.
+    const reopen = (name: string) => {
+      const src = layout.findSource(name)
+      if (src) return open(src)
+      const f = layout.file(name)
+      if (!existsSync(f)) return api.ui.toast({ variant: "error", message: `${name}: not installed` })
+      Bun.file(f).text().then(t => {
+        const doc = parseEikon(t)
+        const meta = doc.meta.studio as { src?: string } | undefined
+        if (meta?.src && existsSync(meta.src)) return open(meta.src)
+        // No source → watching-only; knobs can't re-rasterize.
+        store.set({ mode: "watching", doc })
+        api.route.navigate("Eikon")
+        api.ui.toast({ variant: "info", message: `${name}: no source/ image — preview only` })
+      })
+    }
+
     const onSess = (fn: (s: Session) => Session) => {
       const cur = store.get().sess
       if (!cur) return
@@ -143,13 +161,17 @@ const plugin: HermPlugin = {
       const snap = store.get()
       if (!snap.doc || !snap.sess) return
       const s = snap.sess
-      const body = serialize({ ...snap.doc, meta: { ...snap.doc.meta, name: s.name } },
-                              process.env.USER ?? "unknown", s.glyph, false)
-      mkdirSync(hermesPath("eikons"), { recursive: true })
-      const dst = join(hermesPath("eikons"), `${s.name}.eikon`)
-      await Bun.write(dst, body)
-      prefs.set("eikonPath", dst)
-      api.kv.set("last", dst)
+      const paths = layout.ensure(s.name)
+      // Preserve the source so this eikon can be reopened without the
+      // user re-supplying the image. Written as `base.<ext>`.
+      const src = layout.adopt(s.name, s.src, "base")
+      const body = serialize(
+        { ...snap.doc, meta: { ...snap.doc.meta, name: s.name, studio: { ...snap.doc.meta.studio as object, src } } },
+        process.env.USER ?? "unknown", s.glyph, true,
+      )
+      await Bun.write(paths.file, body)
+      prefs.set("eikonPath", paths.file)
+      api.kv.set("last", paths.file)
       rmSync(WIP_PATH(), { force: true }); mtime = 0
       store.set({ mode: "off" })
       api.ui.toast({ variant: "success", message: `Installed ${s.name} → sidebar` })
@@ -203,6 +225,16 @@ const plugin: HermPlugin = {
         onSelect: async () => {
           const p = await api.ui.prompt({ title: "Source image", label: "path (png/jpg/webp/gif)" })
           if (p) open(p)
+        } },
+      { title: "Eikon: edit installed…", value: "eikon.studio.edit", category: "Eikon",
+        onSelect: async () => {
+          const xs = layout.list()
+          if (xs.length === 0) return api.ui.toast({ message: "No installed eikons" })
+          const pick = await api.ui.select({
+            title: "Edit eikon",
+            options: xs.map(x => ({ title: x.name, value: x.name, hint: x.hasSource ? undefined : "no source" })),
+          })
+          if (pick) reopen(pick.value)
         } },
       { title: "Eikon: go to tab", value: "eikon.studio.tab", category: "Eikon",
         onSelect: () => api.route.navigate("Eikon") },

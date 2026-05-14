@@ -31,15 +31,24 @@ if [[ "${1:-}" == "--bake" ]]; then
   esac; done
   [[ -f "$WIP" ]] || die "nothing to bake (no WIP)"
   name=$(tr 'A-Z ' 'a-z-' <<<"$name" | tr -cd 'a-z0-9-')
-  mkdir -p "$HH/eikons"
-  # Rewrite header with final name/glyph/author, body unchanged.
+  dir="$HH/eikons/$name"
+  mkdir -p "$dir/source"
+  # Pull src from the WIP's studio header and adopt it as source/base.<ext>.
+  src=$(jq -r '.studio.src // empty' < <(head -1 "$WIP"))
+  if [[ -n "$src" && -f "$src" ]]; then
+    ext="${src##*.}"
+    cp -f -- "$src" "$dir/source/base.$ext"
+    src="$dir/source/base.$ext"
+  fi
+  # Rewrite header with final name/glyph/author + rehomed studio.src.
   {
-    printf '{"eikon":1,"name":"%s","width":%d,"height":%d,"author":"%s","glyph":"%s","created":"%s"}\n' \
-      "$name" "$W" "$H" "$author" "$glyph" "$(date -u +%FT%TZ)"
+    jq -c --arg n "$name" --arg a "$author" --arg g "$glyph" --arg s "$src" --arg t "$(date -u +%FT%TZ)" \
+      '.name=$n | .author=$a | .glyph=$g | .created=$t | if $s!="" then .studio.src=$s else . end' \
+      < <(head -1 "$WIP")
     tail -n +2 "$WIP"
-  } > "$HH/eikons/$name.eikon"
+  } > "$dir/$name.eikon"
   rm -f "$WIP"
-  echo "$HH/eikons/$name.eikon"
+  echo "$dir/$name.eikon"
   exit 0
 fi
 

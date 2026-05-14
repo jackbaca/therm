@@ -74,7 +74,9 @@ export async function browse(renderer: CliRenderer): Promise<Pick | undefined> {
   let last: Pick | undefined
   const drain = (async () => {
     for await (const p of picks(child.stderr)) {
-      const path = join(dir, `${p.name}.eikon`)
+      const at = join(dir, p.name)
+      mkdirSync(join(at, "source"), { recursive: true })
+      const path = join(at, `${p.name}.eikon`)
       await Bun.write(path, p.raw)
       last = { name: p.name, path }
     }
