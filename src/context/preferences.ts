@@ -1,5 +1,6 @@
 /**
- * Local TUI preferences — persisted to ~/.config/herm/tui.json
+ * Local TUI preferences — persisted to $HERM_CONFIG_DIR/tui.json
+ * (defaults to ~/.hermes/herm/tui.json; see utils/paths.ts).
  *
  * Compatible with OpenCode's tui.json schema pattern:
  *   - JSON file in XDG config dir
@@ -50,6 +51,9 @@ interface TuiPreferences {
    *  cursor position or transient toggles. */
   kanban?: KanbanPrefs
   sessions?: SessionsPrefs
+  /** Opaque plugin storage. Per-plugin keys are namespaced at the api
+   *  layer (`${id}.${key}`); `enabled` holds the id→bool override map. */
+  plugin?: Record<string, unknown>
 }
 
 /** Persisted Sessions-tab state. */

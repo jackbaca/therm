@@ -20,6 +20,8 @@ import { KeysProvider } from "../src/keys"
 import { DialogProvider } from "../src/ui/dialog"
 import { ToastProvider } from "../src/ui/toast"
 import { CommandProvider } from "../src/ui/command"
+import { PluginProvider } from "../src/plugins/runtime"
+import type { HermPlugin } from "../src/plugins/types"
 import type { GatewayEvent } from "../src/context/wire"
 
 type Handler = (params: Record<string, unknown>) => unknown | Promise<unknown>
@@ -129,6 +131,7 @@ type Opts = {
   gw?: MockGateway
   handlers?: Record<string, Handler>
   launch?: import("../src/app/launch").Launch
+  plugins?: ReadonlyArray<HermPlugin>
 }
 
 /** Mount the full <App> under a test renderer with a MockGateway. */
@@ -146,7 +149,9 @@ export async function mountNode(node: ReactNode, opts: Opts = {}): Promise<Harne
         <ToastProvider>
           <KeysProvider>
             <DialogProvider>
-              <CommandProvider>{node}</CommandProvider>
+              <CommandProvider>
+                <PluginProvider plugins={opts.plugins ?? []}>{node}</PluginProvider>
+              </CommandProvider>
             </DialogProvider>
           </KeysProvider>
         </ToastProvider>

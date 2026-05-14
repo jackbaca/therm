@@ -41,11 +41,12 @@ import { SkinProvider, deriveSkin, type SkinState } from "./context/skin"
 import { useAppKeys } from "./app/useAppKeys"
 import { quit } from "./app/exit"
 import { Stash } from "./app/stash"
-import { TABS, TAB_MAX, CHAT_TAB, SESSIONS_TAB, AUTOMATION_TAB, CONFIG_TAB, SUB_TABS } from "./app/tabs"
+import { TABS, CHAT_TAB, SESSIONS_TAB, AUTOMATION_TAB, CONFIG_TAB, SUB_TABS } from "./app/tabs"
 import { activeProfileName } from "./service/hermes-profiles"
 import { rehome } from "./home/rehome"
 import { makeGoalHook } from "./app/goalHook"
 import type { Launch } from "./app/launch"
+import { PluginProvider, usePlugins } from "./plugins/runtime"
 
 type AppProps = { initialTheme?: string; gateway?: Gateway; launch?: Launch }
 
@@ -56,7 +57,9 @@ export const App = (props: AppProps) => (
         <KeysProvider>
           <DialogProvider>
             <CommandProvider>
-              <AppInner launch={props.launch ?? { mode: "new" }} />
+              <PluginProvider>
+                <AppInner launch={props.launch ?? { mode: "new" }} />
+              </PluginProvider>
             </CommandProvider>
           </DialogProvider>
         </KeysProvider>
@@ -72,6 +75,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const themeCtx = useTheme()
   const toast = useToast()
   const renderer = useRenderer()
+  const plugins = usePlugins()
   const session = useSession()
   const dims = useTerminalDimensions()
   const goalHook = useMemo(() => makeGoalHook(dialog, toast), [dialog, toast])
@@ -516,6 +520,21 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     composer.current?.set(item)
     setFocusRegion("input")
   }, [])
+
+  // Plugin routes append after the built-in four. `plugins.routes`
+  // rebuilds when a plugin registers or is (de)activated; built-in
+  // indices (CHAT_TAB…CONFIG_TAB) stay stable.
+  const extra = plugins.routes
+  const all = useMemo(
+    () => [...TABS, ...extra.map(r => ({ name: r.name, description: r.description ?? "Plugin" }))],
+    [extra],
+  )
+  const tabMax = all.length - 1
+  // Late-bind the plugin router to this shell's tab navigator so
+  // `api.route.navigate(name)` can drive `goTo`. `bind` is idempotent.
+  useEffect(() => {
+    plugins.bind(goTo, () => all[tab]?.name)
+  }, [plugins, goTo, all, tab])
   const subCount = SUB_TABS[tab]?.length ?? 0
   const cycleSub = useCallback((dir: -1 | 1) => {
     const labels = SUB_TABS[tab]
@@ -527,7 +546,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     })
   }, [tab])
   useAppKeys({
-    tab, tabMax: TAB_MAX, chatTab: CHAT_TAB, setTab,
+    tab, tabMax, chatTab: CHAT_TAB, setTab,
     subCount, cycleSub,
     focusRegion, setFocusRegion,
     streaming: turn.streaming,
@@ -622,10 +641,13 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
         case CONFIG_TAB: return <ConfigGroup focused={contentFocused}
                                              sub={subTabs[CONFIG_TAB] ?? 0}
                                              setSub={cfgSub} />
-        default: return null
+        default: {
+          const r = extra[tab - TABS.length]
+          return r ? r.render() : null
+        }
       }
     })()
-    const name = TABS[tab]?.name ?? "unknown"
+    const name = all[tab]?.name ?? "unknown"
     return <Profiler id={`tab:${name}`} onRender={perf.onRender}>{inner}</Profiler>
   }
 
@@ -643,7 +665,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
      <SkinProvider value={skin}>
       <box width="100%" height="100%" flexDirection="column"
            backgroundColor={theme.background} onMouseUp={onMouseUp}>
-        <TabBar tabs={TABS} activeTab={tab} onTabChange={goToTab} />
+        <TabBar tabs={all} activeTab={tab} onTabChange={goToTab} />
         <box flexGrow={1} flexDirection="row">
           <box flexGrow={1} flexDirection="column">
             <box flexGrow={1} position="relative">
@@ -686,8 +708,13 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
             </Profiler>
           ) : null}
         </box>
+        <box height={1} flexShrink={0} paddingX={1} overflow="hidden">
+          <plugins.Slot name="app_bottom" mode="single_winner"
+                        sid={sid} tab={tab} streaming={turn.streaming} />
+        </box>
       </box>
      </SkinProvider>
     </Profiler>
   )
 }
+
