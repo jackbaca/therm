@@ -17,6 +17,7 @@
 // async queue slot in; built-ins currently resolve immediately.
 
 import { spawnSync } from "node:child_process"
+import { statSync } from "node:fs"
 import { chafaBin, resolveImage } from "./chafa"
 
 export const W = 48
@@ -83,7 +84,7 @@ function box(out: string): Frame {
 }
 
 const cache = new Map<string, Frame[]>()
-const CAP = 24
+const CAP = 64
 
 function put(key: string, v: Frame[]) {
   if (cache.size >= CAP) cache.delete(cache.keys().next().value!)
@@ -98,7 +99,7 @@ function hit(key: string): Frame[] | undefined {
   return v
 }
 
-export function resetCache() { cache.clear() }
+export function resetCache() { cache.clear(); planes.clear() }
 
 const keyOf = (r: string, src: string, sp: Spatial, k: KnobValues) =>
   `${r}|${src}|${sp.zoom.toFixed(3)}:${sp.ox.toFixed(3)}:${sp.oy.toFixed(3)}|${JSON.stringify(k)}`
@@ -158,11 +159,11 @@ export const chafa: Rasterizer = {
   },
   available: () => caps.chafa ? true : "chafa not installed",
   probe,
-  render(src, sp, k) {
+  async render(src, sp, k) {
     const bin = caps.chafa
-    if (!bin) return Promise.resolve({ err: "chafa not installed" })
+    if (!bin) return { err: "chafa not installed" }
     const full = resolveImage(src)
-    if (!full) return Promise.resolve({ err: `not found: ${src}` })
+    if (!full) return { err: `not found: ${src}` }
     const args = [
       `--size=${W}x${H}`, "--format=symbols", "--stretch",
       `--symbols=${String(k.symbols ?? "braille")}`, "--colors=none", "--dither=none",
@@ -171,23 +172,34 @@ export const chafa: Rasterizer = {
       ...(caps.ffmpeg ? ["--preprocess", "off"] : []),
       ...(k.invert ? ["--invert"] : []),
     ]
+    // Bun.spawn keeps the main thread free so slider drag stays
+    // responsive; the calling effect's `dead` flag discards stale
+    // results when a newer spatial value arrives mid-render.
     if (caps.ffmpeg) {
-      const ff = spawnSync("ffmpeg", [
+      const ff = Bun.spawn(["ffmpeg",
         "-hide_banner", "-loglevel", "error", "-i", full,
         "-vf", vf(sp, k), "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-",
-      ], { maxBuffer: 8 * 1024 * 1024 })
-      if (ff.status !== 0)
-        return Promise.resolve({ err: `ffmpeg: ${ff.stderr?.toString().trim() || "failed"}` })
-      const ch = spawnSync(bin, [...args, "-"], { input: ff.stdout, encoding: "utf8" })
-      if (ch.status !== 0)
-        return Promise.resolve({ err: `chafa: ${ch.stderr?.trim() || "failed"}` })
-      return Promise.resolve({ frames: [box(ch.stdout)] })
+      ], { stdout: "pipe", stderr: "pipe" })
+      const ch = Bun.spawn([bin, ...args, "-"],
+        { stdin: ff.stdout, stdout: "pipe", stderr: "pipe" })
+      const [out, cerr, ferr] = await Promise.all([
+        new Response(ch.stdout).text(),
+        new Response(ch.stderr).text(),
+        new Response(ff.stderr).text(),
+      ])
+      await Promise.all([ff.exited, ch.exited])
+      if (ff.exitCode !== 0) return { err: `ffmpeg: ${ferr.trim() || "failed"}` }
+      if (ch.exitCode !== 0) return { err: `chafa: ${cerr.trim() || "failed"}` }
+      return { frames: [box(out)] }
     }
     // Fallback: chafa reads the file directly — no crop/contrast/flip.
-    const ch = spawnSync(bin, [...args, full], { encoding: "utf8" })
-    if (ch.status !== 0)
-      return Promise.resolve({ err: `chafa: ${ch.stderr?.trim() || "failed"}` })
-    return Promise.resolve({ frames: [box(ch.stdout)] })
+    const ch = Bun.spawn([bin, ...args, full], { stdout: "pipe", stderr: "pipe" })
+    const [out, cerr] = await Promise.all([
+      new Response(ch.stdout).text(), new Response(ch.stderr).text(),
+    ])
+    await ch.exited
+    if (ch.exitCode !== 0) return { err: `chafa: ${cerr.trim() || "failed"}` }
+    return { frames: [box(out)] }
   },
 }
 
@@ -205,9 +217,18 @@ const SCALE = 192
 const DOT = [[0x01, 0x08], [0x02, 0x10], [0x04, 0x20], [0x40, 0x80]] as const
 const RAMP = " .:-=+*#%@"
 
+// Decoded gray planes keyed by (resolved path, mtime). Pan/zoom only
+// touches the plane slice so after the first decode every spatial
+// change is spawn-free. Keep last 4 (one per visible state source).
+const planes = new Map<string, Uint8Array>()
+
 function decode(src: string): Uint8Array | string {
   const full = resolveImage(src)
   if (!full) return `not found: ${src}`
+  const mt = statSync(full, { throwIfNoEntry: false })?.mtimeMs ?? 0
+  const key = `${full}:${mt}`
+  const got = planes.get(key)
+  if (got) { planes.delete(key); planes.set(key, got); return got }
   const ff = spawnSync("ffmpeg", [
     "-hide_banner", "-loglevel", "error", "-i", full, "-frames:v", "1",
     "-vf", `scale=${SCALE}:${SCALE}:flags=lanczos`,
@@ -215,7 +236,10 @@ function decode(src: string): Uint8Array | string {
   ], { maxBuffer: 4 * 1024 * 1024 })
   if (ff.status !== 0) return `ffmpeg: ${ff.stderr?.toString().trim() || "failed"}`
   const buf = new Uint8Array(ff.stdout)
-  return buf.length === SCALE * SCALE ? buf : `ffmpeg: short read (${buf.length})`
+  if (buf.length !== SCALE * SCALE) return `ffmpeg: short read (${buf.length})`
+  if (planes.size >= 4) planes.delete(planes.keys().next().value!)
+  planes.set(key, buf)
+  return buf
 }
 
 /** Sample the crop window at (gx,gy) in an fw×fh sub-cell grid. */
