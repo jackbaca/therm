@@ -17,7 +17,7 @@ function seed(name: string, r: string) {
   spawnSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "lavfi",
     "-i", "color=gray:s=32x32", "-frames:v", "1", "-y", join(p.source, "base.png")])
   writeFileSync(eikon.file(name), JSON.stringify({ eikon: 1, name }) + "\n")
-  eikon.writeStudio(name, { rasterizer: r, spatial: { zoom: 1, ox: 0.5, oy: 0.5 }, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
+  eikon.writeStudio(name, { rasterizer: r, spatial: { zoom: 1, ox: 0.5, oy: 0.5 }, fps: 16, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
 }
 
 /** DialogSelect filterable=false; registry order [chafa, native]. */

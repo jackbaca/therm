@@ -69,10 +69,10 @@ describe("eikon-render", () => {
     if (!caps.ffmpeg) return
     const IMG = "/tmp/eikon-cache.png"
     spawnSync("ffmpeg", ["-hide_banner","-loglevel","error","-f","lavfi","-i","color=gray:s=32x32","-frames:v","1","-y",IMG])
-    await cached(stub, IMG, S0, {})
-    await cached(stub, IMG, S0, {})
+    await cached(stub, IMG, S0, 16, {})
+    await cached(stub, IMG, S0, 16, {})
     expect(n).toBe(1)
-    await cached(stub, IMG, { zoom: 0.5, ox: 0.3, oy: 0.7 }, {})
+    await cached(stub, IMG, { zoom: 0.5, ox: 0.3, oy: 0.7 }, 16, {})
     expect(n).toBe(2)
   })
 
@@ -84,11 +84,11 @@ describe("eikon-render", () => {
     spawnSync("ffmpeg", ["-hide_banner","-loglevel","error","-f","lavfi",
       "-i","nullsrc=s=64x64,format=gray,geq=lum=255*gte(X\\,32)","-frames:v","1","-y",IMG])
     // Crop window at ox=1 zoom=0.3 sits entirely in the right (white) half.
-    const out = await cached(native, IMG, { zoom: 0.3, ox: 1, oy: 0.5 }, { ...defaults(native), symbols: "block" })
+    const out = await cached(native, IMG, { zoom: 0.3, ox: 1, oy: 0.5 }, 16, { ...defaults(native), symbols: "block" })
     if ("err" in out) throw new Error(out.err)
     expect(out.frames[0]!.every(r => /^[ .:]+$/.test(r))).toBe(true)
     // ox=0 → all-black → invert on → all-heavy.
-    const l = await cached(native, IMG, { zoom: 0.3, ox: 0, oy: 0.5 }, { ...defaults(native), symbols: "block" })
+    const l = await cached(native, IMG, { zoom: 0.3, ox: 0, oy: 0.5 }, 16, { ...defaults(native), symbols: "block" })
     if ("err" in l) throw new Error(l.err)
     expect(l.frames[0]!.every(r => /^[@#%*]+$/.test(r))).toBe(true)
   })
@@ -99,7 +99,7 @@ describe("eikon-render", () => {
     resetCache()
     // One spawn visible: chafa. (We can't count spawns here, but the
     // fact that this works at all proves png() is well-formed.)
-    const out = await cached(chafa, IMG, S0, defaults(chafa))
+    const out = await cached(chafa, IMG, S0, 16, defaults(chafa))
     expect("err" in out).toBe(false)
   })
 
@@ -108,9 +108,9 @@ describe("eikon-render", () => {
     spawnSync("ffmpeg", ["-hide_banner","-loglevel","error","-f","lavfi",
       "-i","mandelbrot=s=256x256","-frames:v","1","-y","/tmp/eikon-mand.png"])
     const M = "/tmp/eikon-mand.png"
-    const base = await cached(chafa, M, S0, defaults(chafa))
-    const dith = await cached(chafa, M, S0, { ...defaults(chafa), dither: "diffusion" })
-    const fill = await cached(chafa, M, S0, { ...defaults(chafa), symbols: "block", fill: "stipple" })
+    const base = await cached(chafa, M, S0, 16, defaults(chafa))
+    const dith = await cached(chafa, M, S0, 16, { ...defaults(chafa), dither: "diffusion" })
+    const fill = await cached(chafa, M, S0, 16, { ...defaults(chafa), symbols: "block", fill: "stipple" })
     if ("err" in base || "err" in dith || "err" in fill) throw new Error("render err")
     expect(dith.frames[0]!.join("\n")).not.toBe(base.frames[0]!.join("\n"))
     expect(fill.frames[0]!.join("")).toMatch(/[░▒▓]/)
@@ -118,8 +118,8 @@ describe("eikon-render", () => {
 
   runc("chafa: flip/contrast applied on the gray buffer (no ffmpeg)", async () => {
     resetCache()
-    const a = await cached(chafa, IMG, S0, { ...defaults(chafa), symbols: "block", flip: "none" })
-    const b = await cached(chafa, IMG, S0, { ...defaults(chafa), symbols: "block", flip: "h" })
+    const a = await cached(chafa, IMG, S0, 16, { ...defaults(chafa), symbols: "block", flip: "none" })
+    const b = await cached(chafa, IMG, S0, 16, { ...defaults(chafa), symbols: "block", flip: "h" })
     if ("err" in a || "err" in b) throw new Error("render err")
     // Horizontal flip of a left/right step swaps where the █ run sits.
     const ar = a.frames[0]![H >> 1]!, br = b.frames[0]![H >> 1]!
@@ -131,7 +131,7 @@ describe("eikon-render", () => {
   runc("chafa: symbol classes incl. non-BMP (sextant/wedge) accepted, no U+FFFD", async () => {
     resetCache()
     for (const sym of ["quad", "half", "wedge", "sextant"]) {
-      const out = await cached(chafa, IMG, S0, { ...defaults(chafa), symbols: sym })
+      const out = await cached(chafa, IMG, S0, 16, { ...defaults(chafa), symbols: sym })
       if ("err" in out) throw new Error(`${sym}: ${out.err}`)
       for (const row of out.frames[0]!) {
         expect(Array.from(row).length).toBe(W)
@@ -147,5 +147,49 @@ describe("eikon-render", () => {
     expect(t.length).toBe(8)
     expect(t.every(row => Array.from(row).length === 16)).toBe(true)
     expect(t.every(row => Array.from(row).every(c => c === sex))).toBe(true)
+  })
+
+  run("video: decode at fps, filmstrip returns N frames, frames differ", async () => {
+    resetCache()
+    const V = "/tmp/eikon-vid.mp4"
+    // 1s of animated testsrc at 24fps.
+    spawnSync("ffmpeg", ["-hide_banner","-loglevel","error","-f","lavfi",
+      "-i","testsrc=s=128x128:r=24:d=1","-pix_fmt","yuv420p","-y",V])
+    const out = await cached(native, V, S0, 12, defaults(native))
+    if ("err" in out) throw new Error(out.err)
+    // 1s @ 12fps → 12 frames.
+    expect(out.frames.length).toBe(12)
+    expect(out.frames[0]!.join("")).not.toBe(out.frames[6]!.join(""))
+    // fps change = different clip key → re-decode, different count.
+    const out8 = await cached(native, V, S0, 8, defaults(native))
+    if ("err" in out8) throw new Error(out8.err)
+    expect(out8.frames.length).toBe(8)
+  })
+
+  runc("chafa filmstrip: N-frame video → N padded frames, no U+FFFD", async () => {
+    resetCache()
+    const V = "/tmp/eikon-vid.mp4"
+    const out = await cached(chafa, V, S0, 8, { ...defaults(chafa), symbols: "sextant" })
+    if ("err" in out) throw new Error(out.err)
+    expect(out.frames.length).toBe(8)
+    for (const f of out.frames) {
+      expect(f.length).toBe(H)
+      for (const row of f) {
+        expect(Array.from(row).length).toBe(W)
+        expect(row).not.toContain("\uFFFD")
+      }
+    }
+  })
+
+  test("windowOf(…, frames=3): native returns 3 frames; eachFrame slices", async () => {
+    // 3 distinct 4×4 planes: luminance 0, 128, 255.
+    const g = new Uint8Array(4 * 4 * 3)
+    g.fill(0, 0, 16); g.fill(128, 16, 32); g.fill(255, 32, 48)
+    const out = await native.render(windowOf(g, 4, 4, 3), { ...defaults(native), symbols: "block" })
+    if ("err" in out) throw new Error(out.err)
+    expect(out.frames.length).toBe(3)
+    // invert on → black=heavy, white=light.
+    expect(out.frames[0]![0]![0]).toBe("@")
+    expect(out.frames[2]![0]![0]).toBe(" ")
   })
 })

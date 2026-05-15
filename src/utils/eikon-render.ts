@@ -1,21 +1,16 @@
 // Rasterizer contract + built-in implementations for the Eikon tab.
 //
-// Studio owns all spatial work (decode, crop, flip, contrast). A
-// rasterizer receives a pre-cropped grayscale `Window` and only
-// decides how luminance maps to glyphs. That makes zoom/pan uniform
-// across every backend and keeps the per-frame hot path free of
-// process spawns for in-process rasterizers.
+// Studio owns all spatial + temporal work: decode the source at the
+// target fps into a Clip (N gray planes), crop every plane at the
+// current zoom/ox/oy, vstack them into one tall Window, and hand
+// that to the rasterizer. The rasterizer emits N 48×24 frames in one
+// call — chafa via a single filmstrip render, native via an
+// in-process loop. Playback is then a cache lookup + index bump.
 //
-// Source decode (ffmpeg → 384×384 gray plane) happens once per
-// (path, mtime) and is cached. Each spatial change is a row-copy
-// slice of that plane (~0.1 ms). CLI rasterizers get the window as a
-// lazily-encoded PNG on stdin (~1 ms encode via node:zlib).
-//
-// Built-ins:
-//   chafa  — pipes win.png() to `chafa -`; symbols/fill/dither/invert
-//            /flip/contrast/threshold all applied chafa-side or on
-//            the gray buffer in-process; no ffmpeg in the hot path.
-//   native — reads win.gray directly; braille/block; ~0.3 ms warm.
+// decode(src, fps) runs ffmpeg once per (path, mtime, fps) and caches
+// the Clip. Each spatial change is a row-copy slice of those planes
+// (~2 ms for 64 frames) plus one PNG encode + one chafa spawn
+// (~125 ms for 64 frames). Stills are the N=1 degenerate case.
 
 import { deflateSync } from "node:zlib"
 import { spawnSync } from "node:child_process"
@@ -24,6 +19,9 @@ import { chafaBin, resolveImage } from "./chafa"
 
 export const W = 48
 export const H = 24
+export const FPS0 = 16
+/** Hard frame cap — 16 s at fps=16. Longer clips truncate. */
+const MAXF = 256
 
 export type Spatial = { zoom: number; ox: number; oy: number }
 export const S0: Spatial = { zoom: 1.0, ox: 0.5, oy: 0.5 }
@@ -39,12 +37,14 @@ export type Frame = string[]
 export type Rendered = { frames: Frame[] } | { err: string }
 
 /** Pre-cropped grayscale window handed to rasterizers. `gray` is
- *  row-major `w*h` bytes. `png()` lazily encodes the same pixels as
- *  an 8-bit grayscale PNG for CLI backends that read stdin. */
+ *  `frames` planes of `w×h` bytes vstacked row-major. `png()` lazily
+ *  encodes the same pixels as one `w × h·frames` 8-bit grayscale PNG
+ *  for CLI backends that read stdin. */
 export type Window = {
   readonly gray: Uint8Array
   readonly w: number
   readonly h: number
+  readonly frames: number
   png(): Uint8Array
 }
 
@@ -54,9 +54,9 @@ export type Rasterizer = {
   readonly knobs: Readonly<Record<string, KnobDef>>
   /** true if usable; otherwise a short reason shown dimmed in the picker. */
   available(): true | string
-  /** `signal` aborts mid-render (kill subprocess, bail early). A
-   *  rasterizer that ignores it still works; abort just becomes a
-   *  late-discard at the caller. */
+  /** Must return `win.frames` frames. `signal` aborts mid-render
+   *  (kill subprocess, bail early); a rasterizer that ignores it
+   *  still works — abort becomes a late-discard at the caller. */
   render(win: Window, knobs: KnobValues, signal?: AbortSignal): Promise<Rendered>
 }
 
@@ -85,47 +85,38 @@ export function probe(path: string): { w: number; h: number } | null {
 
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x))
 
-/** Normalize rasterizer text output to exactly H rows × W cols. Rows
- *  carrying SGR escapes are passed through unpadded (width accounting
- *  under ANSI is the rasterizer's job). Non-BMP glyphs (sextant/wedge
- *  = U+1FB00+) are surrogate pairs in JS strings — String.slice by
- *  code unit would split them and OpenTUI's TextEncoder then emits
- *  U+FFFD for each lone surrogate. Iterate by codepoint instead. */
-function box(out: string): Frame {
-  const rows = out.replace(/\n$/, "").split("\n")
-  while (rows.length < H) rows.push("")
-  return rows.slice(0, H).map(l => {
-    if (l.includes("\x1b[")) return l
-    const cp = Array.from(l)
-    return cp.length >= W ? cp.slice(0, W).join("") : l + " ".repeat(W - cp.length)
-  })
-}
-
-// ── Plane decode + crop ──────────────────────────────────────────────
+// ── Clip decode + crop ───────────────────────────────────────────────
 
 const SCALE = 384
+const PLANE = SCALE * SCALE
 
-type Plane = { buf: Uint8Array; w: number; h: number }
+export type Clip = { planes: Uint8Array[]; fps: number; w: number; h: number }
 
-// Decoded gray planes keyed by (resolved path, mtime). One ffmpeg
-// spawn per source ever; every spatial change is a pure slice.
-const planes = new Map<string, Promise<Plane | string>>()
+const VID = /\.(mp4|webm|mov|mkv|m4v|gif)$/i
 
-async function decode(src: string): Promise<Plane | string> {
+// Decoded clips keyed by (path, mtime, fps). One ffmpeg spawn per key
+// ever; every spatial change is a pure slice. ~9 MB per 64-frame clip.
+const clips = new Map<string, Promise<Clip | string>>()
+const CLIP_CAP = 8
+
+export function decode(src: string, fps = FPS0): Promise<Clip | string> {
   const full = resolveImage(src)
-  if (!full) return `not found: ${src}`
+  if (!full) return Promise.resolve(`not found: ${src}`)
   const mt = statSync(full, { throwIfNoEntry: false })?.mtimeMs ?? 0
-  const key = `${full}:${mt}`
-  const got = planes.get(key)
-  if (got) return got
-  if (!caps.ffmpeg) return "ffmpeg not installed"
-  // Preserve aspect into a SCALE×SCALE letterbox so the crop math
-  // (square window over the short side) matches the old ffmpeg
-  // `crop=min(iw,ih)*z` semantics.
-  const p = (async (): Promise<Plane | string> => {
+  const key = `${full}:${mt}:${fps}`
+  const got = clips.get(key)
+  if (got) { clips.delete(key); clips.set(key, got); return got }
+  if (!caps.ffmpeg) return Promise.resolve("ffmpeg not installed")
+  const video = VID.test(full)
+  const vf = [
+    ...(video ? [`fps=${fps}`] : []),
+    `scale=${SCALE}:${SCALE}:force_original_aspect_ratio=increase`,
+    `crop=${SCALE}:${SCALE}`,
+  ].join(",")
+  const p = (async (): Promise<Clip | string> => {
     const ff = Bun.spawn(["ffmpeg",
-      "-hide_banner", "-loglevel", "error", "-i", full, "-frames:v", "1",
-      "-vf", `scale=${SCALE}:${SCALE}:force_original_aspect_ratio=increase,crop=${SCALE}:${SCALE}`,
+      "-hide_banner", "-loglevel", "error", "-i", full,
+      "-vf", vf, "-frames:v", video ? String(MAXF) : "1",
       "-f", "rawvideo", "-pix_fmt", "gray", "-",
     ], { stdout: "pipe", stderr: "pipe" })
     const [buf, err] = await Promise.all([
@@ -134,30 +125,50 @@ async function decode(src: string): Promise<Plane | string> {
     ])
     await ff.exited
     if (ff.exitCode !== 0) return `ffmpeg: ${err.trim() || "failed"}`
-    if (buf.length !== SCALE * SCALE) return `ffmpeg: short read (${buf.length})`
-    return { buf, w: SCALE, h: SCALE }
+    if (buf.length === 0 || buf.length % PLANE !== 0)
+      return `ffmpeg: bad read (${buf.length})`
+    const n = buf.length / PLANE
+    const planes = Array.from({ length: n }, (_, i) => buf.subarray(i * PLANE, (i + 1) * PLANE))
+    return { planes, fps: video ? fps : 0, w: SCALE, h: SCALE }
   })()
-  if (planes.size >= 8) planes.delete(planes.keys().next().value!)
-  planes.set(key, p)
+  if (clips.size >= CLIP_CAP) clips.delete(clips.keys().next().value!)
+  clips.set(key, p)
   return p
 }
 
-/** Crop a square zoom window out of the plane and return a Window. */
-function crop(pl: Plane, sp: Spatial): Window {
-  const side = Math.max(1, Math.round(pl.w * clamp(sp.zoom, 0.1, 1.0)))
-  const x0 = Math.round((pl.w - side) * clamp(sp.ox, 0, 1))
-  const y0 = Math.round((pl.h - side) * clamp(sp.oy, 0, 1))
-  const gray = new Uint8Array(side * side)
-  for (let y = 0; y < side; y++)
-    gray.set(pl.buf.subarray((y0 + y) * pl.w + x0, (y0 + y) * pl.w + x0 + side), y * side)
+/** Pre-warm the clip cache without rendering. Studio calls this for
+ *  every source on open so the first spatial change is decode-free. */
+export const prewarm = (src: string, fps = FPS0) => void decode(src, fps)
+
+/** Crop the same square window out of every plane; vstack. */
+function crop(clip: Clip, sp: Spatial): Window {
+  const side = Math.max(1, Math.round(clip.w * clamp(sp.zoom, 0.1, 1.0)))
+  const x0 = Math.round((clip.w - side) * clamp(sp.ox, 0, 1))
+  const y0 = Math.round((clip.h - side) * clamp(sp.oy, 0, 1))
+  const n = clip.planes.length
+  const gray = new Uint8Array(side * side * n)
+  for (let f = 0; f < n; f++) {
+    const pl = clip.planes[f]!
+    const off = f * side * side
+    for (let y = 0; y < side; y++)
+      gray.set(pl.subarray((y0 + y) * clip.w + x0, (y0 + y) * clip.w + x0 + side), off + y * side)
+  }
   let enc: Uint8Array | undefined
-  return { gray, w: side, h: side, png: () => (enc ??= png(gray, side, side)) }
+  return { gray, w: side, h: side, frames: n, png: () => (enc ??= png(gray, side, side * n)) }
 }
 
-/** Minimal 8-bit grayscale PNG encoder. ~1 ms at 384×384. */
+/** One frame's slice of a Window — for rasterizers that can't batch. */
+export function eachFrame(win: Window, i: number): Window {
+  const sz = win.w * win.h
+  const g = win.gray.subarray(i * sz, (i + 1) * sz)
+  let enc: Uint8Array | undefined
+  return { gray: g, w: win.w, h: win.h, frames: 1, png: () => (enc ??= png(g, win.w, win.h)) }
+}
+
+/** Minimal 8-bit grayscale PNG encoder. Level-1 deflate — chafa
+ *  doesn't care about size, we care about encode time. */
 function png(gray: Uint8Array, w: number, h: number): Uint8Array {
   const be32 = (n: number) => new Uint8Array([n >>> 24, (n >>> 16) & 255, (n >>> 8) & 255, n & 255])
-  // CRC-32 (PNG polynomial) — table computed once.
   const T = png_crc
   const crc = (b: Uint8Array) => {
     let c = ~0 >>> 0
@@ -173,10 +184,9 @@ function png(gray: Uint8Array, w: number, h: number): Uint8Array {
   const ihdr = new Uint8Array(13)
   ihdr.set(be32(w), 0); ihdr.set(be32(h), 4)
   ihdr[8] = 8; ihdr[9] = 0; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0
-  // Filter byte 0 per scanline + row bytes.
   const raw = new Uint8Array(h * (w + 1))
   for (let y = 0; y < h; y++) raw.set(gray.subarray(y * w, (y + 1) * w), y * (w + 1) + 1)
-  const idat = new Uint8Array(deflateSync(raw))
+  const idat = new Uint8Array(deflateSync(raw, { level: 1 }))
   const parts = [
     new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
     ...chunk("IHDR", ihdr), ...chunk("IDAT", idat), ...chunk("IEND", new Uint8Array(0)),
@@ -195,10 +205,10 @@ const png_crc = (() => {
   return t
 })()
 
-// ── LRU over rendered frames ─────────────────────────────────────────
+// ── LRU over rendered frame-arrays ───────────────────────────────────
 
 const cache = new Map<string, Frame[]>()
-const CAP = 64
+const CAP = 256
 
 function put(key: string, v: Frame[]) {
   if (cache.size >= CAP) cache.delete(cache.keys().next().value!)
@@ -213,28 +223,47 @@ function hit(key: string): Frame[] | undefined {
   return v
 }
 
-export function resetCache() { cache.clear(); planes.clear() }
+export function resetCache() { cache.clear(); clips.clear() }
 
-const keyOf = (r: string, src: string, sp: Spatial, k: KnobValues) =>
-  `${r}|${src}|${sp.zoom.toFixed(3)}:${sp.ox.toFixed(3)}:${sp.oy.toFixed(3)}|${JSON.stringify(k)}`
+const keyOf = (r: string, src: string, sp: Spatial, fps: number, k: KnobValues) =>
+  `${r}|${src}|${fps}|${sp.zoom.toFixed(3)}:${sp.ox.toFixed(3)}:${sp.oy.toFixed(3)}|${JSON.stringify(k)}`
 
-/** Decode → crop → rasterize, with LRU over the final frames. */
-export async function cached(r: Rasterizer, src: string, sp: Spatial, k: KnobValues,
-                             signal?: AbortSignal): Promise<Rendered> {
-  const key = keyOf(r.name, src, sp, k)
+/** Decode → crop → rasterize (all frames), with LRU over the result. */
+export async function cached(r: Rasterizer, src: string, sp: Spatial, fps: number,
+                             k: KnobValues, signal?: AbortSignal): Promise<Rendered> {
+  const key = keyOf(r.name, src, sp, fps, k)
   const got = hit(key)
   if (got) return { frames: got }
-  const pl = await decode(src)
-  if (typeof pl === "string") return { err: pl }
+  const cl = await decode(src, fps)
+  if (typeof cl === "string") return { err: cl }
   if (signal?.aborted) return { err: "aborted" }
-  const out = await r.render(crop(pl, sp), k, signal)
+  const out = await r.render(crop(cl, sp), k, signal)
   if ("err" in out) return out
   if (signal?.aborted) return { err: "aborted" }
   return { frames: put(key, out.frames) }
 }
 
+/** Normalize one frame to exactly H rows × W cols. Non-BMP glyphs
+ *  (sextant/wedge = U+1FB00+) are surrogate pairs — iterate by
+ *  codepoint so OpenTUI's TextEncoder never sees lone surrogates. */
+function pad(rows: string[]): Frame {
+  const out = rows.slice(0, H)
+  while (out.length < H) out.push("")
+  return out.map(l => {
+    if (l.includes("\x1b[")) return l
+    const cp = Array.from(l)
+    return cp.length >= W ? cp.slice(0, W).join("") : l + " ".repeat(W - cp.length)
+  })
+}
+
+/** Split a filmstrip text output (N·24 rows) into N padded frames. */
+function box(out: string, n: number): Frame[] {
+  const rows = out.replace(/\n$/, "").split("\n")
+  return Array.from({ length: n }, (_, i) => pad(rows.slice(i * H, (i + 1) * H)))
+}
+
 /** Nearest-neighbor downsample of a 48×24 frame to w×h (center-pick).
- *  Codepoint-indexed so non-BMP glyphs (sextant/wedge) survive. */
+ *  Codepoint-indexed so non-BMP glyphs survive. */
 export function thumb(frame: Frame, w = 16, h = 8): Frame {
   const fx = W / w, fy = H / h
   return Array.from({ length: h }, (_, y) => {
@@ -247,20 +276,24 @@ export function thumb(frame: Frame, w = 16, h = 8): Frame {
 
 // ── chafa ────────────────────────────────────────────────────────────
 
-/** Apply flip/contrast on the gray buffer in-place before encoding. */
+/** Apply flip/contrast on every plane of the gray buffer in-place. */
 function tone(win: Window, flip: string, con: number): Window {
-  const { gray: g, w, h } = win
-  if (flip === "h" || flip === "hv")
-    for (let y = 0; y < h; y++) {
-      const o = y * w
-      for (let x = 0; x < w >> 1; x++) { const t = g[o + x]!; g[o + x] = g[o + w - 1 - x]!; g[o + w - 1 - x] = t }
-    }
-  if (flip === "v" || flip === "hv")
-    for (let y = 0; y < h >> 1; y++) {
-      const a = g.subarray(y * w, (y + 1) * w)
-      const b = g.subarray((h - 1 - y) * w, (h - y) * w)
-      const t = new Uint8Array(a); a.set(b); b.set(t)
-    }
+  const { gray: g, w, h, frames: n } = win
+  const sz = w * h
+  for (let f = 0; f < n; f++) {
+    const o = f * sz
+    if (flip === "h" || flip === "hv")
+      for (let y = 0; y < h; y++) {
+        const ro = o + y * w
+        for (let x = 0; x < w >> 1; x++) { const t = g[ro + x]!; g[ro + x] = g[ro + w - 1 - x]!; g[ro + w - 1 - x] = t }
+      }
+    if (flip === "v" || flip === "hv")
+      for (let y = 0; y < h >> 1; y++) {
+        const a = g.subarray(o + y * w, o + (y + 1) * w)
+        const b = g.subarray(o + (h - 1 - y) * w, o + (h - y) * w)
+        const t = new Uint8Array(a); a.set(b); b.set(t)
+      }
+  }
   if (Math.abs(con - 1) > 1e-3)
     for (let i = 0; i < g.length; i++) g[i] = clamp(Math.round((g[i]! - 128) * con + 128), 0, 255)
   return win
@@ -283,7 +316,7 @@ export const chafa: Rasterizer = {
     const fill = String(k.fill ?? "none")
     tone(win, String(k.flip ?? "none"), clamp(Number(k.contrast ?? 1), 0.5, 3.0))
     const args = [
-      `--size=${W}x${H}`, "--format=symbols", "--stretch", "--colors=none",
+      `--size=${W}x${H * win.frames}`, "--format=symbols", "--stretch", "--colors=none",
       `--symbols=${String(k.symbols ?? "braille")}`,
       ...(fill === "none" ? [] : [`--fill=${fill}`]),
       `--dither=${String(k.dither ?? "none")}`,
@@ -306,7 +339,7 @@ export const chafa: Rasterizer = {
     signal?.removeEventListener("abort", kill)
     if (signal?.aborted) return { err: "aborted" }
     if (ch.exitCode !== 0) return { err: `chafa: ${cerr.trim() || "failed"}` }
-    return { frames: [box(out)] }
+    return { frames: box(out, win.frames) }
   },
 }
 
@@ -315,14 +348,14 @@ export const chafa: Rasterizer = {
 const DOT = [[0x01, 0x08], [0x02, 0x10], [0x04, 0x20], [0x40, 0x80]] as const
 const RAMP = " .:-=+*#%@"
 
-function sample(win: Window, fw: number, fh: number) {
-  const sx = win.w / fw, sy = win.h / fh
+function sample(g: Uint8Array, w: number, h: number, fw: number, fh: number) {
+  const sx = w / fw, sy = h / fh
   return (gx: number, gy: number) =>
-    win.gray[Math.min(win.h - 1, Math.floor(gy * sy)) * win.w + Math.min(win.w - 1, Math.floor(gx * sx))]!
+    g[Math.min(h - 1, Math.floor(gy * sy)) * w + Math.min(w - 1, Math.floor(gx * sx))]!
 }
 
-function braille(win: Window, inv: boolean, con: number): Frame {
-  const at = sample(win, W * 2, H * 4)
+function braille(g: Uint8Array, w: number, h: number, inv: boolean, con: number): Frame {
+  const at = sample(g, w, h, W * 2, H * 4)
   const thr = 128 / con
   const rows: string[] = []
   for (let y = 0; y < H; y++) {
@@ -340,8 +373,8 @@ function braille(win: Window, inv: boolean, con: number): Frame {
   return rows
 }
 
-function block(win: Window, inv: boolean, con: number): Frame {
-  const at = sample(win, W, H)
+function block(g: Uint8Array, w: number, h: number, inv: boolean, con: number): Frame {
+  const at = sample(g, w, h, W, H)
   const n = RAMP.length - 1
   const rows: string[] = []
   for (let y = 0; y < H; y++) {
@@ -363,21 +396,24 @@ export const native: Rasterizer = {
     invert:   { kind: "toggle", default: true },
     contrast: { kind: "slider", min: 0.5, max: 3.0, step: 0.1, default: 1.0 },
   },
-  // Decode is shared; native has no extra deps.
   available: () => caps.ffmpeg ? true : "ffmpeg not installed",
   async render(win, k) {
     const con = clamp(Number(k.contrast ?? 1), 0.5, 3.0)
     const inv = !!k.invert
-    return { frames: [k.symbols === "block" ? block(win, inv, con) : braille(win, inv, con)] }
+    const fn = k.symbols === "block" ? block : braille
+    const sz = win.w * win.h
+    const frames = Array.from({ length: win.frames }, (_, i) =>
+      fn(win.gray.subarray(i * sz, (i + 1) * sz), win.w, win.h, inv, con))
+    return { frames }
   },
 }
 
 export const BUILTIN: readonly Rasterizer[] = [chafa, native]
 
-/** Test helper — wrap a raw gray buffer as a Window. */
-export const windowOf = (gray: Uint8Array, w: number, h: number): Window => {
+/** Wrap a raw gray buffer as a Window (tests / in-process rasterizers). */
+export const windowOf = (gray: Uint8Array, w: number, h: number, frames = 1): Window => {
   let enc: Uint8Array | undefined
-  return { gray, w, h, png: () => (enc ??= png(gray, w, h)) }
+  return { gray, w, h, frames, png: () => (enc ??= png(gray, w, h * frames)) }
 }
 
 export * as render from "./eikon-render"

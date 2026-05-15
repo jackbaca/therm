@@ -148,7 +148,8 @@ const bump = () => { rev++; for (const f of revSubs) f() }
 
 // ── Save / pack ──────────────────────────────────────────────────────
 
-function serialize(name: string, glyph: string, frames: Map<AvatarState, Frame>, url?: string): string {
+function serialize(name: string, glyph: string, fps: number,
+                   clips: Map<AvatarState, Frame[]>, url?: string): string {
   const out: string[] = [JSON.stringify({
     eikon: 1, name, width: W, height: H, glyph,
     author: process.env.USER ?? "unknown",
@@ -156,17 +157,17 @@ function serialize(name: string, glyph: string, frames: Map<AvatarState, Frame>,
     ...(url ? { source_url: url } : {}),
   })]
   for (const st of STATES) {
-    const f = frames.get(st)!
-    out.push(JSON.stringify({ state: st, fps: 12, frame_count: 1, loop_from: 1 }))
-    out.push(JSON.stringify({ f: 0, data: f.join("\n") }))
+    const fs = clips.get(st)!
+    out.push(JSON.stringify({ state: st, fps, frame_count: fs.length, loop_from: 0 }))
+    fs.forEach((f, i) => out.push(JSON.stringify({ f: i, data: f.join("\n") })))
   }
   return out.join("\n") + "\n"
 }
 
-/** Render all six states and write `.eikon` + `studio.json`. External
- *  sources referenced in `s.sources` as absolute paths are adopted into
- *  `source/` and rewritten to bare filenames. Returns the written
- *  `.eikon` path. Sets `eikonPath` pref and bumps revision. */
+/** Render all six states (all frames) and write `.eikon` + `studio.json`.
+ *  External sources referenced in `s.sources` as absolute paths are
+ *  adopted into `source/` and rewritten to bare filenames. Returns the
+ *  written `.eikon` path. Sets `eikonPath` pref and bumps revision. */
 export async function save(s: Session): Promise<string> {
   const r = rasterizer(s.rasterizer) ?? pick(s.rasterizer)
   const paths = ensure(s.name)
@@ -178,26 +179,27 @@ export async function save(s: Session): Promise<string> {
     sources[role] = existsSync(abs) ? adopt(s.name, abs, role) : p
   }
   // Render each distinct (src, knobs) pair once; fan to states.
-  const seen = new Map<string, Frame>()
-  const frames = new Map<AvatarState, Frame>()
+  const seen = new Map<string, Frame[]>()
+  const clips = new Map<AvatarState, Frame[]>()
+  const blank = [Array.from({ length: H }, (_, i) => (i === H >> 1 ? s.glyph.padStart(W >> 1) : "").padEnd(W))]
   for (const st of STATES) {
     const src = findSource(s.name, st)
     const k = eff(s, st)
     const key = `${src ?? ""}|${JSON.stringify(k)}`
-    let f = seen.get(key)
-    if (!f) {
-      if (!src) f = Array.from({ length: H }, (_, i) => (i === H >> 1 ? s.glyph.padStart(W >> 1) : "").padEnd(W))
+    let fs = seen.get(key)
+    if (!fs) {
+      if (!src) fs = blank
       else {
-        const out = await cached(r, src, s.spatial, k)
+        const out = await cached(r, src, s.spatial, s.fps, k)
         if ("err" in out) throw new Error(out.err)
-        f = out.frames[0]!
+        fs = out.frames
       }
-      seen.set(key, f)
+      seen.set(key, fs)
     }
-    frames.set(st, f)
+    clips.set(st, fs)
   }
   const url = header(paths.file)?.source_url as string | undefined
-  await Bun.write(paths.file, serialize(s.name, s.glyph, frames, url))
+  await Bun.write(paths.file, serialize(s.name, s.glyph, s.fps, clips, url))
   writeStudio(s.name, { ...toStudio(s), sources })
   prefs.set("eikonPath", paths.file)
   bump()

@@ -16,6 +16,7 @@ import { SliderRenderable } from "@opentui/core"
 import type { ParsedKey } from "@opentui/core"
 import { basename } from "node:path"
 import { useTheme } from "../theme"
+import { Spinner } from "../ui/spinner"
 import { useKeys, handleListKey } from "../keys"
 import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
@@ -26,7 +27,7 @@ import { openConfirm } from "../dialogs/confirm"
 import { openTextPrompt } from "../dialogs/text-prompt"
 import * as prefs from "../context/preferences"
 import { eikon } from "../service/eikon"
-import { W, H, caps, thumb, cached, resetCache,
+import { W, H, FPS0, caps, thumb, cached, resetCache, prewarm,
          type Rasterizer, type KnobDef, type Spatial, type Frame } from "../utils/eikon-render"
 import { knobs, STATES, type Session } from "../utils/eikon-knobs"
 import type { AvatarState } from "../components/avatar/states"
@@ -100,27 +101,31 @@ function Mini(props: { sp: Spatial; dims: Session["dims"] }) {
 }
 
 /** Spatial sub-row ids in preview-pane nav order. */
-const SP_ROWS = ["zoom", "pan x", "pan y"] as const
+const SP_ROWS = ["zoom", "pan x", "pan y", "fps"] as const
 type SpRow = typeof SP_ROWS[number]
 
-/** zoom + pan-x + pan-y sliders with the read-only minimap inline
- *  after them. nav.md: ↑↓ picks a row (caret + bg), ←→ steps it,
- *  slider fg is accent only on the selected row. */
+/** zoom + pan-x + pan-y + fps sliders with the read-only minimap
+ *  inline after them. nav.md: ↑↓ picks a row (caret + bg), ←→ steps
+ *  it, slider fg is accent only on the selected row. */
 function SpatialBar(props: {
-  sp: Spatial; dims: Session["dims"]
+  sp: Spatial; fps: number; dims: Session["dims"]
   sel: number; focused: boolean
   onHover: (i: number) => void
-  onSet: (k: keyof Spatial, v: number) => void
+  onSet: (k: keyof Spatial | "fps", v: number) => void
 }) {
   const theme = useTheme().theme
-  const key: Record<SpRow, keyof Spatial> = { zoom: "zoom", "pan x": "ox", "pan y": "oy" }
-  const min: Record<SpRow, number> = { zoom: 0.1, "pan x": 0, "pan y": 0 }
+  const spec: Record<SpRow, { k: keyof Spatial | "fps"; min: number; max: number; v: number }> = {
+    zoom:    { k: "zoom", min: 0.1, max: 1.0, v: props.sp.zoom },
+    "pan x": { k: "ox",   min: 0.0, max: 1.0, v: props.sp.ox },
+    "pan y": { k: "oy",   min: 0.0, max: 1.0, v: props.sp.oy },
+    fps:     { k: "fps",  min: 4,   max: 30,  v: props.fps },
+  }
   return (
     <box flexDirection="row" marginTop={1} flexShrink={0}>
       <box flexDirection="column" gap={1} flexShrink={0}>
         {SP_ROWS.map((label, i) => {
           const on = props.focused && i === props.sel
-          const k = key[label]
+          const d = spec[label]
           return (
             <box key={label} height={1} flexDirection="row"
                  backgroundColor={on ? theme.backgroundElement : undefined}
@@ -128,12 +133,14 @@ function SpatialBar(props: {
               <box width={2}><text fg={on ? theme.primary : theme.textMuted}>{on ? "▸ " : "  "}</text></box>
               <box width={7}><text fg={on ? theme.text : theme.textMuted}>{label}</text></box>
               <box width={20} height={1}>
-                <slider orientation="horizontal" min={min[label]} max={1.0} value={props.sp[k]}
+                <slider orientation="horizontal" min={d.min} max={d.max} value={d.v}
                         foregroundColor={on ? theme.accent : theme.textMuted}
                         backgroundColor={theme.border}
-                        onChange={v => props.onSet(k, +v.toFixed(3))} />
+                        onChange={v => props.onSet(d.k, d.k === "fps" ? Math.round(v) : +v.toFixed(3))} />
               </box>
-              <box width={7}><text fg={on ? theme.text : theme.textMuted}>{`  ${props.sp[k].toFixed(2)}`}</text></box>
+              <box width={7}><text fg={on ? theme.text : theme.textMuted}>
+                {`  ${d.k === "fps" ? d.v.toFixed(0) : d.v.toFixed(2)}`}
+              </text></box>
             </box>
           )
         })}
@@ -259,9 +266,13 @@ export const EikonStudio = memo((props: {
   const selRef = useRef(0); selRef.current = sel
   const spRef = useRef(0); spRef.current = spSel
   const sRef = useRef<Session | null>(null); sRef.current = s
-  const [frame, setFrame] = useState<Frame>(BLANK)
+  const [frames, setFrames] = useState<Frame[]>([BLANK])
+  const [tick, setTick] = useState(0)
+  const [play, setPlay] = useState(true)
+  const [busy, setBusy] = useState(false)
   const [thumbs, setThumbs] = useState<Map<AvatarState, Frame | undefined>>(new Map())
   const [err, setErr] = useState<string | null>(null)
+  const frame = frames[tick % frames.length] ?? BLANK
 
   const r = useMemo(() => eikon.pick(s?.rasterizer ?? prefs.get("eikonRasterizer")), [s?.rasterizer])
   // Spatial is studio-owned now — every rasterizer gets it for free.
@@ -276,8 +287,15 @@ export const EikonStudio = memo((props: {
     const next = knobs.fresh(name, ra, seed)
     const src = eikon.findSource(name, "idle")
     next.dims = src ? (eikon.probe(src) ?? null) : null
+    // Pre-warm every source's clip so the first spatial/knob change
+    // is decode-free. Fire-and-forget; the preview effect awaits
+    // the one it needs (shared Promise from the clip cache).
+    for (const st of STATES) {
+      const p = eikon.findSource(name, st)
+      if (p) prewarm(p, next.fps)
+    }
     setS(next)
-    setSel(0); setPane("knobs"); setErr(null)
+    setSel(0); setPane("knobs"); setErr(null); setTick(0); setFrames([BLANK])
   }, [])
 
   // Auto-open the active eikon (eikonPath) on first focused mount.
@@ -296,68 +314,67 @@ export const EikonStudio = memo((props: {
   const navRows = useMemo(() => rows.map((x, i) => ({ ...x, i })).filter(x => x.kind !== "divider"), [rows])
   const src = useMemo(() => (s ? eikon.findSource(s.name, s.state) : undefined), [s?.name, s?.state, s?.sources])
 
-  // Re-render preview whenever the effective (src, spatial, knobs, rasterizer) changes.
+  // Render the current state's full clip (all frames) on any change
+  // to (src, spatial, knobs, fps, rasterizer). The filmstrip render
+  // is abortable — a mid-render slider move kills the chafa process.
   useEffect(() => {
     if (!s) return
-    if (!src) { setFrame(BLANK); setErr(null); return }
-    let dead = false
-    void cached(r, src, s.spatial, knobs.eff(s, s.state)).then(out => {
-      if (dead) return
-      if ("err" in out) { setErr(out.err); return }
-      setErr(null); setFrame(out.frames[0]!)
-    })
-    return () => { dead = true }
-  }, [s?.spatial, s?.base, s?.per, s?.state, s?.rasterizer, src, r])
-
-  // Thumbnails follow the preview frame. States whose (src, knobs)
-  // match the preview reuse `frame` directly (pure downsample).
-  // States that differ spawn renders in parallel AFTER a debounce —
-  // and those spawns carry an AbortSignal that the effect cleanup
-  // fires, so the next preview move kills in-flight thumb chafa
-  // processes instead of contending with them.
-  useEffect(() => {
-    if (!s || frame === BLANK) return
-    const base = thumb(frame)
-    const curK = JSON.stringify(knobs.eff(s, s.state))
+    if (!src) { setFrames([BLANK]); setErr(null); setBusy(false); return }
     const ctrl = new AbortController()
-    // Immediate, zero-cost pass: fill matching cells from `frame`.
-    setThumbs(prev => {
-      const out = new Map(prev)
-      for (const st of STATES) {
-        const sp = eikon.findSource(s.name, st)
-        if (!sp) { out.set(st, undefined); continue }
-        if (sp === src && JSON.stringify(knobs.eff(s, st)) === curK) out.set(st, base)
-      }
-      return out
-    })
-    // Debounced pass: render differing cells; parallel, abortable.
-    const t = setTimeout(() => {
+    setBusy(true)
+    void cached(r, src, s.spatial, s.fps, knobs.eff(s, s.state), ctrl.signal).then(out => {
       if (ctrl.signal.aborted) return
-      const jobs = STATES.flatMap(st => {
+      setBusy(false)
+      if ("err" in out) { setErr(out.err); return }
+      setErr(null); setFrames(out.frames)
+      setTick(t => t % out.frames.length)
+    })
+    return () => ctrl.abort()
+  }, [s?.spatial, s?.base, s?.per, s?.state, s?.fps, s?.rasterizer, src, r])
+
+  // Playback ticker — pure index advance over the already-rendered
+  // `frames`. Zero work per tick; the filmstrip effect above did it
+  // all once. Stops when paused, unfocused, still (1 frame), or busy.
+  useEffect(() => {
+    if (!play || !props.focused || frames.length <= 1 || busy) return
+    const ms = 1000 / Math.max(1, s?.fps ?? FPS0)
+    const id = setInterval(() => setTick(t => t + 1), ms)
+    return () => clearInterval(id)
+  }, [play, props.focused, frames.length, busy, s?.fps])
+
+  // Thumbnails are second-class: frame-0 only, same spatial, long
+  // debounce, stale during scrub, one setThumbs when the batch lands.
+  // No abort plumbing — they fire after the preview has settled and
+  // a new preview change just supersedes them at the setThumbs gate.
+  useEffect(() => {
+    if (!s) return
+    let dead = false
+    const t = setTimeout(() => {
+      if (dead) return
+      const jobs = STATES.map(st => {
         const sp = eikon.findSource(s.name, st)
-        if (!sp) return []
-        if (sp === src && JSON.stringify(knobs.eff(s, st)) === curK) return []
-        return [cached(r, sp, s.spatial, knobs.eff(s, st), ctrl.signal)
-          .then(res => "err" in res ? undefined : [st, thumb(res.frames[0]!)] as const)]
+        if (!sp) return Promise.resolve([st, undefined] as const)
+        return cached(r, sp, s.spatial, s.fps, knobs.eff(s, st))
+          .then(res => [st, "err" in res ? undefined : thumb(res.frames[0]!)] as const)
       })
-      if (jobs.length === 0) return
       void Promise.all(jobs).then(done => {
-        if (ctrl.signal.aborted) return
-        setThumbs(prev => {
-          const out = new Map(prev)
-          for (const d of done) if (d) out.set(d[0], d[1])
-          return out
-        })
+        if (dead) return
+        setThumbs(new Map(done))
       })
-    }, 120)
-    return () => { ctrl.abort(); clearTimeout(t) }
+    }, 400)
+    return () => { dead = true; clearTimeout(t) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [frame, s?.per, s?.sources, s?.state, s?.name, src, r])
+  }, [frames, s?.per, s?.sources, s?.name, s?.fps, r])
 
   const mutate = (fn: (prev: Session) => Session) => setS(p => (p ? fn(p) : p))
 
   const setSpatial = (sp: Partial<Spatial>) =>
     mutate(p => ({ ...p, spatial: { ...p.spatial, ...sp }, dirty: true }))
+
+  const setBar = (k: keyof Spatial | "fps", v: number) =>
+    k === "fps"
+      ? mutate(p => ({ ...p, fps: Math.round(v), dirty: true }))
+      : setSpatial({ [k]: v })
 
   // Knob-row actions.
   const doSave = useCallback(async () => {
@@ -508,16 +525,24 @@ export const EikonStudio = memo((props: {
     }
     if (pane === "preview") {
       if (!spatialOk) return
+      // Space toggles play/pause (nav.md: Space = toggle).
+      if (keys.match("list.toggle", key)) return setPlay(p => !p)
       // ↑↓ moves spatial-row selection; ←→ steps the selected knob.
       if (handleListKey(keys, key, { count: SP_ROWS.length, setSel: setSpSel })) return
-      const k: readonly (keyof Spatial)[] = ["zoom", "ox", "oy"]
-      const id = k[spRef.current]!
-      const lo = id === "zoom" ? 0.1 : 0
-      const stride = key.shift ? 0.01 : 0.03
+      const spec: Array<{ k: keyof Spatial | "fps"; lo: number; hi: number; st: number }> = [
+        { k: "zoom", lo: 0.1, hi: 1.0, st: 0.03 },
+        { k: "ox",   lo: 0.0, hi: 1.0, st: 0.03 },
+        { k: "oy",   lo: 0.0, hi: 1.0, st: 0.03 },
+        { k: "fps",  lo: 4,   hi: 30,  st: 2 },
+      ]
+      const d = spec[spRef.current]!
+      const fine = key.shift && d.k !== "fps"
+      const st = fine ? 0.01 : d.st
+      const cur = d.k === "fps" ? sRef.current!.fps : sRef.current!.spatial[d.k]
       if (key.name === "left")
-        return setSpatial({ [id]: Math.max(lo, +(sRef.current!.spatial[id] - stride).toFixed(3)) })
+        return setBar(d.k, Math.max(d.lo, +(cur - st).toFixed(3)))
       if (key.name === "right")
-        return setSpatial({ [id]: Math.min(1, +(sRef.current!.spatial[id] + stride).toFixed(3)) })
+        return setBar(d.k, Math.min(d.hi, +(cur + st).toFixed(3)))
       return
     }
     // strip
@@ -534,31 +559,41 @@ export const EikonStudio = memo((props: {
     mutate(p => ({ ...p, spatial: knobs.zoom(p.spatial, d === "up" ? -1 : 1), dirty: true }))
   }
 
-  const title = s ? `Preview — ${s.state}${s.per[s.state] ? " (forked)" : ""}` : "Preview"
+  const n = frames.length
+  const title = s
+    ? `Preview — ${s.state}${s.per[s.state] ? " (forked)" : ""}`
+      + (n > 1 ? `  ·  ${play ? "▶" : "⏸"} ${(tick % n) + 1}/${n}` : "")
+    : "Preview"
   const previewErr = err ?? (s && !src ? "no source — Enter on 'source' row to attach" : null)
 
   const hint: Array<readonly [string, string]> =
     pane === "knobs"   ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.activate"), "open"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
-  : pane === "preview" ? [["↑↓", "row"], ["←→", "adjust"], ["wheel", "zoom"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
+  : pane === "preview" ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.toggle"), "play/pause"], ["wheel", "zoom"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
   :                      [["←→", "state"], [keys.print("list.activate"), "actions"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
 
   // TabShell chrome = border(2) + padding(2) + title(1) + gap(1).
-  // SpatialBar = max(minimap, 3 rows + 2 gaps) + 1 margin.
+  // SpatialBar = max(minimap, N rows + N-1 gaps) + 1 margin.
   const BAR_H = spatialOk ? Math.max(Math.ceil(MINI_W / 2), SP_ROWS.length * 2 - 1) + 1 : 0
   const PREVIEW_W = Math.max(W, 36 + 2 + MINI_W) + 6
   const PREVIEW_H = H + BAR_H + 6 + (previewErr ? 1 : 0)
   const preview = (
-    <TabShell title={spatialOk ? title : `${title}  ·  (spatial n/a — ${r.name})`}
+    <TabShell title={spatialOk ? title : `${title}  ·  (ffmpeg not installed)`}
               error={previewErr} focus={pane === "preview"}>
-      <box flexDirection="column" width={W} height={H} flexShrink={0}
-           backgroundColor={theme.background} onMouseScroll={onScroll}>
+      <box position="relative" flexDirection="column" width={W} height={H} flexShrink={0}
+           backgroundColor={theme.background} onMouseScroll={onScroll}
+           onMouseDown={() => setPlay(p => !p)}>
         {frame.map((ln, i) =>
           <text key={i} fg={err ? theme.textMuted : theme.hermAvatar}>{ln}</text>)}
+        {busy && frames[0] === BLANK
+          ? <box position="absolute" left={0} top={H >> 1} width={W} justifyContent="center">
+              <Spinner color={theme.textMuted} label="decoding…" />
+            </box>
+          : null}
       </box>
       {spatialOk && s
-        ? <SpatialBar sp={s.spatial} dims={s.dims} sel={spSel} focused={pane === "preview"}
+        ? <SpatialBar sp={s.spatial} fps={s.fps} dims={s.dims} sel={spSel} focused={pane === "preview"}
             onHover={i => { setPane("preview"); setSpSel(i) }}
-            onSet={(k, v) => setSpatial({ [k]: v })} />
+            onSet={setBar} />
         : null}
     </TabShell>
   )

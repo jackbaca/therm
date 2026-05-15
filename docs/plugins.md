@@ -154,12 +154,14 @@ const r: Rasterizer = {
 api.eikon.rasterizer.register(r)
 ```
 
-The Studio reads your `knobs` schema and renders each entry generically — `cycle` as `◂ value ▸`, `toggle` as `● / ○`, `slider` as a drag bar. You own only `render()`; the tab handles zoom/pan, selection, persistence (`studio.json`), per-state overrides, and save.
+The Studio reads your `knobs` schema and renders each entry generically — `cycle` as `◂ value ▸`, `toggle` as `● / ○`, `slider` as a drag bar. You own only `render()`; the tab handles zoom/pan, playback, selection, persistence (`studio.json`), per-state overrides, and save.
 
 - `available()` returns `true` or a short reason string; unavailable rasterizers appear dimmed in the picker with the reason as a hint.
 - `render()` is `async`. Use `Bun.spawn`, not `spawnSync` — blocking the main thread freezes slider drag. For in-process rasterizers, read `win.gray` directly; it's already the cropped window.
+- **Video sources:** `win.frames` may be > 1. `win.gray` is N planes of `win.w × win.h` vstacked; `win.png()` encodes them as one `w × (h·N)` image. Return `win.frames` frames. If your backend renders one image at a time, call it once per `eachFrame(win, i)` (exported from `utils/eikon-render`), or render the tall filmstrip and split the output every 24 rows — that's ~50× fewer spawns.
 - `win.gray` is yours to mutate (each call gets a fresh copy). `win.png()` encodes whatever `win.gray` holds at call time, so apply any pixel-level adjustments before calling it.
-- Output is always 48×24; the tab pads/clips and derives its own thumbnails.
+- Output is always 48×24 per frame; the tab pads/clips and derives its own thumbnails.
+- `signal` (optional third arg) is an `AbortSignal` — honour it by killing your subprocess or bailing early; the tab fires it when a newer render supersedes this one.
 - Registration is scope-tracked: deactivating your plugin removes the rasterizer from the picker automatically. If it was the active one, the tab falls back to the first available built-in.
 
 Full type: `src/utils/eikon-render.ts::Rasterizer`. Registry lives in `src/service/eikon.ts`.

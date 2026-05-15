@@ -27,7 +27,7 @@ function seed(name: string) {
   const p = eikon.ensure(name)
   writeFileSync(join(p.source, "base.png"), PX)
   writeFileSync(eikon.file(name), JSON.stringify({ eikon: 1, name, width: 48, height: 24 }) + "\n")
-  eikon.writeStudio(name, { rasterizer: "stub", spatial: { zoom: 0.6, ox: 0.3, oy: 0.7 }, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
+  eikon.writeStudio(name, { rasterizer: "stub", spatial: { zoom: 0.6, ox: 0.3, oy: 0.7 }, fps: 16, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
 }
 
 run("layout probe (wide)", async () => {
@@ -82,10 +82,12 @@ run("SpatialBar nav: ↑↓ selects row, ←→ steps only that row", async () =
   act(() => t.keys.pressArrow("right")); await t.settle()
   expect(row("pan x")).not.toBe(before)
   expect(row("zoom")).toContain("0.60")     // unchanged
-  // ↓↓ clamps at pan y.
+  // ↓↓↓ clamps at fps (4th row).
   act(() => t.keys.pressArrow("down")); await t.settle()
   act(() => t.keys.pressArrow("down")); await t.settle()
-  expect(row("pan y")).toContain("▸")
+  act(() => t.keys.pressArrow("down")); await t.settle()
+  expect(row("fps")).toContain("▸")
+  expect(row("fps")).toContain("16")
   un()
 })
 

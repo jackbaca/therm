@@ -7,7 +7,7 @@
 
 import type { AvatarState } from "../components/avatar/states"
 import type { KnobDef, KnobValues, Rasterizer, Spatial } from "./eikon-render"
-import { S0, defaults } from "./eikon-render"
+import { S0, FPS0, defaults } from "./eikon-render"
 
 export const STATES: readonly AvatarState[] = ["idle", "listening", "thinking", "speaking", "working", "error"]
 
@@ -20,6 +20,7 @@ const wrap = <T,>(arr: readonly T[], cur: T, d: 1 | -1): T =>
 export type Studio = {
   rasterizer: string
   spatial: Spatial
+  fps: number
   base: KnobValues
   per: Partial<Record<AvatarState, KnobValues>>
   glyph: string
@@ -38,6 +39,7 @@ export function fresh(name: string, r: Rasterizer, seed?: Partial<Studio>): Sess
     name, state: "idle", dims: null, dirty: false,
     rasterizer: seed?.rasterizer ?? r.name,
     spatial: seed?.spatial ?? { ...S0 },
+    fps: seed?.fps ?? FPS0,
     base: seed?.base ?? defaults(r),
     per: seed?.per ?? {},
     glyph: seed?.glyph ?? "◆",
@@ -115,8 +117,8 @@ export const slug = (v: string) =>
 
 /** Persisted slice of a session. */
 export const toStudio = (s: Session): Studio => ({
-  rasterizer: s.rasterizer, spatial: s.spatial, base: s.base, per: s.per,
-  glyph: s.glyph, sources: s.sources,
+  rasterizer: s.rasterizer, spatial: s.spatial, fps: s.fps, base: s.base,
+  per: s.per, glyph: s.glyph, sources: s.sources,
 })
 
 export * as knobs from "./eikon-knobs"
