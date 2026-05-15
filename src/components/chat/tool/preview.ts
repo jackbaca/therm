@@ -45,6 +45,7 @@ const SPEC: Record<string, Spec> = {
   cronjob:          { icon: "◷", verb: "Cron",     pending: "Managing cron…" },
   text_to_speech:   { icon: "♪", verb: "TTS",      pending: "Synthesizing…" },
   image_generate:   { icon: "✦", verb: "Image",    pending: "Generating image…" },
+  video_generate:   { icon: "✦", verb: "Video",    pending: "Generating video…" },
 }
 
 const GENERIC: Spec = { icon: "⚙", verb: "", pending: "Running…" }

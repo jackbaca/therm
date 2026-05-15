@@ -249,7 +249,9 @@ async function handle(req: Request): Promise<Response> {
     })
   }
 
-  // GET /tab/:n — switch tab by injecting Ctrl+Right/Left key events
+  // GET /tab/:n — switch tab via the real key path (tab.next/prev is
+  // alt+arrow → meta:true per chord.ts). Falls back to setTab() when
+  // the renderer isn't ready yet.
   const tabMatch = path.match(/^\/tab\/(\d+)$/)
   if (tabMatch) {
     const n = Number(tabMatch[1])
@@ -257,18 +259,11 @@ async function handle(req: Request): Promise<Response> {
 
     const renderer = bridge.renderer()
     if (renderer) {
-      // Inject Ctrl+Left/Right keys to navigate to target tab
       const cur = bridge.tab()
       const diff = n - cur
-      if (diff !== 0) {
-        const keyName = diff > 0 ? "right" : "left"
-        const steps = Math.abs(diff)
-        for (let i = 0; i < steps; i++) {
-          injectKey(renderer, makeKey({ name: keyName, ctrl: true }))
-        }
-      }
+      const key = makeKey({ name: diff > 0 ? "right" : "left", meta: true })
+      for (let i = Math.abs(diff); i > 0; i--) injectKey(renderer, key)
     } else {
-      // Fallback to direct setState (may not work reliably)
       bridge.setTab(n)
     }
     pendingTab = n

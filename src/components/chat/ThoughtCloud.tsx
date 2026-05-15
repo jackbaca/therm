@@ -14,12 +14,11 @@ import { useTheme } from "../../theme"
 export const CLOUD_MIN = 12
 const CLOUD_MAX = 24
 
-// Heavy triple-dash — reads as thick + noncontinuous. Corners stay
-// heavy-solid so the box parses as a bubble, not a grid.
+// Light triple-dash with rounded corners — reads as a bubble, not a grid.
 const CLOUD: BorderCharacters = {
-  topLeft: "┏", topRight: "┓", bottomLeft: "┗", bottomRight: "┛",
-  horizontal: "┅", vertical: "┇",
-  topT: "┅", bottomT: "┅", leftT: "┇", rightT: "┇", cross: "╋",
+  topLeft: "╭", topRight: "╮", bottomLeft: "╰", bottomRight: "╯",
+  horizontal: "┄", vertical: "┆",
+  topT: "┄", bottomT: "┄", leftT: "┆", rightT: "┆", cross: "┼",
 }
 
 // Stepped bubbles bridging the cloud to the avatar's upper-left. Three
@@ -27,9 +26,9 @@ const CLOUD: BorderCharacters = {
 // frame and travels bottom→top (away from the head, into the cloud);
 // the trailing empty frame reads as the bubble entering the cloud.
 const SLOTS = [
-  ["┏┅┅┓   ", "┗┅┅┛   "],
-  ["   ┏┓  ", "   ┗┛  "],
-  ["     ╸ ", "       "],
+  ["╭┄┄╮   ", "╰┄┄╯   "],
+  ["   ╭╮  ", "   ╰╯  "],
+  ["     ╶ ", "       "],
 ]
 const BLANK = "       "
 const ORDER = [2, 1, 0, -1]
@@ -147,7 +146,7 @@ export const ThoughtCloud = memo((props: {
 
   return (
     <box
-      height={props.height} flexDirection="column" position="relative"
+      height={props.height} flexDirection="column" position="relative" marginLeft={1}
       border borderColor={theme.hermAvatar} customBorderChars={CLOUD}
       backgroundColor={theme.backgroundPanel} paddingX={1}
     >

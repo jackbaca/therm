@@ -56,5 +56,8 @@ export const openStateDb = (): Database => {
     AFTER DELETE ON messages BEGIN
       DELETE FROM messages_fts WHERE rowid = old.id;
     END`)
+  db.run(`CREATE TABLE IF NOT EXISTS state_meta (
+    key TEXT PRIMARY KEY, value TEXT NOT NULL
+  )`)
   return db
 }
