@@ -74,7 +74,6 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
       onActivate: activate,
       onDelete: () => void del(),
       onNew: () => props.onEdit?.(""),
-      onRefresh: () => eikon.onRevision,  // noop trigger; rev bump handled elsewhere
     })) return
     if (key.name === "e" && cur && props.onEdit) props.onEdit(cur.bundled ? cur.name : basename(dirname(cur.path)))
   })

@@ -17,7 +17,7 @@
 // live on every open of the rasterizer picker.
 
 import { existsSync, mkdirSync, readdirSync, copyFileSync, readFileSync, writeFileSync, rmSync } from "node:fs"
-import { join, dirname, extname, basename } from "node:path"
+import { join, extname, basename } from "node:path"
 import { hermesPath } from "./hermes-home"
 import * as prefs from "../context/preferences"
 import { parseEikon } from "../components/avatar/eikon"
@@ -237,7 +237,3 @@ export async function fetchSource(name: string, url: string): Promise<number> {
 
 export { parseEikon, probe }
 export * as eikon from "./eikon"
-
-// Keep `dirname` referenced so a future bundler tree-shake doesn't
-// drop the node:path import when only `join/extname/basename` survive.
-void dirname

@@ -4,9 +4,8 @@
 #
 #   scripts/e2e-eikon.sh
 #
-# Flow: boot herm headless (CONTROL=1) → wait /status.ready → /tab 4 →
-# assert Studio chrome renders → assert Gallery lists seeded eikon.
-# Ctrl+S flow requires a real image so it's gated on ffmpeg/chafa.
+# Flow: boot herm headless → wait for paint → Alt+→ ×4 to Eikon tab →
+# assert Studio chrome renders → Shift+→ to Gallery → assert listed.
 
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,7 +14,7 @@ HH=$(mktemp -d -t herm-e2e-XXXXXX)
 mkdir -p "$HH/herm" "$HH/eikons/probe/source"
 trap 'kill -TERM $PID 2>/dev/null || true; rm -rf "$HH"' EXIT
 
-# Seed a minimal editable eikon.
+# Seed a minimal eikon so the tab auto-opens something.
 bun -e '
 const n="probe"
 const row="E2E-EIKON-PROBE".padEnd(48)
@@ -34,33 +33,38 @@ cat > "$HH/herm/tui.json" <<JSON
 JSON
 
 cd "$HERE"
-# Sidebar + studio need ≥120 cols.
-CONTROL=1 CONTROL_PORT=$PORT HERMES_HOME="$HH" COLUMNS=160 LINES=48 \
-  python3 scripts/ptyrun.py 160 48 bun run dev >/dev/null 2>&1 &
+# Sidebar + studio need ≥120 cols; createCliRenderer reads stdout.columns
+# off the real pty. ptyrun.py forks onto a sized pty.
+COLS=200 ROWS=50 python3 scripts/ptyrun.py \
+  env CONTROL=1 CONTROL_PORT=$PORT HERMES_HOME=$HH \
+  bun run src/index.tsx --no-splash &
 PID=$!
 
-wait_ready() {
-  for i in $(seq 1 60); do
-    if curl -sf "http://localhost:$PORT/status" | grep -q '"ready":true'; then return 0; fi
-    sleep 0.5
-  done
-  return 1
-}
-wait_ready || { echo "FAIL: ready timeout"; exit 1; }
+req() { curl -sS "http://127.0.0.1:$PORT$1" "${@:2}"; }
+j()   { req "$1" -H 'content-type: application/json' -d "$2" -X POST; }
 
-curl -sf -XPOST "http://localhost:$PORT/tab/Eikon" >/dev/null
+# Wait for the shell to paint (≤15s) — top tab bar is the cheapest signal.
+for i in $(seq 1 30); do
+  F=$(req "/frame" 2>/dev/null || true)
+  grep -q "Eikon" <<<"$F" && break
+  sleep 0.5
+done
+grep -q "Eikon" <<<"$F" || { echo "FAIL: shell not painted"; exit 1; }
+
+# Alt+→ ×4 → Eikon tab. (/tab/:n injects ctrl+arrows — rough-edge #6.)
+for i in 1 2 3 4; do j /key '{"name":"right","meta":true}' >/dev/null; done
 sleep 0.5
 
-FRAME=$(curl -sf "http://localhost:$PORT/frame")
-grep -q "Knobs" <<<"$FRAME" || { echo "FAIL: studio Knobs pane missing"; echo "$FRAME"; exit 1; }
-grep -q "rasterizer" <<<"$FRAME" || { echo "FAIL: rasterizer row missing"; exit 1; }
-grep -q "States" <<<"$FRAME" || { echo "FAIL: state strip missing"; exit 1; }
+F=$(req /frame)
+grep -q "Knobs"      <<<"$F" || { echo "FAIL: studio Knobs pane missing"; echo "$F"; exit 1; }
+grep -q "rasterizer" <<<"$F" || { echo "FAIL: rasterizer row missing"; exit 1; }
+grep -q "States"     <<<"$F" || { echo "FAIL: state strip missing"; exit 1; }
 
 # Shift+→ to Gallery sub-tab.
-curl -sf -XPOST "http://localhost:$PORT/key" -d '{"name":"right","shift":true}' >/dev/null
+j /key '{"name":"right","shift":true}' >/dev/null
 sleep 0.3
-FRAME=$(curl -sf "http://localhost:$PORT/frame")
-grep -q "Gallery (" <<<"$FRAME" || { echo "FAIL: gallery missing"; exit 1; }
-grep -q "probe" <<<"$FRAME" || { echo "FAIL: probe not listed"; exit 1; }
+F=$(req /frame)
+grep -q "Gallery (" <<<"$F" || { echo "FAIL: gallery missing"; echo "$F"; exit 1; }
+grep -q "probe"     <<<"$F" || { echo "FAIL: probe not listed"; exit 1; }
 
-echo "ok: e2e-eikon (3/3 assertions)"
+echo "ok: e2e-eikon (5/5 assertions)"

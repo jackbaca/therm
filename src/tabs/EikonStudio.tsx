@@ -12,7 +12,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import { extend, useKeyboard, useTerminalDimensions } from "@opentui/react"
-import { SliderRenderable, type SliderOptions } from "@opentui/core"
+import { SliderRenderable } from "@opentui/core"
 import type { ParsedKey } from "@opentui/core"
 import { basename } from "node:path"
 import { useTheme } from "../theme"
@@ -26,8 +26,8 @@ import { openConfirm } from "../dialogs/confirm"
 import { openTextPrompt } from "../dialogs/text-prompt"
 import * as prefs from "../context/preferences"
 import { eikon } from "../service/eikon"
-import { W, H, S0, caps, thumb, cached, resetCache, defaults,
-         type Rasterizer, type KnobDef, type KnobValues, type Spatial, type Frame } from "../utils/eikon-render"
+import { W, H, caps, thumb, cached, resetCache,
+         type Rasterizer, type KnobDef, type Spatial, type Frame } from "../utils/eikon-render"
 import { knobs, STATES, type Session } from "../utils/eikon-knobs"
 import type { AvatarState } from "../components/avatar/states"
 
@@ -517,4 +517,3 @@ export const EikonStudio = memo((props: {
 
 // Used by tests and app.tsx to render even when unfocused.
 export default EikonStudio
-void S0; void defaults as unknown as KnobValues
