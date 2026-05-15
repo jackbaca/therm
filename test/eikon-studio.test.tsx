@@ -37,7 +37,7 @@ describe("EikonStudio tab", () => {
     let sub = 0
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
-      { width: 160, height: 48 },
+      { width: 160, height: 60 },
     )
     await until(t, () => t.frame().includes("rasterizer"))
     expect(t.frame()).toContain("Preview")

@@ -69,14 +69,14 @@ function buildRows(r: Rasterizer, s: Session): Row[] {
 
 // ── Minimap ──────────────────────────────────────────────────────────
 
-const MINI_W = 16, MINI_H = 8
+const MINI_W = 16
 
-function Mini(props: { sp: Spatial; dims: Session["dims"] }) {
+function Mini(props: { sp: Spatial; dims: Session["dims"]; onPick?: (ox: number, oy: number) => void }) {
   const theme = useTheme().theme
   const d = props.dims ?? { w: 1, h: 1 }
   const ar = d.w / d.h
-  // Use half-block rows so the viewport rect has sub-cell vertical
-  // precision: render on a 16×16 virtual grid, two rows per text line.
+  // Half-block rows: render on a bw×bh virtual grid, two v-cells per
+  // text line, so the viewport rect has sub-row precision.
   const bw = ar >= 1 ? MINI_W : Math.max(4, Math.round(MINI_W * ar))
   const bh = ar >= 1 ? Math.max(4, Math.round(MINI_W / ar)) : MINI_W
   const short = Math.min(bw, bh)
@@ -88,14 +88,55 @@ function Mini(props: { sp: Spatial; dims: Session["dims"] }) {
     const up = on(x, ty * 2), dn = on(x, ty * 2 + 1)
     return up && dn ? "█" : up ? "▀" : dn ? "▄" : "·"
   }
+  // Click positions the crop centre; account for rect size so the
+  // normalized ox/oy still map 0..1 across the slack.
+  const place = (e: { x: number; y: number }) => {
+    if (!props.onPick) return
+    const nx = bw <= cw ? 0.5 : Math.max(0, Math.min(1, (e.x + 0.5 - cw / 2) / (bw - cw)))
+    const ny = bh <= cw ? 0.5 : Math.max(0, Math.min(1, (e.y * 2 + 1 - cw / 2) / (bh - cw)))
+    props.onPick(+nx.toFixed(3), +ny.toFixed(3))
+  }
   return (
-    <box position="absolute" right={0} bottom={0} padding={1}
-         backgroundColor={theme.backgroundElement} border borderColor={theme.border}>
+    <box flexDirection="column" flexShrink={0}
+         backgroundColor={theme.backgroundElement}
+         onMouseDown={place} onMouseDrag={place}>
       {Array.from({ length: Math.ceil(bh / 2) }, (_, ty) => (
         <text key={ty} fg={theme.textMuted}>
           {Array.from({ length: bw }, (_, x) => cell(x, ty)).join("")}
         </text>
       ))}
+    </box>
+  )
+}
+
+/** zoom + pan sliders beside the minimap. `pan` drives ox — oy is
+ *  reachable via minimap click or arrows-on-preview. Two sliders by
+ *  request; a third for oy is a one-line add if it reads better. */
+function SpatialBar(props: {
+  sp: Spatial; dims: Session["dims"]
+  onZoom: (v: number) => void; onPanX: (v: number) => void
+  onPick: (ox: number, oy: number) => void
+}) {
+  const theme = useTheme().theme
+  const Row = (p: { label: string; min: number; max: number; v: number; on: (v: number) => void }) => (
+    <box height={1} flexDirection="row">
+      <box width={6}><text fg={theme.textMuted}>{p.label}</text></box>
+      <box width={24} height={1}>
+        <slider orientation="horizontal" min={p.min} max={p.max} value={p.v}
+                foregroundColor={theme.accent} backgroundColor={theme.border}
+                onChange={p.on} />
+      </box>
+      <box width={7}><text fg={theme.textMuted}>{`  ${p.v.toFixed(2)}`}</text></box>
+    </box>
+  )
+  return (
+    <box flexDirection="row" marginTop={1} flexShrink={0}>
+      <box flexDirection="column" flexGrow={1} justifyContent="center">
+        <Row label="zoom" min={0.1} max={1.0} v={props.sp.zoom} on={props.onZoom} />
+        <Row label="pan"  min={0.0} max={1.0} v={props.sp.ox}   on={props.onPanX} />
+      </box>
+      <box width={2} />
+      <Mini sp={props.sp} dims={props.dims} onPick={props.onPick} />
     </box>
   )
 }
@@ -458,15 +499,28 @@ export const EikonStudio = memo((props: {
   : pane === "preview" ? [["↑↓←→", "pan"], ["+/-", "zoom"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
   :                      [["←→", "state"], [keys.print("list.activate"), "actions"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
 
+  const setSpatial = (sp: Partial<Spatial>) =>
+    mutate(p => ({ ...p, spatial: { ...p.spatial, ...sp }, dirty: true }))
+
+  // TabShell chrome = border(2) + padding(2) + title(1) + gap(1).
+  // SpatialBar ≤ 8 rows (square minimap) + 1 margin.
+  const BAR_H = spatialOk ? MINI_W / 2 + 1 : 0
+  const PREVIEW_W = Math.max(W, 37 + 2 + MINI_W) + 6
+  const PREVIEW_H = H + BAR_H + 6 + (previewErr ? 1 : 0)
   const preview = (
     <TabShell title={spatialOk ? title : `${title}  ·  (spatial n/a — ${r.name})`}
-              error={previewErr} focus={pane === "preview"} grow={1}>
-      <box position="relative" flexDirection="column" width={W + 2} height={H} alignSelf="center"
+              error={previewErr} focus={pane === "preview"}>
+      <box flexDirection="column" width={W} height={H} flexShrink={0}
            onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseScroll={onScroll}>
         {frame.map((ln, i) =>
           <text key={i} fg={err ? theme.textMuted : theme.hermAvatar}>{ln}</text>)}
-        {spatialOk && s ? <Mini sp={s.spatial} dims={s.dims} /> : null}
       </box>
+      {spatialOk && s
+        ? <SpatialBar sp={s.spatial} dims={s.dims}
+            onZoom={v => setSpatial({ zoom: +v.toFixed(3) })}
+            onPanX={v => setSpatial({ ox: +v.toFixed(3) })}
+            onPick={(ox, oy) => setSpatial({ ox, oy })} />
+        : null}
     </TabShell>
   )
 
@@ -510,14 +564,19 @@ export const EikonStudio = memo((props: {
     <box flexDirection="column" flexGrow={1} minWidth={0}>
       {wide ? (
         <>
-          <box flexDirection="row" flexGrow={1}>
-            <box flexDirection="column" flexGrow={3} flexBasis={0}>{preview}</box>
-            <box flexDirection="column" flexGrow={2} flexBasis={0}>{panel}</box>
+          <box flexDirection="row" flexShrink={0} height={PREVIEW_H}>
+            <box flexShrink={0} width={PREVIEW_W}>{preview}</box>
+            <box flexGrow={1} flexBasis={0} minWidth={0}>{panel}</box>
           </box>
           {strip}
+          <box flexGrow={1} />
         </>
       ) : (
-        <box flexDirection="column" flexGrow={1}>{preview}{panel}{strip}</box>
+        <scrollbox scrollY flexGrow={1} contentOptions={{ flexDirection: "column" }}>
+          <box flexShrink={0} height={PREVIEW_H}>{preview}</box>
+          <box flexShrink={0} height={rows.length + 6}>{panel}</box>
+          {strip}
+        </scrollbox>
       )}
       <HintBar pairs={hint} suffix={s?.dirty ? "● unsaved" : undefined} />
     </box>
