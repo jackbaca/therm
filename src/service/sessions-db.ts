@@ -414,6 +414,7 @@ export type GoalState = {
   turn_count?: number
   max_turns?: number | null
   checklist?: ChecklistItem[]
+  subgoals?: string[]
   decomposed?: boolean
 }
 
@@ -441,12 +442,16 @@ export function goalState(sid: string): GoalState | null {
     const j = JSON.parse(row.value) as Record<string, unknown>
     const rawList = Array.isArray(j.checklist) ? j.checklist : []
     const checklist = rawList.map(parseItem).filter((x): x is ChecklistItem => x !== null)
+    const subgoals = (Array.isArray(j.subgoals) ? j.subgoals : [])
+      .map(s => typeof s === "string" ? s.trim() : "")
+      .filter((s): s is string => s.length > 0)
     return {
       goal: String(j.goal ?? ""),
       status: (j.status as GoalState["status"]) ?? "active",
       turn_count: typeof j.turn_count === "number" ? j.turn_count : undefined,
       max_turns: (j.max_turns as number | null | undefined) ?? null,
       checklist: checklist.length > 0 ? checklist : undefined,
+      subgoals: subgoals.length > 0 ? subgoals : undefined,
       decomposed: j.decomposed === true ? true : undefined,
     }
   } catch { return null }
