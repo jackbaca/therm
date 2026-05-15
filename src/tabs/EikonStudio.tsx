@@ -107,17 +107,12 @@ const SP_ROWS = ["pan x", "pan y", "zoom", "fps"] as const
 type SpRow = typeof SP_ROWS[number]
 type SpKey = keyof Spatial | "fps"
 
-/** SliderRenderable's viewPortSize *setter* clamps to ≤ (max−min),
- *  but its constructor doesn't — and the scrollbar model (thumbRatio
- *  = vp/(range+vp)) needs vp > range whenever z > 0.5. So: fix range
- *  at V, set vp = V·z/(1−z) so thumbRatio = z exactly, and key the
- *  element on zoom so prop updates never hit the clamped setter
- *  (each zoom step remounts via the constructor). Value is the
- *  window's left/top edge mapped from slack-normalized ox/oy. */
-const V = 100
-const vpOf = (z: number) => z >= 0.995 ? V * 200 : V * z / (1 - z)
-const fromEdge = (v: number) => +Math.max(0, Math.min(1, v / V)).toFixed(3)
-
+/** SliderRenderable's viewPortSize setter clamps to ≤ range, so its
+ *  scrollbar model can never reach thumb=track (z→1 is asymptotic).
+ *  Render the thumb directly instead: length = z·track exactly.
+ *  pan-x is a single W-char █-run; pan-y is a 2-wide half-block
+ *  column (2H virtual rows, same trick as Mini) for sub-row
+ *  precision. Drag scrubs by cell-delta from the grab point. */
 function PanBars(props: {
   sp: Spatial; sel: number; focused: boolean
   onHover: (i: number) => void; onSet: (k: SpKey, v: number) => void
@@ -126,7 +121,7 @@ function PanBars(props: {
 }) {
   const theme = useTheme().theme
   const z = props.sp.zoom
-  const vp = vpOf(z)
+  const slack = 1 - z
   const on = (i: number) => props.focused && props.sel === i
   const fg = (i: number) => on(i) ? theme.accent : theme.textMuted
   const wheel = (k: SpKey) => (e: { scroll?: { direction: string } }) => {
@@ -134,26 +129,40 @@ function PanBars(props: {
     if (d === "up" || d === "left") props.onWheel(k, -1)
     if (d === "down" || d === "right") props.onWheel(k, 1)
   }
+  const drag = useRef<{ at: number; v: number; k: "ox" | "oy" } | null>(null)
+  const grab = (k: "ox" | "oy", at: number) => { drag.current = { at, v: props.sp[k], k } }
+  const scrub = (at: number, L: number) => {
+    const d = drag.current
+    if (!d || slack <= 0) return
+    props.onSet(d.k, Math.max(0, Math.min(1, +(d.v + (at - d.at) / (slack * L)).toFixed(3))))
+  }
+  const drop = () => { drag.current = null }
+  const tw = Math.max(1, Math.round(z * W))
+  const tl = Math.min(W - tw, Math.round(props.sp.ox * slack * W))
+  const hbar = " ".repeat(tl) + "█".repeat(tw) + " ".repeat(W - tl - tw)
+  const vh = H * 2, th = Math.max(1, z * vh), ty = props.sp.oy * slack * vh
+  const vbar = Array.from({ length: H }, (_, y) => {
+    const up = y * 2 >= ty && y * 2 < ty + th, dn = y * 2 + 1 >= ty && y * 2 + 1 < ty + th
+    return up && dn ? "██" : up ? "▀▀" : dn ? "▄▄" : "  "
+  })
   return (
     <box flexDirection="row" flexShrink={0}>
       <box flexDirection="column" flexShrink={0}>
         {props.children}
-        <box width={W} height={1}
-             onMouseMove={() => props.onHover(0)} onMouseScroll={wheel("ox")}>
-          <slider key={`px:${z.toFixed(3)}`} orientation="horizontal" width={W} height={1}
-                  min={0} max={V} viewPortSize={vp}
-                  value={props.sp.ox * V}
-                  foregroundColor={fg(0)} backgroundColor={theme.border}
-                  onChange={v => props.onSet("ox", fromEdge(v))} />
+        <box width={W} height={1} backgroundColor={theme.border}
+             onMouseMove={() => props.onHover(0)} onMouseScroll={wheel("ox")}
+             onMouseDown={(e: { x: number }) => grab("ox", e.x)}
+             onMouseDrag={(e: { x: number }) => scrub(e.x, W)}
+             onMouseUp={drop} onMouseDragEnd={drop}>
+          <text fg={fg(0)}>{hbar}</text>
         </box>
       </box>
-      <box width={2} height={H}
-           onMouseMove={() => props.onHover(1)} onMouseScroll={wheel("oy")}>
-        <slider key={`py:${z.toFixed(3)}`} orientation="vertical" width={2} height={H}
-                min={0} max={V} viewPortSize={vp}
-                value={props.sp.oy * V}
-                foregroundColor={fg(1)} backgroundColor={theme.border}
-                onChange={v => props.onSet("oy", fromEdge(v))} />
+      <box flexDirection="column" width={2} height={H} backgroundColor={theme.border}
+           onMouseMove={() => props.onHover(1)} onMouseScroll={wheel("oy")}
+           onMouseDown={(e: { y: number }) => grab("oy", e.y)}
+           onMouseDrag={(e: { y: number }) => scrub(e.y, H)}
+           onMouseUp={drop} onMouseDragEnd={drop}>
+        {vbar.map((g, y) => <text key={y} fg={fg(1)}>{g}</text>)}
       </box>
     </box>
   )
@@ -632,7 +641,7 @@ export const EikonStudio = memo((props: {
   :                      [["←→", "state"], [keys.print("list.activate"), "actions"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
 
   // TabShell chrome = border(2) + padding(2) + title(1) + gap(1).
-  // PanBars adds +1 row (pan-x) and +1 col (pan-y) around the frame.
+  // PanBars adds +1 row (pan-x) and +2 col (pan-y) around the frame.
   // SpatialBar = max(minimap height, 2 rows + 1 gap) + 1 margin.
   const BAR_H = spatialOk ? Math.max(Math.ceil(MINI_W / 2), 3) + 1 : 0
   const PREVIEW_W = Math.max(W + 2, 36 + 2 + MINI_W) + 6

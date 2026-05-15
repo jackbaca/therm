@@ -23,11 +23,11 @@ const stub: Rasterizer = {
     Array.from({ length: 48 }, (_, x) => ((x + y) % 10 === 0 ? "#" : "·")).join(""))] }),
 }
 
-function seed(name: string) {
+function seed(name: string, sp = { zoom: 0.6, ox: 0.3, oy: 0.7 }) {
   const p = eikon.ensure(name)
   writeFileSync(join(p.source, "base.png"), PX)
   writeFileSync(eikon.file(name), JSON.stringify({ eikon: 1, name, width: 48, height: 24 }) + "\n")
-  eikon.writeStudio(name, { rasterizer: "stub", spatial: { zoom: 0.6, ox: 0.3, oy: 0.7 }, fps: 16, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
+  eikon.writeStudio(name, { rasterizer: "stub", spatial: sp, fps: 16, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
 }
 
 run("layout probe (wide)", async () => {
@@ -49,12 +49,18 @@ run("layout probe (wide)", async () => {
   const iFrameEnd = top.findLastIndex(l => l.includes("#·········#"))
   const iZoom = top.findIndex(l => l.includes("zoom"))
   const iFps  = top.findIndex(l => l.includes("fps"))
-  const iMini = top.findIndex(l => /[▀▄█]{4,}/.test(l))
-  // pan-x bar is the row immediately below the frame; pan-y is a
-  // 1-col track to its right (no labels to assert on).
+  // pan-x bar is the row immediately below the frame (█-run, width
+  // = zoom·48); pan-y is a 2-col half-block track on its right.
+  const panx = top[iFrameEnd + 1]!
+  expect(panx).toMatch(/█{29}/)               // round(0.6·48)
+  expect(panx).not.toMatch(/█{48}/)
+  // pan-y thumb sits inside the frame's row band (not above/below).
+  expect(top.slice(iFrameEnd - 23, iFrameEnd + 1).some(l => /[#·]██/.test(l))).toBe(true)
+  // Minimap renders below zoom, above States.
+  const iMini = top.slice(iZoom).findIndex(l => /[▀▄█]{4,}/.test(l)) + iZoom
   expect(iZoom).toBeGreaterThan(iFrameEnd)
   expect(iFps).toBe(iZoom + 2)   // gap=1 between zoom/fps rows
-  expect(iMini).toBeGreaterThan(iFrameEnd)
+  expect(iMini).toBeGreaterThanOrEqual(iZoom)
   expect(iStrip).toBeGreaterThan(iZoom)
   // Knobs title is on the same line as Preview title (side-by-side).
   expect(lines.find(l => l.includes("Preview"))!).toContain("Knobs")
@@ -85,6 +91,21 @@ run("SpatialBar nav: ↑↓ selects row, ←→ steps only that row", async () =
   act(() => t.keys.pressArrow("down")); await t.settle()
   act(() => t.keys.pressArrow("down")); await t.settle()
   expect(row("fps")).toContain("▸")
+  un()
+})
+
+run("pan-bar thumb fills track at zoom=1", async () => {
+  const un = eikon.register(stub); seed("full", { zoom: 1, ox: 0.5, oy: 0.5 })
+  const prefs = await import("../src/context/preferences")
+  prefs.set("eikonPath", eikon.file("full"))
+  await using t = await mountNode(<EikonGroup focused sub={0} setSub={() => {}} />, { width: 180, height: 60 })
+  await until(t, () => t.frame().includes("#·········#"))
+  const lines = t.frame().split("\n")
+  const last = lines.findLastIndex(l => l.includes("#·········#"))
+  // pan-x: full 48-cell █ run immediately below the frame.
+  expect(lines[last + 1]).toMatch(/█{48}/)
+  // pan-y: every frame row carries a ██ flank (no half-blocks, no gaps).
+  for (let y = last - 23; y <= last; y++) expect(lines[y]).toMatch(/[#·]██/)
   un()
 })
 
