@@ -107,14 +107,16 @@ const SP_ROWS = ["pan x", "pan y", "zoom", "fps"] as const
 type SpRow = typeof SP_ROWS[number]
 type SpKey = keyof Spatial | "fps"
 
-/** SliderRenderable computes thumb = viewPortSize / (range + viewPortSize)
- *  with viewPortSize clamped to ≥1. To get a thumb that shrinks with
- *  zoom, scale everything to a virtual 0..V range so zoom*V ≥ 1 at
- *  the zoom floor (0.1). Value is the window's left/top edge; map
- *  ox/oy (normalized across slack) to/from that. */
+/** SliderRenderable's viewPortSize *setter* clamps to ≤ (max−min),
+ *  but its constructor doesn't — and the scrollbar model (thumbRatio
+ *  = vp/(range+vp)) needs vp > range whenever z > 0.5. So: fix range
+ *  at V, set vp = V·z/(1−z) so thumbRatio = z exactly, and key the
+ *  element on zoom so prop updates never hit the clamped setter
+ *  (each zoom step remounts via the constructor). Value is the
+ *  window's left/top edge mapped from slack-normalized ox/oy. */
 const V = 100
-const edge = (o: number, z: number) => o * (1 - z) * V
-const fromEdge = (v: number, z: number) => z >= 1 ? 0.5 : +Math.max(0, Math.min(1, v / V / (1 - z))).toFixed(3)
+const vpOf = (z: number) => z >= 0.995 ? V * 200 : V * z / (1 - z)
+const fromEdge = (v: number) => +Math.max(0, Math.min(1, v / V)).toFixed(3)
 
 function PanBars(props: {
   sp: Spatial; sel: number; focused: boolean
@@ -124,9 +126,7 @@ function PanBars(props: {
 }) {
   const theme = useTheme().theme
   const z = props.sp.zoom
-  // range = max − min = V·(1−z); viewPortSize = V·z → thumbRatio = z.
-  const range = Math.max(0.001, V * (1 - z))
-  const vp = V * z
+  const vp = vpOf(z)
   const on = (i: number) => props.focused && props.sel === i
   const fg = (i: number) => on(i) ? theme.accent : theme.textMuted
   const wheel = (k: SpKey) => (e: { scroll?: { direction: string } }) => {
@@ -140,20 +140,20 @@ function PanBars(props: {
         {props.children}
         <box width={W} height={1}
              onMouseMove={() => props.onHover(0)} onMouseScroll={wheel("ox")}>
-          <slider orientation="horizontal" width={W} height={1}
-                  min={0} max={range} viewPortSize={vp}
-                  value={edge(props.sp.ox, z)}
+          <slider key={`px:${z.toFixed(3)}`} orientation="horizontal" width={W} height={1}
+                  min={0} max={V} viewPortSize={vp}
+                  value={props.sp.ox * V}
                   foregroundColor={fg(0)} backgroundColor={theme.border}
-                  onChange={v => props.onSet("ox", fromEdge(v, z))} />
+                  onChange={v => props.onSet("ox", fromEdge(v))} />
         </box>
       </box>
-      <box width={1} height={H}
+      <box width={2} height={H}
            onMouseMove={() => props.onHover(1)} onMouseScroll={wheel("oy")}>
-        <slider orientation="vertical" width={1} height={H}
-                min={0} max={range} viewPortSize={vp}
-                value={edge(props.sp.oy, z)}
+        <slider key={`py:${z.toFixed(3)}`} orientation="vertical" width={2} height={H}
+                min={0} max={V} viewPortSize={vp}
+                value={props.sp.oy * V}
                 foregroundColor={fg(1)} backgroundColor={theme.border}
-                onChange={v => props.onSet("oy", fromEdge(v, z))} />
+                onChange={v => props.onSet("oy", fromEdge(v))} />
       </box>
     </box>
   )
@@ -635,7 +635,7 @@ export const EikonStudio = memo((props: {
   // PanBars adds +1 row (pan-x) and +1 col (pan-y) around the frame.
   // SpatialBar = max(minimap height, 2 rows + 1 gap) + 1 margin.
   const BAR_H = spatialOk ? Math.max(Math.ceil(MINI_W / 2), 3) + 1 : 0
-  const PREVIEW_W = Math.max(W + 1, 36 + 2 + MINI_W) + 6
+  const PREVIEW_W = Math.max(W + 2, 36 + 2 + MINI_W) + 6
   const PREVIEW_H = H + 1 + BAR_H + 6 + (previewErr ? 1 : 0)
   const body = (
     <box position="relative" flexDirection="column" width={W} height={H} flexShrink={0}
