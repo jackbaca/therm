@@ -127,20 +127,24 @@ The Eikon Studio renders its 48×24 preview through a pluggable rasterizer. Two 
 import type { Rasterizer } from "../../utils/eikon-render"
 
 const r: Rasterizer = {
-  name: "ascii-pipeline",
+  name: "my-ascii",
   spatial: false,           // honors zoom/ox/oy? false → spatial sliders + minimap hidden
   video: false,             // accepts video sources?
   knobs: {
-    preset: { kind: "cycle", default: "stroke-clarity",
-              options: ["stroke-clarity", "d30-dense", "braille-detail"] },
+    palette: { kind: "cycle", options: ["dense", "sparse", "blocks"], default: "dense" },
+    dither:  { kind: "toggle", default: true },
+    gamma:   { kind: "slider", min: 0.5, max: 2.0, step: 0.1, default: 1.0 },
   },
-  available: () => Bun.which("ascii-pipeline") ? true : "ascii-pipeline not on PATH",
+  available: () => Bun.which("my-ascii") ? true : "my-ascii not on PATH",
   async render(src, _spatial, knobs) {
-    const p = Bun.spawn(["ascii-pipeline", "render-image",
-      "--input", src, "--preset", String(knobs.preset), "--out", "/dev/stdout"])
+    const p = Bun.spawn(["my-ascii", src,
+      "--palette", String(knobs.palette),
+      "--gamma", String(knobs.gamma),
+      ...(knobs.dither ? ["--dither"] : []),
+    ], { stdout: "pipe", stderr: "pipe" })
     const out = await new Response(p.stdout).text()
     await p.exited
-    if (p.exitCode !== 0) return { err: "ascii-pipeline failed" }
+    if (p.exitCode !== 0) return { err: await new Response(p.stderr).text() || "failed" }
     return { frames: [out.trimEnd().split("\n")] }
   },
 }
@@ -152,10 +156,10 @@ api.eikon.rasterizer.register(r)
 The Studio reads your `knobs` schema and renders each entry generically — `cycle` as `◂ value ▸`, `toggle` as `● / ○`, `slider` as a drag bar. You own only `render()`; the tab handles selection, persistence (`studio.json`), per-state overrides, and save.
 
 - `available()` returns `true` or a short reason string; unavailable rasterizers appear dimmed in the picker with the reason as a hint.
-- `render()` is `async`. Use `Bun.spawn`, not `spawnSync` — blocking the main thread freezes slider drag.
-- Output is always 48×24; the tab derives its own thumbnails.
-- `probe?(src)` (optional) returns source pixel dimensions for the minimap aspect ratio.
-- Registration is scope-tracked: deactivating your plugin removes the rasterizer from the picker automatically.
+- `render()` is `async`. Use `Bun.spawn`, not `spawnSync` — blocking the main thread freezes slider drag. For in-process rasterizers, do the heavy work after an `await` so the render loop gets a tick.
+- Output is always 48×24; the tab pads/clips and derives its own thumbnails.
+- `probe?(src)` (optional) returns source pixel dimensions for the minimap aspect ratio. Omit if `spatial: false`.
+- Registration is scope-tracked: deactivating your plugin removes the rasterizer from the picker automatically. If it was the active one, the tab falls back to the first available built-in.
 
 Full type: `src/utils/eikon-render.ts::Rasterizer`. Registry lives in `src/service/eikon.ts`.
 
