@@ -504,7 +504,7 @@ export const EikonStudio = memo((props: {
     <TabShell title={spatialOk ? title : `${title}  ·  (spatial n/a — ${r.name})`}
               error={previewErr} focus={pane === "preview"}>
       <box flexDirection="column" width={W} height={H} flexShrink={0}
-           onMouseScroll={onScroll}>
+           backgroundColor={theme.background} onMouseScroll={onScroll}>
         {frame.map((ln, i) =>
           <text key={i} fg={err ? theme.textMuted : theme.hermAvatar}>{ln}</text>)}
       </box>
