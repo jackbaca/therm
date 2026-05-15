@@ -30,8 +30,28 @@ const noopDevtools: import("bun").BunPlugin = {
   setup(b) {
     b.onResolve({ filter: /^react-devtools-core$/ }, () =>
       ({ path: "rdc-stub", namespace: "stub" }))
-    b.onLoad({ filter: /.*/, namespace: "stub" }, () => ({
+    b.onLoad({ filter: /^rdc-stub$/, namespace: "stub" }, () => ({
       contents: "export default { initialize() {}, connectToDevTools() {} }",
+      loader: "js",
+    }))
+  },
+}
+
+// See the define-block comment below for the upstream bug this papers over.
+// Shim `react/jsx-dev-runtime` → the production runtime, re-exporting `jsx`
+// under the name `jsxDEV`. Anything importing from the dev runtime (only
+// @opentui/react today) gets a working function instead of `undefined`.
+const jsxDevShim: import("bun").BunPlugin = {
+  name: "jsx-dev-shim",
+  setup(b) {
+    b.onResolve({ filter: /^react\/jsx-dev-runtime$/ }, () =>
+      ({ path: "jsx-dev-shim", namespace: "stub" }))
+    b.onLoad({ filter: /^jsx-dev-shim$/, namespace: "stub" }, () => ({
+      contents: `
+        import { jsx, jsxs, Fragment } from "react/jsx-runtime"
+        export { jsx, jsxs, Fragment }
+        export var jsxDEV = jsx
+      `,
       loader: "js",
     }))
   },
@@ -58,7 +78,13 @@ const result = await Bun.build({
   minify: { whitespace: true, syntax: true, identifiers: false },
   sourcemap: "none",
   external,
-  plugins: [noopDevtools],
+  plugins: [noopDevtools, jsxDevShim],
+  // @opentui/react@0.2.2 ships one bundle that imports `jsxDEV` from
+  // `react/jsx-dev-runtime`. In React's production build that export is
+  // `undefined`, so under NODE_ENV=production the first BoundSlot render
+  // throws `jsxDEV is not a function` and the shell never paints. Redirect
+  // the dev runtime to the stable one; `jsxDEV(type, props, key)` is call-
+  // compatible with `jsx(type, props, key)` (extra debug args are ignored).
   define: {
     "process.env.NODE_ENV": '"production"',
     "process.env.DEV": '"false"',

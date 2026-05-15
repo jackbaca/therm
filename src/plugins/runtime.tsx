@@ -91,6 +91,22 @@ function scoped(base: HermPluginApi, reg: ReturnType<typeof createReactSlotRegis
   }
 }
 
+// The underlying SlotRegistry store is keyed per-renderer under the fixed
+// "react:slot-registry" key and throws if a second call supplies a
+// different `context` object. PluginProvider can unmount/remount (fast
+// refresh, ErrorBoundary retry, test renderer reuse) while the renderer
+// lives on — each fresh mount would construct a new SlotCtx and crash.
+// Intern one SlotCtx per renderer at module scope so every mount reuses it.
+const CTXS = new WeakMap<object, SlotCtx>()
+function ctxFor(renderer: object, themeRef: { current: { theme: unknown } }): SlotCtx {
+  const hit = CTXS.get(renderer)
+  if (hit) return hit
+  const made = Object.defineProperty({} as SlotCtx, "theme",
+    { get: () => themeRef.current.theme, enumerable: true })
+  CTXS.set(renderer, made)
+  return made
+}
+
 export function PluginProvider(props: { children: ReactNode; plugins?: ReadonlyArray<HermPlugin> }) {
   const list = props.plugins ?? INTERNAL
   const renderer = useRenderer()
@@ -115,8 +131,7 @@ export function PluginProvider(props: { children: ReactNode; plugins?: ReadonlyA
   const reg = useMemo(
     () => createReactSlotRegistry<Slots, SlotCtx>(
       renderer,
-      // Stable object; `theme` is a getter so slot renderers retint live.
-      Object.defineProperty({} as SlotCtx, "theme", { get: () => themeRef.current.theme, enumerable: true }),
+      ctxFor(renderer, themeRef),
       { onPluginError: e => fail(`[plugin:${e.pluginId}] ${e.phase} error in slot "${e.slot}"`, e.error) },
     ),
     [renderer],
