@@ -409,18 +409,36 @@ export const EikonStudio = memo((props: {
     )
   }
 
-  const activate = () => {
-    const row = navRows[selRef.current]
+  /** Step a knob row (cycle/toggle forward, slider ±). */
+  const stepRow = (row: Row, d: 1 | -1) => {
+    if (row.kind !== "knob" || !row.knob) return
+    mutate(p => knobs.edit(p, k => knobs.step(k, row.id, row.knob!, d)))
+  }
+
+  /** nav.md: Enter activates; Space toggles/cycles; when a row has
+   *  only one semantic, both keys and click do that. High-commitment
+   *  actions (reset → confirm dialog) are Enter/click only. */
+  const act = (row: Row | undefined, via: "enter" | "space" | "click") => {
     if (!row || !sRef.current) return
     if (row.kind === "select") return doSelectRasterizer()
     if (row.kind === "prompt") return void doPrompt(row.id)
-    if (row.kind === "action") return void doAction(row.id)
+    if (row.kind === "action") {
+      if (via === "space" && row.id === "reset") return
+      return void doAction(row.id)
+    }
+    if (row.kind === "knob") {
+      // slider has neither toggle nor activate semantics → Enter/Space
+      // are inert (←→ and drag are the inputs).
+      if (row.knob!.kind === "slider") return
+      return stepRow(row, 1)
+    }
   }
 
+  const activate = () => act(navRows[selRef.current], "enter")
+  const toggle   = () => act(navRows[selRef.current], "space")
   const adjust = (d: 1 | -1) => {
     const row = navRows[selRef.current]
-    if (!row || !sRef.current || row.kind !== "knob" || !row.knob) return
-    mutate(p => knobs.edit(p, k => knobs.step(k, row.id, row.knob!, d)))
+    if (row) stepRow(row, d)
   }
 
   const discard = async () => {
@@ -451,7 +469,7 @@ export const EikonStudio = memo((props: {
       if (handleListKey(keys, key, {
         count: navRows.length, setSel,
         onActivate: activate,
-        onToggle: () => { const row = navRows[sel]; if (row?.knob?.kind === "toggle") adjust(1) },
+        onToggle: toggle,
         onNew: () => void doPrompt("source"),
       })) return
       if (key.name === "left") return adjust(-1)
@@ -527,10 +545,10 @@ export const EikonStudio = memo((props: {
             const on = pane === "knobs" && ni === sel
             const dim = row.kind === "knob" && !src
             return (
-              <KnobRow key={row.id} id={`knob-${i}`} row={row} s={s} r={r} src={src}
+              <KnobRow key={`${r.name}:${row.id}`} id={`knob-${row.id}`} row={row} s={s} r={r} src={src}
                        on={on} dim={dim}
-                       onHover={() => { if (ni >= 0) setSel(ni) }}
-                       onClick={() => { if (ni >= 0) { setSel(ni); setPane("knobs"); activate() } }}
+                       onHover={() => { if (ni >= 0) { setPane("knobs"); setSel(ni) } }}
+                       onClick={() => { if (ni >= 0) { setSel(ni); setPane("knobs"); act(row, "click") } }}
                        onSlide={row.knob?.kind === "slider"
                          ? v => mutate(p => knobs.edit(p, k => knobs.setSlider(k, row.id, row.knob!, v)))
                          : undefined} />
