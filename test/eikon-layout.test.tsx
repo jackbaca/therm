@@ -48,12 +48,12 @@ run("layout probe (wide)", async () => {
   // downsamples don't false-match.
   const iFrameEnd = top.findLastIndex(l => l.includes("#·········#"))
   const iZoom = top.findIndex(l => l.includes("zoom"))
-  const iPanX = top.findIndex(l => l.includes("pan x"))
-  const iPanY = top.findIndex(l => l.includes("pan y"))
+  const iFps  = top.findIndex(l => l.includes("fps"))
   const iMini = top.findIndex(l => /[▀▄█]{4,}/.test(l))
+  // pan-x bar is the row immediately below the frame; pan-y is a
+  // 1-col track to its right (no labels to assert on).
   expect(iZoom).toBeGreaterThan(iFrameEnd)
-  expect(iPanX).toBe(iZoom + 2)   // gap=1 between rows
-  expect(iPanY).toBe(iPanX + 2)
+  expect(iFps).toBe(iZoom + 2)   // gap=1 between zoom/fps rows
   expect(iMini).toBeGreaterThan(iFrameEnd)
   expect(iStrip).toBeGreaterThan(iZoom)
   // Knobs title is on the same line as Preview title (side-by-side).
@@ -70,24 +70,21 @@ run("SpatialBar nav: ↑↓ selects row, ←→ steps only that row", async () =
   const row = (name: string) => t.frame().split("\n").find(l => l.includes(name))!
   // No caret when preview pane unfocused.
   expect(row("zoom")).not.toContain("▸")
-  // Tab into preview → zoom row gets caret.
-  act(() => t.keys.pressTab())
+  // Tab into preview → pan-x selected (idx 0). ↓↓ → zoom (idx 2).
+  act(() => t.keys.pressTab()); await t.settle()
+  act(() => t.keys.pressArrow("down")); await t.settle()
+  act(() => t.keys.pressArrow("down")); await t.settle()
   await until(t, () => row("zoom").includes("▸"))
-  expect(row("pan x")).not.toContain("▸")
-  // ↓ → pan x selected; ←→ adjusts only ox.
-  act(() => t.keys.pressArrow("down")); await t.settle()
-  expect(row("pan x")).toContain("▸")
-  expect(row("zoom")).not.toContain("▸")
-  const before = row("pan x")
-  act(() => t.keys.pressArrow("right")); await t.settle()
-  expect(row("pan x")).not.toBe(before)
-  expect(row("zoom")).toContain("0.60")     // unchanged
-  // ↓↓↓ clamps at fps (4th row).
-  act(() => t.keys.pressArrow("down")); await t.settle()
+  expect(row("fps")).not.toContain("▸")
+  // ←→ adjusts zoom only.
+  const before = row("zoom")
+  act(() => t.keys.pressArrow("left")); await t.settle()
+  expect(row("zoom")).not.toBe(before)
+  expect(row("fps")).toContain("16")     // unchanged
+  // ↓↓ clamps at fps (4th row).
   act(() => t.keys.pressArrow("down")); await t.settle()
   act(() => t.keys.pressArrow("down")); await t.settle()
   expect(row("fps")).toContain("▸")
-  expect(row("fps")).toContain("16")
   un()
 })
 

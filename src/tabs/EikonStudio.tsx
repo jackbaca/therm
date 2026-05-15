@@ -100,38 +100,94 @@ function Mini(props: { sp: Spatial; dims: Session["dims"] }) {
   )
 }
 
-/** Spatial sub-row ids in preview-pane nav order. */
-const SP_ROWS = ["zoom", "pan x", "pan y", "fps"] as const
+/** Preview-pane nav order. pan-x/pan-y render as scrollbar-style
+ *  sliders flanking the frame (no label); zoom/fps stay as labeled
+ *  rows beside the minimap. ↑↓ still walks all four. */
+const SP_ROWS = ["pan x", "pan y", "zoom", "fps"] as const
 type SpRow = typeof SP_ROWS[number]
+type SpKey = keyof Spatial | "fps"
 
-/** zoom + pan-x + pan-y + fps sliders with the read-only minimap
- *  inline after them. nav.md: ↑↓ picks a row (caret + bg), ←→ steps
- *  it, slider fg is accent only on the selected row. */
+/** SliderRenderable computes thumb = viewPortSize / (range + viewPortSize)
+ *  with viewPortSize clamped to ≥1. To get a thumb that shrinks with
+ *  zoom, scale everything to a virtual 0..V range so zoom*V ≥ 1 at
+ *  the zoom floor (0.1). Value is the window's left/top edge; map
+ *  ox/oy (normalized across slack) to/from that. */
+const V = 100
+const edge = (o: number, z: number) => o * (1 - z) * V
+const fromEdge = (v: number, z: number) => z >= 1 ? 0.5 : +Math.max(0, Math.min(1, v / V / (1 - z))).toFixed(3)
+
+function PanBars(props: {
+  sp: Spatial; sel: number; focused: boolean
+  onHover: (i: number) => void; onSet: (k: SpKey, v: number) => void
+  onWheel: (k: SpKey, d: 1 | -1) => void
+  children: import("react").ReactNode
+}) {
+  const theme = useTheme().theme
+  const z = props.sp.zoom
+  // range = max − min = V·(1−z); viewPortSize = V·z → thumbRatio = z.
+  const range = Math.max(0.001, V * (1 - z))
+  const vp = V * z
+  const on = (i: number) => props.focused && props.sel === i
+  const fg = (i: number) => on(i) ? theme.accent : theme.textMuted
+  const wheel = (k: SpKey) => (e: { scroll?: { direction: string } }) => {
+    const d = e.scroll?.direction
+    if (d === "up" || d === "left") props.onWheel(k, -1)
+    if (d === "down" || d === "right") props.onWheel(k, 1)
+  }
+  return (
+    <box flexDirection="row" flexShrink={0}>
+      <box flexDirection="column" flexShrink={0}>
+        {props.children}
+        <box width={W} height={1}
+             onMouseMove={() => props.onHover(0)} onMouseScroll={wheel("ox")}>
+          <slider orientation="horizontal" width={W} height={1}
+                  min={0} max={range} viewPortSize={vp}
+                  value={edge(props.sp.ox, z)}
+                  foregroundColor={fg(0)} backgroundColor={theme.border}
+                  onChange={v => props.onSet("ox", fromEdge(v, z))} />
+        </box>
+      </box>
+      <box width={1} height={H}
+           onMouseMove={() => props.onHover(1)} onMouseScroll={wheel("oy")}>
+        <slider orientation="vertical" width={1} height={H}
+                min={0} max={range} viewPortSize={vp}
+                value={edge(props.sp.oy, z)}
+                foregroundColor={fg(1)} backgroundColor={theme.border}
+                onChange={v => props.onSet("oy", fromEdge(v, z))} />
+      </box>
+    </box>
+  )
+}
+
+/** zoom + fps labeled sliders + read-only minimap. */
 function SpatialBar(props: {
   sp: Spatial; fps: number; dims: Session["dims"]
   sel: number; focused: boolean
   onHover: (i: number) => void
-  onSet: (k: keyof Spatial | "fps", v: number) => void
+  onSet: (k: SpKey, v: number) => void
+  onWheel: (k: SpKey, d: 1 | -1) => void
 }) {
   const theme = useTheme().theme
-  const spec: Record<SpRow, { k: keyof Spatial | "fps"; min: number; max: number; v: number }> = {
-    zoom:    { k: "zoom", min: 0.1, max: 1.0, v: props.sp.zoom },
-    "pan x": { k: "ox",   min: 0.0, max: 1.0, v: props.sp.ox },
-    "pan y": { k: "oy",   min: 0.0, max: 1.0, v: props.sp.oy },
-    fps:     { k: "fps",  min: 4,   max: 30,  v: props.fps },
+  const rows: Array<{ label: SpRow; k: SpKey; min: number; max: number; v: number; i: number }> = [
+    { label: "zoom", k: "zoom", min: 0.1, max: 1.0, v: props.sp.zoom, i: 2 },
+    { label: "fps",  k: "fps",  min: 4,   max: 30,  v: props.fps,     i: 3 },
+  ]
+  const wheel = (k: SpKey) => (e: { scroll?: { direction: string } }) => {
+    const d = e.scroll?.direction
+    if (d === "up") props.onWheel(k, -1)
+    if (d === "down") props.onWheel(k, 1)
   }
   return (
     <box flexDirection="row" marginTop={1} flexShrink={0}>
       <box flexDirection="column" gap={1} flexShrink={0}>
-        {SP_ROWS.map((label, i) => {
-          const on = props.focused && i === props.sel
-          const d = spec[label]
+        {rows.map(d => {
+          const on = props.focused && d.i === props.sel
           return (
-            <box key={label} height={1} flexDirection="row"
+            <box key={d.label} height={1} flexDirection="row"
                  backgroundColor={on ? theme.backgroundElement : undefined}
-                 onMouseMove={() => props.onHover(i)}>
+                 onMouseMove={() => props.onHover(d.i)} onMouseScroll={wheel(d.k)}>
               <box width={2}><text fg={on ? theme.primary : theme.textMuted}>{on ? "▸ " : "  "}</text></box>
-              <box width={7}><text fg={on ? theme.text : theme.textMuted}>{label}</text></box>
+              <box width={7}><text fg={on ? theme.text : theme.textMuted}>{d.label}</text></box>
               <box width={20} height={1}>
                 <slider orientation="horizontal" min={d.min} max={d.max} value={d.v}
                         foregroundColor={on ? theme.accent : theme.textMuted}
@@ -371,10 +427,17 @@ export const EikonStudio = memo((props: {
   const setSpatial = (sp: Partial<Spatial>) =>
     mutate(p => ({ ...p, spatial: { ...p.spatial, ...sp }, dirty: true }))
 
-  const setBar = (k: keyof Spatial | "fps", v: number) =>
+  const setBar = (k: SpKey, v: number) =>
     k === "fps"
       ? mutate(p => ({ ...p, fps: Math.round(v), dirty: true }))
       : setSpatial({ [k]: v })
+
+  const stepBar = (k: SpKey, d: 1 | -1) => {
+    const cur = sRef.current; if (!cur) return
+    if (k === "fps") return setBar("fps", Math.max(4, Math.min(30, cur.fps + d * 2)))
+    if (k === "zoom") return setSpatial({ zoom: Math.max(0.1, Math.min(1, +(cur.spatial.zoom + d * 0.03).toFixed(3))) })
+    return setSpatial({ [k]: Math.max(0, Math.min(1, +(cur.spatial[k] + d * 0.03).toFixed(3))) })
+  }
 
   // Knob-row actions.
   const doSave = useCallback(async () => {
@@ -529,20 +592,17 @@ export const EikonStudio = memo((props: {
       if (keys.match("list.toggle", key)) return setPlay(p => !p)
       // ↑↓ moves spatial-row selection; ←→ steps the selected knob.
       if (handleListKey(keys, key, { count: SP_ROWS.length, setSel: setSpSel })) return
-      const spec: Array<{ k: keyof Spatial | "fps"; lo: number; hi: number; st: number }> = [
-        { k: "zoom", lo: 0.1, hi: 1.0, st: 0.03 },
-        { k: "ox",   lo: 0.0, hi: 1.0, st: 0.03 },
-        { k: "oy",   lo: 0.0, hi: 1.0, st: 0.03 },
-        { k: "fps",  lo: 4,   hi: 30,  st: 2 },
-      ]
-      const d = spec[spRef.current]!
-      const fine = key.shift && d.k !== "fps"
-      const st = fine ? 0.01 : d.st
-      const cur = d.k === "fps" ? sRef.current!.fps : sRef.current!.spatial[d.k]
-      if (key.name === "left")
-        return setBar(d.k, Math.max(d.lo, +(cur - st).toFixed(3)))
-      if (key.name === "right")
-        return setBar(d.k, Math.min(d.hi, +(cur + st).toFixed(3)))
+      const spec: readonly SpKey[] = ["ox", "oy", "zoom", "fps"]
+      const k = spec[spRef.current]!
+      const fine = key.shift && k !== "fps"
+      const d = (name: string) => name === "left" ? -1 : 1
+      if (key.name === "left" || key.name === "right") {
+        if (fine && (k === "ox" || k === "oy" || k === "zoom")) {
+          const cur = sRef.current!.spatial[k]
+          return setSpatial({ [k]: Math.max(k === "zoom" ? 0.1 : 0, Math.min(1, +(cur + d(key.name) * 0.01).toFixed(3))) })
+        }
+        return stepBar(k, d(key.name))
+      }
       return
     }
     // strip
@@ -572,29 +632,39 @@ export const EikonStudio = memo((props: {
   :                      [["←→", "state"], [keys.print("list.activate"), "actions"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
 
   // TabShell chrome = border(2) + padding(2) + title(1) + gap(1).
-  // SpatialBar = max(minimap, N rows + N-1 gaps) + 1 margin.
-  const BAR_H = spatialOk ? Math.max(Math.ceil(MINI_W / 2), SP_ROWS.length * 2 - 1) + 1 : 0
-  const PREVIEW_W = Math.max(W, 36 + 2 + MINI_W) + 6
-  const PREVIEW_H = H + BAR_H + 6 + (previewErr ? 1 : 0)
+  // PanBars adds +1 row (pan-x) and +1 col (pan-y) around the frame.
+  // SpatialBar = max(minimap height, 2 rows + 1 gap) + 1 margin.
+  const BAR_H = spatialOk ? Math.max(Math.ceil(MINI_W / 2), 3) + 1 : 0
+  const PREVIEW_W = Math.max(W + 1, 36 + 2 + MINI_W) + 6
+  const PREVIEW_H = H + 1 + BAR_H + 6 + (previewErr ? 1 : 0)
+  const body = (
+    <box position="relative" flexDirection="column" width={W} height={H} flexShrink={0}
+         backgroundColor={theme.background} onMouseScroll={onScroll}
+         onMouseDown={() => setPlay(p => !p)}>
+      {frame.map((ln, i) =>
+        <text key={i} fg={err ? theme.textMuted : theme.hermAvatar}>{ln}</text>)}
+      {busy && frames[0] === BLANK
+        ? <box position="absolute" left={0} top={H >> 1} width={W} justifyContent="center">
+            <Spinner color={theme.textMuted} label="decoding…" />
+          </box>
+        : null}
+    </box>
+  )
   const preview = (
     <TabShell title={spatialOk ? title : `${title}  ·  (ffmpeg not installed)`}
               error={previewErr} focus={pane === "preview"}>
-      <box position="relative" flexDirection="column" width={W} height={H} flexShrink={0}
-           backgroundColor={theme.background} onMouseScroll={onScroll}
-           onMouseDown={() => setPlay(p => !p)}>
-        {frame.map((ln, i) =>
-          <text key={i} fg={err ? theme.textMuted : theme.hermAvatar}>{ln}</text>)}
-        {busy && frames[0] === BLANK
-          ? <box position="absolute" left={0} top={H >> 1} width={W} justifyContent="center">
-              <Spinner color={theme.textMuted} label="decoding…" />
-            </box>
-          : null}
-      </box>
       {spatialOk && s
-        ? <SpatialBar sp={s.spatial} fps={s.fps} dims={s.dims} sel={spSel} focused={pane === "preview"}
-            onHover={i => { setPane("preview"); setSpSel(i) }}
-            onSet={setBar} />
-        : null}
+        ? <>
+            <PanBars sp={s.spatial} sel={spSel} focused={pane === "preview"}
+              onHover={i => { setPane("preview"); setSpSel(i) }}
+              onSet={setBar} onWheel={stepBar}>
+              {body}
+            </PanBars>
+            <SpatialBar sp={s.spatial} fps={s.fps} dims={s.dims} sel={spSel} focused={pane === "preview"}
+              onHover={i => { setPane("preview"); setSpSel(i) }}
+              onSet={setBar} onWheel={stepBar} />
+          </>
+        : body}
     </TabShell>
   )
 
