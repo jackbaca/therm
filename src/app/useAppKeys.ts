@@ -52,7 +52,6 @@ type Opts = {
   queued: number
   onFlushQueue: () => void
   onQuit: () => void
-  /** First Ctrl+C on an empty buffer — caller shows a transient hint. */
   onQuitArm: (label: string) => void
   onCopyLast: () => void
   onAttachClipboard: () => void
@@ -117,11 +116,8 @@ export function useAppKeys(o: Opts) {
       key.stopPropagation()
       return
     }
-    // Double-tap to quit. Legacy terminals can't report Shift on
-    // Ctrl+letter, so Ctrl+Shift+C (the user's intended copy chord)
-    // arrives as plain ^C; on a non-kitty emulator with no selection
-    // and an empty buffer that used to be a one-shot exit. First press
-    // arms + hints; second within QUIT_MS quits.
+    // Legacy terminals send Ctrl+Shift+C as plain ^C — guard with a
+    // double-tap so a reflexive copy chord doesn't one-shot exit.
     if (keys.match("app.exit", key)) {
       const now = Date.now()
       if (now - lastQuit.current < QUIT_MS) return o.onQuit()

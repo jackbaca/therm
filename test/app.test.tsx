@@ -109,8 +109,7 @@ describe("app", () => {
     const t = await mount()
     await until(t, () => t.frame().includes("Ready"))
 
-    // until() uses Date.now() for its own timeout — mock only after
-    // boot settles, and use bare settle()/expect thereafter.
+    // Mock after boot — until() uses Date.now() for its own timeout.
     const t0 = 10_000
     const now = spyOn(Date, "now").mockReturnValue(t0)
     act(() => t.keys.pressKey("c", { ctrl: true }))

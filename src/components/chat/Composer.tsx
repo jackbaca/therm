@@ -61,9 +61,7 @@ type Props = {
    *  to shell.exec and rendered as a transcript $ cmd / stdout pair. */
   onShell?: (command: string) => void
   onAttach?: (r: ImageAttachResponse) => void
-  /** Probe the OS clipboard for an image (same path as the Ctrl+V chord).
-   *  Called on an empty bracketed-paste, which is how Windows Terminal
-   *  surfaces image-only clipboard content. */
+  /** Fired on an empty bracketed paste (Windows Terminal image-only clipboard). */
   onAttachClipboard?: () => void
   onEnqueue?: (text: string) => void
   onDequeue?: (i: number) => void
@@ -153,9 +151,8 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
   }
 
   // Paste routing, in priority order:
-  //  0. Empty bracketed paste → probe the OS clipboard for an image.
-  //     Windows Terminal surfaces an image-only clipboard as ESC[200~
-  //     ESC[201~ with no payload; the image has to be read out-of-band.
+  //  0. Empty payload → probe the OS clipboard for an image. Windows
+  //     Terminal sends a zero-byte bracketed paste for image-only content.
   //  1. Single-line paste that *looks* like a local path → ask the gateway.
   //     input.detect_drop is authoritative (stats the file, handles file://,
   //     quoting, escaped spaces, ~/ expansion, WSL drive rewriting). Image
