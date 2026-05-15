@@ -108,16 +108,8 @@ export function useSession(): SessionOps {
       }
     }
 
-    // mode:"new" — bare launch is ALWAYS a fresh session (herm-1jd). The
-    // stored id exists only to reuse our own abandoned empty stub instead
-    // of creating another row every launch. It may point at an ended
-    // compression parent (the stub is its continuation), so chase the
-    // chain tip before checking emptiness.
-    const last = preferences.get("lastSessionId")
-    const tip = last ? sdb.chainTip(last) : null
-    if (tip && sdb.byId(tip)?.message_count === 0) {
-      try { return await resume(tip) } catch { /* fall through */ }
-    }
+    // mode:"new" — bare launch is ALWAYS a fresh session (herm-1jd).
+    // Resume is only for explicit -c/--continue/--resume launches.
     return fresh()
   }, [create, resume])
 
