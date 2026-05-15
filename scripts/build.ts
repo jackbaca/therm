@@ -30,8 +30,27 @@ const noopDevtools: import("bun").BunPlugin = {
   setup(b) {
     b.onResolve({ filter: /^react-devtools-core$/ }, () =>
       ({ path: "rdc-stub", namespace: "stub" }))
-    b.onLoad({ filter: /.*/, namespace: "stub" }, () => ({
+    b.onLoad({ filter: /^rdc-stub$/, namespace: "stub" }, () => ({
       contents: "export default { initialize() {}, connectToDevTools() {} }",
+      loader: "js",
+    }))
+  },
+}
+
+// @opentui/react's bundle calls jsxDEV from react/jsx-dev-runtime, which
+// is `undefined` under NODE_ENV=production. Alias it to prod `jsx`
+// (jsx === jsxs in React 19 prod, so isStaticChildren is moot).
+const jsxDevShim: import("bun").BunPlugin = {
+  name: "jsx-dev-shim",
+  setup(b) {
+    b.onResolve({ filter: /^react\/jsx-dev-runtime$/ }, () =>
+      ({ path: "jsx-dev-shim", namespace: "stub" }))
+    b.onLoad({ filter: /^jsx-dev-shim$/, namespace: "stub" }, () => ({
+      contents: `
+        import { jsx, jsxs, Fragment } from "react/jsx-runtime"
+        export { jsx, jsxs, Fragment }
+        export var jsxDEV = jsx
+      `,
       loader: "js",
     }))
   },
@@ -58,7 +77,7 @@ const result = await Bun.build({
   minify: { whitespace: true, syntax: true, identifiers: false },
   sourcemap: "none",
   external,
-  plugins: [noopDevtools],
+  plugins: [noopDevtools, jsxDevShim],
   define: {
     "process.env.NODE_ENV": '"production"',
     "process.env.DEV": '"false"',

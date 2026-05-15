@@ -7,7 +7,7 @@
 import { createContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from "react"
 import { createReactSlotRegistry, createSlot, useRenderer, type ReactSlotComponent } from "@opentui/react"
 import { makeUse } from "../context/helper"
-import { useTheme } from "../theme"
+import { useTheme, type Theme } from "../theme"
 import { useKeys } from "../keys"
 import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
@@ -91,6 +91,22 @@ function scoped(base: HermPluginApi, reg: ReturnType<typeof createReactSlotRegis
   }
 }
 
+// createSlotRegistry stores one registry per renderer and throws if a
+// second call passes a different context object. Intern the SlotCtx at
+// module scope so PluginProvider remounts reuse it; swap the themeRef
+// cell each call so the getter reads the live theme.
+type Cell = { ctx: SlotCtx; themeRef: { current: { theme: Theme } } }
+const CELLS = new WeakMap<object, Cell>()
+function ctxFor(renderer: object, themeRef: Cell["themeRef"]): SlotCtx {
+  const hit = CELLS.get(renderer)
+  if (hit) { hit.themeRef = themeRef; return hit.ctx }
+  const cell: Cell = { themeRef, ctx: {} as SlotCtx }
+  Object.defineProperty(cell.ctx, "theme",
+    { get: () => cell.themeRef.current.theme, enumerable: true })
+  CELLS.set(renderer, cell)
+  return cell.ctx
+}
+
 export function PluginProvider(props: { children: ReactNode; plugins?: ReadonlyArray<HermPlugin> }) {
   const list = props.plugins ?? INTERNAL
   const renderer = useRenderer()
@@ -115,8 +131,7 @@ export function PluginProvider(props: { children: ReactNode; plugins?: ReadonlyA
   const reg = useMemo(
     () => createReactSlotRegistry<Slots, SlotCtx>(
       renderer,
-      // Stable object; `theme` is a getter so slot renderers retint live.
-      Object.defineProperty({} as SlotCtx, "theme", { get: () => themeRef.current.theme, enumerable: true }),
+      ctxFor(renderer, themeRef),
       { onPluginError: e => fail(`[plugin:${e.pluginId}] ${e.phase} error in slot "${e.slot}"`, e.error) },
     ),
     [renderer],
