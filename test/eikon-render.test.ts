@@ -16,7 +16,10 @@ describe("eikon-render", () => {
   })
 
   test("defaults() seeds from KnobDef", () => {
-    expect(defaults(chafa)).toEqual({ symbols: "braille", invert: true, flip: "none", contrast: 1.0 })
+    expect(defaults(chafa)).toEqual({
+      symbols: "braille", fill: "none", dither: "none", invert: true,
+      flip: "none", contrast: 1.0, threshold: 0.5,
+    })
     expect(defaults(native).symbols).toBe("braille")
   })
 
@@ -68,5 +71,27 @@ describe("eikon-render", () => {
     if ("err" in out) throw new Error(out.err)
     // Crop window sits entirely in the right (white) half → invert on → all-light.
     expect(out.frames[0]!.every(r => /^[ .:]+$/.test(r))).toBe(true)
+  })
+
+  const runc = caps.chafa && caps.ffmpeg ? test : test.skip
+  runc("chafa: fill + dither + threshold flags reach the binary and change output", async () => {
+    const base = await chafa.render(IMG, S0, defaults(chafa))
+    const dith = await chafa.render(IMG, S0, { ...defaults(chafa), dither: "diffusion" })
+    const fill = await chafa.render(IMG, S0, { ...defaults(chafa), symbols: "block", fill: "stipple" })
+    if ("err" in base || "err" in dith || "err" in fill) throw new Error("render err")
+    // Diffusion should perturb rows relative to dither=none.
+    expect(dith.frames[0]!.join("\n")).not.toBe(base.frames[0]!.join("\n"))
+    // Fill=stipple with block symbols should introduce ░/▒/▓.
+    expect(fill.frames[0]!.join("")).toMatch(/[░▒▓]/)
+    // threshold at either extreme must not error.
+    const t0 = await chafa.render(IMG, S0, { ...defaults(chafa), threshold: 0 })
+    expect("err" in t0).toBe(false)
+  })
+
+  runc("chafa: new symbol classes (quad, wedge) are accepted", async () => {
+    for (const sym of ["quad", "half", "wedge"]) {
+      const out = await chafa.render(IMG, S0, { ...defaults(chafa), symbols: sym })
+      expect("err" in out).toBe(false)
+    }
   })
 })

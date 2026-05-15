@@ -67,12 +67,15 @@ Herm's Eikon tab reads `studio.json` on open and re-renders from `source/`. Ctrl
 
 ## Knob vocabulary (for coaching — chafa rasterizer)
 
-- `symbols`: braille · block · ascii · sextant
-- `invert`: on/off (most photos want on)
+- `symbols`: braille · block · ascii · sextant · quad · half · wedge
+- `fill`: none · stipple · ascii · braille (gradient class, layers under symbols)
+- `dither`: none · ordered · diffusion · noise (diffusion = halftone grain)
+- `invert`: on/off (most photos want on against a dark terminal)
 - `flip`: none · h · v · hv
 - `contrast`: 0.5–3.0
+- `threshold` (alpha cut): 0.0–1.0 — lower to keep semi-transparent edges
 
-Spatial (preview pane, not knob rows): drag pans, wheel zooms, arrows pan when preview pane focused.
+Spatial (preview pane, not knob rows): wheel zooms; zoom/pan x/pan y sliders below the frame.
 
 ## Don't
 

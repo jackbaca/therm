@@ -152,10 +152,13 @@ export const chafa: Rasterizer = {
   spatial: true,
   video: true,
   knobs: {
-    symbols:  { kind: "cycle",  options: ["braille", "block", "ascii", "sextant"], default: "braille" },
-    invert:   { kind: "toggle", default: true },
-    flip:     { kind: "cycle",  options: ["none", "h", "v", "hv"], default: "none" },
-    contrast: { kind: "slider", min: 0.5, max: 3.0, step: 0.1, default: 1.0 },
+    symbols:   { kind: "cycle",  options: ["braille", "block", "ascii", "sextant", "quad", "half", "wedge"], default: "braille" },
+    fill:      { kind: "cycle",  options: ["none", "stipple", "ascii", "braille"], default: "none" },
+    dither:    { kind: "cycle",  options: ["none", "ordered", "diffusion", "noise"], default: "none" },
+    invert:    { kind: "toggle", default: true },
+    flip:      { kind: "cycle",  options: ["none", "h", "v", "hv"], default: "none" },
+    contrast:  { kind: "slider", min: 0.5, max: 3.0, step: 0.1, default: 1.0 },
+    threshold: { kind: "slider", label: "alpha cut", min: 0.0, max: 1.0, step: 0.05, default: 0.5 },
   },
   available: () => caps.chafa ? true : "chafa not installed",
   probe,
@@ -164,12 +167,18 @@ export const chafa: Rasterizer = {
     if (!bin) return { err: "chafa not installed" }
     const full = resolveImage(src)
     if (!full) return { err: `not found: ${src}` }
+    const fill = String(k.fill ?? "none")
     const args = [
-      `--size=${W}x${H}`, "--format=symbols", "--stretch",
-      `--symbols=${String(k.symbols ?? "braille")}`, "--colors=none", "--dither=none",
-      // chafa's default --preprocess auto-levels the input, which would
-      // undo eq=contrast upstream. Only skip it when we own contrast.
-      ...(caps.ffmpeg ? ["--preprocess", "off"] : []),
+      `--size=${W}x${H}`, "--format=symbols", "--stretch", "--colors=none",
+      `--symbols=${String(k.symbols ?? "braille")}`,
+      ...(fill === "none" ? [] : [`--fill=${fill}`]),
+      `--dither=${String(k.dither ?? "none")}`,
+      `--threshold=${clamp(Number(k.threshold ?? 0.5), 0, 1).toFixed(2)}`,
+      // Always off: chafa's auto-levels would fight eq=contrast and make
+      // the ffmpeg and direct-read paths diverge at contrast=1.
+      "--preprocess", "off",
+      // --invert tells chafa the terminal bg is light, which flips its
+      // luminance→density mapping — correct semantics for mono output.
       ...(k.invert ? ["--invert"] : []),
     ]
     // Bun.spawn keeps the main thread free so slider drag stays
@@ -192,7 +201,8 @@ export const chafa: Rasterizer = {
       if (ch.exitCode !== 0) return { err: `chafa: ${cerr.trim() || "failed"}` }
       return { frames: [box(out)] }
     }
-    // Fallback: chafa reads the file directly — no crop/contrast/flip.
+    // Direct read: no ffmpeg (absent, or every ffmpeg-owned knob at
+    // identity). chafa handles the decode via its built-in loaders.
     const ch = Bun.spawn([bin, ...args, full], { stdout: "pipe", stderr: "pipe" })
     const [out, cerr] = await Promise.all([
       new Response(ch.stdout).text(), new Response(ch.stderr).text(),
