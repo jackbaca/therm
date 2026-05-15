@@ -269,7 +269,6 @@ export const chafa: Rasterizer = {
     invert:    { kind: "toggle", default: true },
     flip:      { kind: "cycle",  options: ["none", "h", "v", "hv"], default: "none" },
     contrast:  { kind: "slider", min: 0.5, max: 3.0, step: 0.1, default: 1.0 },
-    threshold: { kind: "slider", label: "alpha cut", min: 0.0, max: 1.0, step: 0.05, default: 0.5 },
   },
   available: () => caps.chafa ? true : "chafa not installed",
   async render(win, k) {
@@ -282,7 +281,8 @@ export const chafa: Rasterizer = {
       `--symbols=${String(k.symbols ?? "braille")}`,
       ...(fill === "none" ? [] : [`--fill=${fill}`]),
       `--dither=${String(k.dither ?? "none")}`,
-      `--threshold=${clamp(Number(k.threshold ?? 0.5), 0, 1).toFixed(2)}`,
+      // chafa's default --preprocess auto-levels the input, which would
+      // undo the in-process contrast multiply.
       "--preprocess", "off",
       // --invert tells chafa the terminal bg is light, which flips its
       // luminance→density mapping — correct semantics for mono output.

@@ -73,7 +73,6 @@ Herm's Eikon tab reads `studio.json` on open and re-renders from `source/`. Ctrl
 - `invert`: on/off (most photos want on against a dark terminal)
 - `flip`: none · h · v · hv
 - `contrast`: 0.5–3.0
-- `threshold` (alpha cut): 0.0–1.0 — lower to keep semi-transparent edges
 
 Spatial (preview pane, not knob rows): wheel zooms; zoom/pan x/pan y sliders below the frame.
 

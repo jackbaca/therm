@@ -16,7 +16,7 @@ describe("eikon-render", () => {
   test("defaults() seeds from KnobDef", () => {
     expect(defaults(chafa)).toEqual({
       symbols: "braille", fill: "none", dither: "none", invert: true,
-      flip: "none", contrast: 1.0, threshold: 0.5,
+      flip: "none", contrast: 1.0,
     })
     expect(defaults(native).symbols).toBe("braille")
   })
@@ -103,7 +103,7 @@ describe("eikon-render", () => {
     expect("err" in out).toBe(false)
   })
 
-  runc("chafa: fill + dither + threshold flags reach the binary and change output", async () => {
+  runc("chafa: fill + dither flags reach the binary and change output", async () => {
     resetCache()
     spawnSync("ffmpeg", ["-hide_banner","-loglevel","error","-f","lavfi",
       "-i","mandelbrot=s=256x256","-frames:v","1","-y","/tmp/eikon-mand.png"])
