@@ -30,9 +30,11 @@ export function quit(
   // setupGracefulExit cleanup.
   try { gw?.kill() } catch {}
   renderer.destroy()
-  if (process.stdout.isTTY && sid) {
-    const t = title ? `  —  ${title.slice(0, 60)}` : ""
-    writeSync(1, `\n  continue  herm --resume ${sid}${t}\n\n`)
+  if (process.stdout.isTTY) {
+    const banner = sid
+      ? `\n  continue  herm --resume ${sid}${title ? `  —  ${title.slice(0, 60)}` : ""}\n\n`
+      : `\n  bye\n\n`
+    writeSync(1, banner)
   }
   process.exit(0)
 }

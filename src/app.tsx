@@ -104,6 +104,17 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const [usage, setUsage] = useState<Usage | undefined>(undefined)
   const [info, setInfo] = useState<SessionInfo | null>(null)
   const [title, setTitle] = useState("")
+  const titleRef = useRef(title); titleRef.current = title
+  // Real SIGINT (terminal multiplexer, focus-stolen widget, kernel-delivered
+  // ctrl+c that bypasses the React keyboard tree) goes through the same
+  // quit() path as /quit so the resume banner always lands. Replaces the
+  // bare-exit handler installed by terminal-reset.installExitResetHooks();
+  // quit() ends in process.exit(0), which still fires the `exit` hook that
+  // emits the mode-reset blob. Mount-once: gw/renderer identity is stable.
+  useEffect(() => {
+    process.removeAllListeners("SIGINT")
+    process.on("SIGINT", () => quit(renderer, sidRef.current, titleRef.current, gw))
+  }, [renderer, gw])
   const [focusRegion, setFocusRegion] = useState<"input" | "content">("input")
   const goToTab = useCallback((t: number) => {
     setTab(t)
