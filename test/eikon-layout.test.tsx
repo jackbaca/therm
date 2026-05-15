@@ -1,4 +1,5 @@
 import { test, expect } from "bun:test"
+import { act } from "react"
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { mountNode, until } from "./harness"
@@ -44,14 +45,44 @@ test("layout probe (wide)", async () => {
   // downsamples don't false-match.
   const iFrameEnd = top.findLastIndex(l => l.includes("#·········#"))
   const iZoom = top.findIndex(l => l.includes("zoom"))
-  const iPan  = top.findIndex(l => /│ pan\b/.test(l))
+  const iPanX = top.findIndex(l => l.includes("pan x"))
+  const iPanY = top.findIndex(l => l.includes("pan y"))
   const iMini = top.findIndex(l => /[▀▄█]{4,}/.test(l))
   expect(iZoom).toBeGreaterThan(iFrameEnd)
-  expect(iPan).toBe(iZoom + 1)
+  expect(iPanX).toBe(iZoom + 2)   // gap=1 between rows
+  expect(iPanY).toBe(iPanX + 2)
   expect(iMini).toBeGreaterThan(iFrameEnd)
   expect(iStrip).toBeGreaterThan(iZoom)
   // Knobs title is on the same line as Preview title (side-by-side).
   expect(lines.find(l => l.includes("Preview"))!).toContain("Knobs")
+  un()
+})
+
+test("SpatialBar nav: ↑↓ selects row, ←→ steps only that row", async () => {
+  const un = eikon.register(stub); seed("nav")
+  const prefs = await import("../src/context/preferences")
+  prefs.set("eikonPath", eikon.file("nav"))
+  await using t = await mountNode(<EikonGroup focused sub={0} setSub={() => {}} />, { width: 180, height: 60 })
+  await until(t, () => t.frame().includes("zoom"))
+  const row = (name: string) => t.frame().split("\n").find(l => l.includes(name))!
+  // No caret when preview pane unfocused.
+  expect(row("zoom")).not.toContain("▸")
+  // Tab into preview → zoom row gets caret.
+  act(() => t.keys.pressTab())
+  await until(t, () => row("zoom").includes("▸"))
+  expect(row("pan x")).not.toContain("▸")
+  // ↓ → pan x selected; ←→ adjusts only ox.
+  act(() => t.keys.pressArrow("down")); await t.settle()
+  expect(row("pan x")).toContain("▸")
+  expect(row("zoom")).not.toContain("▸")
+  const before = row("pan x")
+  act(() => t.keys.pressArrow("right")); await t.settle()
+  expect(row("pan x")).not.toBe(before)
+  expect(row("zoom")).toContain("0.60")     // unchanged
+  // ↓↓ clamps at pan y.
+  act(() => t.keys.pressArrow("down")); await t.settle()
+  act(() => t.keys.pressArrow("down")); await t.settle()
+  expect(row("pan y")).toContain("▸")
   un()
 })
 

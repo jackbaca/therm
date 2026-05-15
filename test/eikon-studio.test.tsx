@@ -55,7 +55,7 @@ describe("EikonStudio tab", () => {
 
     // Tab cycles pane focus → hint line swaps per pane.
     act(() => t.keys.pressTab())
-    await until(t, () => t.frame().includes("[↑↓←→]"))
+    await until(t, () => t.frame().includes("[wheel]"))
     act(() => t.keys.pressTab())
     await until(t, () => t.frame().includes("state") && t.frame().includes("actions"))
     un()

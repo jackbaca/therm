@@ -67,11 +67,11 @@ function buildRows(r: Rasterizer, s: Session): Row[] {
   return [...HEAD.filter(h => h.show ? h.show(s) : true), ...dyn]
 }
 
-// ── Minimap ──────────────────────────────────────────────────────────
+// ── Minimap (read-only) ──────────────────────────────────────────────
 
-const MINI_W = 16
+const MINI_W = 12
 
-function Mini(props: { sp: Spatial; dims: Session["dims"]; onPick?: (ox: number, oy: number) => void }) {
+function Mini(props: { sp: Spatial; dims: Session["dims"] }) {
   const theme = useTheme().theme
   const d = props.dims ?? { w: 1, h: 1 }
   const ar = d.w / d.h
@@ -88,18 +88,8 @@ function Mini(props: { sp: Spatial; dims: Session["dims"]; onPick?: (ox: number,
     const up = on(x, ty * 2), dn = on(x, ty * 2 + 1)
     return up && dn ? "█" : up ? "▀" : dn ? "▄" : "·"
   }
-  // Click positions the crop centre; account for rect size so the
-  // normalized ox/oy still map 0..1 across the slack.
-  const place = (e: { x: number; y: number }) => {
-    if (!props.onPick) return
-    const nx = bw <= cw ? 0.5 : Math.max(0, Math.min(1, (e.x + 0.5 - cw / 2) / (bw - cw)))
-    const ny = bh <= cw ? 0.5 : Math.max(0, Math.min(1, (e.y * 2 + 1 - cw / 2) / (bh - cw)))
-    props.onPick(+nx.toFixed(3), +ny.toFixed(3))
-  }
   return (
-    <box flexDirection="column" flexShrink={0}
-         backgroundColor={theme.backgroundElement}
-         onMouseDown={place} onMouseDrag={place}>
+    <box flexDirection="column" flexShrink={0} backgroundColor={theme.backgroundElement}>
       {Array.from({ length: Math.ceil(bh / 2) }, (_, ty) => (
         <text key={ty} fg={theme.textMuted}>
           {Array.from({ length: bw }, (_, x) => cell(x, ty)).join("")}
@@ -109,34 +99,47 @@ function Mini(props: { sp: Spatial; dims: Session["dims"]; onPick?: (ox: number,
   )
 }
 
-/** zoom + pan sliders beside the minimap. `pan` drives ox — oy is
- *  reachable via minimap click or arrows-on-preview. Two sliders by
- *  request; a third for oy is a one-line add if it reads better. */
+/** Spatial sub-row ids in preview-pane nav order. */
+const SP_ROWS = ["zoom", "pan x", "pan y"] as const
+type SpRow = typeof SP_ROWS[number]
+
+/** zoom + pan-x + pan-y sliders with the read-only minimap inline
+ *  after them. nav.md: ↑↓ picks a row (caret + bg), ←→ steps it,
+ *  slider fg is accent only on the selected row. */
 function SpatialBar(props: {
   sp: Spatial; dims: Session["dims"]
-  onZoom: (v: number) => void; onPanX: (v: number) => void
-  onPick: (ox: number, oy: number) => void
+  sel: number; focused: boolean
+  onHover: (i: number) => void
+  onSet: (k: keyof Spatial, v: number) => void
 }) {
   const theme = useTheme().theme
-  const Row = (p: { label: string; min: number; max: number; v: number; on: (v: number) => void }) => (
-    <box height={1} flexDirection="row">
-      <box width={6}><text fg={theme.textMuted}>{p.label}</text></box>
-      <box width={24} height={1}>
-        <slider orientation="horizontal" min={p.min} max={p.max} value={p.v}
-                foregroundColor={theme.accent} backgroundColor={theme.border}
-                onChange={p.on} />
-      </box>
-      <box width={7}><text fg={theme.textMuted}>{`  ${p.v.toFixed(2)}`}</text></box>
-    </box>
-  )
+  const key: Record<SpRow, keyof Spatial> = { zoom: "zoom", "pan x": "ox", "pan y": "oy" }
+  const min: Record<SpRow, number> = { zoom: 0.1, "pan x": 0, "pan y": 0 }
   return (
     <box flexDirection="row" marginTop={1} flexShrink={0}>
-      <box flexDirection="column" flexGrow={1} justifyContent="center">
-        <Row label="zoom" min={0.1} max={1.0} v={props.sp.zoom} on={props.onZoom} />
-        <Row label="pan"  min={0.0} max={1.0} v={props.sp.ox}   on={props.onPanX} />
+      <box flexDirection="column" gap={1} flexShrink={0}>
+        {SP_ROWS.map((label, i) => {
+          const on = props.focused && i === props.sel
+          const k = key[label]
+          return (
+            <box key={label} height={1} flexDirection="row"
+                 backgroundColor={on ? theme.backgroundElement : undefined}
+                 onMouseMove={() => props.onHover(i)}>
+              <box width={2}><text fg={on ? theme.primary : theme.textMuted}>{on ? "▸ " : "  "}</text></box>
+              <box width={7}><text fg={on ? theme.text : theme.textMuted}>{label}</text></box>
+              <box width={20} height={1}>
+                <slider orientation="horizontal" min={min[label]} max={1.0} value={props.sp[k]}
+                        foregroundColor={on ? theme.accent : theme.textMuted}
+                        backgroundColor={theme.border}
+                        onChange={v => props.onSet(k, +v.toFixed(3))} />
+              </box>
+              <box width={7}><text fg={on ? theme.text : theme.textMuted}>{`  ${props.sp[k].toFixed(2)}`}</text></box>
+            </box>
+          )
+        })}
       </box>
       <box width={2} />
-      <Mini sp={props.sp} dims={props.dims} onPick={props.onPick} />
+      <Mini sp={props.sp} dims={props.dims} />
     </box>
   )
 }
@@ -249,15 +252,16 @@ export const EikonStudio = memo((props: {
   const [s, setS] = useState<Session | null>(null)
   const [pane, setPane] = useState<Pane>("knobs")
   const [sel, setSel] = useState(0)
+  const [spSel, setSpSel] = useState(0)
   // Rapid keypresses (held arrow) can fire before React commits the
   // new `sel`; read through a ref so adjust()/activate() see the
   // latest target row regardless of render timing.
   const selRef = useRef(0); selRef.current = sel
+  const spRef = useRef(0); spRef.current = spSel
   const sRef = useRef<Session | null>(null); sRef.current = s
   const [frame, setFrame] = useState<Frame>(BLANK)
   const [thumbs, setThumbs] = useState<Map<AvatarState, Frame | undefined>>(new Map())
   const [err, setErr] = useState<string | null>(null)
-  const drag = useRef<{ x: number; y: number } | null>(null)
 
   const r = useMemo(() => eikon.pick(s?.rasterizer ?? prefs.get("eikonRasterizer")), [s?.rasterizer])
   const spatialOk = r.spatial && (r.name !== "chafa" || caps.ffmpeg)
@@ -321,6 +325,9 @@ export const EikonStudio = memo((props: {
   }, [s?.spatial, s?.base, s?.per, s?.sources, s?.name, s?.rasterizer, r])
 
   const mutate = (fn: (prev: Session) => Session) => setS(p => (p ? fn(p) : p))
+
+  const setSpatial = (sp: Partial<Spatial>) =>
+    mutate(p => ({ ...p, spatial: { ...p.spatial, ...sp }, dirty: true }))
 
   // Knob-row actions.
   const doSave = useCallback(async () => {
@@ -453,13 +460,16 @@ export const EikonStudio = memo((props: {
     }
     if (pane === "preview") {
       if (!spatialOk) return
-      const fine = !!key.shift
-      if (key.name === "left")  return mutate(p => ({ ...p, spatial: knobs.pan(p.spatial, -1, 0, fine), dirty: true }))
-      if (key.name === "right") return mutate(p => ({ ...p, spatial: knobs.pan(p.spatial,  1, 0, fine), dirty: true }))
-      if (key.name === "up")    return mutate(p => ({ ...p, spatial: knobs.pan(p.spatial, 0, -1, fine), dirty: true }))
-      if (key.name === "down")  return mutate(p => ({ ...p, spatial: knobs.pan(p.spatial, 0,  1, fine), dirty: true }))
-      if (key.name === "+" || key.name === "=") return mutate(p => ({ ...p, spatial: knobs.zoom(p.spatial, -1, fine), dirty: true }))
-      if (key.name === "-") return mutate(p => ({ ...p, spatial: knobs.zoom(p.spatial, 1, fine), dirty: true }))
+      // ↑↓ moves spatial-row selection; ←→ steps the selected knob.
+      if (handleListKey(keys, key, { count: SP_ROWS.length, setSel: setSpSel })) return
+      const k: readonly (keyof Spatial)[] = ["zoom", "ox", "oy"]
+      const id = k[spRef.current]!
+      const lo = id === "zoom" ? 0.1 : 0
+      const stride = key.shift ? 0.01 : 0.03
+      if (key.name === "left")
+        return setSpatial({ [id]: Math.max(lo, +(sRef.current!.spatial[id] - stride).toFixed(3)) })
+      if (key.name === "right")
+        return setSpatial({ [id]: Math.min(1, +(sRef.current!.spatial[id] + stride).toFixed(3)) })
       return
     }
     // strip
@@ -468,21 +478,7 @@ export const EikonStudio = memo((props: {
     if (key.name === "return") return doStripMenu()
   })
 
-  // Preview mouse.
-  const onDown = (e: { x: number; y: number }) => { if (spatialOk) drag.current = { x: e.x, y: e.y } }
-  const onMove = (e: { x: number; y: number }) => {
-    if (!drag.current || !spatialOk) return
-    const dx = e.x - drag.current.x, dy = e.y - drag.current.y
-    if (!dx && !dy) return
-    drag.current = { x: e.x, y: e.y }
-    // One cell ≈ 1/48 of the crop width; negate so drag follows content.
-    mutate(p => ({ ...p, spatial: {
-      ...p.spatial,
-      ox: Math.max(0, Math.min(1, p.spatial.ox - dx / W)),
-      oy: Math.max(0, Math.min(1, p.spatial.oy - dy / H)),
-    }, dirty: true }))
-  }
-  const onUp = () => { drag.current = null }
+  // Preview mouse: wheel-zoom only (drag-pan removed — sliders cover it).
   const onScroll = (e: { scroll?: { direction: string } }) => {
     if (!spatialOk || !e.scroll) return
     const d = e.scroll.direction
@@ -496,30 +492,26 @@ export const EikonStudio = memo((props: {
 
   const hint: Array<readonly [string, string]> =
     pane === "knobs"   ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.activate"), "open"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
-  : pane === "preview" ? [["↑↓←→", "pan"], ["+/-", "zoom"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
+  : pane === "preview" ? [["↑↓", "row"], ["←→", "adjust"], ["wheel", "zoom"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
   :                      [["←→", "state"], [keys.print("list.activate"), "actions"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
 
-  const setSpatial = (sp: Partial<Spatial>) =>
-    mutate(p => ({ ...p, spatial: { ...p.spatial, ...sp }, dirty: true }))
-
   // TabShell chrome = border(2) + padding(2) + title(1) + gap(1).
-  // SpatialBar ≤ 8 rows (square minimap) + 1 margin.
-  const BAR_H = spatialOk ? MINI_W / 2 + 1 : 0
-  const PREVIEW_W = Math.max(W, 37 + 2 + MINI_W) + 6
+  // SpatialBar = max(minimap, 3 rows + 2 gaps) + 1 margin.
+  const BAR_H = spatialOk ? Math.max(Math.ceil(MINI_W / 2), SP_ROWS.length * 2 - 1) + 1 : 0
+  const PREVIEW_W = Math.max(W, 36 + 2 + MINI_W) + 6
   const PREVIEW_H = H + BAR_H + 6 + (previewErr ? 1 : 0)
   const preview = (
     <TabShell title={spatialOk ? title : `${title}  ·  (spatial n/a — ${r.name})`}
               error={previewErr} focus={pane === "preview"}>
       <box flexDirection="column" width={W} height={H} flexShrink={0}
-           onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseScroll={onScroll}>
+           onMouseScroll={onScroll}>
         {frame.map((ln, i) =>
           <text key={i} fg={err ? theme.textMuted : theme.hermAvatar}>{ln}</text>)}
       </box>
       {spatialOk && s
-        ? <SpatialBar sp={s.spatial} dims={s.dims}
-            onZoom={v => setSpatial({ zoom: +v.toFixed(3) })}
-            onPanX={v => setSpatial({ ox: +v.toFixed(3) })}
-            onPick={(ox, oy) => setSpatial({ ox, oy })} />
+        ? <SpatialBar sp={s.spatial} dims={s.dims} sel={spSel} focused={pane === "preview"}
+            onHover={i => { setPane("preview"); setSpSel(i) }}
+            onSet={(k, v) => setSpatial({ [k]: v })} />
         : null}
     </TabShell>
   )
