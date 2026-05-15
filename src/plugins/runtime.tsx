@@ -7,7 +7,7 @@
 import { createContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from "react"
 import { createReactSlotRegistry, createSlot, useRenderer, type ReactSlotComponent } from "@opentui/react"
 import { makeUse } from "../context/helper"
-import { useTheme } from "../theme"
+import { useTheme, type Theme } from "../theme"
 import { useKeys } from "../keys"
 import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
@@ -91,20 +91,25 @@ function scoped(base: HermPluginApi, reg: ReturnType<typeof createReactSlotRegis
   }
 }
 
-// The underlying SlotRegistry store is keyed per-renderer under the fixed
+// createSlotRegistry is keyed per-renderer under the fixed
 // "react:slot-registry" key and throws if a second call supplies a
-// different `context` object. PluginProvider can unmount/remount (fast
-// refresh, ErrorBoundary retry, test renderer reuse) while the renderer
-// lives on — each fresh mount would construct a new SlotCtx and crash.
-// Intern one SlotCtx per renderer at module scope so every mount reuses it.
-const CTXS = new WeakMap<object, SlotCtx>()
-function ctxFor(renderer: object, themeRef: { current: { theme: unknown } }): SlotCtx {
-  const hit = CTXS.get(renderer)
-  if (hit) return hit
-  const made = Object.defineProperty({} as SlotCtx, "theme",
-    { get: () => themeRef.current.theme, enumerable: true })
-  CTXS.set(renderer, made)
-  return made
+// different `context` object — by design (see opentui react/tests/
+// slot.test.tsx "reuses one registry per renderer and rejects different
+// context"). PluginProvider can remount (ErrorBoundary retry, fast
+// refresh, test renderer reuse) while the renderer lives on, so the
+// SlotCtx cannot be constructed inside the component. Upstream's React
+// example holds its context at module scope; we do the same but keep a
+// mutable themeRef cell so the current mount's theme is always read.
+type Cell = { ctx: SlotCtx; themeRef: { current: { theme: Theme } } }
+const CELLS = new WeakMap<object, Cell>()
+function ctxFor(renderer: object, themeRef: Cell["themeRef"]): SlotCtx {
+  const hit = CELLS.get(renderer)
+  if (hit) { hit.themeRef = themeRef; return hit.ctx }
+  const cell: Cell = { themeRef, ctx: {} as SlotCtx }
+  Object.defineProperty(cell.ctx, "theme",
+    { get: () => cell.themeRef.current.theme, enumerable: true })
+  CELLS.set(renderer, cell)
+  return cell.ctx
 }
 
 export function PluginProvider(props: { children: ReactNode; plugins?: ReadonlyArray<HermPlugin> }) {
