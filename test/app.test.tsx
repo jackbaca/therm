@@ -3,7 +3,7 @@ import { act } from "react"
 import { mount, until, MockGateway } from "./harness"
 import * as prefs from "../src/context/preferences"
 import * as exit from "../src/app/exit"
-import { DOUBLE_TAB_MS } from "../src/app/useAppKeys"
+import { DOUBLE_TAB_MS, QUIT_MS } from "../src/app/useAppKeys"
 import type { GatewayEvent } from "../src/context/wire"
 
 describe("app", () => {
@@ -73,7 +73,7 @@ describe("app", () => {
     t.destroy()
   })
 
-  test("Ctrl+C: non-empty buffer clears; empty buffer quits (oc parity)", async () => {
+  test("Ctrl+C: non-empty clears; empty arms then quits on double-tap", async () => {
     const q = spyOn(exit, "quit").mockImplementation((() => {}) as never)
     const t = await mount()
     await until(t, () => t.frame().includes("Ready"))
@@ -88,12 +88,46 @@ describe("app", () => {
     expect(t.frame()).toContain("Message Hermes")
     expect(q).not.toHaveBeenCalled()
 
+    // First ^C on empty → arm + hint, no quit.
+    act(() => t.keys.pressKey("c", { ctrl: true }))
+    await until(t, () => t.frame().includes("again to quit"))
+    expect(q).not.toHaveBeenCalled()
+
+    // Second within window → quit.
     act(() => t.keys.pressKey("c", { ctrl: true }))
     await t.settle()
     expect(q).toHaveBeenCalledTimes(1)
     // sid arg threaded from session state.
     expect(q.mock.calls[0]?.[1]).toBe("test-sid")
 
+    q.mockRestore()
+    t.destroy()
+  })
+
+  test("Ctrl+C: arm expires after QUIT_MS", async () => {
+    const q = spyOn(exit, "quit").mockImplementation((() => {}) as never)
+    const t = await mount()
+    await until(t, () => t.frame().includes("Ready"))
+
+    // Mock after boot — until() uses Date.now() for its own timeout.
+    const t0 = 10_000
+    const now = spyOn(Date, "now").mockReturnValue(t0)
+    act(() => t.keys.pressKey("c", { ctrl: true }))
+    await t.settle()
+    expect(q).not.toHaveBeenCalled()
+
+    now.mockReturnValue(t0 + QUIT_MS + 1)
+    act(() => t.keys.pressKey("c", { ctrl: true }))
+    await t.settle()
+    // Window elapsed → re-arm, not quit.
+    expect(q).not.toHaveBeenCalled()
+
+    now.mockReturnValue(t0 + QUIT_MS + 2)
+    act(() => t.keys.pressKey("c", { ctrl: true }))
+    await t.settle()
+    expect(q).toHaveBeenCalledTimes(1)
+
+    now.mockRestore()
     q.mockRestore()
     t.destroy()
   })
