@@ -20,20 +20,20 @@ describe("ThoughtCloud/Tail (ref-mutation animation)", () => {
     }
     const t = await mountNode(<Fix />, { width: 20, height: 10 })
     await t.settle()
-    expect(t.frame()).toContain("┏┅┅┓")
-    expect(t.frame()).toContain("╸")
+    expect(t.frame()).toContain("╭┄┄╮")
+    expect(t.frame()).toContain("╶")
 
     act(() => setRun(true))
     await t.settle()
     await act(async () => { await Bun.sleep(400) })
     await t.settle()
-    const lit = t.frame().split("\n").filter(l => /[┏┓┗┛╸]/.test(l)).length
+    const lit = t.frame().split("\n").filter(l => /[╭╮╰╯╶]/.test(l)).length
     expect(lit).toBeLessThan(6)
 
     act(() => setRun(false))
     await t.settle()
-    expect(t.frame()).toContain("┏┅┅┓")
-    expect(t.frame()).toContain("╸")
+    expect(t.frame()).toContain("╭┄┄╮")
+    expect(t.frame()).toContain("╶")
     t.destroy()
   })
 })
