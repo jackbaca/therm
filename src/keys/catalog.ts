@@ -14,11 +14,6 @@
 // `leader` entry). Existing Ctrl-chords are kept as secondary alternates
 // so nothing breaks while the leader pattern settles; print() shows the
 // first alternate, so Help advertises the leader form.
-//
-// Trailing markers cross-reference opencode's config/keybinds.ts:
-//   (blank)  oc has the same action on substantively the same chord
-//   ø        oc has an analogue but herm binds it differently
-//   ☨        no oc equivalent (herm-specific surface or concept)
 
 export type Scope =
   | "global" | "list" | "dialog" | "composer"
@@ -31,21 +26,20 @@ const def = (chord: string, desc: string, scope: Scope): Def => ({ chord, desc, 
 export const DEFAULTS = {
   "leader":            def("ctrl+x",               "Leader prefix",                      "global"),
   "app.exit":          def("ctrl+c",               "Quit",                               "global"),
-  // Same chord as app.exit, disjoint on buffer-empty. oc parity:
-  // input_clear + app_exit both bind ctrl+c and dispatch sequentially.
+  // Same chord as app.exit, disjoint on buffer-empty — see useAppKeys.
   "input.clear":       def("ctrl+c",               "Clear input",                        "global"),
   "app.suspend":       def("ctrl+z",               "Suspend to shell",                   "global"),
-  "app.redraw":        def("ctrl+l",               "Clear & force-repaint terminal",     "global"), // ☨
+  "app.redraw":        def("ctrl+l",               "Clear & force-repaint terminal",     "global"),
   "app.sidebar":       def("<leader>b",            "Toggle sidebar",                     "global"),
-  "palette.open":      def("ctrl+k",               "Command palette",                    "global"), // ø command_list=ctrl+p
-  "help.open":         def("f1",                   "Keyboard shortcuts",                 "global"), // ☨
-  "tab.next":          def("alt+right",            "Next tab",                           "global"), // ☨
-  "tab.prev":          def("alt+left",             "Previous tab",                       "global"), // ☨
-  "focus.cycle":       def("tab",                  "Cycle focus (double-tap → composer)","global"), // ☨
+  "palette.open":      def("ctrl+k",               "Command palette",                    "global"),
+  "help.open":         def("f1",                   "Keyboard shortcuts",                 "global"),
+  "tab.next":          def("alt+right",            "Next tab",                           "global"),
+  "tab.prev":          def("alt+left",             "Previous tab",                       "global"),
+  "focus.cycle":       def("tab",                  "Cycle focus (double-tap → composer)","global"),
   "editor.open":       def("<leader>e,ctrl+g",     "Open $EDITOR on prompt",             "global"),
   "reply.copy":        def("<leader>y,ctrl+y",     "Copy last assistant reply",          "global"),
   "clipboard.attach":  def("ctrl+v",               "Attach clipboard image",             "global"),
-  "queue.flush":       def("<leader>u",            "Interrupt and send queued now",      "global"), // ☨
+  "queue.flush":       def("<leader>u",            "Interrupt and send queued now",      "global"),
   "session.interrupt": def("escape",               "Interrupt (double-tap while streaming)", "global"),
   "session.new":       def("<leader>n",            "New session",                        "global"),
   "session.redo":      def("<leader>r",            "Redo last undo",                     "global"),
@@ -55,8 +49,6 @@ export const DEFAULTS = {
   "theme.pick":        def("<leader>t",            "Switch theme",                       "global"),
   "model.pick":        def("<leader>m",            "Switch model",                       "global"),
   "status.open":       def("<leader>s",            "Show status",                        "global"),
-  // ☨ — oc has no generic list surface; nearest are per-dialog
-  //     session_*/stash_* bindings and messages_* scroll.
   "list.up":           def("up",                   "Move selection up",                  "list"),
   "list.down":         def("down",                 "Move selection down",                "list"),
   "list.pageUp":       def("pageup",               "Page up",                            "list"),
@@ -69,7 +61,6 @@ export const DEFAULTS = {
   "list.new":          def("n",                    "Create",                             "list"),
   "list.search":       def("/",                    "Filter",                             "list"),
   "list.toggle":       def("space",                "Toggle item",                        "list"),
-  // ☨ — oc dialogs hardcode return/escape/y/n per-component.
   "dialog.accept":     def("return",               "Accept",                             "dialog"),
   "dialog.cancel":     def("escape",               "Cancel / close",                     "dialog"),
   "dialog.confirm":    def("y",                    "Yes",                                "dialog"),
@@ -77,17 +68,14 @@ export const DEFAULTS = {
   "dialog.copy":       def("c",                    "Copy body",                          "dialog"),
   "input.submit":      def("return",               "Send",                               "composer"),
   "input.newline":     def("shift+return,ctrl+return,alt+return,ctrl+j", "Insert newline", "composer"),
-  // ☨ — herm admin tabs (Cron/Env/Skills/Agents/Config) have no oc
-  //     counterpart; sessions.rename diverges from oc's session-
-  //     dialog ctrl+r.
-  "sessions.rename":   def("ctrl+r",               "Retitle session",                    "sessions"), // match oc session_rename
+  "sessions.rename":   def("ctrl+r",               "Retitle session",                    "sessions"),
   "sessions.prev":     def("left",                 "Walk lineage back (continues from)", "sessions"),
   "sessions.next":     def("right",                "Walk lineage forward (compressed to)", "sessions"),
   "agents.kill":       def("k",                    "Kill subagent",                      "agents"),
   "agents.history":    def("h",                    "Spawn history",                      "agents"),
-  "agents.install":    def("i",                    "Install distribution",               "agents"), // ☨
+  "agents.install":    def("i",                    "Install distribution",               "agents"),
   "config.save":       def("ctrl+s",               "Write config",                       "config"),
-  "config.mode":       def("m",                    "Toggle form ↔ YAML",                 "config"), // ☨
+  "config.mode":       def("m",                    "Toggle form ↔ YAML",                 "config"),
 } satisfies Record<string, Def>
 
 export type ActionId = keyof typeof DEFAULTS
