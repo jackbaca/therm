@@ -54,7 +54,10 @@ export type Rasterizer = {
   readonly knobs: Readonly<Record<string, KnobDef>>
   /** true if usable; otherwise a short reason shown dimmed in the picker. */
   available(): true | string
-  render(win: Window, knobs: KnobValues): Promise<Rendered>
+  /** `signal` aborts mid-render (kill subprocess, bail early). A
+   *  rasterizer that ignores it still works; abort just becomes a
+   *  late-discard at the caller. */
+  render(win: Window, knobs: KnobValues, signal?: AbortSignal): Promise<Rendered>
 }
 
 /** Seed a KnobValues bag from a rasterizer's defaults. */
@@ -134,7 +137,7 @@ async function decode(src: string): Promise<Plane | string> {
     if (buf.length !== SCALE * SCALE) return `ffmpeg: short read (${buf.length})`
     return { buf, w: SCALE, h: SCALE }
   })()
-  if (planes.size >= 6) planes.delete(planes.keys().next().value!)
+  if (planes.size >= 8) planes.delete(planes.keys().next().value!)
   planes.set(key, p)
   return p
 }
@@ -216,14 +219,17 @@ const keyOf = (r: string, src: string, sp: Spatial, k: KnobValues) =>
   `${r}|${src}|${sp.zoom.toFixed(3)}:${sp.ox.toFixed(3)}:${sp.oy.toFixed(3)}|${JSON.stringify(k)}`
 
 /** Decode → crop → rasterize, with LRU over the final frames. */
-export async function cached(r: Rasterizer, src: string, sp: Spatial, k: KnobValues): Promise<Rendered> {
+export async function cached(r: Rasterizer, src: string, sp: Spatial, k: KnobValues,
+                             signal?: AbortSignal): Promise<Rendered> {
   const key = keyOf(r.name, src, sp, k)
   const got = hit(key)
   if (got) return { frames: got }
   const pl = await decode(src)
   if (typeof pl === "string") return { err: pl }
-  const out = await r.render(crop(pl, sp), k)
+  if (signal?.aborted) return { err: "aborted" }
+  const out = await r.render(crop(pl, sp), k, signal)
   if ("err" in out) return out
+  if (signal?.aborted) return { err: "aborted" }
   return { frames: put(key, out.frames) }
 }
 
@@ -271,7 +277,7 @@ export const chafa: Rasterizer = {
     contrast:  { kind: "slider", min: 0.5, max: 3.0, step: 0.1, default: 1.0 },
   },
   available: () => caps.chafa ? true : "chafa not installed",
-  async render(win, k) {
+  async render(win, k, signal) {
     const bin = caps.chafa
     if (!bin) return { err: "chafa not installed" }
     const fill = String(k.fill ?? "none")
@@ -289,11 +295,16 @@ export const chafa: Rasterizer = {
       ...(k.invert ? ["--invert"] : []),
       "-",
     ]
+    if (signal?.aborted) return { err: "aborted" }
     const ch = Bun.spawn([bin, ...args], { stdin: win.png(), stdout: "pipe", stderr: "pipe" })
+    const kill = () => ch.kill()
+    signal?.addEventListener("abort", kill, { once: true })
     const [out, cerr] = await Promise.all([
       new Response(ch.stdout).text(), new Response(ch.stderr).text(),
     ])
     await ch.exited
+    signal?.removeEventListener("abort", kill)
+    if (signal?.aborted) return { err: "aborted" }
     if (ch.exitCode !== 0) return { err: `chafa: ${cerr.trim() || "failed"}` }
     return { frames: [box(out)] }
   },

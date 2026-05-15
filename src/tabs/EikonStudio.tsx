@@ -309,17 +309,18 @@ export const EikonStudio = memo((props: {
     return () => { dead = true }
   }, [s?.spatial, s?.base, s?.per, s?.state, s?.rasterizer, src, r])
 
-  // Thumbnails are strictly derived from the preview. A state whose
-  // (src, knobs) matches the current preview is the preview frame
-  // downsampled — zero extra work. States that differ (fork or
-  // per-state source) keep whatever they last rendered; they only
-  // re-render via the second effect below, which keys on per/sources
-  // (structural changes), NOT on spatial/base (scrub). So scrubbing
-  // never spawns anything for the strip.
+  // Thumbnails follow the preview frame. States whose (src, knobs)
+  // match the preview reuse `frame` directly (pure downsample).
+  // States that differ spawn renders in parallel AFTER a debounce —
+  // and those spawns carry an AbortSignal that the effect cleanup
+  // fires, so the next preview move kills in-flight thumb chafa
+  // processes instead of contending with them.
   useEffect(() => {
     if (!s || frame === BLANK) return
     const base = thumb(frame)
     const curK = JSON.stringify(knobs.eff(s, s.state))
+    const ctrl = new AbortController()
+    // Immediate, zero-cost pass: fill matching cells from `frame`.
     setThumbs(prev => {
       const out = new Map(prev)
       for (const st of STATES) {
@@ -329,27 +330,29 @@ export const EikonStudio = memo((props: {
       }
       return out
     })
-  }, [frame, s?.per, s?.state, s?.name, src])
-
-  // Render thumbs for states that differ from the preview — only when
-  // the per-state structure changes (fork/unfork/attach), never on
-  // spatial/base scrub. Detached; dead-gated.
-  useEffect(() => {
-    if (!s) return
-    let dead = false
-    const curK = JSON.stringify(knobs.eff(s, s.state))
-    for (const st of STATES) {
-      const sp = eikon.findSource(s.name, st)
-      if (!sp) continue
-      if (sp === src && JSON.stringify(knobs.eff(s, st)) === curK) continue
-      void cached(r, sp, s.spatial, knobs.eff(s, st)).then(res => {
-        if (dead || "err" in res) return
-        setThumbs(prev => new Map(prev).set(st, thumb(res.frames[0]!)))
+    // Debounced pass: render differing cells; parallel, abortable.
+    const t = setTimeout(() => {
+      if (ctrl.signal.aborted) return
+      const jobs = STATES.flatMap(st => {
+        const sp = eikon.findSource(s.name, st)
+        if (!sp) return []
+        if (sp === src && JSON.stringify(knobs.eff(s, st)) === curK) return []
+        return [cached(r, sp, s.spatial, knobs.eff(s, st), ctrl.signal)
+          .then(res => "err" in res ? undefined : [st, thumb(res.frames[0]!)] as const)]
       })
-    }
-    return () => { dead = true }
+      if (jobs.length === 0) return
+      void Promise.all(jobs).then(done => {
+        if (ctrl.signal.aborted) return
+        setThumbs(prev => {
+          const out = new Map(prev)
+          for (const d of done) if (d) out.set(d[0], d[1])
+          return out
+        })
+      })
+    }, 120)
+    return () => { ctrl.abort(); clearTimeout(t) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [s?.per, s?.sources, s?.name, r])
+  }, [frame, s?.per, s?.sources, s?.state, s?.name, src, r])
 
   const mutate = (fn: (prev: Session) => Session) => setS(p => (p ? fn(p) : p))
 
