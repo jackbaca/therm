@@ -105,4 +105,22 @@ describe("DiffTabs", () => {
     expect(t.frame()).toContain("patch") // falls back to tool name
     t.destroy()
   })
+
+  test("strips ANSI escapes from tool.preview before using as label", async () => {
+    // Some patch tools pre-color their preview path for a pty. The chat
+    // surface must strip those bytes — OpenTUI <text> renders escapes as
+    // literal characters and the leak is loud now that preview IS the
+    // entire tab label.
+    const colored = "\x1b[38;2;21;60;115m delta\x1b[0m"
+    const t = await mountNode(
+      <DiffTabs tools={[tool("a", colored, "x")]} />,
+      { width: 80, height: 12 },
+    )
+    await until(t, () => t.frame().includes("delta"))
+    const f = t.frame()
+    expect(f).not.toMatch(/\x1b/)
+    expect(f).not.toContain("38;2;21;60;115")
+    expect(f).not.toContain("[0m")
+    t.destroy()
+  })
 })

@@ -10,6 +10,10 @@ import { LEFT_BAR } from "../../ui/borders"
 import { DiffBlock, isDiff } from "./DiffBlock"
 import { useTheme } from "../../theme"
 
+// eslint-disable-next-line no-control-regex
+const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g
+const clean = (s: string) => s.replace(ANSI, "")
+
 const base = (p: string) => p.split(/[\\/]/).pop() ?? p
 const parent = (p: string) => {
   const parts = p.split(/[\\/]/).filter(Boolean)
@@ -23,7 +27,7 @@ function buildTabs(tools: ToolPart[]): Tab[] {
   const raw = tools.flatMap(t => {
     const diff = t.diff ?? (isDiff(t.result) ? t.result : undefined)
     if (!diff) return []
-    return [{ tool: t, path: t.preview ?? t.name, diff }]
+    return [{ tool: t, path: clean(t.preview ?? t.name), diff }]
   })
   // Disambiguate duplicate basenames (a/Foo.tsx + b/Foo.tsx) by prefixing
   // the parent dir only when needed — keeps short labels short.
