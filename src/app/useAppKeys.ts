@@ -24,6 +24,7 @@ import type { ComposerHandle } from "../components/chat/Composer"
 
 const INTERRUPT_MS = 5000
 export const DOUBLE_TAB_MS = 400
+export const QUIT_MS = 2000
 
 type Region = "input" | "content"
 
@@ -51,6 +52,8 @@ type Opts = {
   queued: number
   onFlushQueue: () => void
   onQuit: () => void
+  /** First Ctrl+C on an empty buffer — caller shows a transient hint. */
+  onQuitArm: (label: string) => void
   onCopyLast: () => void
   onAttachClipboard: () => void
   /** Remove the last pending attachment (backspace on empty composer). */
@@ -65,6 +68,7 @@ export function useAppKeys(o: Opts) {
   const keys = useKeys()
   const lastEsc = useRef(0)
   const lastTab = useRef(0)
+  const lastQuit = useRef(0)
 
   // Tabs with their own keyboard surface own focus on entry; Chat keeps
   // the composer since its content region has no keybinds.
@@ -104,6 +108,7 @@ export function useAppKeys(o: Opts) {
       const v = c.value().trim()
       if (v.length >= 20) c.remember(v)
       c.set("")
+      lastQuit.current = 0
       key.stopPropagation()
       return
     }
@@ -112,7 +117,19 @@ export function useAppKeys(o: Opts) {
       key.stopPropagation()
       return
     }
-    if (keys.match("app.exit", key)) return o.onQuit()
+    // Double-tap to quit. Legacy terminals can't report Shift on
+    // Ctrl+letter, so Ctrl+Shift+C (the user's intended copy chord)
+    // arrives as plain ^C; on a non-kitty emulator with no selection
+    // and an empty buffer that used to be a one-shot exit. First press
+    // arms + hints; second within QUIT_MS quits.
+    if (keys.match("app.exit", key)) {
+      const now = Date.now()
+      if (now - lastQuit.current < QUIT_MS) return o.onQuit()
+      lastQuit.current = now
+      o.onQuitArm(keys.print("app.exit"))
+      key.stopPropagation()
+      return
+    }
 
     if (keys.match("app.suspend", key)) {
       renderer.suspend()

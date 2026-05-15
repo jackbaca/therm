@@ -569,6 +569,8 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     queued: queue.length,
     onFlushQueue: stream.doInterrupt,
     onQuit: () => quit(renderer, sid, title, gw),
+    onQuitArm: (label) =>
+      toast.show({ variant: "info", message: `${label} again to quit` }),
     onInterruptNotice: () => {
       setEscHint(true)
       setTimeout(() => setEscHint(false), 5000)
@@ -692,6 +694,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
                 cmds={cmds}
                 onSend={onSend} onSlash={slash} onShell={onShell}
                 onAttach={onAttach}
+                onAttachClipboard={attachClipboard}
                 onEnqueue={onEnqueue}
                 onDequeue={dequeue}
                 onDirty={setComposing}

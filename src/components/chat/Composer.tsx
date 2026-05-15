@@ -61,6 +61,10 @@ type Props = {
    *  to shell.exec and rendered as a transcript $ cmd / stdout pair. */
   onShell?: (command: string) => void
   onAttach?: (r: ImageAttachResponse) => void
+  /** Probe the OS clipboard for an image (same path as the Ctrl+V chord).
+   *  Called on an empty bracketed-paste, which is how Windows Terminal
+   *  surfaces image-only clipboard content. */
+  onAttachClipboard?: () => void
   onEnqueue?: (text: string) => void
   onDequeue?: (i: number) => void
   /** Enter pressed with an empty buffer. Return true to consume. */
@@ -149,6 +153,9 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
   }
 
   // Paste routing, in priority order:
+  //  0. Empty bracketed paste → probe the OS clipboard for an image.
+  //     Windows Terminal surfaces an image-only clipboard as ESC[200~
+  //     ESC[201~ with no payload; the image has to be read out-of-band.
   //  1. Single-line paste that *looks* like a local path → ask the gateway.
   //     input.detect_drop is authoritative (stats the file, handles file://,
   //     quoting, escaped spaces, ~/ expansion, WSL drive rewriting). Image
@@ -169,6 +176,10 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     e.preventDefault()
     const raw = decodePasteBytes(e.bytes).replace(/\r\n?/g, "\n")
     const text = /[^\n]/.test(raw) ? raw.replace(/\n+$/, "") : raw
+    if (!text) {
+      live.current.props.onAttachClipboard?.()
+      return
+    }
     const verbatim = () => ta.current?.insertText(text)
     if (looksLikePath(text)) {
       gw.request<DropDetectResponse>("input.detect_drop", { text })

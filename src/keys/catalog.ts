@@ -44,7 +44,7 @@ export const DEFAULTS = {
   "focus.cycle":       def("tab",                  "Cycle focus (double-tap → composer)","global"), // ☨
   "editor.open":       def("<leader>e,ctrl+g",     "Open $EDITOR on prompt",             "global"),
   "reply.copy":        def("<leader>y,ctrl+y",     "Copy last assistant reply",          "global"),
-  "clipboard.attach":  def("alt+v",                "Attach clipboard image",             "global"), // ø input_paste=ctrl+v
+  "clipboard.attach":  def("ctrl+v",               "Attach clipboard image",             "global"), // oc input_paste=ctrl+v
   "queue.flush":       def("<leader>u",            "Interrupt and send queued now",      "global"), // ☨
   "session.interrupt": def("escape",               "Interrupt (double-tap while streaming)", "global"),
   "session.new":       def("<leader>n",            "New session",                        "global"),
