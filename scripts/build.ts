@@ -100,6 +100,11 @@ for (const out of result.outputs.filter(o => o.kind === "entry-point")) {
 }
 chmodSync("dist/index.js", 0o755)
 
+// Node-shebang'd launcher lives beside dist/ so npm's cmd-shim emits a
+// node.exe-invoking .ps1; the launcher then finds bun itself.
+await $`mkdir -p dist/bin && cp bin/herm.cjs dist/bin/`
+chmodSync("dist/bin/herm.cjs", 0o755)
+
 // The published package is dist/ + this manifest. `dependencies` is
 // empty — everything is bundled. Platform libs are optionals (bun/npm
 // install the one that matches, skip the rest).
@@ -119,7 +124,7 @@ await Bun.write("dist/package.json", JSON.stringify({
   bugs: pkg.bugs,
   engines: pkg.engines,
   publishConfig: { access: "public", provenance: true },
-  bin: { herm: "index.js" },
+  bin: { herm: "bin/herm.cjs" },
   optionalDependencies: Object.fromEntries(
     platforms.map(p => [`@opentui/core-${p}`, ov]),
   ),
