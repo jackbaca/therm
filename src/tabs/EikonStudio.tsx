@@ -461,7 +461,7 @@ export const EikonStudio = memo((props: {
   const preview = (
     <TabShell title={spatialOk ? title : `${title}  ·  (spatial n/a — ${r.name})`}
               error={previewErr} focus={pane === "preview"} grow={1}>
-      <box position="relative" width={W + 2} height={H} alignSelf="center"
+      <box position="relative" flexDirection="column" width={W + 2} height={H} alignSelf="center"
            onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseScroll={onScroll}>
         {frame.map((ln, i) =>
           <text key={i} fg={err ? theme.textMuted : theme.hermAvatar}>{ln}</text>)}
@@ -493,22 +493,31 @@ export const EikonStudio = memo((props: {
     </TabShell>
   )
 
+  // Strip cell = 10 (bordered thumb) + 1 (label). TabShell chrome =
+  // border(2) + padding(2) + title(1) + gap(1). flexBasis=0 on TabShell
+  // would collapse it in a column, so pin the wrapper height.
+  const STRIP_H = 17
   const strip = s ? (
-    <TabShell title="States" focus={pane === "strip"} grow={0}>
-      <Strip s={s} frames={thumbs} focused={pane === "strip"}
-             onPick={st => { setPane("strip"); mutate(p => knobs.setState(p, st)) }} />
-    </TabShell>
+    <box flexShrink={0} height={STRIP_H}>
+      <TabShell title="States" focus={pane === "strip"}>
+        <Strip s={s} frames={thumbs} focused={pane === "strip"}
+               onPick={st => { setPane("strip"); mutate(p => knobs.setState(p, st)) }} />
+      </TabShell>
+    </box>
   ) : null
 
   return (
     <box flexDirection="column" flexGrow={1} minWidth={0}>
       {wide ? (
-        <box flexDirection="row" flexGrow={1}>
-          <box flexDirection="column" flexGrow={3} flexBasis={0}>{preview}{strip}</box>
-          <box flexDirection="column" flexGrow={2} flexBasis={0}>{panel}</box>
-        </box>
+        <>
+          <box flexDirection="row" flexGrow={1}>
+            <box flexDirection="column" flexGrow={3} flexBasis={0}>{preview}</box>
+            <box flexDirection="column" flexGrow={2} flexBasis={0}>{panel}</box>
+          </box>
+          {strip}
+        </>
       ) : (
-        <box flexDirection="column" flexGrow={1}>{preview}{strip}{panel}</box>
+        <box flexDirection="column" flexGrow={1}>{preview}{panel}{strip}</box>
       )}
       <HintBar pairs={hint} suffix={s?.dirty ? "● unsaved" : undefined} />
     </box>
