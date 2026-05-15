@@ -76,11 +76,19 @@ const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x
 
 /** Normalize rasterizer text output to exactly H rows × W cols. Rows
  *  carrying SGR escapes are passed through unpadded (width accounting
- *  under ANSI is the rasterizer's job). */
+ *  under ANSI is the rasterizer's job). Non-BMP glyphs (sextant/wedge
+ *  = U+1FB00+, legacy = U+1CC00+) are surrogate pairs in JS strings —
+ *  String.slice by code unit would split them and OpenTUI's
+ *  TextEncoder then emits U+FFFD for each lone surrogate. Iterate by
+ *  codepoint instead. */
 function box(out: string): Frame {
   const rows = out.replace(/\n$/, "").split("\n")
   while (rows.length < H) rows.push("")
-  return rows.slice(0, H).map(l => (l.includes("\x1b[") ? l : l.padEnd(W).slice(0, W)))
+  return rows.slice(0, H).map(l => {
+    if (l.includes("\x1b[")) return l
+    const cp = Array.from(l)
+    return cp.length >= W ? cp.slice(0, W).join("") : l + " ".repeat(W - cp.length)
+  })
 }
 
 const cache = new Map<string, Frame[]>()
@@ -114,16 +122,15 @@ export async function cached(r: Rasterizer, src: string, sp: Spatial, k: KnobVal
   return { frames: put(key, out.frames) }
 }
 
-/** Nearest-neighbor downsample of a 48×24 frame to w×h (center-pick). */
+/** Nearest-neighbor downsample of a 48×24 frame to w×h (center-pick).
+ *  Codepoint-indexed so non-BMP glyphs (sextant/wedge) survive. */
 export function thumb(frame: Frame, w = 16, h = 8): Frame {
   const fx = W / w, fy = H / h
-  const pick = (row: string, x: number) => {
-    const i = Math.min(row.length - 1, Math.floor(x * fx + fx / 2))
-    return row[i] ?? " "
-  }
   return Array.from({ length: h }, (_, y) => {
-    const row = frame[Math.min(H - 1, Math.floor(y * fy + fy / 2))] ?? ""
-    return Array.from({ length: w }, (_, x) => pick(row, x)).join("")
+    const row = Array.from(frame[Math.min(H - 1, Math.floor(y * fy + fy / 2))] ?? "")
+    const n = row.length
+    return Array.from({ length: w }, (_, x) =>
+      row[Math.min(n - 1, Math.floor(x * fx + fx / 2))] ?? " ").join("")
   })
 }
 

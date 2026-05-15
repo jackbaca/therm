@@ -94,4 +94,33 @@ describe("eikon-render", () => {
       expect("err" in out).toBe(false)
     }
   })
+
+  test("box()/thumb() preserve non-BMP codepoints (sextant U+1FB00+)", () => {
+    // 48 sextants → 96 UTF-16 code units. box() must keep all 48.
+    const sex = "\u{1FB17}"
+    const raw = Array.from({ length: H }, () => sex.repeat(W)).join("\n")
+    // call box via chafa being unavailable isn't practical; test via
+    // the public cached() path with a stub rasterizer that returns raw.
+    const r = { name: "t", knobs: {}, spatial: false, video: false,
+      available: () => true as const, render: async () => ({ frames: [raw.split("\n")] }) }
+    return cached(r, "/x", S0, {}).then(out => {
+      if ("err" in out) throw new Error(out.err)
+      // thumb() on a non-BMP frame — every output codepoint survives.
+      const t = thumb(out.frames[0]!)
+      expect(t.length).toBe(8)
+      expect(t.every(row => Array.from(row).length === 16)).toBe(true)
+      expect(t.every(row => Array.from(row).every(c => c === sex))).toBe(true)
+    })
+  })
+
+  runc("chafa sextant output survives box() without U+FFFD", async () => {
+    const out = await chafa.render(IMG, S0, { ...defaults(chafa), symbols: "sextant" })
+    if ("err" in out) throw new Error(out.err)
+    const f = out.frames[0]!
+    // Every row has exactly 48 codepoints and no replacement char.
+    for (const row of f) {
+      expect(Array.from(row).length).toBe(W)
+      expect(row).not.toContain("\uFFFD")
+    }
+  })
 })
