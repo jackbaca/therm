@@ -1,140 +1,133 @@
 import { describe, expect, test } from "bun:test"
 import { act } from "react"
-import { mkdirSync, writeFileSync, rmSync } from "node:fs"
-import { dirname } from "node:path"
-import { spawnSync } from "node:child_process"
-import { mountNode, until, MockGateway } from "./harness"
-import { usePlugins } from "../src/plugins/runtime"
-import studio, { WIP_PATH, studio as fns } from "../src/plugins/bundled/eikon-studio"
-import { fresh, step, pan } from "../src/plugins/bundled/eikon-studio/knobs"
-import { render, K0, caps, reset } from "../src/plugins/bundled/eikon-studio/render"
-import * as store from "../src/plugins/bundled/eikon-studio/store"
-import { parseEikon } from "../src/components/avatar/eikon"
-import type { HermPlugin } from "../src/plugins/types"
+import { mkdirSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
+import { mountNode, until } from "./harness"
+import { EikonGroup } from "../src/tabs/EikonGroup"
+import { eikon } from "../src/service/eikon"
+import { native, type Rasterizer } from "../src/utils/eikon-render"
+import * as prefs from "../src/context/preferences"
 
-const have = caps.chafa && caps.ffmpeg
-const wip = WIP_PATH()
+const HH = process.env.HERMES_HOME!
 
-const ROW = "▙STUDIO-PROBE▟".padEnd(48, " ")
-const mk = (name: string, rows: string[]) => fns.serialize({
-  meta: { version: 1, name, width: 48, height: 24, states: ["idle", "listening", "thinking", "speaking", "working", "error"] },
-  states: new Map(["idle", "listening", "thinking", "speaking", "working", "error"].map(s => [s, { fps: 12, frames: [rows], loopFrom: 1 }])),
-}, "t", "◆")
-
-// 256×128 left-black/right-white step (chafa auto-levels gradients,
-// so a hard edge is needed to tell crop windows apart).
-const IMG = "/tmp/eikon-step-test.png"
-if (have) spawnSync("ffmpeg", ["-hide_banner", "-loglevel", "error",
-  "-f", "lavfi", "-i", "nullsrc=s=256x128,format=gray,geq=lum=255*gte(X\\,128)",
-  "-frames:v", "1", "-y", IMG])
-
-const Host = () => {
-  const p = usePlugins()
-  return (
-    <box flexDirection="column" width={160} height={48}>
-      <box height={24}>
-        <p.Slot name="sidebar_avatar" mode="replace" state="idle" eikon={undefined}>
-          <text>default-avatar</text>
-        </p.Slot>
-      </box>
-      <box flexDirection="column" flexGrow={1}>
-        {p.routes.find(r => r.name === "Eikon")?.render() ?? <text>no-route</text>}
-      </box>
-    </box>
-  )
+// Stub rasterizer — deterministic, no binaries.
+const stub: Rasterizer = {
+  name: "stub", spatial: true, video: false,
+  knobs: {
+    tone: { kind: "cycle", options: ["lo", "hi"], default: "lo" },
+    flip: { kind: "toggle", default: false },
+    gain: { kind: "slider", min: 0, max: 10, step: 1, default: 5 },
+  },
+  available: () => true,
+  render: async () => ({ frames: [Array.from({ length: 24 }, () => "STUB-ROW".padEnd(48))] }),
 }
 
-describe("eikon-studio (tab)", () => {
-  test("knobs: step/pan clamp; flip cycles", () => {
-    let k = K0
-    for (let i = 0; i < 50; i++) k = step(k, "contrast", 1)
-    expect(k.contrast).toBe(3.0)
-    k = step(K0, "flip", 1); expect(k.flipH).toBe(true)
-    k = pan({ ...K0, ox: 0 }, -1, 0); expect(k.ox).toBe(0)
+function seed(name: string) {
+  const p = eikon.ensure(name)
+  writeFileSync(join(p.source, "base.png"), "x")
+  writeFileSync(eikon.file(name), JSON.stringify({ eikon: 1, name, width: 48, height: 24 }) + "\n")
+  eikon.writeStudio(name, { rasterizer: "stub", spatial: { zoom: 1, ox: 0.5, oy: 0.5 }, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
+}
+
+describe("EikonStudio tab", () => {
+  test("renders three panes; knob nav via handleListKey; ←→ adjusts cycle knob", async () => {
+    const un = eikon.register(stub)
+    seed("owl")
+    prefs.set("eikonPath", eikon.file("owl"))
+    let sub = 0
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
+      { width: 160, height: 48 },
+    )
+    await until(t, () => t.frame().includes("rasterizer"))
+    expect(t.frame()).toContain("Preview")
+    expect(t.frame()).toContain("States")
+    expect(t.frame()).toContain("STUB-ROW")
+
+    // Nav to first tonal knob (tone) — HEAD has 5 nav rows when no
+    // fetch is shown (rasterizer, source, name, fork, reset), so
+    // tone is at index 5.
+    for (let i = 0; i < 5; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
+    await until(t, () => /▸ tone/.test(t.frame()))
+    act(() => t.keys.pressArrow("right"))
+    await until(t, () => t.frame().includes("◂ hi ▸"))
+    expect(t.frame()).toContain("● unsaved")
+
+    // Tab cycles pane focus → hint line swaps per pane.
+    act(() => t.keys.pressTab())
+    await until(t, () => t.frame().includes("[↑↓←→]"))
+    act(() => t.keys.pressTab())
+    await until(t, () => t.frame().includes("state") && t.frame().includes("actions"))
+    un()
   })
 
-  test("serialize → parseEikon round-trip", () => {
-    const back = parseEikon(mk("probe", Array.from({ length: 24 }, () => ROW)))
-    expect(back.meta.name).toBe("probe")
-    expect(back.states.size).toBe(6)
-    expect(back.states.get("idle")!.frames[0]![0]).toBe(ROW)
+  test("Enter on rasterizer row opens DialogSelect; unavailable shows reason", async () => {
+    const un = eikon.register(stub)
+    seed("cat")
+    prefs.set("eikonPath", eikon.file("cat"))
+    let sub = 0
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
+      { width: 160, height: 48 },
+    )
+    await until(t, () => t.frame().includes("rasterizer"))
+    // Selection starts on row 0 (rasterizer). Enter → dialog.
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Rasterizer") && t.frame().includes("● stub"))
+    // chafa + native also listed; one may show an install hint.
+    expect(t.frame()).toContain("chafa")
+    expect(t.frame()).toContain("native")
+    act(() => t.keys.pressEscape())
+    await until(t, () => !t.frame().includes("● stub") || t.frame().includes("Knobs"))
+    un()
   })
 
-  test.skipIf(!have)("render: pan shifts crop window", () => {
-    reset()
-    const ink = (r: ReturnType<typeof render>) => {
-      if ("err" in r) throw new Error(r.err)
-      let n = 0
-      for (const ln of r.lines) for (const ch of ln) {
-        const cp = ch.codePointAt(0)!
-        if (cp >= 0x2800 && cp <= 0x28FF) for (let b = cp - 0x2800; b; b >>= 1) n += b % 2
-      }
-      return n
-    }
-    expect(ink(render(IMG, { ...K0, zoom: 0.5, ox: 0 }))).toBeGreaterThan(8000)
-    expect(ink(render(IMG, { ...K0, zoom: 0.5, ox: 1 }))).toBeLessThan(200)
-  })
-
-  test("route registered; empty-state tab prompts to open", async () => {
-    store.set({ mode: "off" })
-    rmSync(wip, { force: true })
-    const on: HermPlugin = { ...studio, enabled: true }
-    await using t = await mountNode(<Host />, { width: 160, height: 48, plugins: [on] })
-    await until(t, () => t.frame().includes("No image loaded"))
-    expect(t.frame()).toContain("default-avatar")
-  })
-
-  test("watching: WIP (no studio header) → avatar slot only, tab stays empty-state", async () => {
-    store.set({ mode: "off" })
-    mkdirSync(dirname(wip), { recursive: true })
-    writeFileSync(wip, mk("probe", Array.from({ length: 24 }, () => ROW)))
-    const gw = new MockGateway()
-    const on: HermPlugin = { ...studio, enabled: true }
-    await using t = await mountNode(<Host />, { width: 160, height: 48, gw, plugins: [on] })
-
-    await until(t, () => t.frame().includes("STUDIO-PROBE"))
-    expect(t.frame()).toContain("◌ wip · probe")
-    expect(t.frame()).toContain("No image loaded")    // tab idle — no session
-    expect(t.frame()).not.toContain("default-avatar")
-
-    rmSync(wip, { force: true })
-    act(() => gw.push({ type: "message.complete" }))
-    await until(t, () => t.frame().includes("default-avatar"))
-  })
-
-  test.skipIf(!have)("editing: studio header → tab populated, avatar mirrors; keys drive knobs; commit exits", async () => {
-    store.set({ mode: "off" }); reset()
-    const s = fresh(IMG, { w: 256, h: 128 })
-    const { doc } = fns.build(s)
-    mkdirSync(dirname(wip), { recursive: true })
-    writeFileSync(wip, fns.serialize(doc, "t", "◆"))
-
-    const gw = new MockGateway()
-    const on: HermPlugin = { ...studio, enabled: true }
-    await using t = await mountNode(<Host />, { width: 160, height: 48, gw, plugins: [on] })
-
-    await until(t, () => t.frame().includes("EIKON STUDIO"))
-    expect(t.frame()).toContain("◉ wip")
-    expect(t.frame()).toContain("◂ braille ▸")
-    expect(t.frame()).not.toContain("default-avatar")
-
-    // j → row moves; l cycles symbols (starts on 'symbols')
-    await act(async () => { t.keys.pressKey("l") })
-    await until(t, () => t.frame().includes("◂ block ▸"))
-
-    // tab cycles state
-    await act(async () => { t.keys.pressTab() })
-    await until(t, () => t.frame().includes("◂ listening"))
-
-    // = forks this state
-    await act(async () => { t.keys.pressKey("=") })
-    await until(t, () => t.frame().includes("◂ listening *"))
-
-    // enter → commit → watching: tab back to empty, avatar stays
-    await act(async () => { t.keys.pressEnter() })
-    await until(t, () => t.frame().includes("No image loaded"))
-    expect(t.frame()).toContain("◌ wip")
-
-    rmSync(wip, { force: true })
+  test("dirty Esc → openConfirm; y reloads from disk", async () => {
+    const un = eikon.register(stub)
+    seed("dog")
+    prefs.set("eikonPath", eikon.file("dog"))
+    let sub = 0
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
+    )
+    await until(t, () => t.frame().includes("rasterizer"))
+    // Make dirty via a knob adjust.
+    for (let i = 0; i < 5; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
+    act(() => t.keys.pressArrow("right"))
+    await until(t, () => t.frame().includes("● unsaved"))
+    act(() => t.keys.pressEscape())
+    await until(t, () => t.frame().includes("Discard unsaved"))
+    act(() => t.keys.pressKey("y"))
+    await until(t, () => !t.frame().includes("● unsaved"))
+    un()
   })
 })
+
+describe("EikonGallery tab", () => {
+  test("lists bundled + installed; Enter sets eikonPath", async () => {
+    mkdirSync(join(HH, "eikons"), { recursive: true })
+    seed("galone")
+    let sub = 1
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
+      { width: 160, height: 48 },
+    )
+    await until(t, () => t.frame().includes("Gallery ("))
+    expect(t.frame()).toContain("galone")
+    // Bundled dir also shows (at least default/mono/ares ship).
+    // Move to galone and activate.
+    const rows = t.frame()
+    const target = rows.split("\n").findIndex(l => l.includes("galone"))
+    expect(target).toBeGreaterThan(0)
+    // Navigate until selected row contains galone.
+    for (let i = 0; i < 20; i++) {
+      if (t.frame().split("\n").some(l => l.includes("▸") && l.includes("galone"))) break
+      act(() => t.keys.pressArrow("down"))
+      await t.settle()
+    }
+    act(() => t.keys.pressEnter())
+    await until(t, () => prefs.get("eikonPath") === eikon.file("galone"))
+  })
+})
+
+void native

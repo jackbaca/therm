@@ -12,6 +12,7 @@ export const TABS = [
   { name: "Sessions",             description: "Sessions, context, analytics" },
   { name: "Profiles & Automation",description: "Profiles, cron jobs, kanban boards" },
   { name: "Config",               description: "Config, env, skills, toolsets, memory" },
+  { name: "Eikon",                description: "Avatar studio & gallery" },
 ] as const
 
 export const TAB_MAX = TABS.length - 1
@@ -19,11 +20,15 @@ export const CHAT_TAB = 0
 export const SESSIONS_TAB = 1
 export const AUTOMATION_TAB = 2
 export const CONFIG_TAB = 3
+export const EIKON_TAB = 4
 
 export const SUB_TABS: Record<number, readonly string[]> = {
   [SESSIONS_TAB]:   ["List", "Context", "Analytics"],
   [AUTOMATION_TAB]: ["Kanban", "Profiles", "Cron"],
   [CONFIG_TAB]:     ["Config", "Skills", "Toolsets", "Env", "Memory"],
+  // A third "Advanced" sub-tab (rasterizer install/config) is reserved
+  // — not yet implemented; group clamps defensively like the others.
+  [EIKON_TAB]:      ["Studio", "Gallery"],
 }
 
 /** Slash-command name → {tab, sub}. `sub` is the sub-tab index within that
@@ -44,4 +49,8 @@ export const TAB_SLASH: Record<string, { tab: number; sub: number }> = {
   toolsets:   { tab: CONFIG_TAB,     sub: 2 },
   env:        { tab: CONFIG_TAB,     sub: 3 },
   memory:     { tab: CONFIG_TAB,     sub: 4 },
+  eikon:      { tab: EIKON_TAB,      sub: 0 },
+  studio:     { tab: EIKON_TAB,      sub: 0 },
+  eikons:     { tab: EIKON_TAB,      sub: 1 },
+  gallery:    { tab: EIKON_TAB,      sub: 1 },
 }

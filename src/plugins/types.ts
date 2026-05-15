@@ -17,14 +17,10 @@ import type { DialogContext } from "../ui/dialog"
 import type { Keys } from "../keys"
 import type { SelectOption } from "../ui/dialog-select"
 
-import type { AvatarState } from "../components/avatar/states"
-import type { ParsedEikon } from "../components/avatar/eikon"
-
 export type { SlotMode, SelectOption }
 
 export type Slots = {
   app_bottom: { sid: string; tab: number; streaming: boolean }
-  sidebar_avatar: { state: AvatarState; eikon?: ParsedEikon }
   sidebar_content: { sid: string }
   sidebar_footer: { sid: string }
   prompt_right: { sid: string }
@@ -97,6 +93,11 @@ export type HermPluginApi = {
   }
   readonly slots: {
     register(p: Omit<SlotPlugin, "id"> & { order?: number }): () => void
+  }
+  readonly eikon: {
+    /** Contribute a rasterizer to the Eikon tab. Scope-tracked —
+     *  deactivating the plugin unregisters it. */
+    rasterizer: { register(r: import("../utils/eikon-render").Rasterizer): () => void }
   }
   readonly lifecycle: Lifecycle
 }

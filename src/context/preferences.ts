@@ -31,6 +31,8 @@ interface TuiPreferences {
   lastSessionId?: string
   /** Path to a .eikon avatar file for the sidebar */
   eikonPath?: string
+  /** Active rasterizer name for the Eikon Studio tab */
+  eikonRasterizer?: string
   /** Spinner/avatar frame animations (off → static glyphs) */
   animations?: boolean
   /** Thought-cloud tool trail verbosity */
