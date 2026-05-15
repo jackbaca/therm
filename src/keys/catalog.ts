@@ -44,7 +44,7 @@ export const DEFAULTS = {
   "focus.cycle":       def("tab",                  "Cycle focus (double-tap → composer)","global"), // ☨
   "editor.open":       def("<leader>e,ctrl+g",     "Open $EDITOR on prompt",             "global"),
   "reply.copy":        def("<leader>y,ctrl+y",     "Copy last assistant reply",          "global"),
-  "clipboard.attach":  def("ctrl+v",               "Attach clipboard image",             "global"), // oc input_paste=ctrl+v
+  "clipboard.attach":  def("ctrl+v",               "Attach clipboard image",             "global"),
   "queue.flush":       def("<leader>u",            "Interrupt and send queued now",      "global"), // ☨
   "session.interrupt": def("escape",               "Interrupt (double-tap while streaming)", "global"),
   "session.new":       def("<leader>n",            "New session",                        "global"),
@@ -54,7 +54,6 @@ export const DEFAULTS = {
   "session.timeline":  def("<leader>g",            "Session timeline",                   "global"),
   "theme.pick":        def("<leader>t",            "Switch theme",                       "global"),
   "model.pick":        def("<leader>m",            "Switch model",                       "global"),
-  // "tool.details":      def("<leader>d",            "Cycle tool-trail detail",            "global"), // ø tool_details=none k: I need to see if it warrants a shortcut. defer
   "status.open":       def("<leader>s",            "Show status",                        "global"),
   // ☨ — oc has no generic list surface; nearest are per-dialog
   //     session_*/stash_* bindings and messages_* scroll.
@@ -66,8 +65,8 @@ export const DEFAULTS = {
   "list.end":          def("end",                  "Last item",                          "list"),
   "list.activate":     def("return",               "Activate / open",                    "list"),
   "list.delete":       def("d,delete",             "Delete item",                        "list"),
-  "list.refresh":      def("r",                    "Reload",                             "list"), // k: where is this used?  → 7 tabs; removal tracked in herm-0pg.15 (gated on bqo)
-  "list.new":          def("n",                    "Create",                             "list"), // k: keep
+  "list.refresh":      def("r",                    "Reload",                             "list"),
+  "list.new":          def("n",                    "Create",                             "list"),
   "list.search":       def("/",                    "Filter",                             "list"),
   "list.toggle":       def("space",                "Toggle item",                        "list"),
   // ☨ — oc dialogs hardcode return/escape/y/n per-component.
@@ -84,9 +83,9 @@ export const DEFAULTS = {
   "sessions.rename":   def("ctrl+r",               "Retitle session",                    "sessions"), // match oc session_rename
   "sessions.prev":     def("left",                 "Walk lineage back (continues from)", "sessions"),
   "sessions.next":     def("right",                "Walk lineage forward (compressed to)", "sessions"),
-  "agents.kill":       def("k",                    "Kill subagent",                      "agents"),	// k: I like this
-  "agents.history":    def("h",                    "Spawn history",                      "agents"),	// k: keep
-  "agents.install":    def("i",                    "Install distribution",               "agents"),	// ☨
+  "agents.kill":       def("k",                    "Kill subagent",                      "agents"),
+  "agents.history":    def("h",                    "Spawn history",                      "agents"),
+  "agents.install":    def("i",                    "Install distribution",               "agents"), // ☨
   "config.save":       def("ctrl+s",               "Write config",                       "config"),
   "config.mode":       def("m",                    "Toggle form ↔ YAML",                 "config"), // ☨
 } satisfies Record<string, Def>
