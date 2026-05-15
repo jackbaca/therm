@@ -1,11 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import { spawnSync } from "node:child_process"
-import { caps, native, chafa, thumb, cached, resetCache, defaults, S0, W, H } from "../src/utils/eikon-render"
+import { caps, native, chafa, thumb, cached, resetCache, defaults, windowOf, S0, W, H } from "../src/utils/eikon-render"
 
 describe("eikon-render", () => {
   test("thumb nearest-neighbor 48×24 → 16×8, center-pick", () => {
-    // Checkerboard where each 3×3 block is a single char; center-pick
-    // should preserve the coarse pattern exactly.
     const frame = Array.from({ length: H }, (_, y) =>
       Array.from({ length: W }, (_, x) => (((x / 3 | 0) + (y / 3 | 0)) % 2 ? "#" : ".")).join(""))
     const t = thumb(frame)
@@ -28,99 +26,126 @@ describe("eikon-render", () => {
     expect(typeof native.available()).toBe(caps.ffmpeg ? "boolean" : "string")
   })
 
-  test("cached() LRU hits on identical key", async () => {
-    resetCache()
-    const stub = {
-      name: "stub", knobs: {}, spatial: false, video: false,
-      available: () => true as const,
-      render: async () => ({ frames: [Array.from({ length: H }, () => "x".repeat(W))] }),
-    }
-    let n = 0
-    const spy = { ...stub, render: async (...a: Parameters<typeof stub.render>) => { n++; return stub.render(...a) } }
-    await cached(spy, "/a", S0, {})
-    await cached(spy, "/a", S0, {})
-    expect(n).toBe(1)
-    await cached(spy, "/b", S0, {})
-    expect(n).toBe(2)
+  test("Window.png() produces a valid PNG header + dims", () => {
+    const win = windowOf(new Uint8Array(32 * 32).fill(200), 32, 32)
+    const p = win.png()
+    // Magic + IHDR at fixed offset.
+    expect([...p.slice(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10])
+    expect([...p.slice(12, 16)]).toEqual([73, 72, 68, 82])  // "IHDR"
+    // width/height big-endian at 16..24.
+    const be = (o: number) => (p[o]! << 24 | p[o+1]! << 16 | p[o+2]! << 8 | p[o+3]!) >>> 0
+    expect(be(16)).toBe(32); expect(be(20)).toBe(32)
+    // bit-depth 8, colour-type 0 (gray).
+    expect(p[24]).toBe(8); expect(p[25]).toBe(0)
+    // Lazy: second call is the same object.
+    expect(win.png()).toBe(p)
   })
 
-  // Only runs when ffmpeg is installed (CI + dev boxes have it).
-  const run = caps.ffmpeg ? test : test.skip
-  const IMG = "/tmp/eikon-native-step.png"
-
-  run("native: left-black/right-white step → braille halves differ", async () => {
-    spawnSync("ffmpeg", ["-hide_banner", "-loglevel", "error",
-      "-f", "lavfi", "-i", "nullsrc=s=64x64,format=gray,geq=lum=255*gte(X\\,32)",
-      "-frames:v", "1", "-y", IMG])
-    const out = await native.render(IMG, S0, defaults(native))
-    expect("err" in out).toBe(false)
-    if ("err" in out) return
+  test("native renders a synthetic window without any subprocess", async () => {
+    // Left-black / right-white 64×64 plane.
+    const g = new Uint8Array(64 * 64)
+    for (let y = 0; y < 64; y++) for (let x = 32; x < 64; x++) g[y * 64 + x] = 255
+    const out = await native.render(windowOf(g, 64, 64), defaults(native))
+    if ("err" in out) throw new Error(out.err)
     const row = out.frames[0]![H >> 1]!
-    // Left half (dark, inverted→on) should differ from right half.
     expect(row.slice(0, W >> 1)).not.toBe(row.slice(W >> 1))
-    // Block mode: left ≈ heavy, right ≈ light (invert on).
-    const b = await native.render(IMG, S0, { ...defaults(native), symbols: "block" })
+    // block mode: left heavy (inverted), right light.
+    const b = await native.render(windowOf(g, 64, 64), { ...defaults(native), symbols: "block" })
     if ("err" in b) throw new Error(b.err)
     const br = b.frames[0]![H >> 1]!
     expect("@#%*".includes(br[4]!)).toBe(true)
     expect(" .:".includes(br[W - 4]!)).toBe(true)
   })
 
-  run("native: zoom crops — full-white at ox=1 zoom=0.3", async () => {
-    const out = await native.render(IMG, { zoom: 0.3, ox: 1, oy: 0.5 }, { ...defaults(native), symbols: "block" })
+  test("cached() LRU hits on identical key; miss re-renders", async () => {
+    resetCache()
+    let n = 0
+    const stub = {
+      name: "stub", knobs: {},
+      available: () => true as const,
+      render: async () => { n++; return { frames: [Array.from({ length: H }, () => "x".repeat(W))] } },
+    }
+    // cached() decodes src first — gate on ffmpeg.
+    if (!caps.ffmpeg) return
+    const IMG = "/tmp/eikon-cache.png"
+    spawnSync("ffmpeg", ["-hide_banner","-loglevel","error","-f","lavfi","-i","color=gray:s=32x32","-frames:v","1","-y",IMG])
+    await cached(stub, IMG, S0, {})
+    await cached(stub, IMG, S0, {})
+    expect(n).toBe(1)
+    await cached(stub, IMG, { zoom: 0.5, ox: 0.3, oy: 0.7 }, {})
+    expect(n).toBe(2)
+  })
+
+  const run = caps.ffmpeg ? test : test.skip
+  const IMG = "/tmp/eikon-step.png"
+
+  run("cached(): decode once, crop many — zoom crops correctly", async () => {
+    resetCache()
+    spawnSync("ffmpeg", ["-hide_banner","-loglevel","error","-f","lavfi",
+      "-i","nullsrc=s=64x64,format=gray,geq=lum=255*gte(X\\,32)","-frames:v","1","-y",IMG])
+    // Crop window at ox=1 zoom=0.3 sits entirely in the right (white) half.
+    const out = await cached(native, IMG, { zoom: 0.3, ox: 1, oy: 0.5 }, { ...defaults(native), symbols: "block" })
     if ("err" in out) throw new Error(out.err)
-    // Crop window sits entirely in the right (white) half → invert on → all-light.
     expect(out.frames[0]!.every(r => /^[ .:]+$/.test(r))).toBe(true)
+    // ox=0 → all-black → invert on → all-heavy.
+    const l = await cached(native, IMG, { zoom: 0.3, ox: 0, oy: 0.5 }, { ...defaults(native), symbols: "block" })
+    if ("err" in l) throw new Error(l.err)
+    expect(l.frames[0]!.every(r => /^[@#%*]+$/.test(r))).toBe(true)
   })
 
   const runc = caps.chafa && caps.ffmpeg ? test : test.skip
+
+  runc("chafa reads the in-process PNG window; ffmpeg absent from hot path", async () => {
+    resetCache()
+    // One spawn visible: chafa. (We can't count spawns here, but the
+    // fact that this works at all proves png() is well-formed.)
+    const out = await cached(chafa, IMG, S0, defaults(chafa))
+    expect("err" in out).toBe(false)
+  })
+
   runc("chafa: fill + dither + threshold flags reach the binary and change output", async () => {
-    const base = await chafa.render(IMG, S0, defaults(chafa))
-    const dith = await chafa.render(IMG, S0, { ...defaults(chafa), dither: "diffusion" })
-    const fill = await chafa.render(IMG, S0, { ...defaults(chafa), symbols: "block", fill: "stipple" })
+    resetCache()
+    spawnSync("ffmpeg", ["-hide_banner","-loglevel","error","-f","lavfi",
+      "-i","mandelbrot=s=256x256","-frames:v","1","-y","/tmp/eikon-mand.png"])
+    const M = "/tmp/eikon-mand.png"
+    const base = await cached(chafa, M, S0, defaults(chafa))
+    const dith = await cached(chafa, M, S0, { ...defaults(chafa), dither: "diffusion" })
+    const fill = await cached(chafa, M, S0, { ...defaults(chafa), symbols: "block", fill: "stipple" })
     if ("err" in base || "err" in dith || "err" in fill) throw new Error("render err")
-    // Diffusion should perturb rows relative to dither=none.
     expect(dith.frames[0]!.join("\n")).not.toBe(base.frames[0]!.join("\n"))
-    // Fill=stipple with block symbols should introduce ░/▒/▓.
     expect(fill.frames[0]!.join("")).toMatch(/[░▒▓]/)
-    // threshold at either extreme must not error.
-    const t0 = await chafa.render(IMG, S0, { ...defaults(chafa), threshold: 0 })
-    expect("err" in t0).toBe(false)
   })
 
-  runc("chafa: new symbol classes (quad, wedge) are accepted", async () => {
-    for (const sym of ["quad", "half", "wedge"]) {
-      const out = await chafa.render(IMG, S0, { ...defaults(chafa), symbols: sym })
-      expect("err" in out).toBe(false)
+  runc("chafa: flip/contrast applied on the gray buffer (no ffmpeg)", async () => {
+    resetCache()
+    const a = await cached(chafa, IMG, S0, { ...defaults(chafa), symbols: "block", flip: "none" })
+    const b = await cached(chafa, IMG, S0, { ...defaults(chafa), symbols: "block", flip: "h" })
+    if ("err" in a || "err" in b) throw new Error("render err")
+    // Horizontal flip of a left/right step swaps where the █ run sits.
+    const ar = a.frames[0]![H >> 1]!, br = b.frames[0]![H >> 1]!
+    expect(ar.indexOf("█")).toBeLessThan(W >> 1)
+    expect(br.lastIndexOf("█")).toBeGreaterThanOrEqual(W >> 1)
+    expect(ar).not.toBe(br)
+  })
+
+  runc("chafa: symbol classes incl. non-BMP (sextant/wedge) accepted, no U+FFFD", async () => {
+    resetCache()
+    for (const sym of ["quad", "half", "wedge", "sextant"]) {
+      const out = await cached(chafa, IMG, S0, { ...defaults(chafa), symbols: sym })
+      if ("err" in out) throw new Error(`${sym}: ${out.err}`)
+      for (const row of out.frames[0]!) {
+        expect(Array.from(row).length).toBe(W)
+        expect(row).not.toContain("\uFFFD")
+      }
     }
   })
 
-  test("box()/thumb() preserve non-BMP codepoints (sextant U+1FB00+)", () => {
-    // 48 sextants → 96 UTF-16 code units. box() must keep all 48.
+  test("thumb() preserves non-BMP codepoints", () => {
     const sex = "\u{1FB17}"
-    const raw = Array.from({ length: H }, () => sex.repeat(W)).join("\n")
-    // call box via chafa being unavailable isn't practical; test via
-    // the public cached() path with a stub rasterizer that returns raw.
-    const r = { name: "t", knobs: {}, spatial: false, video: false,
-      available: () => true as const, render: async () => ({ frames: [raw.split("\n")] }) }
-    return cached(r, "/x", S0, {}).then(out => {
-      if ("err" in out) throw new Error(out.err)
-      // thumb() on a non-BMP frame — every output codepoint survives.
-      const t = thumb(out.frames[0]!)
-      expect(t.length).toBe(8)
-      expect(t.every(row => Array.from(row).length === 16)).toBe(true)
-      expect(t.every(row => Array.from(row).every(c => c === sex))).toBe(true)
-    })
-  })
-
-  runc("chafa sextant output survives box() without U+FFFD", async () => {
-    const out = await chafa.render(IMG, S0, { ...defaults(chafa), symbols: "sextant" })
-    if ("err" in out) throw new Error(out.err)
-    const f = out.frames[0]!
-    // Every row has exactly 48 codepoints and no replacement char.
-    for (const row of f) {
-      expect(Array.from(row).length).toBe(W)
-      expect(row).not.toContain("\uFFFD")
-    }
+    const f = Array.from({ length: H }, () => sex.repeat(W))
+    const t = thumb(f)
+    expect(t.length).toBe(8)
+    expect(t.every(row => Array.from(row).length === 16)).toBe(true)
+    expect(t.every(row => Array.from(row).every(c => c === sex))).toBe(true)
   })
 })

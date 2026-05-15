@@ -121,27 +121,28 @@ See `src/context/wire.ts` for the full `GatewayEvent` union.
 
 ### Eikon rasterizers — add an image→text backend to the Eikon tab
 
-The Eikon Studio renders its 48×24 preview through a pluggable rasterizer. Two ship built-in (`chafa`, `native`); a plugin can contribute more:
+The Eikon Studio renders its 48×24 preview through a pluggable rasterizer. Studio owns all spatial work — decode, crop, zoom, pan — and hands your rasterizer a pre-cropped grayscale `Window`. You only decide how luminance maps to glyphs. Two ship built-in (`chafa`, `native`); a plugin can contribute more:
 
 ```ts
 import type { Rasterizer } from "../../utils/eikon-render"
 
 const r: Rasterizer = {
   name: "my-ascii",
-  spatial: false,           // honors zoom/ox/oy? false → spatial sliders + minimap hidden
-  video: false,             // accepts video sources?
   knobs: {
     palette: { kind: "cycle", options: ["dense", "sparse", "blocks"], default: "dense" },
     dither:  { kind: "toggle", default: true },
     gamma:   { kind: "slider", min: 0.5, max: 2.0, step: 0.1, default: 1.0 },
   },
   available: () => Bun.which("my-ascii") ? true : "my-ascii not on PATH",
-  async render(src, _spatial, knobs) {
-    const p = Bun.spawn(["my-ascii", src,
+  async render(win, knobs) {
+    // win.gray is a row-major Uint8Array of win.w × win.h gray bytes.
+    // CLI backends that read stdin can use win.png() — a lazy 8-bit
+    // grayscale PNG encode of the same pixels (~1 ms at 384×384).
+    const p = Bun.spawn(["my-ascii", "-",
       "--palette", String(knobs.palette),
       "--gamma", String(knobs.gamma),
       ...(knobs.dither ? ["--dither"] : []),
-    ], { stdout: "pipe", stderr: "pipe" })
+    ], { stdin: win.png(), stdout: "pipe", stderr: "pipe" })
     const out = await new Response(p.stdout).text()
     await p.exited
     if (p.exitCode !== 0) return { err: await new Response(p.stderr).text() || "failed" }
@@ -153,12 +154,12 @@ const r: Rasterizer = {
 api.eikon.rasterizer.register(r)
 ```
 
-The Studio reads your `knobs` schema and renders each entry generically — `cycle` as `◂ value ▸`, `toggle` as `● / ○`, `slider` as a drag bar. You own only `render()`; the tab handles selection, persistence (`studio.json`), per-state overrides, and save.
+The Studio reads your `knobs` schema and renders each entry generically — `cycle` as `◂ value ▸`, `toggle` as `● / ○`, `slider` as a drag bar. You own only `render()`; the tab handles zoom/pan, selection, persistence (`studio.json`), per-state overrides, and save.
 
 - `available()` returns `true` or a short reason string; unavailable rasterizers appear dimmed in the picker with the reason as a hint.
-- `render()` is `async`. Use `Bun.spawn`, not `spawnSync` — blocking the main thread freezes slider drag. For in-process rasterizers, do the heavy work after an `await` so the render loop gets a tick.
+- `render()` is `async`. Use `Bun.spawn`, not `spawnSync` — blocking the main thread freezes slider drag. For in-process rasterizers, read `win.gray` directly; it's already the cropped window.
+- `win.gray` is yours to mutate (each call gets a fresh copy). `win.png()` encodes whatever `win.gray` holds at call time, so apply any pixel-level adjustments before calling it.
 - Output is always 48×24; the tab pads/clips and derives its own thumbnails.
-- `probe?(src)` (optional) returns source pixel dimensions for the minimap aspect ratio. Omit if `spatial: false`.
 - Registration is scope-tracked: deactivating your plugin removes the rasterizer from the picker automatically. If it was the active one, the tab falls back to the first available built-in.
 
 Full type: `src/utils/eikon-render.ts::Rasterizer`. Registry lives in `src/service/eikon.ts`.

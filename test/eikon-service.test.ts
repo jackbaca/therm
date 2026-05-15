@@ -53,7 +53,7 @@ describe("service/eikon: registry", () => {
   test("built-ins present; register/unregister; pick prefers available", () => {
     expect(eikon.rasterizers().map(r => r.name)).toEqual(["chafa", "native"])
     const fake: Rasterizer = {
-      name: "fake", knobs: {}, spatial: false, video: false,
+      name: "fake", knobs: {},
       available: () => true, render: async () => ({ frames: [[""]] }),
     }
     let pinged = 0

@@ -5,14 +5,16 @@ import { join } from "node:path"
 import { mountNode, until } from "./harness"
 import { EikonGroup } from "../src/tabs/EikonGroup"
 import { eikon } from "../src/service/eikon"
-import { native, type Rasterizer } from "../src/utils/eikon-render"
+import { native, caps, type Rasterizer } from "../src/utils/eikon-render"
 import * as prefs from "../src/context/preferences"
 
 const HH = process.env.HERMES_HOME!
+const PX = new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,0,0,0,0,58,126,155,85,0,0,0,10,73,68,65,84,120,156,99,104,0,0,0,130,0,129,119,205,114,182,0,0,0,0,73,69,78,68,174,66,96,130])
+const run = caps.ffmpeg ? test : test.skip
 
 // Stub rasterizer — deterministic, no binaries.
 const stub: Rasterizer = {
-  name: "stub", spatial: true, video: false,
+  name: "stub",
   knobs: {
     tone: { kind: "cycle", options: ["lo", "hi"], default: "lo" },
     flip: { kind: "toggle", default: false },
@@ -24,13 +26,13 @@ const stub: Rasterizer = {
 
 function seed(name: string) {
   const p = eikon.ensure(name)
-  writeFileSync(join(p.source, "base.png"), "x")
+  writeFileSync(join(p.source, "base.png"), PX)
   writeFileSync(eikon.file(name), JSON.stringify({ eikon: 1, name, width: 48, height: 24 }) + "\n")
   eikon.writeStudio(name, { rasterizer: "stub", spatial: { zoom: 1, ox: 0.5, oy: 0.5 }, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
 }
 
 describe("EikonStudio tab", () => {
-  test("renders three panes; knob nav via handleListKey; ←→ adjusts cycle knob", async () => {
+  run("renders three panes; knob nav via handleListKey; ←→ adjusts cycle knob", async () => {
     const un = eikon.register(stub)
     seed("owl")
     prefs.set("eikonPath", eikon.file("owl"))
@@ -42,7 +44,8 @@ describe("EikonStudio tab", () => {
     await until(t, () => t.frame().includes("rasterizer"))
     expect(t.frame()).toContain("Preview")
     expect(t.frame()).toContain("States")
-    expect(t.frame()).toContain("STUB-ROW")
+    // Preview frame arrives after async decode+rasterize.
+    await until(t, () => t.frame().includes("STUB-ROW"))
 
     // Nav to first tonal knob (tone) — HEAD has 5 nav rows when no
     // fetch is shown (rasterizer, source, name, fork, reset), so
@@ -61,7 +64,7 @@ describe("EikonStudio tab", () => {
     un()
   })
 
-  test("Enter on rasterizer row opens DialogSelect; unavailable shows reason", async () => {
+  run("Enter on rasterizer row opens DialogSelect; unavailable shows reason", async () => {
     const un = eikon.register(stub)
     seed("cat")
     prefs.set("eikonPath", eikon.file("cat"))
@@ -82,7 +85,7 @@ describe("EikonStudio tab", () => {
     un()
   })
 
-  test("dirty Esc → openConfirm; y reloads from disk", async () => {
+  run("dirty Esc → openConfirm; y reloads from disk", async () => {
     const un = eikon.register(stub)
     seed("dog")
     prefs.set("eikonPath", eikon.file("dog"))

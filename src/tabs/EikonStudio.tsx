@@ -264,7 +264,9 @@ export const EikonStudio = memo((props: {
   const [err, setErr] = useState<string | null>(null)
 
   const r = useMemo(() => eikon.pick(s?.rasterizer ?? prefs.get("eikonRasterizer")), [s?.rasterizer])
-  const spatialOk = r.spatial && (r.name !== "chafa" || caps.ffmpeg)
+  // Spatial is studio-owned now — every rasterizer gets it for free.
+  // Only gate on ffmpeg (the shared decoder).
+  const spatialOk = caps.ffmpeg
 
   // Open by name: read studio.json + probe + seed session.
   const open = useCallback((name: string) => {
@@ -273,7 +275,7 @@ export const EikonStudio = memo((props: {
     const ra = eikon.pick(seed?.rasterizer ?? prefs.get("eikonRasterizer"))
     const next = knobs.fresh(name, ra, seed)
     const src = eikon.findSource(name, "idle")
-    next.dims = src ? (ra.probe?.(src) ?? null) : null
+    next.dims = src ? (eikon.probe(src) ?? null) : null
     setS(next)
     setSel(0); setPane("knobs"); setErr(null)
   }, [])
@@ -516,7 +518,6 @@ export const EikonStudio = memo((props: {
 
   const title = s ? `Preview — ${s.state}${s.per[s.state] ? " (forked)" : ""}` : "Preview"
   const previewErr = err ?? (s && !src ? "no source — Enter on 'source' row to attach" : null)
-    ?? (s && !r.video && src && /\.(mp4|webm|mov|mkv)$/i.test(src) ? `${r.name} does not support video` : null)
 
   const hint: Array<readonly [string, string]> =
     pane === "knobs"   ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.activate"), "open"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
