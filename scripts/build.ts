@@ -37,10 +37,9 @@ const noopDevtools: import("bun").BunPlugin = {
   },
 }
 
-// See the define-block comment below for the upstream bug this papers over.
-// Shim `react/jsx-dev-runtime` → the production runtime, re-exporting `jsx`
-// under the name `jsxDEV`. Anything importing from the dev runtime (only
-// @opentui/react today) gets a working function instead of `undefined`.
+// @opentui/react's bundle calls jsxDEV from react/jsx-dev-runtime, which
+// is `undefined` under NODE_ENV=production. Alias it to prod `jsx`
+// (jsx === jsxs in React 19 prod, so isStaticChildren is moot).
 const jsxDevShim: import("bun").BunPlugin = {
   name: "jsx-dev-shim",
   setup(b) {
@@ -79,12 +78,6 @@ const result = await Bun.build({
   sourcemap: "none",
   external,
   plugins: [noopDevtools, jsxDevShim],
-  // @opentui/react@0.2.2 ships one bundle that imports `jsxDEV` from
-  // `react/jsx-dev-runtime`. In React's production build that export is
-  // `undefined`, so under NODE_ENV=production the first BoundSlot render
-  // throws `jsxDEV is not a function` and the shell never paints. Redirect
-  // the dev runtime to the stable one; `jsxDEV(type, props, key)` is call-
-  // compatible with `jsx(type, props, key)` (extra debug args are ignored).
   define: {
     "process.env.NODE_ENV": '"production"',
     "process.env.DEV": '"false"',

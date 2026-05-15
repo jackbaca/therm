@@ -91,15 +91,10 @@ function scoped(base: HermPluginApi, reg: ReturnType<typeof createReactSlotRegis
   }
 }
 
-// createSlotRegistry is keyed per-renderer under the fixed
-// "react:slot-registry" key and throws if a second call supplies a
-// different `context` object — by design (see opentui react/tests/
-// slot.test.tsx "reuses one registry per renderer and rejects different
-// context"). PluginProvider can remount (ErrorBoundary retry, fast
-// refresh, test renderer reuse) while the renderer lives on, so the
-// SlotCtx cannot be constructed inside the component. Upstream's React
-// example holds its context at module scope; we do the same but keep a
-// mutable themeRef cell so the current mount's theme is always read.
+// createSlotRegistry stores one registry per renderer and throws if a
+// second call passes a different context object. Intern the SlotCtx at
+// module scope so PluginProvider remounts reuse it; swap the themeRef
+// cell each call so the getter reads the live theme.
 type Cell = { ctx: SlotCtx; themeRef: { current: { theme: Theme } } }
 const CELLS = new WeakMap<object, Cell>()
 function ctxFor(renderer: object, themeRef: Cell["themeRef"]): SlotCtx {
