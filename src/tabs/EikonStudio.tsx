@@ -307,22 +307,32 @@ export const EikonStudio = memo((props: {
     return () => { dead = true }
   }, [s?.spatial, s?.base, s?.per, s?.state, s?.rasterizer, src, r])
 
-  // Thumbnails — render each distinct state once, nearest-neighbor down.
+  // Thumbnails — lower priority than the main preview. Debounced so
+  // slider scrub doesn't fan out six renders per tick; the current
+  // state reuses the preview's just-cached frame (same LRU key), and
+  // unforked states with the same source hit that key too, so in the
+  // common case (one source, no forks) this loop is six cache hits.
   useEffect(() => {
     if (!s) return
     let dead = false
-    void (async () => {
-      const out = new Map<AvatarState, Frame | undefined>()
-      for (const st of STATES) {
-        const sp = eikon.findSource(s.name, st)
-        if (!sp) { out.set(st, undefined); continue }
-        const res = await cached(r, sp, s.spatial, knobs.eff(s, st))
-        out.set(st, "err" in res ? undefined : thumb(res.frames[0]!))
-      }
-      if (!dead) setThumbs(out)
-    })()
-    return () => { dead = true }
-  }, [s?.spatial, s?.base, s?.per, s?.sources, s?.name, s?.rasterizer, r])
+    const t = setTimeout(() => {
+      void (async () => {
+        const out = new Map<AvatarState, Frame | undefined>()
+        for (const st of STATES) {
+          if (dead) return
+          const sp = eikon.findSource(s.name, st)
+          if (!sp) { out.set(st, undefined); continue }
+          const res = await cached(r, sp, s.spatial, knobs.eff(s, st))
+          if (dead) return
+          out.set(st, "err" in res ? undefined : thumb(res.frames[0]!))
+          // Paint incrementally so the first cell appears as soon as
+          // the preview is warm, instead of waiting on all six.
+          setThumbs(new Map(out))
+        }
+      })()
+    }, 80)
+    return () => { dead = true; clearTimeout(t) }
+  }, [frame, s?.per, s?.sources, s?.name, r])
 
   const mutate = (fn: (prev: Session) => Session) => setS(p => (p ? fn(p) : p))
 
