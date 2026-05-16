@@ -12,6 +12,8 @@ const Status = ({ s }: { s: SpawnSubagent["status"] }) => {
   const theme = useTheme().theme
   const fg = s === "completed" ? theme.success
     : s === "failed" ? theme.error
+    : s === "error" ? theme.error
+    : s === "timeout" ? theme.error
     : s === "interrupted" ? theme.warning
     : theme.textMuted
   return <span fg={fg}>{s}</span>
