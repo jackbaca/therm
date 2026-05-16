@@ -74,6 +74,17 @@ describe("mapEvent", () => {
     expect(b.action).toEqual({ kind: "system", text: "HTTP 404" })
   })
 
+  test("status.update kind=process folds [IMPORTANT:...] to one-line herald", () => {
+    const done = map({ type: "status.update", payload: { kind: "process", text:
+      "[IMPORTANT: Background process proc_abc completed (exit code 0).\nCommand: bun test\nOutput:\n…long stdout…]" } })
+    expect(done.action).toEqual({ kind: "system", text: "◆ background proc_abc exited 0 · bun test" })
+    const hit = map({ type: "status.update", payload: { kind: "process", text:
+      "[IMPORTANT: Background process srv_1 matched watch pattern \"ready\".\nCommand: bun run dev\nMatched output:\nApplication startup complete]" } })
+    expect(hit.action).toEqual({ kind: "system", text: "◆ background srv_1 matched \"ready\" · bun run dev" })
+    const miss = map({ type: "status.update", payload: { kind: "process", text: "weird shape" } })
+    expect(miss.action).toEqual({ kind: "system", text: "weird shape" })
+  })
+
   test("gateway.stderr: errorish → system; benign → null", () => {
     expect(map({ type: "gateway.stderr", payload: { line: "⚠️ API call failed (HTTP 404)" } }).action?.kind)
       .toBe("system")
