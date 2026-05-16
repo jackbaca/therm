@@ -49,9 +49,14 @@ export function useSlashCommands() {
     const remote: SlashCommand[] = (res.pairs ?? []).map(([raw, desc]) => {
       const name = bare(raw)
       const l = local.get(name)
+      // /quit's gateway description carries a "(usage: /quit [--delete])" suffix
+      // baked in by hermes_cli/commands._build_description. Session deletion is
+      // exposed via the Sessions tab (`d` → session.delete RPC); the CLI flag is
+      // dead from herm's perspective. Strip it so the popover doesn't advertise it.
+      const description = name === "quit" ? desc.replace(/\s*\(usage:[^)]*\)\s*$/, "") : desc
       return {
         name,
-        description: desc,
+        description,
         category: cat.get(name) ?? (name.includes(":") ? "Skills" : "Command"),
         aliases: alias.get(name) ?? [],
         argsHint: l?.argsHint ?? "",
