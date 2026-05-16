@@ -14,6 +14,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExterna
 import { extend, useKeyboard, useTerminalDimensions } from "@opentui/react"
 import { SliderRenderable } from "@opentui/core"
 import type { ParsedKey } from "@opentui/core"
+import { readFileSync } from "node:fs"
 import { basename } from "node:path"
 import { useTheme } from "../theme"
 import { Spinner } from "../ui/spinner"
@@ -27,6 +28,7 @@ import { openConfirm } from "../dialogs/confirm"
 import { openTextPrompt } from "../dialogs/text-prompt"
 import * as prefs from "../context/preferences"
 import { eikon } from "../service/eikon"
+import type { ParsedEikon } from "../components/avatar/eikon"
 import { W, H, FPS0, caps, thumb, cached, resetCache, prewarm,
          type Rasterizer, type KnobDef, type Spatial, type Frame } from "../utils/eikon-render"
 import { knobs, STATES, type Session } from "../utils/eikon-knobs"
@@ -46,8 +48,11 @@ type RowKind = "select" | "prompt" | "action" | "divider" | "knob"
 type Row = {
   id: string; kind: RowKind; label: string
   knob?: KnobDef
-  show?: (s: Session) => boolean
+  show?: (s: Session, live: boolean, url?: string) => boolean
 }
+
+const mb = (n: number) => n < 1024 ? `${n} B`
+  : n < 1 << 20 ? `${(n / 1024).toFixed(0)} KB` : `${(n / (1 << 20)).toFixed(1)} MB`
 
 const HEAD: readonly Row[] = [
   { id: "rasterizer", kind: "select", label: "rasterizer" },
@@ -55,17 +60,19 @@ const HEAD: readonly Row[] = [
   { id: "name",       kind: "prompt", label: "name" },
   // { id: "glyph",   kind: "prompt", label: "glyph" }, // reserved — PRD § 3
   { id: "-1",         kind: "divider", label: "" },
-  { id: "fork",       kind: "action", label: "fork state" },
-  { id: "reset",      kind: "action", label: "reset knobs" },
   { id: "fetch",      kind: "action", label: "fetch source",
-    show: s => !eikon.findSource(s.name) && !!eikon.header(eikon.file(s.name))?.source_url },
-  { id: "-2",         kind: "divider", label: "" },
+    show: (s, live, url) => !live && !!url },
+  { id: "fork",       kind: "action", label: "fork state",  show: (_s, live) => live },
+  { id: "reset",      kind: "action", label: "reset knobs", show: (_s, live) => live },
+  { id: "-2",         kind: "divider", label: "", show: (_s, live) => live },
 ]
 
-function buildRows(r: Rasterizer, s: Session): Row[] {
-  const dyn = Object.entries(r.knobs).map<Row>(([id, def]) =>
-    ({ id, kind: "knob", label: def.label ?? id, knob: def }))
-  return [...HEAD.filter(h => h.show ? h.show(s) : true), ...dyn]
+function buildRows(r: Rasterizer, s: Session, live: boolean, url?: string): Row[] {
+  const dyn = live
+    ? Object.entries(r.knobs).map<Row>(([id, def]) =>
+        ({ id, kind: "knob", label: def.label ?? id, knob: def }))
+    : []
+  return [...HEAD.filter(h => h.show ? h.show(s, live, url) : true), ...dyn]
 }
 
 // ── Minimap (read-only) ──────────────────────────────────────────────
@@ -218,13 +225,15 @@ function SpatialBar(props: {
 
 // ── Knob row renderers ───────────────────────────────────────────────
 
-function valueOf(s: Session, r: Rasterizer, row: Row, src?: string): string {
+function valueOf(s: Session, r: Rasterizer, row: Row, src?: string,
+                 peek?: { n: number; bytes: number }, busy?: boolean): string {
   if (row.id === "rasterizer") return `${r.name} ▸`
   if (row.id === "source") return src ? src.replace(process.env.HOME ?? "", "~") : "(none — Enter to attach)"
   if (row.id === "name") return s.name
   if (row.id === "fork") return s.per[s.state] ? "(forked)" : "▸ copy base → " + s.state
   if (row.id === "reset") return "▸ defaults"
-  if (row.id === "fetch") return "▸ download from source_url"
+  if (row.id === "fetch") return busy ? "fetching…"
+    : peek ? `▸ download to edit  (${peek.n} files, ${mb(peek.bytes)})` : "▸ download to edit"
   if (row.kind === "knob" && row.knob) {
     const k = knobs.eff(s, s.state)[row.id] ?? row.knob.default
     if (row.knob.kind === "cycle") return `◂ ${String(k)} ▸`
@@ -237,6 +246,7 @@ function valueOf(s: Session, r: Rasterizer, row: Row, src?: string): string {
 function KnobRow(props: {
   row: Row; s: Session; r: Rasterizer; src?: string
   on: boolean; dim: boolean; id: string
+  peek?: { n: number; bytes: number }; busy?: boolean
   onHover: () => void; onClick: () => void
   onSlide?: (v: number) => void
 }) {
@@ -264,7 +274,11 @@ function KnobRow(props: {
         </>
       ) : null}
       <box flexGrow={1} minWidth={0} height={1} overflow="hidden">
-        <text fg={dim ? theme.textMuted : theme.text}>{valueOf(props.s, props.r, row, props.src)}</text>
+        {props.busy && row.id === "fetch"
+          ? <Spinner color={theme.accent} label="fetching…" />
+          : <text fg={dim ? theme.textMuted : theme.text}>
+              {valueOf(props.s, props.r, row, props.src, props.peek, props.busy)}
+            </text>}
       </box>
     </box>
   )
@@ -335,6 +349,8 @@ export const EikonStudio = memo((props: {
   const [tick, setTick] = useState(0)
   const [play, setPlay] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [fetching, setFetching] = useState(false)
+  const [peek, setPeek] = useState<{ n: number; bytes: number } | undefined>(undefined)
   const [thumbs, setThumbs] = useState<Map<AvatarState, Frame | undefined>>(new Map())
   const [err, setErr] = useState<string | null>(null)
   const frame = frames[tick % frames.length] ?? BLANK
@@ -375,16 +391,45 @@ export const EikonStudio = memo((props: {
 
   useEffect(() => { if (props.name !== undefined) open(props.name || knobs.slug("new")) }, [props.name, open])
 
-  const rows = useMemo(() => (s ? buildRows(r, s) : []), [r, s])
-  const navRows = useMemo(() => rows.map((x, i) => ({ ...x, i })).filter(x => x.kind !== "divider"), [rows])
   const src = useMemo(() => (s ? eikon.findSource(s.name, s.state) : undefined), [s?.name, s?.state, s?.sources])
+  const live = useMemo(() => !!(s && eikon.findSource(s.name)), [s?.name, s?.sources])
+  // Sourceless → fall back to the packed .eikon's baked frames so the
+  // preview is never blank. One readFileSync per open(); the whole
+  // animation is string[] already, so tick stays 0.005ms.
+  const baked = useMemo<ParsedEikon | undefined>(() => {
+    if (live || !s) return undefined
+    const p = eikon.baked(s.name)
+    if (!p) return undefined
+    try { return eikon.parseEikon(readFileSync(p, "utf8")) } catch { return undefined }
+  }, [live, s?.name])
+  const url = useMemo(() => {
+    if (!s) return undefined
+    const p = eikon.baked(s.name)
+    return p ? eikon.header(p)?.source_url as string | undefined : undefined
+  }, [s?.name])
+  useEffect(() => {
+    setPeek(undefined)
+    if (!url || live) return
+    let dead = false
+    void eikon.peekSource(url).then(x => { if (!dead) setPeek(x) })
+    return () => { dead = true }
+  }, [url, live])
 
-  // Render the current state's full clip (all frames) on any change
-  // to (src, spatial, knobs, fps, rasterizer). The filmstrip render
-  // is abortable — a mid-render slider move kills the chafa process.
+  const rows = useMemo(() => (s ? buildRows(r, s, live, url) : []), [r, s, live, url])
+  const navRows = useMemo(() => rows.map((x, i) => ({ ...x, i })).filter(x => x.kind !== "divider"), [rows])
+
+  // Render the current state's full clip. Sourceless falls through
+  // to the baked .eikon's frames for the current state — Studio's
+  // own ticker still drives playback so the play/pause + title
+  // counter keep working in baked mode.
   useEffect(() => {
     if (!s) return
-    if (!src) { setFrames([BLANK]); setErr(null); setBusy(false); return }
+    if (!src) {
+      const clip = baked?.states.get(s.state)
+      setFrames(clip?.frames.length ? clip.frames : [BLANK])
+      setErr(null); setBusy(false); setTick(0)
+      return
+    }
     const ctrl = new AbortController()
     setBusy(true)
     void cached(r, src, s.spatial, s.fps, knobs.eff(s, s.state), ctrl.signal).then(out => {
@@ -395,17 +440,17 @@ export const EikonStudio = memo((props: {
       setTick(t => t % out.frames.length)
     })
     return () => ctrl.abort()
-  }, [s?.spatial, s?.base, s?.per, s?.state, s?.fps, s?.rasterizer, src, r])
+  }, [s?.spatial, s?.base, s?.per, s?.state, s?.fps, s?.rasterizer, src, r, baked])
 
   // Playback ticker — pure index advance over the already-rendered
   // `frames`. Zero work per tick; the filmstrip effect above did it
   // all once. Stops when paused, unfocused, still (1 frame), or busy.
   useEffect(() => {
     if (!play || !props.focused || frames.length <= 1 || busy) return
-    const ms = 1000 / Math.max(1, s?.fps ?? FPS0)
-    const id = setInterval(() => setTick(t => t + 1), ms)
+    const fps = live ? (s?.fps ?? FPS0) : (baked?.states.get(s?.state ?? "idle")?.fps ?? FPS0)
+    const id = setInterval(() => setTick(t => t + 1), 1000 / Math.max(1, fps))
     return () => clearInterval(id)
-  }, [play, props.focused, frames.length, busy, s?.fps])
+  }, [play, props.focused, frames.length, busy, live, s?.fps, s?.state, baked])
 
   // Thumbnails are second-class: frame-0 only, same spatial, long
   // debounce, stale during scrub, one setThumbs when the batch lands.
@@ -418,7 +463,10 @@ export const EikonStudio = memo((props: {
       if (dead) return
       const jobs = STATES.map(st => {
         const sp = eikon.findSource(s.name, st)
-        if (!sp) return Promise.resolve([st, undefined] as const)
+        if (!sp) {
+          const f = baked?.states.get(st)?.frames[0]
+          return Promise.resolve([st, f ? thumb(f) : undefined] as const)
+        }
         return cached(r, sp, s.spatial, s.fps, knobs.eff(s, st))
           .then(res => [st, "err" in res ? undefined : thumb(res.frames[0]!)] as const)
       })
@@ -429,7 +477,7 @@ export const EikonStudio = memo((props: {
     }, 400)
     return () => { dead = true; clearTimeout(t) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [frames, s?.per, s?.sources, s?.name, s?.fps, r])
+  }, [frames, s?.per, s?.sources, s?.name, s?.fps, r, baked])
 
   const mutate = (fn: (prev: Session) => Session) => setS(p => (p ? fn(p) : p))
 
@@ -502,12 +550,15 @@ export const EikonStudio = memo((props: {
       return
     }
     if (id === "fetch") {
-      const url = eikon.header(eikon.file(s.name))?.source_url as string | undefined
-      if (!url) return
-      toast.show({ variant: "info", message: "Fetching source…" })
+      if (!url || fetching) return
+      setFetching(true)
       await eikon.fetchSource(s.name, url)
-        .then(n => { toast.show({ variant: "success", message: `Fetched ${n} file(s)` }); mutate(p => ({ ...p, dirty: true })) })
+        .then(out => {
+          toast.show({ variant: "success", message: `Fetched ${out.n} file(s) · ${mb(out.bytes)}` })
+          open(s.name)
+        })
         .catch(e => toast.error(e instanceof Error ? e : new Error(String(e))))
+        .finally(() => setFetching(false))
     }
   }
 
@@ -596,9 +647,9 @@ export const EikonStudio = memo((props: {
       return
     }
     if (pane === "preview") {
-      if (!spatialOk) return
       // Space toggles play/pause (nav.md: Space = toggle).
       if (keys.match("list.toggle", key)) return setPlay(p => !p)
+      if (!spatialOk || !live) return
       // ↑↓ moves spatial-row selection; ←→ steps the selected knob.
       if (handleListKey(keys, key, { count: SP_ROWS.length, setSel: setSpSel })) return
       const spec: readonly SpKey[] = ["ox", "oy", "zoom", "fps"]
@@ -622,7 +673,7 @@ export const EikonStudio = memo((props: {
 
   // Preview mouse: wheel-zoom only (drag-pan removed — sliders cover it).
   const onScroll = (e: { scroll?: { direction: string } }) => {
-    if (!spatialOk || !e.scroll) return
+    if (!spatialOk || !live || !e.scroll) return
     const d = e.scroll.direction
     if (d !== "up" && d !== "down") return
     mutate(p => ({ ...p, spatial: knobs.zoom(p.spatial, d === "up" ? -1 : 1), dirty: true }))
@@ -632,8 +683,11 @@ export const EikonStudio = memo((props: {
   const title = s
     ? `Preview — ${s.state}${s.per[s.state] ? " (forked)" : ""}`
       + (n > 1 ? `  ·  ${play ? "▶" : "⏸"} ${(tick % n) + 1}/${n}` : "")
+      + (live ? "" : baked ? "  ·  (baked)" : "")
     : "Preview"
-  const previewErr = err ?? (s && !src ? "no source — Enter on 'source' row to attach" : null)
+  const previewErr = err ?? (!s || src || baked ? null
+    : url ? "no source — Enter on 'fetch source' to download"
+    :       "no source — Enter on 'source' to attach")
 
   const hint: Array<readonly [string, string]> =
     pane === "knobs"   ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.activate"), "open"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
@@ -643,9 +697,10 @@ export const EikonStudio = memo((props: {
   // TabShell chrome = border(2) + padding(2) + title(1) + gap(1).
   // PanBars adds +1 row (pan-x) and +2 col (pan-y) around the frame.
   // SpatialBar = max(minimap height, 2 rows + 1 gap) + 1 margin.
-  const BAR_H = spatialOk ? Math.max(Math.ceil(MINI_W / 2), 3) + 1 : 0
+  // Baked mode drops both — body sits alone at W×H.
+  const BAR_H = spatialOk && live ? Math.max(Math.ceil(MINI_W / 2), 3) + 1 : 0
   const PREVIEW_W = Math.max(W + 2, 36 + 2 + MINI_W) + 6
-  const PREVIEW_H = H + 1 + BAR_H + 6 + (previewErr ? 1 : 0)
+  const PREVIEW_H = H + (spatialOk && live ? 1 : 0) + BAR_H + 6 + (previewErr ? 1 : 0)
   const body = (
     <box position="relative" flexDirection="column" width={W} height={H} flexShrink={0}
          backgroundColor={theme.background} onMouseScroll={onScroll}
@@ -662,7 +717,7 @@ export const EikonStudio = memo((props: {
   const preview = (
     <TabShell title={spatialOk ? title : `${title}  ·  (ffmpeg not installed)`}
               error={previewErr} focus={pane === "preview"}>
-      {spatialOk && s
+      {spatialOk && live && s
         ? <>
             <PanBars sp={s.spatial} sel={spSel} focused={pane === "preview"}
               onHover={i => { setPane("preview"); setSpSel(i) }}
@@ -689,7 +744,7 @@ export const EikonStudio = memo((props: {
             const dim = row.kind === "knob" && !src
             return (
               <KnobRow key={`${r.name}:${row.id}`} id={`knob-${row.id}`} row={row} s={s} r={r} src={src}
-                       on={on} dim={dim}
+                       on={on} dim={dim} peek={peek} busy={row.id === "fetch" && fetching}
                        onHover={() => { if (ni >= 0) { setPane("knobs"); setSel(ni) } }}
                        onClick={() => { if (ni >= 0) { setSel(ni); setPane("knobs"); act(row, "click") } }}
                        onSlide={row.knob?.kind === "slider"
