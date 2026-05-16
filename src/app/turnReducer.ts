@@ -374,7 +374,7 @@ function renderSubagent(
     const extra = tokens ? ` · ${(tokens / 1000).toFixed(1)}k tok` : ""
     return updateToolById(messages, id, t => ({
       ...t,
-      status: (p.status === "failed" ? "error" : "done") as ToolPart["status"],
+      status: ((p.status === "failed" || p.status === "error" || p.status === "timeout" || p.status === "interrupted") ? "error" : "done") as ToolPart["status"],
       duration: p.duration_seconds ? p.duration_seconds * 1000 : (t.startedAt ? Date.now() - t.startedAt : undefined),
       result: p.summary ? p.summary + extra : undefined,
       preview: t.goal ?? t.preview,
