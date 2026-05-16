@@ -102,24 +102,47 @@ describe("service/eikon: save", () => {
 })
 
 describe("service/eikon: fetchSource", () => {
-  test("pulls manifest + files via Bun.serve fixture", async () => {
+  const png = new Uint8Array([137, 80, 78, 71])
+  const body = (name: string) => {
+    if (name === "manifest.json") return Response.json({
+      source: "source.png",
+      states: { idle: { file: "states/idle.mp4" }, error: { file: "states/error.mp4" } },
+    })
+    if (name === "source.png") return new Response(png)
+    if (name.endsWith(".mp4")) return new Response(new Uint8Array(1024))
+    return new Response("404", { status: 404 })
+  }
+  test("eikon-repo manifest: role-mapped, studio.json sources written, peek caches", async () => {
+    const srv = Bun.serve({ port: 0, fetch: r => body(new URL(r.url).pathname.split("/").pop()!) })
+    const url = `http://localhost:${srv.port}/x/`
+    const peek = await eikon.peekSource(url)
+    expect(peek!.n).toBe(3)
+    expect(peek!.bytes).toBeGreaterThan(0)
+    const out = await eikon.fetchSource("remix", url)
+    expect(out.n).toBe(3)
+    expect(out.sources.base).toBe("base.png")
+    expect(out.sources.idle).toBe("idle.mp4")
+    expect(existsSync(join(eikon.sourceDir("remix"), "idle.mp4"))).toBe(true)
+    // studio.json written with sources map even though none existed.
+    expect(eikon.readStudio("remix")!.sources.error).toBe("error.mp4")
+    // peekSource memoized — second call same Promise.
+    expect(eikon.peekSource(url)).toBe(eikon.peekSource(url))
+    srv.stop()
+  })
+
+  test("legacy {files:[]} manifest: role from basename", async () => {
     const srv = Bun.serve({
       port: 0,
       fetch(req) {
         const u = new URL(req.url)
         if (u.pathname.endsWith("manifest.json"))
-          return Response.json({ files: ["base.png"] })
-        if (u.pathname.endsWith("base.png"))
-          return new Response(new Uint8Array([137, 80, 78, 71]))
-        return new Response("404", { status: 404 })
+          return Response.json({ files: ["base.png", "thinking.png"] })
+        return new Response(png)
       },
     })
-    const url = `http://localhost:${srv.port}/x/`
-    eikon.ensure("bundled")
-    writeFileSync(eikon.file("bundled"), JSON.stringify({ eikon: 1, name: "bundled", source_url: url }) + "\n")
-    const n = await eikon.fetchSource("bundled", url)
-    expect(n).toBe(1)
-    expect(existsSync(join(eikon.sourceDir("bundled"), "base.png"))).toBe(true)
+    const url = `http://localhost:${srv.port}/y/`
+    const out = await eikon.fetchSource("legacy", url)
+    expect(out.sources).toEqual({ base: "base.png", thinking: "thinking.png" })
     srv.stop()
   })
 })

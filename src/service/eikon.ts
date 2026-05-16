@@ -21,9 +21,10 @@ import { join, extname, basename } from "node:path"
 import { hermesPath } from "./hermes-home"
 import * as prefs from "../context/preferences"
 import { parseEikon } from "../components/avatar/eikon"
+import { BUNDLED_EIKON_DIR } from "../components/avatar/bundled"
 import type { AvatarState } from "../components/avatar/states"
 import { BUILTIN, cached, probe, W, H, type Rasterizer, type Frame } from "../utils/eikon-render"
-import { STATES, eff, toStudio, type Session, type Studio } from "../utils/eikon-knobs"
+import { STATES, eff, toStudio, fresh, type Session, type Studio } from "../utils/eikon-knobs"
 
 const ROOT = () => hermesPath("eikons")
 
@@ -108,6 +109,20 @@ export function header(path: string): Record<string, unknown> | undefined {
   const first = readFileSync(path, "utf8").split("\n", 1)[0]
   if (!first) return undefined
   try { return JSON.parse(first) as Record<string, unknown> } catch { return undefined }
+}
+
+/** Locate the packed `.eikon` for a name — installed folder-form
+ *  first, then the bundled flat dir. Studio falls back to this for
+ *  baked-frame preview + header `source_url` when `source/` is empty. */
+export function baked(name: string): string | undefined {
+  const local = file(name)
+  if (existsSync(local)) return local
+  for (const f of [`${name}.eikon`, "default.eikon"]) {
+    const p = join(BUNDLED_EIKON_DIR, f)
+    const head = header(p)
+    if (head && String(head.name).toLowerCase() === name.toLowerCase()) return p
+  }
+  return undefined
 }
 
 // ── Rasterizer registry ──────────────────────────────────────────────
@@ -215,26 +230,77 @@ export function remove(name: string) {
 
 // ── Bundled source fetch ─────────────────────────────────────────────
 
-type Manifest = { files: string[] }
+export type Sources = Partial<Record<AvatarState | "base", string>>
+type Plan = Array<{ role: AvatarState | "base"; url: string; bytes: number }>
+export type Fetched = { sources: Sources; n: number; bytes: number }
 
-/** Fetch `manifest.json` + listed files from a header `source_url` into
- *  <name>/source/. Relative URLs resolve against the manifest's dir. */
-export async function fetchSource(name: string, url: string): Promise<number> {
-  const base = url.endsWith("/") ? url : url + "/"
+/** `{role, rel}` pairs from either manifest shape:
+ *   - herm-native  `{files:[]}` — roles derived from basename
+ *   - eikon-repo   `{source, states:{<k>:{file}}}` */
+function entries(man: Record<string, unknown>): Array<[AvatarState | "base", string]> {
+  const xs: Array<[AvatarState | "base", string]> = []
+  if (typeof man.source === "string") xs.push(["base", man.source])
+  const st = man.states as Record<string, { file?: string }> | undefined
+  if (st) for (const k of STATES) { const f = st[k]?.file; if (f) xs.push([k, f]) }
+  if (xs.length === 0 && Array.isArray(man.files))
+    for (const f of man.files as string[]) {
+      const stem = basename(f, extname(f)).toLowerCase() as AvatarState | "base"
+      xs.push([stem === "base" || STATES.includes(stem as AvatarState) ? stem : "base", f])
+    }
+  return xs
+}
+
+async function plan(base: string): Promise<Plan> {
   const res = await fetch(base + "manifest.json")
   if (!res.ok) throw new Error(`manifest: HTTP ${res.status}`)
-  const man = await res.json() as Manifest
-  if (!Array.isArray(man.files)) throw new Error("manifest: missing files[]")
-  ensure(name)
-  let n = 0
-  for (const f of man.files) {
-    const r = await fetch(base + f)
-    if (!r.ok) throw new Error(`${f}: HTTP ${r.status}`)
-    await Bun.write(join(sourceDir(name), basename(f)), await r.arrayBuffer())
-    n++
-  }
+  const man = await res.json() as Record<string, unknown>
+  const xs = entries(man)
+  if (xs.length === 0) throw new Error("manifest: no source files")
+  return Promise.all(xs.map(async ([role, rel]) => {
+    const url = new URL(rel, base).href
+    const h = await fetch(url, { method: "HEAD" }).catch(() => undefined)
+    return { role, url, bytes: Number(h?.headers.get("content-length") ?? 0) }
+  }))
+}
+
+const peeked = new Map<string, Promise<{ n: number; bytes: number } | undefined>>()
+
+/** HEAD the manifest once; resolves to `{n, bytes}` for UI hints. */
+export function peekSource(url: string): Promise<{ n: number; bytes: number } | undefined> {
+  const base = url.endsWith("/") ? url : url + "/"
+  const hit = peeked.get(base)
+  if (hit) return hit
+  const p = plan(base)
+    .then(xs => ({ n: xs.length, bytes: xs.reduce((a, x) => a + x.bytes, 0) }))
+    .catch(() => undefined)
+  peeked.set(base, p)
+  return p
+}
+
+/** Fetch `manifest.json` + listed files into <name>/source/ as
+ *  <role>.<ext>. Writes the resulting sources map into studio.json
+ *  (merged over any existing) so open() binds states without
+ *  filename heuristics. Returns `{sources, n, bytes}`. */
+export async function fetchSource(name: string, url: string): Promise<Fetched> {
+  const base = url.endsWith("/") ? url : url + "/"
+  const xs = await plan(base)
+  const dst = ensure(name).source
+  const sources: Sources = {}
+  let bytes = 0
+  await Promise.all(xs.map(async x => {
+    const r = await fetch(x.url)
+    if (!r.ok) throw new Error(`${x.url}: HTTP ${r.status}`)
+    const buf = new Uint8Array(await r.arrayBuffer())
+    const fname = `${x.role}${extname(new URL(x.url).pathname).toLowerCase()}`
+    await Bun.write(join(dst, fname), buf)
+    sources[x.role] = fname
+    bytes += buf.length
+  }))
+  const prev = readStudio(name)
+  writeStudio(name, { ...(prev ?? toStudio(fresh(name, pick()))),
+                      sources: { ...prev?.sources, ...sources } })
   bump()
-  return n
+  return { sources, n: xs.length, bytes }
 }
 
 export { parseEikon, probe }
