@@ -101,8 +101,8 @@ describe("DiffTabs", () => {
       }]} />,
       { width: 80, height: 12 },
     )
-    await until(t, () => t.frame().includes("patch"))
-    expect(t.frame()).toContain("patch") // falls back to tool name
+    // No args, no preview — pathFor falls back to the diff's `+++ b/x` header.
+    await until(t, () => t.frame().includes("+new y"))
     t.destroy()
   })
 
@@ -121,6 +121,41 @@ describe("DiffTabs", () => {
     expect(f).not.toMatch(/\x1b/)
     expect(f).not.toContain("38;2;21;60;115")
     expect(f).not.toContain("[0m")
+    t.destroy()
+  })
+
+  test("extracts path from JSON args (gateway sends args blob in preview)", async () => {
+    // tool.start.context for patch/write_file tools is the raw args JSON,
+    // not a path. Without args→path extraction, base() splits the JSON tail
+    // and labels read like "…@" / "…ueberry" (real bug — see screenshot).
+    const argsBlob = JSON.stringify({
+      path: "/tmp/diff-test/b.txt",
+      old_string: "cherry",
+      new_string: "CHERRY",
+    })
+    const t = await mountNode(
+      <DiffTabs tools={[{
+        type: "tool", id: "p1", name: "patch",
+        args: argsBlob, preview: argsBlob,
+        status: "done", duration: 5, diff: udiff("/tmp/diff-test/b.txt", "z"),
+      }]} />,
+      { width: 80, height: 14 },
+    )
+    await until(t, () => t.frame().includes("b.txt"))
+    expect(t.frame()).not.toMatch(/…@|…ueberry|"path"/)
+    t.destroy()
+  })
+
+  test("falls back to unified-diff +++ header when args lack a path", async () => {
+    // No JSON args; the diff body's `+++ b/<path>` header is the next-best source.
+    const t = await mountNode(
+      <DiffTabs tools={[{
+        type: "tool", id: "p2", name: "patch", args: "",
+        status: "done", duration: 5, diff: udiff("src/widget.ts", "z"),
+      }]} />,
+      { width: 80, height: 14 },
+    )
+    await until(t, () => t.frame().includes("widget.ts"))
     t.destroy()
   })
 })

@@ -14,7 +14,28 @@ import { useTheme } from "../../theme"
 const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g
 const clean = (s: string) => s.replace(ANSI, "")
 
-const base = (p: string) => p.split(/[\\/]/).pop() ?? p
+// `tool.preview` is whatever the gateway's tool.start.context emitted —
+// for patch/edit tools that's the raw args JSON blob, not a path. Try to
+// extract the actual file from args first; fall back to a unified-diff
+// header (`+++ b/<path>`); finally to the raw preview/name. Without this
+// `base()` slices the JSON tail and tab labels read like `…@` / `…ueberry`.
+const PATH_KEY = /"(?:path|file_path|filename|target|file)"\s*:\s*"((?:\\.|[^"\\])*)"/
+const DIFF_HEAD = /^\+\+\+ b\/(\S.*?)\s*$/m
+function pathFor(t: ToolPart): string {
+  const args = (t as { args?: string }).args
+  if (args && /^\s*\{/.test(args)) {
+    const m = clean(args).match(PATH_KEY)
+    if (m) return m[1]
+  }
+  const diff = t.diff ?? (isDiff(t.result) ? t.result : undefined)
+  if (diff) {
+    const m = clean(diff).match(DIFF_HEAD)
+    if (m) return m[1]
+  }
+  return clean(t.preview ?? t.name)
+}
+
+const base = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p
 const parent = (p: string) => {
   const parts = p.split(/[\\/]/).filter(Boolean)
   return parts.length >= 2 ? parts[parts.length - 2] : ""
@@ -27,7 +48,7 @@ function buildTabs(tools: ToolPart[]): Tab[] {
   const raw = tools.flatMap(t => {
     const diff = t.diff ?? (isDiff(t.result) ? t.result : undefined)
     if (!diff) return []
-    return [{ tool: t, path: clean(t.preview ?? t.name), diff }]
+    return [{ tool: t, path: pathFor(t), diff }]
   })
   // Disambiguate duplicate basenames (a/Foo.tsx + b/Foo.tsx) by prefixing
   // the parent dir only when needed — keeps short labels short.
