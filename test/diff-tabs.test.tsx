@@ -159,15 +159,13 @@ describe("DiffTabs", () => {
     t.destroy()
   })
 
-  test("sanitizes gateway CLI-rendered inline_diff (┊/summary/… cruft)", async () => {
-    // Real shape gateway sends on tool.complete: the diff body is
-    // wrapped with `┊ review diff` markers, a `+N/-M` summary line, and
-    // CLI-truncated `…` lines for context that didn't fit. None of that
-    // belongs in the rendered DiffBlock or in tab labels.
+  test("sanitizes gateway CLI-rendered inline_diff (┊/summary/…/arrow-header)", async () => {
+    // Actual shape gateway sends: display.py's _render_inline_unified_diff
+    // REPLACES `--- a/` / `+++ b/` with `a/path → b/path` (one line),
+    // then `┊ review diff`, `+N/-M`, and `…` truncation can wrap it.
     const cliRendered = [
       "  ┊ review diff",
-      "--- a//tmp/diff-test/c.txt",
-      "+++ b//tmp/diff-test/c.txt",
+      "a//tmp/diff-test/c.txt → b//tmp/diff-test/c.txt",
       "@@ -1,4 +1,4 @@",
       "-north",
       "+NORTH",
@@ -186,14 +184,58 @@ describe("DiffTabs", () => {
     )
     await until(t, () => t.frame().includes("c.txt"))
     const f = t.frame()
-    // Tab label is c.txt — no ┊ / +0 / … leakage into label.
+    // Tab label is c.txt — no `→ b/` arrow leakage into label.
     expect(f).not.toContain("review diff")
     expect(f).not.toContain("┊")
+    // The arrow-header line itself isn't rendered as a diff row.
+    const bodyRows = f.split("\n").filter(l => /→ b/.test(l))
+    expect(bodyRows.length).toBe(0)
     // Body shows real hunk lines.
     expect(f).toContain("-north")
     expect(f).toContain("+NORTH")
-    // Body does NOT show the gateway's CLI cruft.
     expect(f).not.toContain("… more")
+    t.destroy()
+  })
+
+  test("five parallel patches → five distinct basenames in tab strip", async () => {
+    // Real bug from screenshot: five tabs all read as diff body tails
+    // (`…@`, `… autumn`, `…)`) because pathFor was falling through to
+    // the wrong source. With DIFF_HEAD_ARROW each tool gets its own path.
+    const mk = (name: string, old: string, neu: string) => ({
+      type: "tool" as const,
+      id: `t-${name}`, name: "patch", args: "",
+      status: "done" as const, duration: 5,
+      diff: [
+        "  ┊ review diff",
+        `a//tmp/diff-test/${name} → b//tmp/diff-test/${name}`,
+        "@@ -1,4 +1,4 @@",
+        `-${old}`,
+        `+${neu}`,
+        " unchanged",
+        "+1 / -1",
+      ].join("\n"),
+    })
+    const tools = [
+      mk("sample.txt", "line one", "LINE ONE"),
+      mk("greek.txt", "alpha", "ALPHA"),
+      mk("colors.txt", "red", "RED"),
+      mk("c.txt", "west", "WEST"),
+      mk("d.txt", "winter", "WINTER"),
+    ]
+    const t = await mountNode(<DiffTabs tools={tools} />, { width: 120, height: 24 })
+    await until(t, () => t.frame().includes("sample.txt"))
+    const f = t.frame()
+    expect(f).toContain("sample.txt")
+    expect(f).toContain("greek.txt")
+    expect(f).toContain("colors.txt")
+    expect(f).toContain("c.txt")
+    expect(f).toContain("d.txt")
+    // None of the previously-leaked diff-body tails should appear in the
+    // tab strip area (above the `+A / -B` line).
+    const lines = f.split("\n")
+    const countLineY = lines.findIndex(l => /\+\d+\s*\/\s*-\d+/.test(l))
+    const stripText = lines.slice(0, countLineY).join("\n")
+    expect(stripText).not.toMatch(/…@|… autumn|…\)/)
     t.destroy()
   })
 })

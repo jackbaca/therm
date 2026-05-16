@@ -17,12 +17,18 @@ const clean = (s: string) => s.replace(ANSI, "")
 // `tool.preview` is whatever the gateway's tool.start.context emitted —
 // for patch/edit tools that's a clean path. But on tool.complete, the
 // reducer overwrites preview with `summary || inline_diff || preview`,
-// and `inline_diff` from the gateway is the CLI-rendered blob (with
-// `┊ review diff`, `+N/-M`, `…`-truncated context), not a clean unified
-// diff. Order: parse args JSON → diff `+++ b/<path>` → diff `--- a/<path>`
-// → cleaned preview. Without this `base()` slices the blob's tail and
-// labels read like `…@` / `…ueberry` (`t_49b65e76`).
+// and `inline_diff` from the gateway is the CLI-rendered blob:
+//   `a/<path> → b/<path>` (the standard `--- a/` / `+++ b/` headers are
+//   REPLACED with this arrow form — see display.py `_render_inline_unified_diff`)
+//   followed by `@@`, `-`, `+`, ` ` lines, plus a `┊ review diff` marker
+//   and a `+N/-M` summary. Order: parse args JSON → gateway arrow form
+//   (`a/<path> → b/<path>`) → standard `+++ b/<path>` → standard `--- a/<path>`
+//   → cleaned preview. Without this every tab label reads as the diff tail
+//   (`…@`, `… autumn`, `…)`) — `t_49b65e76`.
 const PATH_KEY = /"(?:path|file_path|filename|target|file)"\s*:\s*"((?:\\.|[^"\\])*)"/
+// Gateway arrow form: matches `a//tmp/x.txt → b//tmp/x.txt` (paths often
+// have leading `/` so we see `a//`). Prefer the `b/` (after) path.
+const DIFF_HEAD_ARROW = /(?:^|\s)a\/+\S.*?\s*→\s*b\/+(\S.+?)\s*$/m
 const DIFF_HEAD_NEW = /^\+\+\+ b?\/+(\S.*?)\s*$/m
 const DIFF_HEAD_OLD = /^--- a?\/+(\S.*?)\s*$/m
 function pathFor(t: ToolPart): string {
@@ -34,7 +40,7 @@ function pathFor(t: ToolPart): string {
   const sources = [t.diff, t.preview].filter((s): s is string => !!s)
   for (const s of sources) {
     const c = clean(s)
-    const m = c.match(DIFF_HEAD_NEW) || c.match(DIFF_HEAD_OLD)
+    const m = c.match(DIFF_HEAD_ARROW) || c.match(DIFF_HEAD_NEW) || c.match(DIFF_HEAD_OLD)
     if (m) return m[1]
   }
   return clean(t.preview ?? t.name)
@@ -42,12 +48,15 @@ function pathFor(t: ToolPart): string {
 
 // Strip the gateway's CLI-rendered chrome from inline_diff so DiffBlock
 // only sees real unified-diff lines. Drops `┊ review diff` markers, the
-// `+N/-M` summary line, and CLI-truncated `…` context lines (cosmetic
-// loss — the body still shows the actual changed hunk lines).
+// `+N/-M` summary line, CLI-truncated `…` context lines, and the
+// gateway's `a/path → b/path` header form (DiffBlock would otherwise
+// render it as a literal context line). Cosmetic loss only — the body
+// still shows the actual changed hunk lines.
 const STRIPS = [
-  /^\s*┊.*$/,       // gateway's CLI prefix marker
-  /^\s*[+-]\d+\s*\/\s*[-+]\d+\s*$/,  // +N/-M summary line
-  /^\s*…/,           // CLI truncation marker
+  /^\s*┊.*$/,                          // CLI prefix marker
+  /^\s*[+-]\d+\s*\/\s*[-+]\d+\s*$/,    // +N/-M summary line
+  /^\s*…/,                             // CLI truncation marker
+  /a\/+\S.*?\s*→\s*b\/+\S/,            // gateway's `a/x → b/x` header
 ]
 function sanitizeDiff(s: string): string {
   return clean(s).split("\n").filter(l => !STRIPS.some(re => re.test(l))).join("\n")
