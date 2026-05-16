@@ -158,4 +158,42 @@ describe("DiffTabs", () => {
     await until(t, () => t.frame().includes("widget.ts"))
     t.destroy()
   })
+
+  test("sanitizes gateway CLI-rendered inline_diff (┊/summary/… cruft)", async () => {
+    // Real shape gateway sends on tool.complete: the diff body is
+    // wrapped with `┊ review diff` markers, a `+N/-M` summary line, and
+    // CLI-truncated `…` lines for context that didn't fit. None of that
+    // belongs in the rendered DiffBlock or in tab labels.
+    const cliRendered = [
+      "  ┊ review diff",
+      "--- a//tmp/diff-test/c.txt",
+      "+++ b//tmp/diff-test/c.txt",
+      "@@ -1,4 +1,4 @@",
+      "-north",
+      "+NORTH",
+      " southeast",
+      " northeast",
+      " west",
+      "… more",
+      "+1 / -1",
+    ].join("\n")
+    const t = await mountNode(
+      <DiffTabs tools={[{
+        type: "tool", id: "c", name: "patch", args: "",
+        preview: cliRendered, status: "done", duration: 5, diff: cliRendered,
+      }]} />,
+      { width: 100, height: 20 },
+    )
+    await until(t, () => t.frame().includes("c.txt"))
+    const f = t.frame()
+    // Tab label is c.txt — no ┊ / +0 / … leakage into label.
+    expect(f).not.toContain("review diff")
+    expect(f).not.toContain("┊")
+    // Body shows real hunk lines.
+    expect(f).toContain("-north")
+    expect(f).toContain("+NORTH")
+    // Body does NOT show the gateway's CLI cruft.
+    expect(f).not.toContain("… more")
+    t.destroy()
+  })
 })

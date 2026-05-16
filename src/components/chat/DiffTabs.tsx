@@ -15,24 +15,42 @@ const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g
 const clean = (s: string) => s.replace(ANSI, "")
 
 // `tool.preview` is whatever the gateway's tool.start.context emitted —
-// for patch/edit tools that's the raw args JSON blob, not a path. Try to
-// extract the actual file from args first; fall back to a unified-diff
-// header (`+++ b/<path>`); finally to the raw preview/name. Without this
-// `base()` slices the JSON tail and tab labels read like `…@` / `…ueberry`.
+// for patch/edit tools that's a clean path. But on tool.complete, the
+// reducer overwrites preview with `summary || inline_diff || preview`,
+// and `inline_diff` from the gateway is the CLI-rendered blob (with
+// `┊ review diff`, `+N/-M`, `…`-truncated context), not a clean unified
+// diff. Order: parse args JSON → diff `+++ b/<path>` → diff `--- a/<path>`
+// → cleaned preview. Without this `base()` slices the blob's tail and
+// labels read like `…@` / `…ueberry` (`t_49b65e76`).
 const PATH_KEY = /"(?:path|file_path|filename|target|file)"\s*:\s*"((?:\\.|[^"\\])*)"/
-const DIFF_HEAD = /^\+\+\+ b\/(\S.*?)\s*$/m
+const DIFF_HEAD_NEW = /^\+\+\+ b?\/+(\S.*?)\s*$/m
+const DIFF_HEAD_OLD = /^--- a?\/+(\S.*?)\s*$/m
 function pathFor(t: ToolPart): string {
   const args = (t as { args?: string }).args
   if (args && /^\s*\{/.test(args)) {
     const m = clean(args).match(PATH_KEY)
     if (m) return m[1]
   }
-  const diff = t.diff ?? (isDiff(t.result) ? t.result : undefined)
-  if (diff) {
-    const m = clean(diff).match(DIFF_HEAD)
+  const sources = [t.diff, t.preview].filter((s): s is string => !!s)
+  for (const s of sources) {
+    const c = clean(s)
+    const m = c.match(DIFF_HEAD_NEW) || c.match(DIFF_HEAD_OLD)
     if (m) return m[1]
   }
   return clean(t.preview ?? t.name)
+}
+
+// Strip the gateway's CLI-rendered chrome from inline_diff so DiffBlock
+// only sees real unified-diff lines. Drops `┊ review diff` markers, the
+// `+N/-M` summary line, and CLI-truncated `…` context lines (cosmetic
+// loss — the body still shows the actual changed hunk lines).
+const STRIPS = [
+  /^\s*┊.*$/,       // gateway's CLI prefix marker
+  /^\s*[+-]\d+\s*\/\s*[-+]\d+\s*$/,  // +N/-M summary line
+  /^\s*…/,           // CLI truncation marker
+]
+function sanitizeDiff(s: string): string {
+  return clean(s).split("\n").filter(l => !STRIPS.some(re => re.test(l))).join("\n")
 }
 
 const base = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p
@@ -46,9 +64,9 @@ type Tab = { id: string; label: string; diff: string; add: number; del: number }
 
 function buildTabs(tools: ToolPart[]): Tab[] {
   const raw = tools.flatMap(t => {
-    const diff = t.diff ?? (isDiff(t.result) ? t.result : undefined)
-    if (!diff) return []
-    return [{ tool: t, path: pathFor(t), diff }]
+    const rawDiff = t.diff ?? (isDiff(t.result) ? t.result : undefined)
+    if (!rawDiff) return []
+    return [{ tool: t, path: pathFor(t), diff: sanitizeDiff(rawDiff) }]
   })
   // Disambiguate duplicate basenames (a/Foo.tsx + b/Foo.tsx) by prefixing
   // the parent dir only when needed — keeps short labels short.
