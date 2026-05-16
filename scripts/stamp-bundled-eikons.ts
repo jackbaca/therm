@@ -4,11 +4,11 @@
 import { readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
-const BASE = "https://raw.githubusercontent.com/liftaris/eikon/eikon-sh/avatars"
+const BASE = "https://raw.githubusercontent.com/liftaris/eikon/main/avatars"
 const map: Record<string, string> = {
   "ares.eikon":    `${BASE}/ares/`,
   "mono.eikon":    `${BASE}/mono/`,
-  "default.eikon": `${BASE}/nous-girl/`,
+  "default.eikon": `${BASE}/nous/`,
 }
 
 for (const [f, url] of Object.entries(map)) {
