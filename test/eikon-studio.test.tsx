@@ -104,6 +104,45 @@ describe("EikonStudio tab", () => {
     await until(t, () => !t.frame().includes("● unsaved"))
     un()
   })
+
+  run("Enter on source row → menu with Local file…; pick + path + Enter adopts source", async () => {
+    const un = eikon.register(stub)
+    seed("fox")
+    prefs.set("eikon", "fox")
+    // Pre-create a file we can adopt.
+    const extPath = join(HH, "extra.png")
+    writeFileSync(extPath, PX)
+    let sub = 0
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
+      { width: 160, height: 48 },
+    )
+    await until(t, () => t.frame().includes("rasterizer"))
+
+    // Nav from rasterizer (0) → source (1).
+    act(() => t.keys.pressArrow("down"))
+    await until(t, () => /▸ source/.test(t.frame()))
+
+    // Enter → source-actions menu.
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Local file"))
+    expect(t.frame()).toContain("Source for 'idle'")
+
+    // Pick "Local file…" (first/only-when-empty option).
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Tab complete"))
+
+    // Type the path + Enter.
+    await act(async () => { await t.keys.typeText(extPath) })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("● unsaved"))
+
+    // Adopted file landed in the eikon's source dir as <role>.png.
+    const adoptedDir = eikon.ensure("fox").source
+    const f = Bun.file(join(adoptedDir, "idle.png"))
+    expect(await f.exists()).toBe(true)
+    un()
+  })
 })
 
 describe("EikonGallery tab", () => {
