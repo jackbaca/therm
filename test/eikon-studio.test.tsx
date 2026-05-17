@@ -75,7 +75,9 @@ describe("EikonStudio tab", () => {
       { width: 160, height: 48 },
     )
     await until(t, () => t.frame().includes("rasterizer"))
-    // Selection starts on row 0 (rasterizer). Enter → dialog.
+    // Selection starts on row 0 (eikon picker). Move down once to land on
+    // the rasterizer row, then Enter → dialog.
+    act(() => t.keys.pressArrow("down")); await t.settle()
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Rasterizer") && t.frame().includes("● stub"))
     // chafa + native also listed; one may show an install hint.
@@ -83,6 +85,34 @@ describe("EikonStudio tab", () => {
     expect(t.frame()).toContain("native")
     act(() => t.keys.pressEscape())
     await until(t, () => !t.frame().includes("● stub") || t.frame().includes("Knobs"))
+    un()
+  })
+
+  run("Enter on eikon row opens picker with seeded eikon + New…; New creates and opens", async () => {
+    const un = eikon.register(stub)
+    seed("alpha")
+    prefs.set("eikon", "alpha")
+    let sub = 0
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
+      { width: 160, height: 48 },
+    )
+    await until(t, () => t.frame().includes("rasterizer"))
+    // Row 0 = eikon picker. Enter opens it; "alpha" appears as the
+    // current selection. The trailers (+ New, + Install) may be below
+    // the viewport in a populated sandbox, so filter down to "new" to
+    // bring + New into view, then Enter selects it.
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Open eikon"))
+    expect(t.frame()).toContain("alpha")
+    await act(async () => { await t.keys.typeText("new") })
+    await until(t, () => t.frame().includes("+ New"))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("New eikon"))
+    // Type a fresh name; default `from` is blank, so Enter resolves.
+    await act(async () => { await t.keys.typeText("beta") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("beta ▸"))
     un()
   })
 
@@ -143,7 +173,7 @@ describe("EikonStudio tab", () => {
     un()
   })
 
-  run("cold start: Enter seeds a fresh session and renders rows", async () => {
+    run("cold start: Enter opens New eikon; submitting seeds a session", async () => {
     const un = eikon.register(stub)
     prefs.set("eikonRasterizer", "stub")
     let sub = 0
@@ -154,8 +184,11 @@ describe("EikonStudio tab", () => {
     await until(t, () => t.frame().includes("No eikon open"))
     expect(t.frame()).toContain("[Enter] new eikon")
     act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("New eikon"))
+    await act(async () => { await t.keys.typeText("cold") })
+    act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("rasterizer"))
-    expect(t.frame()).toContain("name")
+    expect(t.frame()).toContain("cold ▸")
     un()
   })
 
@@ -203,7 +236,8 @@ describe("EikonStudio tab", () => {
     )
     await until(t, () => t.frame().includes("rasterizer"))
 
-    // Nav from rasterizer (0) → source (1).
+    // Nav from eikon (0) → rasterizer (1) → source (2).
+    act(() => t.keys.pressArrow("down"))
     act(() => t.keys.pressArrow("down"))
     await until(t, () => /▸ source/.test(t.frame()))
 
@@ -253,7 +287,8 @@ describe("EikonStudio tab", () => {
     )
     await until(t, () => t.frame().includes("rasterizer"))
 
-    // Nav to source row → open menu.
+    // Nav to source row (open=0, rasterizer=1, source=2) → open menu.
+    act(() => t.keys.pressArrow("down"))
     act(() => t.keys.pressArrow("down"))
     await until(t, () => /▸ source/.test(t.frame()))
     act(() => t.keys.pressEnter())
@@ -300,6 +335,7 @@ describe("EikonStudio tab", () => {
       { width: 160, height: 48, gw },
     )
     await until(t, () => t.frame().includes("rasterizer"))
+    act(() => t.keys.pressArrow("down"))
     act(() => t.keys.pressArrow("down"))
     await until(t, () => /▸ source/.test(t.frame()))
     act(() => t.keys.pressEnter())
