@@ -133,3 +133,68 @@ run("layout probe (narrow)", async () => {
   expect(f).toContain("rasterizer")
   un()
 })
+
+run("wide: clips to slot at short height; Tab scrolls strip into view", async () => {
+  const un = eikon.register(stub); seed("short")
+  const prefs = await import("../src/context/preferences")
+  prefs.set("eikon", "short")
+  await using t = await mountNode(<EikonGroup focused sub={0} setSub={() => {}} />, { width: 180, height: 30 })
+  await until(t, () => t.frame().includes("#·········#"))
+  const lines = () => t.frame().split("\n")
+  const hint = () => lines().findIndex(l => l.includes("[Tab] pane"))
+  // Hint bar is the last non-blank line; nothing studio-owned renders below it.
+  const h = hint()
+  expect(h).toBeGreaterThan(0)
+  expect(h).toBe(lines().findLastIndex(l => l.trim() !== ""))
+  // Strip doesn't fit at 30 rows — scrolled off, not painted.
+  expect(t.frame()).not.toContain("States")
+  // Knobs panel height matches Preview, so top rows are visible.
+  expect(t.frame()).toContain("rasterizer")
+  // Tab→Tab focuses strip → outer scrollbox brings it into view.
+  act(() => t.keys.pressTab()); await t.settle()
+  act(() => t.keys.pressTab()); await t.settle()
+  await until(t, () => t.frame().includes("States"))
+  // Hint bar stays pinned and last.
+  expect(hint()).toBe(lines().findLastIndex(l => l.trim() !== ""))
+  if (process.env.DUMP) console.log(t.frame())
+  un()
+})
+
+// Tall rasterizer (more knobs than fit in the preview-height panel):
+// knobs scrollbox clips inside its TabShell; ↑↓ scrolls selection
+// into view without moving the outer viewport (preview stays put).
+const tall: Rasterizer = {
+  name: "tall", available: () => true,
+  knobs: Object.fromEntries(Array.from({ length: 40 }, (_, i) =>
+    [`k${i}`, { kind: "slider", min: 0, max: 1, step: 0.1, default: 0.5 }])),
+  render: stub.render,
+}
+
+run("wide: knobs overflow scrolls inside its panel", async () => {
+  const un = eikon.register(tall); seed("tall")
+  eikon.writeStudio("tall", { rasterizer: "tall", spatial: { zoom: 1, ox: 0.5, oy: 0.5 },
+    fps: 16, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
+  const prefs = await import("../src/context/preferences")
+  prefs.set("eikon", "tall")
+  await using t = await mountNode(<EikonGroup focused sub={0} setSub={() => {}} />, { width: 180, height: 60 })
+  await until(t, () => t.frame().includes("rasterizer") && t.frame().includes("#·········#"))
+  const lines = () => t.frame().split("\n")
+  const iStrip = () => lines().findIndex(l => l.includes("States"))
+  // k39 doesn't fit in a PREVIEW_H panel; k0 does.
+  expect(t.frame()).toContain("k0")
+  expect(t.frame()).not.toContain("k39")
+  // Nothing between the knobs panel bottom and the States border —
+  // the panel clipped inside its own TabShell, not spilling over it.
+  const iPrev = lines().findIndex(l => l.includes("Preview"))
+  expect(iStrip() - iPrev).toBeLessThanOrEqual(38)
+  // End jumps to k39; scrollTo brings it into view, Preview stays.
+  act(() => t.keys.pressKey("END")); await t.settle()
+  await until(t, () => t.frame().includes("k39"))
+  expect(t.frame()).toContain("Preview")
+  expect(t.frame()).not.toContain("k0")
+  // Still nothing below hint bar.
+  const h = lines().findIndex(l => l.includes("[Tab] pane"))
+  expect(lines().slice(h + 1).every(l => l.trim() === "")).toBe(true)
+  if (process.env.DUMP) console.log(t.frame())
+  un()
+})
