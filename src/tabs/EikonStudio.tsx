@@ -13,7 +13,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import { extend, useKeyboard, useTerminalDimensions } from "@opentui/react"
 import { SliderRenderable } from "@opentui/core"
-import type { ParsedKey } from "@opentui/core"
+import type { ParsedKey, ScrollBoxRenderable } from "@opentui/core"
 import { readFileSync } from "node:fs"
 import { basename } from "node:path"
 import { useTheme } from "../theme"
@@ -43,6 +43,8 @@ declare module "@opentui/react" {
 
 type Pane = "knobs" | "preview" | "strip"
 const PANES: readonly Pane[] = ["knobs", "preview", "strip"]
+// Stable contentOptions — inline `{}` would re-set on every reconcile.
+const COL = { flexDirection: "column" } as const
 
 type RowKind = "select" | "prompt" | "action" | "divider" | "knob"
 type Row = {
@@ -332,6 +334,8 @@ export const EikonStudio = memo((props: {
   const toast = useToast()
   const dims = useTerminalDimensions()
   const wide = dims.width >= 120
+  const ksb = useRef<ScrollBoxRenderable | null>(null)
+  const outer = useRef<ScrollBoxRenderable | null>(null)
 
   useSyncExternalStore(eikon.onRegistry, () => eikon.rasterizers().length)
 
@@ -417,6 +421,12 @@ export const EikonStudio = memo((props: {
 
   const rows = useMemo(() => (s ? buildRows(r, s, live, url) : []), [r, s, live, url])
   const navRows = useMemo(() => rows.map((x, i) => ({ ...x, i })).filter(x => x.kind !== "divider"), [rows])
+  // Knobs pane: ↑↓ keeps the selected row in view. Rows already carry
+  // `id="knob-<row.id>"` (reconciler-id rule) — resolve via that.
+  const kScroll = (ni: number) => {
+    const row = navRows[ni]
+    if (row) ksb.current?.scrollChildIntoView(`knob-${row.id}`)
+  }
 
   // Render the current state's full clip. Sourceless falls through
   // to the baked .eikon's frames for the current state — Studio's
@@ -631,7 +641,10 @@ export const EikonStudio = memo((props: {
     if (key.name === "escape") return void discard()
     if (key.name === "tab") {
       const i = PANES.indexOf(pane)
-      return setPane(PANES[(i + (key.shift ? PANES.length - 1 : 1)) % PANES.length]!)
+      const next = PANES[(i + (key.shift ? PANES.length - 1 : 1)) % PANES.length]!
+      setPane(next)
+      outer.current?.scrollChildIntoView(`studio-${next}`)
+      return
     }
     if (!s) {
       if (key.name === "return") return void doPrompt("source")
@@ -639,7 +652,8 @@ export const EikonStudio = memo((props: {
     }
     if (pane === "knobs") {
       if (handleListKey(keys, key, {
-        count: navRows.length, setSel,
+        count: navRows.length, setSel, scrollTo: kScroll,
+        page: Math.max(1, (ksb.current?.viewport.height ?? 10) - 1),
         onActivate: activate,
         onToggle: toggle,
         onNew: () => void doPrompt("source"),
@@ -740,20 +754,22 @@ export const EikonStudio = memo((props: {
         ? <box flexGrow={1} alignItems="center" justifyContent="center">
             <text fg={theme.textMuted}>No eikon open. Enter to create one.</text>
           </box>
-        : rows.map((row, i) => {
-            const ni = navRows.findIndex(x => x.i === i)
-            const on = pane === "knobs" && ni === sel
-            const dim = row.kind === "knob" && !src
-            return (
-              <KnobRow key={`${r.name}:${row.id}`} id={`knob-${row.id}`} row={row} s={s} r={r} src={src}
-                       on={on} dim={dim} peek={peek} busy={row.id === "fetch" && fetching}
-                       onHover={() => { if (ni >= 0) { setPane("knobs"); setSel(ni) } }}
-                       onClick={() => { if (ni >= 0) { setSel(ni); setPane("knobs"); act(row, "click") } }}
-                       onSlide={row.knob?.kind === "slider"
-                         ? v => mutate(p => knobs.edit(p, k => knobs.setSlider(k, row.id, row.knob!, v)))
-                         : undefined} />
-            )
-          })}
+        : <scrollbox ref={ksb} scrollY flexGrow={1} contentOptions={COL}>
+            {rows.map((row, i) => {
+              const ni = navRows.findIndex(x => x.i === i)
+              const on = pane === "knobs" && ni === sel
+              const dim = row.kind === "knob" && !src
+              return (
+                <KnobRow key={`${r.name}:${row.id}`} id={`knob-${row.id}`} row={row} s={s} r={r} src={src}
+                         on={on} dim={dim} peek={peek} busy={row.id === "fetch" && fetching}
+                         onHover={() => { if (ni >= 0) { setPane("knobs"); setSel(ni) } }}
+                         onClick={() => { if (ni >= 0) { setSel(ni); setPane("knobs"); act(row, "click") } }}
+                         onSlide={row.knob?.kind === "slider"
+                           ? v => mutate(p => knobs.edit(p, k => knobs.setSlider(k, row.id, row.knob!, v)))
+                           : undefined} />
+              )
+            })}
+          </scrollbox>}
     </TabShell>
   )
 
@@ -762,7 +778,7 @@ export const EikonStudio = memo((props: {
   // would collapse it in a column, so pin the wrapper height.
   const STRIP_H = 17
   const strip = s ? (
-    <box flexShrink={0} height={STRIP_H}>
+    <box id="studio-strip" flexShrink={0} height={STRIP_H}>
       <TabShell title="States" focus={pane === "strip"}>
         <Strip s={s} frames={thumbs} focused={pane === "strip"}
                onPick={st => { setPane("strip"); mutate(p => knobs.setState(p, st)) }} />
@@ -770,24 +786,28 @@ export const EikonStudio = memo((props: {
     </box>
   ) : null
 
+  // Full stack is ~PREVIEW_H + STRIP_H rows — taller than most
+  // terminals — so it always sits inside a scrollbox. `wide` only
+  // decides whether preview+knobs are row-adjacent or stacked. Tab
+  // scrolls the focused pane into view; knobs has its own inner
+  // scrollbox so ↑↓ follows without moving the outer viewport.
+  const top = wide ? (
+    <box flexDirection="row" flexShrink={0} height={PREVIEW_H}>
+      <box id="studio-preview" flexShrink={0} width={PREVIEW_W}>{preview}</box>
+      <box id="studio-knobs" flexGrow={1} flexBasis={0} minWidth={0}>{panel}</box>
+    </box>
+  ) : (
+    <>
+      <box id="studio-preview" flexShrink={0} height={PREVIEW_H}>{preview}</box>
+      <box id="studio-knobs" flexShrink={0} height={Math.max(rows.length, 1) + 6}>{panel}</box>
+    </>
+  )
   return (
-    <box flexDirection="column" flexGrow={1} minWidth={0}>
-      {wide ? (
-        <>
-          <box flexDirection="row" flexShrink={0} height={PREVIEW_H}>
-            <box flexShrink={0} width={PREVIEW_W}>{preview}</box>
-            <box flexGrow={1} flexBasis={0} minWidth={0}>{panel}</box>
-          </box>
-          {strip}
-          <box flexGrow={1} />
-        </>
-      ) : (
-        <scrollbox scrollY flexGrow={1} contentOptions={{ flexDirection: "column" }}>
-          <box flexShrink={0} height={PREVIEW_H}>{preview}</box>
-          <box flexShrink={0} height={rows.length + 6}>{panel}</box>
-          {strip}
-        </scrollbox>
-      )}
+    <box flexDirection="column" flexGrow={1} minWidth={0} minHeight={0}>
+      <scrollbox ref={outer} scrollY flexGrow={1} contentOptions={COL}>
+        {top}
+        {strip}
+      </scrollbox>
       <HintBar pairs={hint} suffix={s?.dirty ? "● unsaved" : undefined} />
     </box>
   )

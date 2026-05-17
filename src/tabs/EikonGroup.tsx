@@ -22,9 +22,9 @@ export const EikonGroup = memo((props: Props) => {
   const edit = useCallback((name: string) => { setTarget(name); props.setSub(0) }, [props])
   const hint = `${keys.print("tab.prev")}/${keys.print("tab.next")} group  ·  shift+←/→ sub`
   return (
-    <box flexDirection="column" flexGrow={1} minWidth={0}>
+    <box flexDirection="column" flexGrow={1} minWidth={0} minHeight={0}>
       <SubTabBar tabs={labels} active={props.sub} onChange={props.setSub} hint={hint} />
-      <box flexGrow={1} minWidth={0} flexDirection="column">
+      <box flexGrow={1} minWidth={0} minHeight={0} flexDirection="column">
         <Pane visible={props.sub === 0}>
           <EikonStudio focused={!!props.focused && props.sub === 0} name={target} />
         </Pane>
@@ -37,4 +37,4 @@ export const EikonGroup = memo((props: Props) => {
 })
 
 const Pane = ({ visible, children }: { visible: boolean; children: ReactNode }) =>
-  visible ? <box flexGrow={1} minWidth={0} flexDirection="column">{children}</box> : null
+  visible ? <box flexGrow={1} minWidth={0} minHeight={0} flexDirection="column">{children}</box> : null

@@ -49,4 +49,4 @@ export const ConfigGroup = memo((props: Props) => {
 })
 
 const Pane = ({ visible, children }: { visible: boolean; children: ReactNode }) =>
-  visible ? <box flexGrow={1} minWidth={0} flexDirection="column">{children}</box> : null
+  visible ? <box flexGrow={1} minWidth={0} minHeight={0} flexDirection="column">{children}</box> : null
