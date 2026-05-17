@@ -76,8 +76,8 @@ const HEAD: readonly Row[] = [
   { id: "-1",         kind: "divider", label: "" },
   { id: "fetch",      kind: "action", label: "fetch source",
     show: (s, live, url) => !live && !!url },
-  { id: "knobsfor",   kind: "action", label: "knobs for",  show: (_s, live) => live },
-  { id: "reset",      kind: "action", label: "reset knobs", show: (_s, live) => live },
+  { id: "knobsfor",   kind: "action", label: "tune",        show: (_s, live) => live },
+  { id: "reset",      kind: "action", label: "reset",       show: (_s, live) => live },
   { id: "revert",     kind: "action", label: "revert",      show: s => s.dirty },
   { id: "-2",         kind: "divider", label: "", show: (_s, live) => live },
 ]
@@ -88,11 +88,11 @@ const HEAD: readonly Row[] = [
 // one from the knob kind.
 const HELP: Readonly<Record<string, string>> = {
   open:       "Which eikon you're editing. Enter to switch, create a new one, or install from elsewhere.",
-  rasterizer: "The engine that turns your source image/video into text art. Each rasterizer exposes its own look-and-feel knobs below the divider.",
+  rasterizer: "The engine that turns your source image/video into text art. Each rasterizer exposes its own look-and-feel settings below the divider.",
   source:     "The image or video file the avatar is rendered from. Enter to pick a local file, generate one with AI, or clear it. Each state can have its own source.",
   fetch:      "Download this eikon's published source media so you can re-tune it locally.",
-  knobsfor:   "←→ toggles whether the knobs below apply to every state or just the one selected in the strip.",
-  reset:      "Restore every knob to this rasterizer's defaults and drop per-state overrides.",
+  knobsfor:   "←→ toggles whether the settings below apply to every state or just the one selected in the strip.",
+  reset:      "Restore every setting below to this rasterizer's defaults and drop per-state overrides.",
   revert:     "Throw away unsaved edits and reload this eikon from disk.",
 }
 
@@ -841,7 +841,7 @@ export const EikonStudio = memo((props: {
     if (id === "knobsfor") return mutate(p => p.per[p.state] ? knobs.unfork(p) : knobs.fork(p))
     if (id === "revert") { void discard(); return }
     if (id === "reset") {
-      const ok = await openConfirm(dialog, { title: "Reset knobs?", body: "Restore rasterizer defaults and drop all per-state overrides.", danger: true })
+      const ok = await openConfirm(dialog, { title: "Reset settings?", body: "Restore rasterizer defaults and drop all per-state overrides.", danger: true })
       if (ok) mutate(p => knobs.reset(p, r))
       return
     }
@@ -864,7 +864,7 @@ export const EikonStudio = memo((props: {
       <DialogSelect title={`State: ${s.state}`} filterable={false}
         options={[
           { title: "Source…", value: "source" },
-          { title: s.per[s.state] ? "Clear override (back to base)" : "Fork knobs from base", value: "fork" },
+          { title: s.per[s.state] ? "Clear override (back to base)" : "Tune this state only", value: "fork" },
         ]}
         onSelect={o => {
           if (o.value === "source") { doSource(); return }

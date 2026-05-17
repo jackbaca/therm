@@ -129,9 +129,9 @@ run("knob rows: Space and Enter both act per nav.md; click = activate", async ()
   // action/reset: Space is inert (high-commitment); Enter opens confirm.
   await navTo(t, "reset")
   act(() => t.keys.pressKey(" ")); await t.settle(); await t.settle()
-  expect(t.frame()).not.toContain("Reset knobs?")
+  expect(t.frame()).not.toContain("Reset settings?")
   act(() => t.keys.pressEnter())
-  await until(t, () => t.frame().includes("Reset knobs?"))
+  await until(t, () => t.frame().includes("Reset settings?"))
   act(() => t.keys.pressKey("n")); await t.settle()
 
   // slider: Space/Enter inert (no value change).

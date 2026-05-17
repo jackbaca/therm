@@ -52,7 +52,7 @@ describe("EikonStudio tab", () => {
     // Source row shows basename · dims · size.
     expect(t.frame()).toMatch(/base\.png · 1×1 · \d+\s*B/)
     // knobs-for cycle row.
-    expect(t.frame()).toContain("knobs for")
+    expect(t.frame()).toContain("tune")
     expect(t.frame()).toContain("◂ all states ▸")
     expect(t.frame()).not.toContain("fork state")
     // Strip labels carry no glyphs.
@@ -78,7 +78,7 @@ describe("EikonStudio tab", () => {
     un()
   })
 
-  run("knobs for: ←→ forks current state and toggles back", async () => {
+  run("tune: ←→ forks current state and toggles back", async () => {
     const un = eikon.register(stub)
     seed("knb")
     prefs.set("eikon", "knb")
@@ -87,11 +87,11 @@ describe("EikonStudio tab", () => {
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
       { width: 160, height: 60 },
     )
-    await until(t, () => t.frame().includes("knobs for"))
+    await until(t, () => t.frame().includes("tune"))
     expect(t.frame()).toContain("◂ all states ▸")
     // Land on knobs-for row (open=0, rasterizer=1, source=2, knobsfor=3).
     for (let i = 0; i < 3; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
-    await until(t, () => /▸ knobs for/.test(t.frame()))
+    await until(t, () => /▸ tune/.test(t.frame()))
     act(() => t.keys.pressArrow("right"))
     await until(t, () => t.frame().includes("◂ idle only ▸"))
     expect(t.frame()).toContain("● unsaved")
