@@ -29,7 +29,9 @@ interface TuiPreferences {
   targetFps?: number
   /** Last active session ID — stub-reuse check on fresh launch */
   lastSessionId?: string
-  /** Path to a .eikon avatar file for the sidebar */
+  /** Active avatar by name; resolved against <profile>/eikons/ → bundled. */
+  eikon?: string
+  /** @deprecated absolute .eikon path — migrated to `eikon` on load. */
   eikonPath?: string
   /** Active rasterizer name for the Eikon Studio tab */
   eikonRasterizer?: string
@@ -119,6 +121,11 @@ export function load(): TuiPreferences {
       return prefs
     }
     const raw = JSON.parse(readFileSync(CONFIG_FILE, "utf-8"))
+    // eikonPath (abs) → eikon (name). One-shot; persisted on next set().
+    if (raw.eikonPath && !raw.eikon) {
+      raw.eikon = raw.eikonPath.split("/").pop()?.replace(/\.eikon$/, "")
+      delete raw.eikonPath
+    }
     const prefs = { ...DEFAULTS, ...raw }
     cached = prefs
     return prefs

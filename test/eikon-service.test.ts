@@ -83,7 +83,7 @@ describe("service/eikon: save", () => {
     s.sources = { base: "base.png" }
     const out = await eikon.save(s)
     expect(out).toBe(eikon.file("pack"))
-    expect(prefs.get("eikonPath")).toBe(out)
+    expect(prefs.get("eikon")).toBe("pack")
     expect(eikon.revision()).toBe(before + 1)
     const doc = parseEikon(readFileSync(out, "utf8"))
     expect(doc.meta.width).toBe(48)
@@ -105,7 +105,7 @@ describe("service/eikon: fetchSource", () => {
   const png = new Uint8Array([137, 80, 78, 71])
   const body = (name: string) => {
     if (name === "manifest.json") return Response.json({
-      source: "source.png",
+      name: "remix", source: "source.png",
       states: { idle: { file: "states/idle.mp4" }, error: { file: "states/error.mp4" } },
     })
     if (name === "source.png") return new Response(png)
@@ -118,13 +118,15 @@ describe("service/eikon: fetchSource", () => {
     const peek = await eikon.peekSource(url)
     expect(peek!.n).toBe(3)
     expect(peek!.bytes).toBeGreaterThan(0)
-    const out = await eikon.fetchSource("remix", url)
+    const out = await eikon.fetchSource(url, { name: "remix" })
     expect(out.n).toBe(3)
     expect(out.sources.base).toBe("base.png")
     expect(out.sources.idle).toBe("idle.mp4")
     expect(existsSync(join(eikon.sourceDir("remix"), "idle.mp4"))).toBe(true)
-    // studio.json written with sources map even though none existed.
+    // studio.json + manifest.json (with origin) both written.
     expect(eikon.readStudio("remix")!.sources.error).toBe("error.mp4")
+    const man = JSON.parse(readFileSync(join(eikon.dir("remix"), "manifest.json"), "utf8"))
+    expect(man.origin.source).toBe(url)
     // peekSource memoized — second call same Promise.
     expect(eikon.peekSource(url)).toBe(eikon.peekSource(url))
     srv.stop()
@@ -136,12 +138,13 @@ describe("service/eikon: fetchSource", () => {
       fetch(req) {
         const u = new URL(req.url)
         if (u.pathname.endsWith("manifest.json"))
-          return Response.json({ files: ["base.png", "thinking.png"] })
+          return Response.json({ name: "legacy", files: ["base.png", "thinking.png"] })
         return new Response(png)
       },
     })
     const url = `http://localhost:${srv.port}/y/`
-    const out = await eikon.fetchSource("legacy", url)
+    const out = await eikon.fetchSource(url)
+    expect(out.name).toBe("legacy")
     expect(out.sources).toEqual({ base: "base.png", thinking: "thinking.png" })
     srv.stop()
   })

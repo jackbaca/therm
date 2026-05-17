@@ -13,6 +13,8 @@ import { HintBar } from "../ui/hint"
 import { VBAR } from "../ui/table"
 import { useKeys, handleListKey, useFollow } from "../keys"
 import { openConfirm } from "../dialogs/confirm"
+import { openTextPrompt } from "../dialogs/text-prompt"
+import { DialogSelect } from "../ui/dialog-select"
 import { useKeyboard } from "@opentui/react"
 import { AnimatedAvatar } from "../components/avatar/AnimatedAvatar"
 import { listEikons, parseEikon, type ParsedEikon } from "../components/avatar/eikon"
@@ -22,7 +24,7 @@ import * as prefs from "../context/preferences"
 import { eikon } from "../service/eikon"
 
 type Row = {
-  path: string; name: string; author?: string; bundled: boolean
+  path: string; name: string; slug: string; author?: string; bundled: boolean
   w: number; h: number; states: number; url?: string; hasSource: boolean
 }
 
@@ -38,10 +40,11 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
     const user = hermesPath("eikons")
     const own = new Map(eikon.list().map(x => [x.name.toLowerCase(), x]))
     return listEikons([BUNDLED_EIKON_DIR, user]).map(e => {
-      const slug = e.meta.name.toLowerCase()
+      const slug = e.path.startsWith(BUNDLED_EIKON_DIR)
+        ? e.meta.name.toLowerCase() : basename(dirname(e.path))
       const mine = own.get(slug)
       return {
-        path: e.path, name: e.meta.name, author: e.meta.author,
+        path: e.path, name: e.meta.name, slug, author: e.meta.author,
         bundled: e.path.startsWith(BUNDLED_EIKON_DIR),
         w: e.meta.width, h: e.meta.height, states: e.meta.states.length,
         url: (mine?.sourceUrl ?? e.meta.source_url) as string | undefined,
@@ -54,7 +57,7 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
   useEffect(() => { if (sel >= rows.length) setSel(Math.max(0, rows.length - 1)) }, [rows.length, sel])
 
   const cur = rows[sel]
-  const active = prefs.usePref("eikonPath")
+  const active = prefs.usePref("eikon")
   const parsed = useMemo<ParsedEikon | undefined>(() => {
     if (!cur) return undefined
     try { return parseEikon(readFileSync(cur.path, "utf8")) } catch { return undefined }
@@ -62,9 +65,34 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
 
   const activate = () => {
     if (!cur) return
-    prefs.set("eikonPath", cur.path)
+    prefs.set("eikon", cur.slug)
     toast.show({ variant: "success", message: `Avatar → ${cur.name}` })
   }
+
+  const doInstall = async () => {
+    const src = await openTextPrompt(dialog, {
+      title: "Install eikon",
+      label: "catalog name · github.com/u/r · git URL · http://…/ · local dir",
+    })
+    if (!src) return
+    toast.show({ variant: "info", message: `Installing from ${src}…` })
+    await eikon.fetchSource(src)
+      .then(out => toast.show({ variant: "success", message: `Installed '${out.name}' (${out.n} files)` }))
+      .catch(e => toast.error(e instanceof Error ? e : new Error(String(e))))
+  }
+
+  const doNew = () => dialog.replace(
+    <DialogSelect title="New eikon" filterable={false}
+      options={[
+        { title: "Blank — author in Studio", value: "blank" },
+        { title: "Install from…", value: "install",
+          description: "catalog name, git URL, local dir, or http manifest" },
+      ]}
+      onSelect={o => {
+        dialog.clear()
+        if (o.value === "blank") return props.onEdit?.("")
+        void doInstall()
+      }} />, () => {})
 
   const del = async () => {
     if (!cur || cur.bundled) return
@@ -73,7 +101,7 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
       body: `Removes ${dirname(cur.path)} and all its sources. This cannot be undone.`,
     })
     if (!ok) return
-    eikon.remove(basename(dirname(cur.path)))
+    eikon.remove(cur.slug)
     toast.show({ variant: "info", message: `Deleted ${cur.name}` })
   }
 
@@ -83,10 +111,9 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
       count: rows.length, setSel, ...follow.opts,
       onActivate: activate,
       onDelete: () => void del(),
-      onNew: () => props.onEdit?.(""),
+      onNew: doNew,
     })) return
-    if (key.name === "e" && cur && props.onEdit)
-      props.onEdit(cur.bundled ? cur.name.toLowerCase() : basename(dirname(cur.path)))
+    if (key.name === "e" && cur && props.onEdit) props.onEdit(cur.slug)
   })
 
   return (
@@ -98,7 +125,7 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
               ? <text fg={theme.textMuted}>No eikons found.</text>
               : rows.map((r, i) => {
                   const on = i === sel
-                  const here = r.path === active
+                  const here = r.slug === active
                   return (
                     <box key={r.path} id={follow.id(i)} flexDirection="row" height={2}
                          backgroundColor={on ? theme.backgroundElement : undefined}
@@ -131,7 +158,7 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
       </box>
       <HintBar pairs={[
         ["↑↓", "select"], [keys.print("list.activate"), "use"],
-        ["e", "edit in studio"], [keys.print("list.new"), "new"],
+        ["e", "edit in studio"], [keys.print("list.new"), "new / install"],
         ...(cur && !cur.bundled ? [[keys.print("list.delete"), "delete"] as const] : []),
       ]} />
     </box>

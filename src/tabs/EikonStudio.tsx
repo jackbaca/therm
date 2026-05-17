@@ -379,14 +379,14 @@ export const EikonStudio = memo((props: {
     setSel(0); setPane("knobs"); setErr(null); setTick(0); setFrames([BLANK])
   }, [])
 
-  // Auto-open the active eikon (eikonPath) on first focused mount.
+  // Auto-open the active eikon (pref `eikon` by name) on first mount.
   const tried = useRef(false)
   useEffect(() => {
     if (tried.current) return
     tried.current = true
     if (props.name) return open(props.name || knobs.slug("new"))
-    const p = prefs.get("eikonPath")
-    if (p) open(basename(basename(p, ".eikon")))
+    const n = prefs.get("eikon")
+    if (n) open(n)
   }, [open, props.name])
 
   useEffect(() => { if (props.name !== undefined) open(props.name || knobs.slug("new")) }, [props.name, open])
@@ -499,10 +499,12 @@ export const EikonStudio = memo((props: {
   // Knob-row actions.
   const doSave = useCallback(async () => {
     if (!s) return
+    if (!live) return toast.show({ variant: "warning",
+      message: "No source — fetch or attach before saving" })
     await eikon.save({ ...s, dirty: false })
       .then(f => { mutate(p => ({ ...p, dirty: false })); toast.show({ variant: "success", message: `Saved → ${basename(f)}` }) })
       .catch(e => toast.error(e instanceof Error ? e : new Error(String(e))))
-  }, [s, toast])
+  }, [s, live, toast])
 
   const doSelectRasterizer = () => {
     const opts = eikon.rasterizers().map(x => {
@@ -552,7 +554,7 @@ export const EikonStudio = memo((props: {
     if (id === "fetch") {
       if (!url || fetching) return
       setFetching(true)
-      await eikon.fetchSource(s.name, url)
+      await eikon.fetchSource(url, { name: s.name })
         .then(out => {
           toast.show({ variant: "success", message: `Fetched ${out.n} file(s) · ${mb(out.bytes)}` })
           open(s.name)

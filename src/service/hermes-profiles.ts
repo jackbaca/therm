@@ -278,11 +278,11 @@ export type ProfileStats = {
 function readPrefs(dir: string): ProfilePrefs | null {
   try {
     const raw = JSON.parse(readFileSync(join(dir, "herm", "tui.json"), "utf-8")) as {
-      theme?: string; eikonPath?: string; keys?: Record<string, string>
+      theme?: string; eikon?: string; eikonPath?: string; keys?: Record<string, string>
     }
     return {
       theme: raw.theme,
-      eikon: raw.eikonPath ? basename(raw.eikonPath, ".eikon") : undefined,
+      eikon: raw.eikon ?? (raw.eikonPath ? basename(raw.eikonPath, ".eikon") : undefined),
       keys: raw.keys ? Object.keys(raw.keys).length : 0,
     }
   } catch { return null }

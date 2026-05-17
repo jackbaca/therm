@@ -29,7 +29,7 @@ cat > "$HH/eikons/probe/studio.json" <<'JSON'
 {"rasterizer":"native","spatial":{"zoom":1,"ox":0.5,"oy":0.5},"base":{},"per":{},"glyph":"◆","sources":{}}
 JSON
 cat > "$HH/herm/tui.json" <<JSON
-{"eikonPath":"$HH/eikons/probe/probe.eikon"}
+{"eikon":"probe"}
 JSON
 
 cd "$HERE"

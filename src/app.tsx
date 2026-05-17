@@ -351,18 +351,18 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       .catch(() => {})
   }, [])
 
-  // Precedence: user pref → bundled eikon matching active skin → baked-in
-  // default (nous-girl via STATE_FRAMES). Skin match never writes the
-  // pref, so a later manual pick sticks across skin changes.
-  const eikonPath = preferences.usePref("eikonPath")
+  // Precedence: user pref (by name) → bundled eikon matching active
+  // skin → baked-in default (nous via STATE_FRAMES). Resolved through
+  // eikon.baked() which checks <profile>/eikons/ then bundled/.
+  const eikonName = preferences.usePref("eikon")
   // Revision bumps when service/eikon.save() rewrites a file whose
   // path hasn't changed — usePref alone would bail on an identical
   // snapshot and the sidebar wouldn't pick up the new content.
   const eikonRev = useSyncExternalStore(eikonSvc.onRevision, eikonSvc.revision)
   useEffect(() => {
-    const p = eikonPath || bundledEikonPath(skin.skin?.name)
+    const p = (eikonName && eikonSvc.baked(eikonName)) || bundledEikonPath(skin.skin?.name)
     if (p) loadEikon(p); else setEikon(undefined)
-  }, [eikonPath, eikonRev, skin.skin?.name, loadEikon])
+  }, [eikonName, eikonRev, skin.skin?.name, loadEikon])
 
   // turnsFrom counts user turns at-or-after m — each session.undo pops
   // one user+assistant pair server-side. Reads turnRef (not turn) so

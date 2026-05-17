@@ -9,7 +9,7 @@
 // `save()` is the single write action (Ctrl+S): render all six states
 // through the active rasterizer, write `.eikon` + `studio.json`, adopt
 // any external source paths into `source/`, and bump the revision
-// counter so the sidebar reloads even when `eikonPath` is unchanged.
+// counter so the sidebar reloads even when the active name is unchanged.
 //
 // The rasterizer registry is a module-level Map. Built-ins self-insert
 // at import; herm plugins register via `api.eikon.rasterizer.register`
@@ -181,7 +181,7 @@ function serialize(name: string, glyph: string, fps: number,
 /** Render all six states (all frames) and write `.eikon` + `studio.json`.
  *  External sources referenced in `s.sources` as absolute paths are
  *  adopted into `source/` and rewritten to bare filenames. Returns the
- *  written `.eikon` path. Sets `eikonPath` pref and bumps revision. */
+ *  written `.eikon` path. Sets the `eikon` pref and bumps revision. */
 export async function save(s: Session): Promise<string> {
   const r = rasterizer(s.rasterizer) ?? pick(s.rasterizer)
   const paths = ensure(s.name)
@@ -215,7 +215,7 @@ export async function save(s: Session): Promise<string> {
   const url = header(paths.file)?.source_url as string | undefined
   await Bun.write(paths.file, serialize(s.name, s.glyph, s.fps, clips, url))
   writeStudio(s.name, { ...toStudio(s), sources })
-  prefs.set("eikonPath", paths.file)
+  prefs.set("eikon", s.name)
   bump()
   return paths.file
 }
@@ -223,14 +223,14 @@ export async function save(s: Session): Promise<string> {
 /** Delete an installed eikon's folder. */
 export function remove(name: string) {
   rmSync(dir(name), { recursive: true, force: true })
-  if (prefs.get("eikonPath") === file(name)) prefs.set("eikonPath", undefined)
+  if (prefs.get("eikon") === name) prefs.set("eikon", undefined)
   bump()
 }
 
 // ── Install / fetch ──────────────────────────────────────────────────
 
 export type Sources = Partial<Record<AvatarState | "base", string>>
-export type Fetched = { sources: Sources; n: number; bytes: number }
+export type Fetched = { name: string; sources: Sources; n: number; bytes: number }
 
 export const peekSource = peek
 
@@ -238,14 +238,14 @@ export const peekSource = peek
  *  URL, local dir, http manifest base) into <profile>/eikons/<name>/.
  *  Seeds studio.json from the returned sources map and bumps the
  *  revision counter so the sidebar + Gallery reload. */
-export async function fetchSource(name: string, src: string,
-                                   progress?: (d: number, t: number) => void): Promise<Fetched> {
-  const out: Got = await install(src, ROOT(), { name, progress })
-  const prev = readStudio(name)
-  writeStudio(name, { ...(prev ?? toStudio(fresh(name, pick()))),
-                      sources: { ...prev?.sources, ...out.sources } })
+export async function fetchSource(src: string, opts?: { name?: string;
+                                   progress?: (d: number, t: number) => void }): Promise<Fetched> {
+  const out: Got = await install(src, ROOT(), opts)
+  const prev = readStudio(out.name)
+  writeStudio(out.name, { ...(prev ?? toStudio(fresh(out.name, pick()))),
+                          sources: { ...prev?.sources, ...out.sources } })
   bump()
-  return { sources: out.sources, n: out.n, bytes: out.bytes }
+  return { name: out.name, sources: out.sources, n: out.n, bytes: out.bytes }
 }
 
 export { parseEikon, probe }

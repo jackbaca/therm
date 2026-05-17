@@ -27,7 +27,7 @@ test("baked mode: plays packed frames, hides spatial, shows fetch row", async ()
   const url = `http://localhost:${srv.port}/bake/`
   eikon.ensure("bake")  // source/ exists but empty → !live
   writeFileSync(eikon.file("bake"), make("bake", url))
-  prefs.set("eikonPath", eikon.file("bake"))
+  prefs.set("eikon", "bake")
 
   await using t = await mountNode(<EikonGroup focused sub={0} setSub={() => {}} />, { width: 180, height: 50 })
   await until(t, () => t.frame().includes("(baked)"))
@@ -53,7 +53,7 @@ test("baked mode: plays packed frames, hides spatial, shows fetch row", async ()
 test("baked mode: no url → 'attach' hint, no fetch row", async () => {
   eikon.ensure("noburl")
   writeFileSync(eikon.file("noburl"), make("noburl"))
-  prefs.set("eikonPath", eikon.file("noburl"))
+  prefs.set("eikon", "noburl")
   await using t = await mountNode(<EikonGroup focused sub={0} setSub={() => {}} />, { width: 180, height: 50 })
   await until(t, () => t.frame().includes("(baked)"))
   const f = t.frame()

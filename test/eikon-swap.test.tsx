@@ -50,7 +50,7 @@ async function navTo(t: Harness, name: string) {
 
 run("chafa↔native: flip row appears/disappears immediately on swap", async () => {
   seed("swap", "native")
-  prefs.set("eikonPath", eikon.file("swap"))
+  prefs.set("eikon", "swap")
   prefs.set("eikonRasterizer", "native")
   await using t = await mountNode(<EikonGroup focused sub={0} setSub={() => {}} />, { width: 180, height: 60 })
   await until(t, () => t.frame().includes("native ▸"))
@@ -71,7 +71,7 @@ run("chafa↔native: flip row appears/disappears immediately on swap", async () 
 
 run("Esc in a prompt dialog does NOT fall through to discard()", async () => {
   seed("esc", "native")
-  prefs.set("eikonPath", eikon.file("esc"))
+  prefs.set("eikon", "esc")
   await using t = await mountNode(<EikonGroup focused sub={0} setSub={() => {}} />, { width: 180, height: 60 })
   await until(t, () => t.frame().includes("rasterizer"))
 
@@ -99,7 +99,7 @@ run("Esc in a prompt dialog does NOT fall through to discard()", async () => {
 
 run("knob rows: Space and Enter both act per nav.md; click = activate", async () => {
   seed("kact", "native")
-  prefs.set("eikonPath", eikon.file("kact"))
+  prefs.set("eikon", "kact")
   await using t = await mountNode(<EikonGroup focused sub={0} setSub={() => {}} />, { width: 180, height: 60 })
   await until(t, () => t.frame().includes("invert"))
 

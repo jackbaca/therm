@@ -35,7 +35,7 @@ describe("EikonStudio tab", () => {
   run("renders three panes; knob nav via handleListKey; ←→ adjusts cycle knob", async () => {
     const un = eikon.register(stub)
     seed("owl")
-    prefs.set("eikonPath", eikon.file("owl"))
+    prefs.set("eikon", "owl")
     let sub = 0
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
@@ -67,7 +67,7 @@ describe("EikonStudio tab", () => {
   run("Enter on rasterizer row opens DialogSelect; unavailable shows reason", async () => {
     const un = eikon.register(stub)
     seed("cat")
-    prefs.set("eikonPath", eikon.file("cat"))
+    prefs.set("eikon", "cat")
     let sub = 0
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
@@ -88,7 +88,7 @@ describe("EikonStudio tab", () => {
   run("dirty Esc → openConfirm; y reloads from disk", async () => {
     const un = eikon.register(stub)
     seed("dog")
-    prefs.set("eikonPath", eikon.file("dog"))
+    prefs.set("eikon", "dog")
     let sub = 0
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
@@ -107,7 +107,7 @@ describe("EikonStudio tab", () => {
 })
 
 describe("EikonGallery tab", () => {
-  test("lists bundled + installed; Enter sets eikonPath", async () => {
+  test("lists bundled + installed; Enter sets active eikon", async () => {
     mkdirSync(join(HH, "eikons"), { recursive: true })
     seed("galone")
     let sub = 1
@@ -129,7 +129,7 @@ describe("EikonGallery tab", () => {
       await t.settle()
     }
     act(() => t.keys.pressEnter())
-    await until(t, () => prefs.get("eikonPath") === eikon.file("galone"))
+    await until(t, () => prefs.get("eikon") === "galone")
   })
 })
 

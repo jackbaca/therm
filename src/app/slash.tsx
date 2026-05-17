@@ -130,7 +130,7 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
   }, [gw, dialog, toast])
 
   const pickEikon = useCallback(() =>
-    openEikonPicker(dialog, (p) => preferences.set("eikonPath", p)), [dialog])
+    openEikonPicker(dialog, (n) => preferences.set("eikon", n)), [dialog])
 
   const applyTitle = useCallback((t: string) => {
     gw.request<{ title: string }>("session.title", { title: t })
@@ -208,7 +208,7 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
             return
           }
           void eikonsh.browse(renderer).then(p => {
-            if (p) preferences.set("eikonPath", p.path)
+            if (p) preferences.set("eikon", p.name)
           })
           return
         case "title":
@@ -246,7 +246,7 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
             .then(r => {
               if (r.warning) toast.show({ variant: "warning", message: r.warning })
               if (themeCtx.has(name)) themeCtx.set(name)
-              preferences.set("eikonPath", undefined)
+              preferences.set("eikon", undefined)
               x.dispatch({ kind: "system", text: `skin → ${name}` })
             })
             .catch((e: Error) => toast.show({ variant: "error", message: e.message }))

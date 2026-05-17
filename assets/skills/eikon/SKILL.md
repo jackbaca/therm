@@ -18,7 +18,7 @@ User asks for a new avatar, to "make an eikon", to turn an image into their side
   source/            base.png (or .jpg/.webp); optionally idle.png, error.png …
 ```
 
-Herm's Eikon tab reads `studio.json` on open and re-renders from `source/`. Ctrl+S in the tab rewrites both files. The sidebar follows `eikonPath` in `~/.hermes/herm/tui.json`.
+Herm's Eikon tab reads `studio.json` on open and re-renders from `source/`. Ctrl+S in the tab rewrites both files. The sidebar follows `eikon` (a bare name) in `~/.hermes/herm/tui.json`, resolved against `<profile>/eikons/` then bundled.
 
 ## Steps
 
@@ -59,7 +59,7 @@ Herm's Eikon tab reads `studio.json` on open and re-renders from `source/`. Ctrl
 
 5. **Point the sidebar at it** (optional — user can do this from Gallery):
    ```bash
-   python3 -c "import json,os; p=os.path.expanduser('~/.hermes/herm/tui.json'); d=json.load(open(p)) if os.path.exists(p) else {}; d['eikonPath']=os.path.expanduser('~/.hermes/eikons/$NAME/$NAME.eikon'); open(p,'w').write(json.dumps(d,indent=2))"
+   python3 -c "import json,os; p=os.path.expanduser('~/.hermes/herm/tui.json'); d=json.load(open(p)) if os.path.exists(p) else {}; d['eikon']='$NAME'; open(p,'w').write(json.dumps(d,indent=2))"
    ```
 
 6. **Coach.** Tell the user:

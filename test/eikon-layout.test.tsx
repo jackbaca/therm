@@ -33,7 +33,7 @@ function seed(name: string, sp = { zoom: 0.6, ox: 0.3, oy: 0.7 }) {
 run("layout probe (wide)", async () => {
   const un = eikon.register(stub); seed("probe")
   const prefs = await import("../src/context/preferences")
-  prefs.set("eikonPath", eikon.file("probe"))
+  prefs.set("eikon", "probe")
   await using t = await mountNode(<EikonGroup focused sub={0} setSub={() => {}} />, { width: 180, height: 60 })
   await until(t, () => t.frame().includes("rasterizer") && t.frame().includes("#·········#"))
   const f = t.frame()
@@ -70,7 +70,7 @@ run("layout probe (wide)", async () => {
 run("SpatialBar nav: ↑↓ selects row, ←→ steps only that row", async () => {
   const un = eikon.register(stub); seed("nav")
   const prefs = await import("../src/context/preferences")
-  prefs.set("eikonPath", eikon.file("nav"))
+  prefs.set("eikon", "nav")
   await using t = await mountNode(<EikonGroup focused sub={0} setSub={() => {}} />, { width: 180, height: 60 })
   await until(t, () => t.frame().includes("zoom"))
   const row = (name: string) => t.frame().split("\n").find(l => l.includes(name))!
@@ -97,7 +97,7 @@ run("SpatialBar nav: ↑↓ selects row, ←→ steps only that row", async () =
 run("pan-bar thumb fills track at zoom=1", async () => {
   const un = eikon.register(stub); seed("full", { zoom: 1, ox: 0.5, oy: 0.5 })
   const prefs = await import("../src/context/preferences")
-  prefs.set("eikonPath", eikon.file("full"))
+  prefs.set("eikon", "full")
   await using t = await mountNode(<EikonGroup focused sub={0} setSub={() => {}} />, { width: 180, height: 60 })
   await until(t, () => t.frame().includes("#·········#"))
   const lines = t.frame().split("\n")
@@ -112,7 +112,7 @@ run("pan-bar thumb fills track at zoom=1", async () => {
 run("layout probe (narrow)", async () => {
   const un = eikon.register(stub); seed("probe2")
   const prefs = await import("../src/context/preferences")
-  prefs.set("eikonPath", eikon.file("probe2"))
+  prefs.set("eikon", "probe2")
   await using t = await mountNode(<EikonGroup focused sub={0} setSub={() => {}} />, { width: 90, height: 60 })
   await until(t, () => t.frame().includes("Preview") && t.frame().includes("#·········#"))
   const f = t.frame()
