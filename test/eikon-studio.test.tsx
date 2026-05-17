@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test"
-import { act } from "react"
+import { act, useState } from "react"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { mountNode, until } from "./harness"
 import { EikonGroup } from "../src/tabs/EikonGroup"
+import { EikonStudio } from "../src/tabs/EikonStudio"
 import { eikon } from "../src/service/eikon"
 import { native, caps, type Rasterizer } from "../src/utils/eikon-render"
 import * as prefs from "../src/context/preferences"
@@ -99,6 +100,52 @@ describe("EikonStudio tab", () => {
     act(() => t.keys.pressArrow("right"))
     await until(t, () => t.frame().includes("● unsaved"))
     act(() => t.keys.pressEscape())
+    await until(t, () => t.frame().includes("Discard unsaved"))
+    act(() => t.keys.pressKey("y"))
+    await until(t, () => !t.frame().includes("● unsaved"))
+    un()
+  })
+
+  run("cold start: Enter seeds a fresh session and renders rows", async () => {
+    const un = eikon.register(stub)
+    prefs.set("eikonRasterizer", "stub")
+    let sub = 0
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
+      { width: 160, height: 48 },
+    )
+    await until(t, () => t.frame().includes("No eikon open"))
+    expect(t.frame()).toContain("[Enter] new eikon")
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("rasterizer"))
+    expect(t.frame()).toContain("name")
+    un()
+  })
+
+  run("dirty session survives name prop change until confirm", async () => {
+    const un = eikon.register(stub)
+    seed("alpha")
+    seed("beta")
+    prefs.set("eikon", "alpha")
+    let set: ((n: string) => void) | undefined
+    function Wrap() {
+      const [n, sn] = useState<string | undefined>(undefined)
+      set = sn
+      return <EikonStudio focused name={n} />
+    }
+    await using t = await mountNode(<Wrap />, { width: 160, height: 48 })
+    await until(t, () => t.frame().includes("rasterizer"))
+    for (let i = 0; i < 5; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
+    act(() => t.keys.pressArrow("right"))
+    await until(t, () => t.frame().includes("● unsaved"))
+    act(() => set!("beta"))
+    await until(t, () => t.frame().includes("Discard unsaved"))
+    expect(t.frame()).toContain("● unsaved")
+    act(() => t.keys.pressEscape())
+    await until(t, () => !t.frame().includes("Discard unsaved"))
+    expect(t.frame()).toContain("● unsaved")
+    act(() => set!("beta-x"))
+    act(() => set!("beta"))
     await until(t, () => t.frame().includes("Discard unsaved"))
     act(() => t.keys.pressKey("y"))
     await until(t, () => !t.frame().includes("● unsaved"))
