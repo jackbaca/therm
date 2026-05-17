@@ -14,9 +14,11 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExterna
 import { extend, useKeyboard, useTerminalDimensions } from "@opentui/react"
 import { SliderRenderable } from "@opentui/core"
 import type { ParsedKey, ScrollBoxRenderable } from "@opentui/core"
-import { readFileSync } from "node:fs"
+import { readFileSync, statSync } from "node:fs"
 import { basename } from "node:path"
+import type { ReactNode } from "react"
 import { useTheme } from "../theme"
+import type { Theme } from "../theme/types"
 import { Spinner } from "../ui/spinner"
 import { useKeys, handleListKey } from "../keys"
 import { useDialog } from "../ui/dialog"
@@ -73,7 +75,7 @@ const HEAD: readonly Row[] = [
   { id: "-1",         kind: "divider", label: "" },
   { id: "fetch",      kind: "action", label: "fetch source",
     show: (s, live, url) => !live && !!url },
-  { id: "fork",       kind: "action", label: "fork state",  show: (_s, live) => live },
+  { id: "knobsfor",   kind: "action", label: "knobs for",  show: (_s, live) => live },
   { id: "reset",      kind: "action", label: "reset knobs", show: (_s, live) => live },
   { id: "revert",     kind: "action", label: "revert",      show: s => s.dirty },
   { id: "-2",         kind: "divider", label: "", show: (_s, live) => live },
@@ -237,12 +239,24 @@ function SpatialBar(props: {
 
 // ── Knob row renderers ───────────────────────────────────────────────
 
-function valueOf(s: Session, r: Rasterizer, row: Row, src?: string,
-                 peek?: { n: number; bytes: number }, busy?: boolean): string {
+function valueOf(s: Session, r: Rasterizer, row: Row, theme: Theme,
+                 src?: string, peek?: { n: number; bytes: number }, busy?: boolean): string | ReactNode {
   if (row.id === "open") return `${s.name} ▸`
-  if (row.id === "rasterizer") return `${r.name} ▸`
-  if (row.id === "source") return src ? src.replace(process.env.HOME ?? "", "~") : "(none — Enter to attach)"
-  if (row.id === "fork") return s.per[s.state] ? "(forked)" : "▸ copy base → " + s.state
+  if (row.id === "rasterizer") {
+    const a = r.available()
+    if (a === true) return `${r.name} ▸`
+    return <><span>{`${r.name} ▸`}</span><span fg={theme.warning}>{` ⚠ ${a}`}</span></>
+  }
+  if (row.id === "source") {
+    if (!src) return "(none — Enter to attach)"
+    const d = s.dims
+    const sz = (() => { try { return mb(statSync(src).size) } catch { return "?" } })()
+    return d ? `${basename(src)} · ${d.w}×${d.h} · ${sz}` : `${basename(src)} · ${sz}`
+  }
+  if (row.id === "knobsfor") {
+    const forked = !!s.per[s.state]
+    return `◂ ${forked ? `${s.state} only` : "all states"} ▸`
+  }
   if (row.id === "reset") return "▸ defaults"
   if (row.id === "revert") return "▸ reload from disk"
   if (row.id === "fetch") return busy ? "fetching…"
@@ -290,7 +304,7 @@ function KnobRow(props: {
         {props.busy && row.id === "fetch"
           ? <Spinner color={theme.accent} label="fetching…" />
           : <text fg={dim ? theme.textMuted : theme.text}>
-              {valueOf(props.s, props.r, row, props.src, props.peek, props.busy)}
+              {valueOf(props.s, props.r, row, theme, props.src, props.peek, props.busy)}
             </text>}
       </box>
     </box>
@@ -329,9 +343,8 @@ function Strip(props: {
                 : f ? f.map((ln, i) => <text key={i} fg={on ? theme.text : theme.textMuted}>{ln}</text>)
                 : <text fg={theme.textMuted}>+</text>}
             </box>
-            <box height={1}><text fg={on ? theme.accent : theme.textMuted}>
-              {`${own ? "*" : " "}${has ? "📎" : " "}${st}`}
-            </text></box>
+            <box height={1}><text fg={on ? theme.accent : theme.textMuted}>{st}</text></box>
+            <box height={1}><text fg={theme.textMuted}>{has ? "own src" : own ? "forked" : ""}</text></box>
           </box>
         )
       })}
@@ -810,7 +823,7 @@ export const EikonStudio = memo((props: {
 
   const doAction = async (id: string) => {
     if (!s) return
-    if (id === "fork") return mutate(knobs.fork)
+    if (id === "knobsfor") return mutate(p => p.per[p.state] ? knobs.unfork(p) : knobs.fork(p))
     if (id === "revert") { void discard(); return }
     if (id === "reset") {
       const ok = await openConfirm(dialog, { title: "Reset knobs?", body: "Restore rasterizer defaults and drop all per-state overrides.", danger: true })
@@ -879,7 +892,9 @@ export const EikonStudio = memo((props: {
   const toggle   = () => act(navRows[selRef.current], "space")
   const adjust = (d: 1 | -1) => {
     const row = navRows[selRef.current]
-    if (row) stepRow(row, d)
+    if (!row) return
+    if (row.id === "knobsfor") return void doAction("knobsfor")
+    stepRow(row, d)
   }
 
   const discard = async () => {
@@ -967,7 +982,7 @@ export const EikonStudio = memo((props: {
 
   const hint: Array<readonly [string, string]> =
     !s                   ? [["Enter", "new eikon"], ["Shift+→", "gallery"]]
-  : pane === "knobs"   ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.activate"), "open"], [keys.print("list.new"), "new"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
+  : pane === "knobs"   ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.activate"), "edit"], [keys.print("list.new"), "new"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
   : pane === "preview" ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.toggle"), "play/pause"], ["wheel", "zoom"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
   :                      [["←→", "state"], [keys.print("list.activate"), "actions"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
 
@@ -994,6 +1009,9 @@ export const EikonStudio = memo((props: {
   const preview = (
     <TabShell title={spatialOk ? title : `${title}  ·  (ffmpeg not installed)`}
               error={previewErr} focus={pane === "preview"}>
+      {!live && baked
+        ? <box height={1}><text fg={theme.textMuted}>Viewing baked output — fetch or attach a source to edit.</text></box>
+        : null}
       {spatialOk && live && s
         ? <>
             <PanBars sp={s.spatial} sel={spSel} focused={pane === "preview"}
@@ -1034,10 +1052,10 @@ export const EikonStudio = memo((props: {
     </TabShell>
   )
 
-  // Strip cell = 10 (bordered thumb) + 1 (label). TabShell chrome =
+  // Strip cell = 10 (bordered thumb) + 2 (label lines). TabShell chrome =
   // border(2) + padding(2) + title(1) + gap(1). flexBasis=0 on TabShell
   // would collapse it in a column, so pin the wrapper height.
-  const STRIP_H = 17
+  const STRIP_H = 18
   const strip = s ? (
     <box id="studio-strip" flexShrink={0} height={STRIP_H}>
       <TabShell title="States" focus={pane === "strip"}>

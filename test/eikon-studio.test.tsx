@@ -48,9 +48,21 @@ describe("EikonStudio tab", () => {
     // Preview frame arrives after async decode+rasterize.
     await until(t, () => t.frame().includes("STUB-ROW"))
 
+    // Source row shows basename · dims · size.
+    expect(t.frame()).toMatch(/base\.png · 1×1 · \d+\s*B/)
+    // knobs-for cycle row.
+    expect(t.frame()).toContain("knobs for")
+    expect(t.frame()).toContain("◂ all states ▸")
+    expect(t.frame()).not.toContain("fork state")
+    // Strip labels carry no glyphs.
+    expect(t.frame()).not.toContain("📎")
+    // Knobs hint uses "edit", not "open".
+    expect(t.frame()).toContain("[Enter] edit")
+
     // Nav to first tonal knob (tone) — HEAD has 5 nav rows when no
-    // fetch is shown (rasterizer, source, name, fork, reset), so
-    // tone is at index 5.
+    // fetch is shown (rasterizer, source, knobsfor, reset), so tone
+    // is at index 5 (open=0, rasterizer=1, source=2, knobsfor=3,
+    // reset=4, tone=5).
     for (let i = 0; i < 5; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
     await until(t, () => /▸ tone/.test(t.frame()))
     act(() => t.keys.pressArrow("right"))
@@ -64,6 +76,32 @@ describe("EikonStudio tab", () => {
     await until(t, () => t.frame().includes("state") && t.frame().includes("actions"))
     un()
   })
+
+  run("knobs for: ←→ forks current state and toggles back", async () => {
+    const un = eikon.register(stub)
+    seed("knb")
+    prefs.set("eikon", "knb")
+    let sub = 0
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
+      { width: 160, height: 60 },
+    )
+    await until(t, () => t.frame().includes("knobs for"))
+    expect(t.frame()).toContain("◂ all states ▸")
+    // Land on knobs-for row (open=0, rasterizer=1, source=2, knobsfor=3).
+    for (let i = 0; i < 3; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
+    await until(t, () => /▸ knobs for/.test(t.frame()))
+    act(() => t.keys.pressArrow("right"))
+    await until(t, () => t.frame().includes("◂ idle only ▸"))
+    expect(t.frame()).toContain("● unsaved")
+    // Strip label for idle reads "forked" once per[idle] is set.
+    expect(t.frame()).toContain("forked")
+    // Toggle back.
+    act(() => t.keys.pressArrow("left"))
+    await until(t, () => t.frame().includes("◂ all states ▸"))
+    un()
+  })
+
 
   run("Enter on rasterizer row opens DialogSelect; unavailable shows reason", async () => {
     const un = eikon.register(stub)
