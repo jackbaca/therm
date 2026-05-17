@@ -18,6 +18,7 @@
 
 import { existsSync, mkdirSync, readdirSync, copyFileSync, readFileSync, writeFileSync, rmSync } from "node:fs"
 import { join, extname, basename } from "node:path"
+import { install, peek, header as peekHeader, type Installed as Got } from "eikon"
 import { hermesPath } from "./hermes-home"
 import * as prefs from "../context/preferences"
 import { parseEikon } from "../components/avatar/eikon"
@@ -106,9 +107,7 @@ export function writeStudio(name: string, s: Studio) {
 /** Read just the NDJSON header (line 1). */
 export function header(path: string): Record<string, unknown> | undefined {
   if (!existsSync(path)) return undefined
-  const first = readFileSync(path, "utf8").split("\n", 1)[0]
-  if (!first) return undefined
-  try { return JSON.parse(first) as Record<string, unknown> } catch { return undefined }
+  return peekHeader(path) ?? undefined
 }
 
 /** Locate the packed `.eikon` for a name — installed folder-form
@@ -228,79 +227,25 @@ export function remove(name: string) {
   bump()
 }
 
-// ── Bundled source fetch ─────────────────────────────────────────────
+// ── Install / fetch ──────────────────────────────────────────────────
 
 export type Sources = Partial<Record<AvatarState | "base", string>>
-type Plan = Array<{ role: AvatarState | "base"; url: string; bytes: number }>
 export type Fetched = { sources: Sources; n: number; bytes: number }
 
-/** `{role, rel}` pairs from either manifest shape:
- *   - herm-native  `{files:[]}` — roles derived from basename
- *   - eikon-repo   `{source, states:{<k>:{file}}}` */
-function entries(man: Record<string, unknown>): Array<[AvatarState | "base", string]> {
-  const xs: Array<[AvatarState | "base", string]> = []
-  if (typeof man.source === "string") xs.push(["base", man.source])
-  const st = man.states as Record<string, { file?: string }> | undefined
-  if (st) for (const k of STATES) { const f = st[k]?.file; if (f) xs.push([k, f]) }
-  if (xs.length === 0 && Array.isArray(man.files))
-    for (const f of man.files as string[]) {
-      const stem = basename(f, extname(f)).toLowerCase() as AvatarState | "base"
-      xs.push([stem === "base" || STATES.includes(stem as AvatarState) ? stem : "base", f])
-    }
-  return xs
-}
+export const peekSource = peek
 
-async function plan(base: string): Promise<Plan> {
-  const res = await fetch(base + "manifest.json")
-  if (!res.ok) throw new Error(`manifest: HTTP ${res.status}`)
-  const man = await res.json() as Record<string, unknown>
-  const xs = entries(man)
-  if (xs.length === 0) throw new Error("manifest: no source files")
-  return Promise.all(xs.map(async ([role, rel]) => {
-    const url = new URL(rel, base).href
-    const h = await fetch(url, { method: "HEAD" }).catch(() => undefined)
-    return { role, url, bytes: Number(h?.headers.get("content-length") ?? 0) }
-  }))
-}
-
-const peeked = new Map<string, Promise<{ n: number; bytes: number } | undefined>>()
-
-/** HEAD the manifest once; resolves to `{n, bytes}` for UI hints. */
-export function peekSource(url: string): Promise<{ n: number; bytes: number } | undefined> {
-  const base = url.endsWith("/") ? url : url + "/"
-  const hit = peeked.get(base)
-  if (hit) return hit
-  const p = plan(base)
-    .then(xs => ({ n: xs.length, bytes: xs.reduce((a, x) => a + x.bytes, 0) }))
-    .catch(() => undefined)
-  peeked.set(base, p)
-  return p
-}
-
-/** Fetch `manifest.json` + listed files into <name>/source/ as
- *  <role>.<ext>. Writes the resulting sources map into studio.json
- *  (merged over any existing) so open() binds states without
- *  filename heuristics. Returns `{sources, n, bytes}`. */
-export async function fetchSource(name: string, url: string): Promise<Fetched> {
-  const base = url.endsWith("/") ? url : url + "/"
-  const xs = await plan(base)
-  const dst = ensure(name).source
-  const sources: Sources = {}
-  let bytes = 0
-  await Promise.all(xs.map(async x => {
-    const r = await fetch(x.url)
-    if (!r.ok) throw new Error(`${x.url}: HTTP ${r.status}`)
-    const buf = new Uint8Array(await r.arrayBuffer())
-    const fname = `${x.role}${extname(new URL(x.url).pathname).toLowerCase()}`
-    await Bun.write(join(dst, fname), buf)
-    sources[x.role] = fname
-    bytes += buf.length
-  }))
+/** Install an eikon from any resolvable source (catalog name, git
+ *  URL, local dir, http manifest base) into <profile>/eikons/<name>/.
+ *  Seeds studio.json from the returned sources map and bumps the
+ *  revision counter so the sidebar + Gallery reload. */
+export async function fetchSource(name: string, src: string,
+                                   progress?: (d: number, t: number) => void): Promise<Fetched> {
+  const out: Got = await install(src, ROOT(), { name, progress })
   const prev = readStudio(name)
   writeStudio(name, { ...(prev ?? toStudio(fresh(name, pick()))),
-                      sources: { ...prev?.sources, ...sources } })
+                      sources: { ...prev?.sources, ...out.sources } })
   bump()
-  return { sources, n: xs.length, bytes }
+  return { sources: out.sources, n: out.n, bytes: out.bytes }
 }
 
 export { parseEikon, probe }
