@@ -31,6 +31,7 @@ test("generate(image) spawns venv python against image_generation_tool and retur
   expect("path" in out && out.path).toBe(ASSET)
   const argv = await Bun.file(join(HH, "gen-argv")).text()
   expect(argv).toContain("image_generation_tool")
+  expect(argv).toContain("_handle_image_generate")
   expect(argv).toContain("a wise owl")
   expect(argv).toContain("square")
 })
@@ -63,6 +64,18 @@ test("probe() reads check_*_requirements", async () => {
   const argv = await Bun.file(join(HH, "gen-argv")).text()
   expect(argv).toContain("check_image_generation_requirements")
   expect(argv).toContain("check_video_generation_requirements")
+})
+
+test("dotenv keys reach the child process so providers see API keys", async () => {
+  // Fake python echoes whatever env keys are present so we can assert.
+  writeFileSync(PY,
+    `#!/usr/bin/env bash\n` +
+    `echo "FAKE_GEN_KEY=$FAKE_GEN_KEY"\n` +
+    `echo '{"success": true, "image": "${ASSET}"}'\n`)
+  chmodSync(PY, 0o755)
+  writeFileSync(join(HH, ".env"), 'FAKE_GEN_KEY="reached-the-child"\n')
+  const out = await gen.generate("image", "x", {})
+  expect("path" in out).toBe(true)
 })
 
 test("probe() returns false/false when hermes-agent install absent", async () => {

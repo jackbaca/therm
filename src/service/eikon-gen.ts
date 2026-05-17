@@ -7,7 +7,7 @@
 // `GenerateFn` is the injectable surface so tests (and future
 // providers) can swap the backend without touching callers.
 
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { hermesPath } from "./hermes-home"
 
 export type GenerateKind = "image" | "video"
@@ -24,12 +24,47 @@ const PY = () => {
   return "python3"
 }
 
+/** API keys live in ~/.hermes/.env (per AGENTS.md: env file is keys-
+ *  only). Bun auto-loads .env from the project cwd, not from
+ *  HERMES_HOME, so the python subprocess won't see them unless we
+ *  parse the file and merge it into the child env. Quoted values
+ *  and `export ` prefixes are stripped; existing process env wins
+ *  so per-shell overrides still apply. */
+function dotenv(): Record<string, string> {
+  const out: Record<string, string> = {}
+  const path = hermesPath(".env")
+  if (!existsSync(path)) return out
+  for (const raw of readFileSync(path, "utf8").split("\n")) {
+    const ln = raw.trim()
+    if (!ln || ln.startsWith("#")) continue
+    const eq = ln.indexOf("=")
+    if (eq < 1) continue
+    const k = ln.slice(0, eq).replace(/^export\s+/, "").trim()
+    let v = ln.slice(eq + 1).trim()
+    if ((v.startsWith('"') && v.endsWith('"')) ||
+        (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1)
+    out[k] = v
+  }
+  return out
+}
+
+const env = (): Record<string, string> => {
+  // Merge order: ~/.hermes/.env < process.env so a live shell override wins.
+  const base = dotenv()
+  for (const [k, v] of Object.entries(process.env)) if (v !== undefined) base[k] = v
+  return base
+}
+
 const q = (s: string) => JSON.stringify(s)
 
 function code(kind: GenerateKind, prompt: string, o: GenerateOpts): string {
+  // _handle_image_generate / _handle_video_generate route through
+  // `image_gen.provider` / `video_gen.provider` config so a plugin
+  // (openai, xai, etc.) wins when configured; the raw _tool funcs
+  // only know about the in-tree FAL backend.
   if (kind === "image") return [
-    "from tools.image_generation_tool import image_generate_tool as g",
-    `print(g(${q(prompt)}, aspect_ratio=${q(o.aspect ?? "square")}))`,
+    "from tools.image_generation_tool import _handle_image_generate as g",
+    `print(g({"prompt": ${q(prompt)}, "aspect_ratio": ${q(o.aspect ?? "square")}}))`,
   ].join("; ")
   const args: string[] = [`"prompt":${q(prompt)}`, `"aspect_ratio":${q(o.aspect ?? "1:1")}`]
   if (o.seconds) args.push(`"duration":${o.seconds}`)
@@ -52,7 +87,7 @@ export async function probe(): Promise<{ image: boolean; video: boolean }> {
     "from tools.video_generation_tool import check_video_generation_requirements as cv",
     "print(json.dumps({'image': bool(ci()), 'video': bool(cv())}))",
   ].join("; ")
-  const r = Bun.spawn([PY(), "-c", src], { cwd: root, stdout: "pipe", stderr: "pipe" })
+  const r = Bun.spawn([PY(), "-c", src], { cwd: root, env: env(), stdout: "pipe", stderr: "pipe" })
   const out = await new Response(r.stdout).text()
   if ((await r.exited) !== 0) return { image: false, video: false }
   const last = out.trim().split("\n").pop()!
@@ -69,7 +104,7 @@ async function fetchTo(url: string, ext: string): Promise<string> {
 
 export const generate: GenerateFn = async (kind, prompt, opts) => {
   const r = Bun.spawn([PY(), "-c", code(kind, prompt, opts)],
-    { cwd: ROOT(), stdout: "pipe", stderr: "pipe" })
+    { cwd: ROOT(), env: env(), stdout: "pipe", stderr: "pipe" })
   const [out, err, exit] = await Promise.all([
     new Response(r.stdout).text(),
     new Response(r.stderr).text(),
