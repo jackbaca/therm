@@ -30,8 +30,8 @@ import { openConfirm, openSaveDiscard } from "../dialogs/confirm"
 import { openTextPrompt } from "../dialogs/text-prompt"
 import { openPathPrompt } from "../dialogs/path-prompt"
 import { openGenerate, type GenerateKind } from "../dialogs/eikon-generate"
+import { gen } from "../service/eikon-gen"
 import { useGateway } from "../context/gateway"
-import type { Gateway } from "../context/gateway"
 import { openNewEikon } from "../dialogs/new-eikon"
 import { BUNDLED_EIKON_DIR } from "../components/avatar/bundled"
 import { hermesPath } from "../service/hermes-home"
@@ -356,20 +356,14 @@ function Strip(props: {
 
 const BLANK: Frame = Array.from({ length: H }, () => " ".repeat(W))
 
-// One-shot toolset probe — `toolsets.list` is server state, not session
-// state, so the result is process-stable until the agent restarts. Cache
-// the Promise so concurrent opens share the round trip; reset on null
-// gateway (test reseed). The set holds enabled toolset names.
-let toolsetsCache: Promise<Set<string>> | null = null
-const probeToolsets = (gw: Gateway): Promise<Set<string>> => {
-  if (toolsetsCache) return toolsetsCache
-  toolsetsCache = gw.request<{ toolsets?: Array<{ name: string; enabled?: boolean }> }>("toolsets.list", {})
-    .then(r => new Set((r.toolsets ?? []).filter(t => t.enabled !== false).map(t => t.name)))
-    .catch(() => new Set<string>())
-  return toolsetsCache
-}
-/** Test-only — wipe the toolset cache between mountNode calls. */
-export const resetToolsetsCache = () => { toolsetsCache = null }
+// One-shot gen backend probe — calls the installed hermes-agent's
+// check_*_requirements() directly so the source menu reflects actual
+// provider availability (configured key/gateway), not just the
+// toolset toggle. Cached at module scope; tests reset via setImpl.
+let genCaps: Promise<{ image: boolean; video: boolean }> | null = null
+const probeGen = () => (genCaps ??= gen.probeCached())
+/** Test-only — wipe the gen-caps cache between mountNode calls. */
+export const resetToolsetsCache = () => { genCaps = null }
 
 export const EikonStudio = memo((props: {
   focused: boolean
@@ -408,7 +402,7 @@ export const EikonStudio = memo((props: {
   const [err, setErr] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [pending, setPending] = useState<ReadonlySet<AvatarState>>(new Set())
-  const [tools, setTools] = useState<Set<string> | null>(null)
+  const [genOk, setGenOk] = useState<{ image: boolean; video: boolean } | null>(null)
   const frame = frames[tick % frames.length] ?? BLANK
 
   const r = useMemo(() => eikon.pick(s?.rasterizer ?? prefs.get("eikonRasterizer")), [s?.rasterizer])
@@ -460,14 +454,14 @@ export const EikonStudio = memo((props: {
     return () => { dead = true }
   }, [props.name, open])
 
-  // Probe enabled toolsets once per process so the source menu can hide
-  // Generate rows when image_gen/video_gen aren't on. Cached at module
-  // scope — repeated mounts share one round trip.
+  // Probe gen backends once per process so the source menu can hide
+  // Generate rows when no image/video provider is configured. Cached
+  // at module scope — repeated mounts share one subprocess.
   useEffect(() => {
     let dead = false
-    void probeToolsets(gw).then(s => { if (!dead) setTools(s) })
+    void probeGen().then(c => { if (!dead) setGenOk(c) })
     return () => { dead = true }
-  }, [gw])
+  }, [])
 
   const src = useMemo(() => (s ? eikon.findSource(s.name, s.state) : undefined), [s?.name, s?.state, s?.sources])
   const live = useMemo(() => !!(s && eikon.findSource(s.name)), [s?.name, s?.sources])
@@ -640,7 +634,7 @@ export const EikonStudio = memo((props: {
     if (!s) return
     const seed = s.sources.base ? eikon.findSource(s.name) : undefined
     setPending(prev => { const n = new Set(prev); n.add(st); return n })
-    const out = await openGenerate(dialog, gw, {
+    const out = await openGenerate(dialog, gen.current(), {
       state: st, kind, seed, lastPrompt: s.prompts?.[st],
     })
     if (!out) {
@@ -668,8 +662,8 @@ export const EikonStudio = memo((props: {
     const st = forSt ?? s.state
     const has = !!s.sources[st]
     const opts: Array<{ title: string; value: string }> = [{ title: "Local file…", value: "local" }]
-    if (tools?.has("image_gen")) opts.push({ title: "Generate image…", value: "gen-image" })
-    if (tools?.has("video_gen")) opts.push({ title: "Generate video…", value: "gen-video" })
+    if (genOk?.image) opts.push({ title: "Generate image…", value: "gen-image" })
+    if (genOk?.video) opts.push({ title: "Generate video…", value: "gen-video" })
     if (has && st !== "idle") opts.push({ title: "Same as base", value: "same" })
     if (has) opts.push({ title: "Remove", value: "remove" })
     dialog.replace(

@@ -3,9 +3,9 @@
 // the caller passes a seed path); optional seconds slider 1-4 for
 // kind="video". Enter submits → spinner → resolves with {path} or null.
 //
-// The RPC `eikon.generate` is NOT yet declared in stock hermes-agent.
-// Tests stub it via MockGateway; production calls will reject until a
-// follow-up adds the server method. See task t_b182c1b3 metadata.
+// Generation runs via `service/eikon-gen.ts`, which spawns the
+// installed hermes-agent venv's python and calls the image/video
+// tool functions directly — no gateway RPC round-trip.
 
 import { useRef, useState } from "react"
 import { useKeyboard } from "@opentui/react"
@@ -13,10 +13,10 @@ import type { TextareaRenderable } from "@opentui/core"
 import { useTheme } from "../theme"
 import { Spinner } from "../ui/spinner"
 import type { DialogContext } from "../ui/dialog"
-import type { Gateway } from "../context/gateway"
 import type { AvatarState } from "../components/avatar/states"
+import type { GenerateFn, GenerateKind } from "../service/eikon-gen"
 
-export type GenerateKind = "image" | "video"
+export type { GenerateKind }
 
 type Opts = {
   state: AvatarState
@@ -29,7 +29,7 @@ type Opts = {
 }
 
 type Props = Opts & {
-  gw: Gateway
+  run: GenerateFn
   onDone: (path: string | null, prompt: string) => void
 }
 
@@ -53,16 +53,14 @@ const Generate = (props: Props) => {
     const p = prompt.trim()
     if (!p || busy) return
     setBusy(true); setErr(null)
-    const params: Record<string, unknown> = { kind: props.kind, prompt: p }
-    if (props.seed && useSeed) params.seed = props.seed
-    if (props.kind === "video") params.seconds = secs
-    props.gw.request<{ path?: string; err?: string }>("eikon.generate", params)
-      .then(r => {
-        if (r.err) { setErr(r.err); setBusy(false); return }
-        if (r.path) return props.onDone(r.path, p)
-        setErr("no path returned"); setBusy(false)
-      })
-      .catch(e => { setErr(e instanceof Error ? e.message : String(e)); setBusy(false) })
+    void props.run(props.kind, p, {
+      seed: props.seed && useSeed ? props.seed : undefined,
+      seconds: props.kind === "video" ? secs : undefined,
+      aspect: props.kind === "video" ? "1:1" : "square",
+    }).then(r => {
+      if ("err" in r) { setErr(r.err); setBusy(false); return }
+      props.onDone(r.path, p)
+    })
   }
 
   useKeyboard(key => {
@@ -169,13 +167,13 @@ const Generate = (props: Props) => {
 
 export function openGenerate(
   dialog: DialogContext,
-  gw: Gateway,
+  run: GenerateFn,
   opts: Opts,
 ): Promise<{ path: string; prompt: string } | null> {
   return new Promise(resolve => {
     dialog.replace(
       <Generate
-        {...opts} gw={gw}
+        {...opts} run={run}
         onDone={(p, txt) => { resolve(p ? { path: p, prompt: txt } : null); dialog.clear() }}
       />,
       () => resolve(null),
