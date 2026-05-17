@@ -22,7 +22,8 @@ function seed(name: string, r: string) {
 
 /** DialogSelect filterable=false; registry order [chafa, native]. */
 async function pickIdx(t: Harness, idx: number) {
-  act(() => t.keys.pressKey("HOME")); await t.settle()  // sel → row 0 (rasterizer)
+  act(() => t.keys.pressKey("HOME")); await t.settle()  // sel → row 0 (eikon)
+  act(() => t.keys.pressArrow("down")); await t.settle()  // → row 1 (rasterizer)
   act(() => t.keys.pressEnter())
   await until(t, () => t.frame().includes("Rasterizer"))
   act(() => t.keys.pressKey("HOME")); await t.settle()
@@ -80,12 +81,12 @@ run("Esc in a prompt dialog does NOT fall through to discard()", async () => {
   act(() => t.keys.pressArrow("right")); await t.settle()
   await until(t, () => t.frame().includes("● unsaved"))
 
-  // Open 'name' prompt → Esc closes it, no discard confirm.
-  await navTo(t, "name")
+  // Open 'source' prompt → Esc closes it, no discard confirm.
+  await navTo(t, "source")
   act(() => t.keys.pressEnter())
-  await until(t, () => t.frame().includes("Name") && t.frame().includes("Enter confirm"))
+  await until(t, () => t.frame().includes("Source image"))
   act(() => t.keys.pressEscape()); await t.settle(); await t.settle()
-  expect(t.frame()).not.toContain("Enter confirm")
+  expect(t.frame()).not.toContain("Source image")
   expect(t.frame()).not.toContain("Discard unsaved")
   expect(t.frame()).toContain("● unsaved")  // dirty retained
 

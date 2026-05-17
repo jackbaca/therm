@@ -74,7 +74,9 @@ describe("EikonStudio tab", () => {
       { width: 160, height: 48 },
     )
     await until(t, () => t.frame().includes("rasterizer"))
-    // Selection starts on row 0 (rasterizer). Enter → dialog.
+    // Selection starts on row 0 (eikon picker). Move down once to land on
+    // the rasterizer row, then Enter → dialog.
+    act(() => t.keys.pressArrow("down")); await t.settle()
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Rasterizer") && t.frame().includes("● stub"))
     // chafa + native also listed; one may show an install hint.
@@ -82,6 +84,34 @@ describe("EikonStudio tab", () => {
     expect(t.frame()).toContain("native")
     act(() => t.keys.pressEscape())
     await until(t, () => !t.frame().includes("● stub") || t.frame().includes("Knobs"))
+    un()
+  })
+
+  run("Enter on eikon row opens picker with seeded eikon + New…; New creates and opens", async () => {
+    const un = eikon.register(stub)
+    seed("alpha")
+    prefs.set("eikon", "alpha")
+    let sub = 0
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
+      { width: 160, height: 48 },
+    )
+    await until(t, () => t.frame().includes("rasterizer"))
+    // Row 0 = eikon picker. Enter opens it; "alpha" appears as the
+    // current selection. The trailers (+ New, + Install) may be below
+    // the viewport in a populated sandbox, so filter down to "new" to
+    // bring + New into view, then Enter selects it.
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Open eikon"))
+    expect(t.frame()).toContain("alpha")
+    await act(async () => { await t.keys.typeText("new") })
+    await until(t, () => t.frame().includes("+ New"))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("New eikon"))
+    // Type a fresh name; default `from` is blank, so Enter resolves.
+    await act(async () => { await t.keys.typeText("beta") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("beta ▸"))
     un()
   })
 
