@@ -131,6 +131,12 @@ run("layout probe (narrow)", async () => {
   expect(iBody).toBeLessThan(iZoom)
   // Knobs rows render (not collapsed).
   expect(f).toContain("rasterizer")
+  // Panel sized to fit: every settings row visible, no inner
+  // scrollbar glyphs inside the panel band.
+  const iLast = lines.findIndex(l => l.includes("gain"))
+  expect(iLast).toBeGreaterThan(iKnob)
+  for (const l of lines.slice(iKnob, iLast + 1))
+    expect(l).not.toMatch(/[▀▄█]\s*│\s*$/)
   un()
 })
 

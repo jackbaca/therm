@@ -55,6 +55,9 @@ declare module "@opentui/react" {
 
 type Pane = "knobs" | "preview" | "strip"
 const PANES: readonly Pane[] = ["knobs", "preview", "strip"]
+// Help footer rows (fixed so the narrow layout can size the panel
+// exactly — no scrollbar unless row count actually overflows).
+const HELP_H = 3
 // Stable contentOptions — inline `{}` would re-set on every reconcile.
 const COL = { flexDirection: "column" } as const
 
@@ -1077,7 +1080,7 @@ export const EikonStudio = memo((props: {
                 )
               })}
             </scrollbox>
-            <box flexShrink={0} minHeight={2} marginTop={1} overflow="hidden">
+            <box flexShrink={0} height={HELP_H} marginTop={1} overflow="hidden">
               <text fg={theme.textMuted} wrapMode="word">{help}</text>
             </box>
           </>}
@@ -1111,7 +1114,8 @@ export const EikonStudio = memo((props: {
   ) : (
     <>
       <box id="studio-preview" flexShrink={0} height={PREVIEW_H}>{preview}</box>
-      <box id="studio-knobs" flexShrink={0} height={Math.max(rows.length, 1) + 6}>{panel}</box>
+      <box id="studio-knobs" flexShrink={0}
+           height={Math.max(rows.length, 1) + HELP_H + 1 + 6}>{panel}</box>
     </>
   )
   return (
