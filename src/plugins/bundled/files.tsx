@@ -110,6 +110,7 @@ function Files(props: { api: HermPluginApi }) {
 
 const plugin: HermPlugin = {
   id: "demo.files",
+  enabled: false,
   tui(api) {
     api.route.register([{
       name: "Files",

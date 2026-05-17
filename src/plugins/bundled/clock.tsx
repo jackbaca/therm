@@ -17,6 +17,7 @@ function Clock(props: { api: HermPluginApi }) {
 
 const plugin: HermPlugin = {
   id: "demo.clock",
+  enabled: false,
   tui(api) {
     api.slots.register({
       order: 100,
