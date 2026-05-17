@@ -26,6 +26,8 @@ import { HintBar } from "../ui/hint"
 import { DialogSelect } from "../ui/dialog-select"
 import { openConfirm, openSaveDiscard } from "../dialogs/confirm"
 import { openTextPrompt } from "../dialogs/text-prompt"
+import { openPathPrompt } from "../dialogs/path-prompt"
+import { useGateway } from "../context/gateway"
 import * as prefs from "../context/preferences"
 import { eikon } from "../service/eikon"
 import type { ParsedEikon } from "../components/avatar/eikon"
@@ -293,6 +295,7 @@ function KnobRow(props: {
 function Strip(props: {
   s: Session; frames: Map<AvatarState, Frame | undefined>
   focused: boolean; onPick: (st: AvatarState) => void
+  onEmpty?: (st: AvatarState) => void
 }) {
   const theme = useTheme().theme
   return (
@@ -302,14 +305,18 @@ function Strip(props: {
         const own = !!props.s.per[st]
         const has = !!props.s.sources[st]
         const f = props.frames.get(st)
+        const empty = !f
         return (
           <box key={st} flexDirection="column" alignItems="center"
-               onMouseDown={() => props.onPick(st)}>
+               onMouseDown={() => {
+                 props.onPick(st)
+                 if (empty) props.onEmpty?.(st)
+               }}>
             <box border borderStyle="rounded"
                  borderColor={on && props.focused ? theme.primary : on ? theme.accent : theme.border}
                  width={18} height={10} overflow="hidden" alignItems="center" justifyContent="center">
               {f ? f.map((ln, i) => <text key={i} fg={on ? theme.text : theme.textMuted}>{ln}</text>)
-                 : <text fg={theme.textMuted}>·</text>}
+                 : <text fg={theme.textMuted}>+</text>}
             </box>
             <box height={1}><text fg={on ? theme.accent : theme.textMuted}>
               {`${own ? "*" : " "}${has ? "📎" : " "}${st}`}
@@ -333,6 +340,7 @@ export const EikonStudio = memo((props: {
   const theme = useTheme().theme
   const keys = useKeys()
   const dialog = useDialog()
+  const gw = useGateway()
   const toast = useToast()
   const dims = useTerminalDimensions()
   const wide = dims.width >= 120
@@ -578,16 +586,42 @@ export const EikonStudio = memo((props: {
     )
   }
 
+  const doSource = (forSt?: AvatarState) => {
+    if (!s) return
+    const st = forSt ?? s.state
+    const has = !!s.sources[st]
+    const opts: Array<{ title: string; value: string }> = [{ title: "Local file…", value: "local" }]
+    if (has && st !== "idle") opts.push({ title: "Same as base", value: "same" })
+    if (has) opts.push({ title: "Remove", value: "remove" })
+    dialog.replace(
+      <DialogSelect title={`Source for '${st}'`} filterable={false} options={opts}
+        onSelect={async o => {
+          if (o.value === "local") {
+            const p = await openPathPrompt(dialog, gw, {
+              title: `Source for '${st}'`,
+              label: "png/jpg/webp/gif/mp4/webm/mov  ·  Tab completes",
+              filter: /\.(png|jpe?g|webp|gif|mp4|webm|mov)$/i,
+            })
+            if (!p) return
+            const role = st === "idle" && !s.sources.base ? "base" : st
+            try { const f = eikon.adopt(s.name, p, role); mutate(prev => ({ ...prev, sources: { ...prev.sources, [role]: f }, dirty: true })) }
+            catch (e) { toast.error(e instanceof Error ? e : new Error(String(e))) }
+            return
+          }
+          dialog.clear()
+          mutate(prev => {
+            const next = { ...prev.sources }
+            delete next[st]
+            return { ...prev, sources: next, dirty: true }
+          })
+        }} />,
+      () => {},
+    )
+  }
+
   const doPrompt = async (id: string) => {
     if (!s) return
-    if (id === "source") {
-      const v = await openTextPrompt(dialog, { title: "Source image", label: `for state '${s.state}' (png/jpg/webp/gif/mp4)` })
-      if (!v) return
-      const role = s.state === "idle" && !s.sources.base ? "base" : s.state
-      try { const f = eikon.adopt(s.name, v, role); mutate(p => ({ ...p, sources: { ...p.sources, [role]: f }, dirty: true })) }
-      catch (e) { toast.error(e instanceof Error ? e : new Error(String(e))) }
-      return
-    }
+    if (id === "source") return doSource()
     if (id === "name") {
       const v = await openTextPrompt(dialog, { title: "Name", initial: s.name })
       if (v) mutate(p => ({ ...p, name: knobs.slug(v), dirty: true }))
@@ -621,12 +655,12 @@ export const EikonStudio = memo((props: {
     dialog.replace(
       <DialogSelect title={`State: ${s.state}`} filterable={false}
         options={[
-          { title: "Attach source image…", value: "attach" },
+          { title: "Source…", value: "source" },
           { title: s.per[s.state] ? "Clear override (back to base)" : "Fork knobs from base", value: "fork" },
         ]}
         onSelect={o => {
+          if (o.value === "source") { doSource(); return }
           dialog.clear()
-          if (o.value === "attach") return void doPrompt("source")
           mutate(s.per[s.state] ? knobs.unfork : knobs.fork)
         }} />,
       () => {},
@@ -825,7 +859,8 @@ export const EikonStudio = memo((props: {
     <box id="studio-strip" flexShrink={0} height={STRIP_H}>
       <TabShell title="States" focus={pane === "strip"}>
         <Strip s={s} frames={thumbs} focused={pane === "strip"}
-               onPick={st => { setPane("strip"); mutate(p => knobs.setState(p, st)) }} />
+               onPick={st => { setPane("strip"); mutate(p => knobs.setState(p, st)) }}
+               onEmpty={st => doSource(st)} />
       </TabShell>
     </box>
   ) : null
