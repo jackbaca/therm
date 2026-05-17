@@ -38,7 +38,7 @@
   "dependencies": {
     "@opentui/core": "0.2.2",
     "@opentui/react": "0.2.2",
-    "eikon": "file:../../../eikon",
+    "eikon": "git+ssh://git@github.com/liftaris/eikon.git#7f1a3221c2b0d6eaed2c4bc06904498bba8783c9",
     "gpt-tokenizer": "^3.4.0",
     "open": "^11.0.0",
     "react": "^19.2.5",
