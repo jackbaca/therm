@@ -25,6 +25,9 @@ export type Studio = {
   per: Partial<Record<AvatarState, KnobValues>>
   glyph: string
   sources: Partial<Record<AvatarState | "base", string>>
+  /** Per-state last generation prompt — pre-fills the generate dialog
+   *  on a state's next open so users can iterate without retyping. */
+  prompts?: Partial<Record<AvatarState, string>>
 }
 
 export type Session = Studio & {
@@ -44,6 +47,7 @@ export function fresh(name: string, r: Rasterizer, seed?: Partial<Studio>): Sess
     per: seed?.per ?? {},
     glyph: seed?.glyph ?? "◆",
     sources: seed?.sources ?? {},
+    prompts: seed?.prompts ?? {},
   }
 }
 
@@ -118,7 +122,7 @@ export const slug = (v: string) =>
 /** Persisted slice of a session. */
 export const toStudio = (s: Session): Studio => ({
   rasterizer: s.rasterizer, spatial: s.spatial, fps: s.fps, base: s.base,
-  per: s.per, glyph: s.glyph, sources: s.sources,
+  per: s.per, glyph: s.glyph, sources: s.sources, prompts: s.prompts,
 })
 
 export * as knobs from "./eikon-knobs"
