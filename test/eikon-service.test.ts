@@ -61,11 +61,15 @@ describe("service/eikon: registry", () => {
     const un = eikon.register(fake)
     expect(eikon.rasterizer("fake")).toBe(fake)
     expect(pinged).toBe(1)
+    // pick: unavailable prefer → first available. fake is always
+    // available, so this holds regardless of chafa/ffmpeg on the host.
+    expect(eikon.pick("nope").available()).toBe(true)
+    expect(eikon.pick("fake")).toBe(fake)
     un()
     expect(eikon.rasterizer("fake")).toBeUndefined()
     off()
-    // pick: unavailable prefer → first available
-    expect(eikon.pick("nope").available()).toBe(true)
+    // With only built-ins, pick() at least falls back to native.
+    expect(["chafa", "native"]).toContain(eikon.pick("nope").name)
   })
 })
 
