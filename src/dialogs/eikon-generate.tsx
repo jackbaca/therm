@@ -145,16 +145,18 @@ const Generate = (props: Props) => {
         </box>
       ) : null}
 
-      <box height={1} marginTop={1} flexDirection="row">
+      <box marginTop={1} flexDirection="row">
         {lbl("submit", "")}
-        <box flexGrow={1} minWidth={0} height={1}>
+        <box flexGrow={1} minWidth={0}>
           {busy
-            ? <Spinner color={theme.accent} label="generating…" />
+            ? <box height={1}><Spinner color={theme.accent} label="generating…" /></box>
             : err
-              ? <text fg={theme.warning}>{err}</text>
-              : <text fg={field === "submit" ? theme.accent : theme.textMuted}>
-                  {"[Enter] generate"}
-                </text>}
+              ? <text fg={theme.warning} wrapMode="word">{err}</text>
+              : <box height={1}>
+                  <text fg={field === "submit" ? theme.accent : theme.textMuted}>
+                    {"[Enter] generate"}
+                  </text>
+                </box>}
         </box>
       </box>
 

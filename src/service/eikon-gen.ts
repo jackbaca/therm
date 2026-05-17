@@ -115,7 +115,7 @@ export const generate: GenerateFn = async (kind, prompt, opts) => {
   if (!last) return { err: "no output" }
   let j: { success?: boolean; image?: string; video?: string; error?: string }
   try { j = JSON.parse(last) } catch { return { err: `unparseable: ${last.slice(0, 200)}` } }
-  if (j.success === false || j.error) return { err: j.error ?? "provider error" }
+  if (j.success === false || j.error) return { err: String(j.error ?? "provider error") }
   const ref = j.image ?? j.video
   if (!ref) return { err: "provider returned no asset" }
   if (ref.startsWith("/") || ref.startsWith("file://"))
