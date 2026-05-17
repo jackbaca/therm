@@ -27,9 +27,9 @@ export type Spatial = { zoom: number; ox: number; oy: number }
 export const S0: Spatial = { zoom: 1.0, ox: 0.5, oy: 0.5 }
 
 export type KnobDef =
-  | { kind: "cycle";  label?: string; options: readonly string[]; default: string }
-  | { kind: "toggle"; label?: string; default: boolean }
-  | { kind: "slider"; label?: string; min: number; max: number; step: number; default: number }
+  | { kind: "cycle";  label?: string; hint?: string; options: readonly string[]; default: string }
+  | { kind: "toggle"; label?: string; hint?: string; default: boolean }
+  | { kind: "slider"; label?: string; hint?: string; min: number; max: number; step: number; default: number }
 
 export type KnobValues = Record<string, string | number | boolean>
 
@@ -302,12 +302,18 @@ function tone(win: Window, flip: string, con: number): Window {
 export const chafa: Rasterizer = {
   name: "chafa",
   knobs: {
-    symbols:   { kind: "cycle",  options: ["braille", "block", "ascii", "sextant", "quad", "half", "wedge"], default: "braille" },
-    fill:      { kind: "cycle",  options: ["none", "stipple", "ascii", "braille"], default: "none" },
-    dither:    { kind: "cycle",  options: ["none", "ordered", "diffusion", "noise"], default: "none" },
-    invert:    { kind: "toggle", default: true },
-    flip:      { kind: "cycle",  options: ["none", "h", "v", "hv"], default: "none" },
-    contrast:  { kind: "slider", min: 0.5, max: 3.0, step: 0.1, default: 1.0 },
+    symbols:   { kind: "cycle",  options: ["braille", "block", "ascii", "sextant", "quad", "half", "wedge"], default: "braille",
+                 hint: "Glyph family used to draw pixels. Braille is densest; block is boldest; ascii is most compatible." },
+    fill:      { kind: "cycle",  options: ["none", "stipple", "ascii", "braille"], default: "none",
+                 hint: "Secondary glyph set used where the primary leaves gaps." },
+    dither:    { kind: "cycle",  options: ["none", "ordered", "diffusion", "noise"], default: "none",
+                 hint: "Adds texture to smooth gradients so mid-tones don't band." },
+    invert:    { kind: "toggle", default: true,
+                 hint: "Flip light↔dark. On for dark terminal backgrounds." },
+    flip:      { kind: "cycle",  options: ["none", "h", "v", "hv"], default: "none",
+                 hint: "Mirror the source horizontally, vertically, or both." },
+    contrast:  { kind: "slider", min: 0.5, max: 3.0, step: 0.1, default: 1.0,
+                 hint: "Push mid-tones toward black/white. >1 sharpens edges; <1 flattens." },
   },
   available: () => caps.chafa ? true : "chafa not installed",
   async render(win, k, signal) {
@@ -392,9 +398,12 @@ function block(g: Uint8Array, w: number, h: number, inv: boolean, con: number): 
 export const native: Rasterizer = {
   name: "native",
   knobs: {
-    symbols:  { kind: "cycle",  options: ["braille", "block"], default: "braille" },
-    invert:   { kind: "toggle", default: true },
-    contrast: { kind: "slider", min: 0.5, max: 3.0, step: 0.1, default: 1.0 },
+    symbols:  { kind: "cycle",  options: ["braille", "block"], default: "braille",
+                hint: "Glyph family used to draw pixels. Braille is denser; block is bolder." },
+    invert:   { kind: "toggle", default: true,
+                hint: "Flip light↔dark. On for dark terminal backgrounds." },
+    contrast: { kind: "slider", min: 0.5, max: 3.0, step: 0.1, default: 1.0,
+                hint: "Push mid-tones toward black/white. >1 sharpens edges; <1 flattens." },
   },
   available: () => caps.ffmpeg ? true : "ffmpeg not installed",
   async render(win, k) {

@@ -44,6 +44,7 @@ import { W, H, FPS0, caps, thumb, cached, resetCache, prewarm,
 import { knobs, STATES, type Session } from "../utils/eikon-knobs"
 import type { AvatarState } from "../components/avatar/states"
 import { useSpinnerGlyph } from "../ui/spinner"
+import type { MouseEvent } from "@opentui/core"
 
 // SliderRenderable ships in @opentui/core but isn't in react's default
 // catalogue; register it once so `<slider>` is a valid intrinsic.
@@ -80,6 +81,32 @@ const HEAD: readonly Row[] = [
   { id: "revert",     kind: "action", label: "revert",      show: s => s.dirty },
   { id: "-2",         kind: "divider", label: "", show: (_s, live) => live },
 ]
+
+// One-sentence help per row, shown at the bottom of the Settings
+// pane when the row is selected/hovered. Rasterizer-declared knobs
+// fall through to helpOf() which reads KnobDef.hint or synthesizes
+// one from the knob kind.
+const HELP: Readonly<Record<string, string>> = {
+  open:       "Which eikon you're editing. Enter to switch, create a new one, or install from elsewhere.",
+  rasterizer: "The engine that turns your source image/video into text art. Each rasterizer exposes its own look-and-feel knobs below the divider.",
+  source:     "The image or video file the avatar is rendered from. Enter to pick a local file, generate one with AI, or clear it. Each state can have its own source.",
+  fetch:      "Download this eikon's published source media so you can re-tune it locally.",
+  knobsfor:   "←→ toggles whether the knobs below apply to every state or just the one selected in the strip.",
+  reset:      "Restore every knob to this rasterizer's defaults and drop per-state overrides.",
+  revert:     "Throw away unsaved edits and reload this eikon from disk.",
+}
+
+function helpOf(row: Row | undefined): string {
+  if (!row) return ""
+  const head = HELP[row.id]
+  if (head) return head
+  if (row.kind !== "knob" || !row.knob) return ""
+  if (row.knob.hint) return row.knob.hint
+  if (row.knob.kind === "cycle")
+    return `←→ or Enter cycles: ${row.knob.options.join(" · ")}.`
+  if (row.knob.kind === "toggle") return "Space or Enter toggles on/off."
+  return `←→ or drag adjusts (${row.knob.min}–${row.knob.max}); scroll while selected also works.`
+}
 
 function buildRows(r: Rasterizer, s: Session, live: boolean, url?: string): Row[] {
   const dyn = live
@@ -145,7 +172,8 @@ function PanBars(props: {
   const slack = 1 - z
   const on = (i: number) => props.focused && props.sel === i
   const fg = (i: number) => on(i) ? theme.accent : theme.textMuted
-  const wheel = (k: SpKey) => (e: { scroll?: { direction: string } }) => {
+  const wheel = (k: SpKey) => (e: MouseEvent) => {
+    e.stopPropagation()
     const d = e.scroll?.direction
     if (d === "up" || d === "left") props.onWheel(k, -1)
     if (d === "down" || d === "right") props.onWheel(k, 1)
@@ -202,7 +230,8 @@ function SpatialBar(props: {
     { label: "zoom", k: "zoom", min: 0.1, max: 1.0, v: props.sp.zoom, i: 2 },
     { label: "fps",  k: "fps",  min: 4,   max: 30,  v: props.fps,     i: 3 },
   ]
-  const wheel = (k: SpKey) => (e: { scroll?: { direction: string } }) => {
+  const wheel = (k: SpKey) => (e: MouseEvent) => {
+    e.stopPropagation()
     const d = e.scroll?.direction
     if (d === "up") props.onWheel(k, -1)
     if (d === "down") props.onWheel(k, 1)
@@ -276,16 +305,28 @@ function KnobRow(props: {
   peek?: { n: number; bytes: number }; busy?: boolean
   onHover: () => void; onClick: () => void
   onSlide?: (v: number) => void
+  onWheel?: (d: 1 | -1) => void
 }) {
   const theme = useTheme().theme
   const { row, on, dim } = props
   if (row.kind === "divider")
     return <box id={props.id} height={1}><text fg={theme.border}>{"─".repeat(24)}</text></box>
   const slider = row.knob?.kind === "slider" ? row.knob : undefined
+  // Wheel over the selected slider row adjusts it and stops bubbling
+  // so the enclosing scrollboxes don't also move. Unselected / non-
+  // slider rows let the event through for normal list scrolling.
+  const scroll = (e: MouseEvent) => {
+    if (!on || !slider || !props.onWheel) return
+    e.stopPropagation()
+    const d = e.scroll?.direction
+    if (d === "up" || d === "left") props.onWheel(-1)
+    if (d === "down" || d === "right") props.onWheel(1)
+  }
   return (
     <box id={props.id} height={1} flexDirection="row"
          backgroundColor={on ? theme.backgroundElement : undefined}
-         onMouseMove={props.onHover} onMouseDown={props.onClick}>
+         onMouseMove={props.onHover} onMouseDown={props.onClick}
+         onMouseScroll={scroll}>
       <box width={2}><text fg={on ? theme.primary : theme.textMuted}>{on ? "▸ " : "  "}</text></box>
       <box width={14}><text fg={dim ? theme.textMuted : on ? theme.text : theme.textMuted}>{row.label}</text></box>
       {slider ? (
@@ -936,12 +977,20 @@ export const EikonStudio = memo((props: {
     if (key.name === "return") return doStripMenu()
   })
 
-  // Preview mouse: wheel-zoom only (drag-pan removed — sliders cover it).
-  const onScroll = (e: { scroll?: { direction: string } }) => {
+  // Preview wheel: pan-y by default; +Shift → pan-x; +Ctrl → zoom.
+  // Always swallowed so the outer scrollbox never moves while the
+  // pointer is over the frame.
+  const onScroll = (e: MouseEvent) => {
+    e.stopPropagation()
     if (!spatialOk || !live || !e.scroll) return
     const d = e.scroll.direction
     if (d !== "up" && d !== "down") return
-    mutate(p => ({ ...p, spatial: knobs.zoom(p.spatial, d === "up" ? -1 : 1), dirty: true }))
+    const sign = d === "up" ? -1 : 1
+    if (e.modifiers.ctrl)
+      return mutate(p => ({ ...p, spatial: knobs.zoom(p.spatial, sign), dirty: true }))
+    if (e.modifiers.shift)
+      return mutate(p => ({ ...p, spatial: knobs.pan(p.spatial, sign, 0), dirty: true }))
+    mutate(p => ({ ...p, spatial: knobs.pan(p.spatial, 0, sign), dirty: true }))
   }
 
   const n = frames.length
@@ -957,7 +1006,7 @@ export const EikonStudio = memo((props: {
   const hint: Array<readonly [string, string]> =
     !s                   ? [["Enter", "new eikon"], ["Shift+→", "gallery"]]
   : pane === "knobs"   ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.activate"), "edit"], [keys.print("list.new"), "new"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
-  : pane === "preview" ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.toggle"), "play/pause"], ["wheel", "zoom"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
+  : pane === "preview" ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.toggle"), "play/pause"], ["wheel", "pan"], ["Ctrl+wheel", "zoom"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
   :                      [["←→", "state"], [keys.print("list.activate"), "actions"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
 
   // TabShell chrome = border(2) + padding(2) + title(1) + gap(1).
@@ -1003,28 +1052,35 @@ export const EikonStudio = memo((props: {
     </TabShell>
   )
 
+  const help = helpOf(navRows[sel])
   const panel = (
-    <TabShell title={s ? `Knobs — ${s.name}` : "Knobs"} focus={pane === "knobs"} grow={1}>
+    <TabShell title={s ? `Settings — ${s.name}` : "Settings"} focus={pane === "knobs"} grow={1}>
       {!s
         ? <box flexGrow={1} alignItems="center" justifyContent="center">
             <text fg={theme.textMuted}>No eikon open. Enter to create or pick one.</text>
           </box>
-        : <scrollbox ref={ksb} scrollY flexGrow={1} contentOptions={COL}>
-            {rows.map((row, i) => {
-              const ni = navRows.findIndex(x => x.i === i)
-              const on = pane === "knobs" && ni === sel
-              const dim = row.kind === "knob" && !src
-              return (
-                <KnobRow key={`${r.name}:${row.id}`} id={`knob-${row.id}`} row={row} s={s} r={r} src={src}
-                         on={on} dim={dim} peek={peek} busy={row.id === "fetch" && fetching}
-                         onHover={() => { if (ni >= 0) { setPane("knobs"); setSelBy(ni) } }}
-                         onClick={() => { if (ni >= 0) { setSelBy(ni); setPane("knobs"); act(row, "click") } }}
-                         onSlide={row.knob?.kind === "slider"
-                           ? v => mutate(p => knobs.edit(p, k => knobs.setSlider(k, row.id, row.knob!, v)))
-                           : undefined} />
-              )
-            })}
-          </scrollbox>}
+        : <>
+            <scrollbox ref={ksb} scrollY flexGrow={1} contentOptions={COL}>
+              {rows.map((row, i) => {
+                const ni = navRows.findIndex(x => x.i === i)
+                const on = pane === "knobs" && ni === sel
+                const dim = row.kind === "knob" && !src
+                return (
+                  <KnobRow key={`${r.name}:${row.id}`} id={`knob-${row.id}`} row={row} s={s} r={r} src={src}
+                           on={on} dim={dim} peek={peek} busy={row.id === "fetch" && fetching}
+                           onHover={() => { if (ni >= 0) { setPane("knobs"); setSelBy(ni) } }}
+                           onClick={() => { if (ni >= 0) { setSelBy(ni); setPane("knobs"); act(row, "click") } }}
+                           onWheel={d => stepRow(row, d)}
+                           onSlide={row.knob?.kind === "slider"
+                             ? v => mutate(p => knobs.edit(p, k => knobs.setSlider(k, row.id, row.knob!, v)))
+                             : undefined} />
+                )
+              })}
+            </scrollbox>
+            <box flexShrink={0} minHeight={2} marginTop={1} overflow="hidden">
+              <text fg={theme.textMuted} wrapMode="word">{help}</text>
+            </box>
+          </>}
     </TabShell>
   )
 

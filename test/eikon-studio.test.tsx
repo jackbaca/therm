@@ -123,7 +123,7 @@ describe("EikonStudio tab", () => {
     expect(t.frame()).toContain("chafa")
     expect(t.frame()).toContain("native")
     act(() => t.keys.pressEscape())
-    await until(t, () => !t.frame().includes("● stub") || t.frame().includes("Knobs"))
+    await until(t, () => !t.frame().includes("● stub") || t.frame().includes("Settings"))
     un()
   })
 
@@ -376,6 +376,74 @@ describe("EikonStudio tab", () => {
     expect(t.frame()).not.toContain("Generate image")
     expect(t.frame()).not.toContain("Generate video")
     gen.setProbe(null)
+    un()
+  })
+
+  run("Settings help footer follows selection", async () => {
+    const un = eikon.register(stub)
+    seed("helpt")
+    prefs.set("eikon", "helpt")
+    await using t = await mountNode(
+      <EikonGroup focused sub={0} setSub={() => {}} />,
+      { width: 160, height: 48 },
+    )
+    await until(t, () => t.frame().includes("rasterizer"))
+    // Pane is titled Settings now.
+    expect(t.frame()).toContain("Settings — helpt")
+    // Row 0 (eikon) → open help.
+    expect(t.frame()).toContain("Which eikon you're editing")
+    // ↓ to rasterizer.
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    expect(t.frame()).toContain("engine that turns your source")
+    // ↓ to source.
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    expect(t.frame()).toContain("image or video file the avatar is rendered from")
+    // ↓↓↓ past divider+knobsfor+reset → first rasterizer knob (stub's
+    // 'tone' has no declared hint, so the generic cycle text renders).
+    for (let i = 0; i < 3; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
+    expect(t.frame()).toMatch(/←→ or Enter cycles: lo · hi/)
+    un()
+  })
+
+  run("preview wheel: stops scrollbox propagation; ctrl=zoom, shift=pan-x, bare=pan-y", async () => {
+    const un = eikon.register(stub)
+    seed("wheelt")
+    // Start at zoom 0.5 so pan has room and the vbar thumb is ~half.
+    eikon.writeStudio("wheelt", { rasterizer: "stub", spatial: { zoom: 0.5, ox: 0.5, oy: 0.5 }, fps: 16, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
+    prefs.set("eikon", "wheelt")
+    await using t = await mountNode(
+      <EikonGroup focused sub={0} setSub={() => {}} />,
+      { width: 180, height: 30 },  // short → outer scrollbox is scrollable
+    )
+    await until(t, () => t.frame().includes("STUB-ROW"))
+    const lines = () => t.frame().split("\n")
+    // A cell inside the preview body.
+    const y = lines().findIndex(l => l.includes("STUB-ROW"))
+    const x = lines()[y]!.indexOf("STUB-ROW") + 2
+    const top0 = lines()[0]
+    // pan-y vbar = rows where the body line ends in ██ flank.
+    const vrows = () => lines().filter(l => /STUB-ROW.*██/.test(l))
+    const vtop = () => lines().findIndex(l => /STUB-ROW.*██/.test(l))
+    const v0 = vtop(), vlen0 = vrows().length
+    expect(vlen0).toBeGreaterThan(2)
+    // Bare wheel down → pan-y: thumb moves down, outer viewport doesn't.
+    for (let i = 0; i < 3; i++) {
+      await act(async () => { await t.mouse.scroll(x, y, "down") }); await t.settle()
+    }
+    expect(vtop()).toBeGreaterThan(v0)
+    expect(lines()[0]).toBe(top0)
+    // Ctrl+wheel → zoom (vbar thumb length changes); outer unchanged.
+    for (let i = 0; i < 3; i++) {
+      await act(async () => { await t.mouse.scroll(x, y, "up", { modifiers: { ctrl: true } }) }); await t.settle()
+    }
+    expect(vrows().length).not.toBe(vlen0)
+    expect(lines()[0]).toBe(top0)
+    // Shift+wheel → pan-x is asserted via the sidebar pan-x hbar
+    // in the full layout test; at height=30 it's clipped, so just
+    // confirm dirty flipped and the outer viewport still hasn't moved.
+    await act(async () => { await t.mouse.scroll(x, y, "down", { modifiers: { shift: true } }) }); await t.settle()
+    expect(t.frame()).toContain("● unsaved")
+    expect(lines()[0]).toBe(top0)
     un()
   })
 })

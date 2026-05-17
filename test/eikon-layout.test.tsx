@@ -63,7 +63,7 @@ run("layout probe (wide)", async () => {
   expect(iMini).toBeGreaterThanOrEqual(iZoom)
   expect(iStrip).toBeGreaterThan(iZoom)
   // Knobs title is on the same line as Preview title (side-by-side).
-  expect(lines.find(l => l.includes("Preview"))!).toContain("Knobs")
+  expect(lines.find(l => l.includes("Preview"))!).toContain("Settings")
   un()
 })
 
@@ -120,7 +120,7 @@ run("layout probe (narrow)", async () => {
   if (process.env.DUMP) console.log(f)
   const iPrev = lines.findIndex(l => l.includes("Preview"))
   const iZoom = lines.findIndex(l => l.includes("zoom"))
-  const iKnob = lines.findIndex(l => l.includes("Knobs"))
+  const iKnob = lines.findIndex(l => l.includes("Settings"))
   // Stacking order: preview (with SpatialBar) above knobs.
   expect(iPrev).toBeGreaterThanOrEqual(0)
   expect(iZoom).toBeGreaterThan(iPrev)
