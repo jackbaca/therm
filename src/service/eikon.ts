@@ -64,6 +64,16 @@ export function list(): Installed[] {
     })
 }
 
+/** Folder names under eikons/ regardless of whether they've been
+ *  saved yet — used by the Open picker so a fresh `ensure()`d draft
+ *  (which `list()` skips until it has a .eikon) is still reachable. */
+export function raw(): string[] {
+  const root = ROOT()
+  if (!existsSync(root)) return []
+  return readdirSync(root, { withFileTypes: true })
+    .filter(e => e.isDirectory()).map(e => e.name)
+}
+
 const IMG = /\.(png|jpe?g|webp|gif|bmp)$/i
 const VID = /\.(mp4|webm|mov|mkv)$/i
 

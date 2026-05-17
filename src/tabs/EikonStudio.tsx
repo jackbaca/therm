@@ -739,12 +739,6 @@ export const EikonStudio = memo((props: {
     await apply(res)
   }, [dialog, apply])
 
-  const doRename = useCallback(async () => {
-    if (!sRef.current) return
-    const res = await openNewEikon(dialog, { initial: sRef.current.name })
-    await apply(res)
-  }, [dialog, apply])
-
   // Installed-folder eikons take precedence over bundled flat-file
   // duplicates by slug; trailers are appended in doOpen.
   const eikonOptions = useCallback(() => {
@@ -758,10 +752,13 @@ export const EikonStudio = memo((props: {
       .map(e => {
         const slug = e.meta.name.toLowerCase()
         return { title: e.meta.name, value: slug, category: "bundled",
-                 hint: `${e.meta.states.length}st · ${e.meta.width}×${e.meta.height}` }
+                 hint: `${e.meta.width}×${e.meta.height}` }
       })
       .filter(o => !seen.has(o.value))
-    return [...installed, ...bundled]
+    // Folders with no .eikon yet (fresh `ensure()`d) — list() skips them.
+    const raw = eikon.raw().filter(n => !seen.has(n)).map(n =>
+      ({ title: n, value: n, category: "installed", hint: "(unsaved)" }))
+    return [...installed, ...raw, ...bundled]
   }, [])
 
   const doInstall = useCallback(async () => {
@@ -788,23 +785,6 @@ export const EikonStudio = memo((props: {
     ]
     dialog.replace(
       <DialogSelect title="Open eikon" current={cur?.name} options={opts}
-        footer={
-          cur ? (
-            <box height={1} flexDirection="row" onMouseDown={() => { dialog.clear(); void doRename() }}>
-              <text fg={theme.textMuted}>{"r: rename '"}</text>
-              <text fg={theme.accent}>{cur.name}</text>
-              <text fg={theme.textMuted}>{"'"}</text>
-            </box>
-          ) : undefined
-        }
-        onKey={(key: ParsedKey) => {
-          if (cur && key.name === "r" && !key.ctrl && !key.meta && !key.shift) {
-            dialog.clear()
-            void doRename()
-            return true
-          }
-          return false
-        }}
         onSelect={o => {
           dialog.clear()
           if (o.value === "__new") return void doNew()
@@ -813,7 +793,7 @@ export const EikonStudio = memo((props: {
         }} />,
       () => {},
     )
-  }, [dialog, eikonOptions, switchTo, doNew, doInstall, doRename, theme])
+  }, [dialog, eikonOptions, switchTo, doNew, doInstall])
 
   const doAction = async (id: string) => {
     if (!s) return
@@ -1004,7 +984,9 @@ export const EikonStudio = memo((props: {
     <TabShell title={spatialOk ? title : `${title}  ·  (ffmpeg not installed)`}
               error={previewErr} focus={pane === "preview"}>
       {!live && baked
-        ? <box height={1}><text fg={theme.textMuted}>Viewing baked output — fetch or attach a source to edit.</text></box>
+        ? <box height={1} overflow="hidden">
+            <text fg={theme.textMuted} wrapMode="none">Baked — fetch or attach a source to edit.</text>
+          </box>
         : null}
       {spatialOk && live && s
         ? <>

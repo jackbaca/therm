@@ -26,14 +26,23 @@ export function openNewEikon(
   opts: { initial?: string } = {},
 ): Promise<NewEikon | null> {
   return new Promise(resolve => {
-    const done = (r: NewEikon | null) => { dialog.clear(); resolve(r) }
-    dialog.replace(<Form initial={opts.initial} done={done} dialog={dialog} />)
+    // Chaining to openTextPrompt calls dialog.replace(), which fires
+    // this entry's onClose. `chained` marks that hand-off so onClose
+    // doesn't resolve(null) while the prompt is still up.
+    let chained = false
+    dialog.replace(
+      <Form initial={opts.initial} dialog={dialog}
+        onChain={() => { chained = true }}
+        done={r => { chained = true; dialog.clear(); resolve(r) }} />,
+      () => { if (!chained) resolve(null) },
+    )
   })
 }
 
 const Form = (props: {
   initial?: string
   dialog: DialogContext
+  onChain: () => void
   done: (r: NewEikon | null) => void
 }) => {
   const theme = useTheme().theme
@@ -46,20 +55,19 @@ const Form = (props: {
   const submit = async () => {
     if (!ok) return
     if (from === "blank") return props.done({ name: slug, from: "blank" })
+    props.onChain()
     if (from === "file") {
       const file = await openTextPrompt(props.dialog, {
         title: "Source file",
         label: "absolute or ~ path (png / jpg / webp / gif / mp4)",
       })
-      if (!file) return props.done(null)
-      return props.done({ name: slug, from: "file", file })
+      return props.done(file ? { name: slug, from: "file", file } : null)
     }
     const src = await openTextPrompt(props.dialog, {
       title: "Install eikon",
       label: INSTALL_HINT,
     })
-    if (!src) return props.done(null)
-    props.done({ name: slug, from: "install", src })
+    props.done(src ? { name: slug, from: "install", src } : null)
   }
 
   useKeyboard(key => {
