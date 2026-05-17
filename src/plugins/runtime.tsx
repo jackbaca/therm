@@ -83,6 +83,9 @@ function scoped(base: HermPluginApi, reg: ReturnType<typeof createReactSlotRegis
     command: {
       register: cmds => scope.track(base.command.register(cmds)),
     },
+    eikon: {
+      rasterizer: { register: r => scope.track(base.eikon.rasterizer.register(r)) },
+    },
     kv: {
       get: (key, fb) => base.kv.get(`${id}.${key}`, fb),
       set: (key, v) => base.kv.set(`${id}.${key}`, v),

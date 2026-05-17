@@ -16,7 +16,7 @@ const type = async (t: Awaited<ReturnType<typeof mount>>, s: string) => {
 describe("/skin", () => {
   test("with arg: writes gateway config, applies theme, clears eikon pref", async () => {
     prefs.set("theme", "tokyonight")
-    prefs.set("eikonPath", "/tmp/manual.eikon")
+    prefs.set("eikon", "manual")
 
     const gw = new MockGateway()
     gw.on$("config.set", p => {
@@ -36,7 +36,7 @@ describe("/skin", () => {
     expect(call.params.key).toBe("skin")
     expect(call.params.value).toBe("ares")
     expect(prefs.get("theme")).toBe("ares")
-    expect(prefs.get("eikonPath")).toBeUndefined()
+    expect(prefs.get("eikon")).toBeUndefined()
 
     await type(t, "/skin default")
     await until(t, () => t.frame().includes("skin → default"))

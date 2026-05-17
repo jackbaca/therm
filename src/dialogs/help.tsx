@@ -15,6 +15,7 @@ const GROUPS: ReadonlyArray<Group> = [
   { title: "Sessions", scope: "sessions" },
   { title: "Agents",   scope: "agents" },
   { title: "Config",   scope: "config" },
+  { title: "Eikon",    scope: "eikon" },
 ]
 
 const COLS = 2

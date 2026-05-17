@@ -114,7 +114,7 @@ describe("hermes-profiles", () => {
       JSON.stringify({ jobs: [{ id: "j1" }, { id: "j2" }] }))
     mkdirSync(join(ROOT, "herm"), { recursive: true })
     writeFileSync(join(ROOT, "herm", "tui.json"),
-      JSON.stringify({ theme: "liminal", eikonPath: "/x/herm.eikon", keys: { "list.new": "a" } }))
+      JSON.stringify({ theme: "liminal", eikon: "herm", keys: { "list.new": "a" } }))
 
     const s = await profileStats(ROOT)
     expect(s.sessions).toBe(2)   // message_count > 0

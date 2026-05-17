@@ -16,6 +16,7 @@ import { openTextPrompt } from "../dialogs/text-prompt"
 import { openAlert } from "../dialogs/alert"
 import { TAB_SLASH, TABS } from "../app/tabs"
 import * as prefs from "../context/preferences"
+import * as eikon from "../service/eikon"
 import type { HermPluginApi, RouteDef } from "./types"
 
 type ThemeSnap = {
@@ -127,6 +128,9 @@ export function createApi(input: ApiInput): HermPluginApi {
     // carries the plugin's id). The base throws to surface misuse.
     slots: {
       register() { throw new Error("slots.register is only available inside a plugin's tui() factory") },
+    },
+    eikon: {
+      rasterizer: { register: r => eikon.register(r) },
     },
     lifecycle: {
       signal: new AbortController().signal,

@@ -23,7 +23,7 @@ const defaultDirs = (): string[] => {
 
 export const EikonPickerDialog = (props: {
   dirs?: string[]
-  onSelect: (path: string) => void
+  onSelect: (name: string) => void
 }) => {
   const theme = useTheme().theme
   const dialog = useDialog()
@@ -42,7 +42,7 @@ export const EikonPickerDialog = (props: {
   useListKeys({
     active: true,
     count: found.length, setSel: setCursor,
-    onActivate: () => { if (cur) { props.onSelect(cur.path); dialog.clear() } },
+    onActivate: () => { if (cur) { props.onSelect(cur.meta.name.toLowerCase()); dialog.clear() } },
   })
 
   const w = (parsed?.meta.width ?? 48) + 2
@@ -91,5 +91,5 @@ export const EikonPickerDialog = (props: {
   )
 }
 
-export const openEikonPicker = (dialog: ReturnType<typeof useDialog>, onSelect: (path: string) => void) =>
+export const openEikonPicker = (dialog: ReturnType<typeof useDialog>, onSelect: (name: string) => void) =>
   dialog.replace(<EikonPickerDialog onSelect={onSelect} />)

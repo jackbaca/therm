@@ -6,6 +6,7 @@
 import { useEffect, useRef, type RefObject } from "react"
 import { setBridge, enabled } from "./control"
 import { useGateway } from "../context/gateway"
+import { usePlugins } from "../plugins/runtime"
 import { useRenderer } from "@opentui/react"
 import { CHAT_TAB } from "./tabs"
 import type { Action, TurnState } from "./turnReducer"
@@ -27,6 +28,7 @@ export function useBridge(o: {
 }) {
   const gw = useGateway()
   const renderer = useRenderer()
+  const plugins = usePlugins()
   const state = useRef(o); state.current = o
 
   useEffect(() => {
@@ -51,6 +53,8 @@ export function useBridge(o: {
       setFocusRegion: o.setFocusRegion,
       renderer: () => renderer,
       logs: (n?: number) => gw.tail(n),
+      plugin: (id, on) => on ? plugins.activate(id) : plugins.deactivate(id),
+      push: ev => (gw as unknown as { emit: (t: string, e: unknown) => void }).emit("event", ev),
     })
-  }, [gw, renderer])
+  }, [gw, renderer, plugins])
 }

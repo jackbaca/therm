@@ -47,6 +47,10 @@ const Section = memo((props: {
   )
 })
 
+const Avatar = (props: { state: AvatarState; eikon?: ParsedEikon; onHold?: (s: AvatarState) => void }) => (
+  <AnimatedAvatar state={props.state} eikon={props.eikon} onHold={props.onHold} />
+)
+
 const Row = (props: { label: string; value: string; strong?: boolean }) => {
   const theme = useTheme().theme
   return (
@@ -87,7 +91,7 @@ export const Sidebar = memo((props: {
       {/* Avatar (bust) — also the anchor for the thought-cloud tail */}
       <box position="relative" flexDirection="column" height={24} overflow="hidden"
            onMouseDown={props.onAvatar}>
-        <AnimatedAvatar state={state} eikon={props.eikon} onHold={props.onAvatarHold} />
+        <Avatar state={state} eikon={props.eikon} onHold={props.onAvatarHold} />
         {props.cloud ? (
           <box position="absolute" left={0} top={0}>
             <Tail run={!!props.pulse} />

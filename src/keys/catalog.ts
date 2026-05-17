@@ -17,7 +17,7 @@
 
 export type Scope =
   | "global" | "list" | "dialog" | "composer"
-  | "sessions" | "cron" | "env" | "agents" | "skills" | "config"
+  | "sessions" | "cron" | "env" | "agents" | "skills" | "config" | "eikon"
 
 export type Def = { chord: string; desc: string; scope: Scope }
 
@@ -76,6 +76,7 @@ export const DEFAULTS = {
   "agents.install":    def("i",                    "Install distribution",               "agents"),
   "config.save":       def("ctrl+s",               "Write config",                       "config"),
   "config.mode":       def("m",                    "Toggle form ↔ YAML",                 "config"),
+  "eikon.save":        def("ctrl+s",               "Save eikon",                         "eikon"),
 } satisfies Record<string, Def>
 
 export type ActionId = keyof typeof DEFAULTS

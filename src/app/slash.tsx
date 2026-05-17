@@ -22,6 +22,7 @@ import { openLogs } from "../dialogs/logs"
 import { openThemePicker } from "../dialogs/theme-picker"
 import { openModelPicker } from "../dialogs/model-picker"
 import { openEikonPicker } from "../dialogs/eikon-picker"
+import * as eikonsh from "../utils/eikonsh"
 import { openTextPrompt } from "../dialogs/text-prompt"
 import { openConfirm } from "../dialogs/confirm"
 import { openRollback } from "../dialogs/rollback"
@@ -129,7 +130,7 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
   }, [gw, dialog, toast])
 
   const pickEikon = useCallback(() =>
-    openEikonPicker(dialog, (p) => preferences.set("eikonPath", p)), [dialog])
+    openEikonPicker(dialog, (n) => preferences.set("eikon", n)), [dialog])
 
   const applyTitle = useCallback((t: string) => {
     gw.request<{ title: string }>("session.title", { title: t })
@@ -201,6 +202,15 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
         case "keys": openKeys(dialog); return
         case "logs": openLogs(dialog); return
         case "eikon": pickEikon(); return
+        case "eikons":
+          if (!eikonsh.configured()) {
+            toast.show({ variant: "info", message: "Set $EIKON_DIR (dev checkout) or $EIKON_SSH (host:port)" })
+            return
+          }
+          void eikonsh.browse(renderer).then(p => {
+            if (p) preferences.set("eikon", p.name)
+          })
+          return
         case "title":
           if (arg) { applyTitle(arg); return }
           openTextPrompt(dialog, { title: "Session Title", initial: x.title })
@@ -236,7 +246,7 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
             .then(r => {
               if (r.warning) toast.show({ variant: "warning", message: r.warning })
               if (themeCtx.has(name)) themeCtx.set(name)
-              preferences.set("eikonPath", undefined)
+              preferences.set("eikon", undefined)
               x.dispatch({ kind: "system", text: `skin → ${name}` })
             })
             .catch((e: Error) => toast.show({ variant: "error", message: e.message }))

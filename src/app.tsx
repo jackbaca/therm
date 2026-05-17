@@ -1,5 +1,5 @@
 import { useRenderer, useTerminalDimensions } from "@opentui/react"
-import { Profiler, useState, useEffect, useRef, useCallback, useMemo, useReducer } from "react"
+import { Profiler, useState, useEffect, useRef, useCallback, useMemo, useReducer, useSyncExternalStore } from "react"
 import * as perf from "./utils/perf"
 import { hasInterp, interpolate } from "./utils/interpolate"
 import { GatewayProvider, useGateway, useGatewayRestart, type Gateway } from "./context/gateway"
@@ -14,6 +14,7 @@ import { Chat } from "./tabs/Chat"
 import { SessionsGroup } from "./tabs/SessionsGroup"
 import { Automation } from "./tabs/Automation"
 import { ConfigGroup } from "./tabs/ConfigGroup"
+import { EikonGroup } from "./tabs/EikonGroup"
 import { copySelection, copy as clipCopy } from "./utils/clipboard"
 import { ThemeProvider, useTheme } from "./theme"
 import { DialogProvider, useDialog } from "./ui/dialog"
@@ -41,7 +42,8 @@ import { SkinProvider, deriveSkin, type SkinState } from "./context/skin"
 import { useAppKeys } from "./app/useAppKeys"
 import { quit } from "./app/exit"
 import { Stash } from "./app/stash"
-import { TABS, CHAT_TAB, SESSIONS_TAB, AUTOMATION_TAB, CONFIG_TAB, SUB_TABS } from "./app/tabs"
+import { TABS, CHAT_TAB, SESSIONS_TAB, AUTOMATION_TAB, CONFIG_TAB, EIKON_TAB, SUB_TABS } from "./app/tabs"
+import { eikon as eikonSvc } from "./service/eikon"
 import { activeProfileName } from "./service/hermes-profiles"
 import { rehome } from "./home/rehome"
 import { makeGoalHook } from "./app/goalHook"
@@ -89,7 +91,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   // Defensive clamp lives inside each group (SessionsGroup/Automation/
   // ConfigGroup) so a shrinking SUB_TABS list doesn't render blank.
   const [subTabs, setSubTabs] = useState<Record<number, number>>(
-    () => ({ [SESSIONS_TAB]: 0, [AUTOMATION_TAB]: 0, [CONFIG_TAB]: 0 }),
+    () => ({ [SESSIONS_TAB]: 0, [AUTOMATION_TAB]: 0, [CONFIG_TAB]: 0, [EIKON_TAB]: 0 }),
   )
   const setSub = useCallback((tabIdx: number, sub: number) =>
     setSubTabs(prev => prev[tabIdx] === sub ? prev : { ...prev, [tabIdx]: sub }), [])
@@ -100,6 +102,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const sessSub = useCallback((i: number) => setSub(SESSIONS_TAB, i), [setSub])
   const autoSub = useCallback((i: number) => setSub(AUTOMATION_TAB, i), [setSub])
   const cfgSub = useCallback((i: number) => setSub(CONFIG_TAB, i), [setSub])
+  const eikSub = useCallback((i: number) => setSub(EIKON_TAB, i), [setSub])
   const [hideSidebar, setHideSidebar] = useState(false)
   const [usage, setUsage] = useState<Usage | undefined>(undefined)
   const [info, setInfo] = useState<SessionInfo | null>(null)
@@ -348,14 +351,18 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       .catch(() => {})
   }, [])
 
-  // Precedence: user pref → bundled eikon matching active skin → baked-in
-  // default (nous-girl via STATE_FRAMES). Skin match never writes the
-  // pref, so a later manual pick sticks across skin changes.
-  const eikonPath = preferences.usePref("eikonPath")
+  // Precedence: user pref (by name) → bundled eikon matching active
+  // skin → baked-in default (nous via STATE_FRAMES). Resolved through
+  // eikon.baked() which checks <profile>/eikons/ then bundled/.
+  const eikonName = preferences.usePref("eikon")
+  // Revision bumps when service/eikon.save() rewrites a file whose
+  // path hasn't changed — usePref alone would bail on an identical
+  // snapshot and the sidebar wouldn't pick up the new content.
+  const eikonRev = useSyncExternalStore(eikonSvc.onRevision, eikonSvc.revision)
   useEffect(() => {
-    const p = eikonPath || bundledEikonPath(skin.skin?.name)
+    const p = (eikonName && eikonSvc.baked(eikonName)) || bundledEikonPath(skin.skin?.name)
     if (p) loadEikon(p); else setEikon(undefined)
-  }, [eikonPath, skin.skin?.name, loadEikon])
+  }, [eikonName, eikonRev, skin.skin?.name, loadEikon])
 
   // turnsFrom counts user turns at-or-after m — each session.undo pops
   // one user+assistant pair server-side. Reads turnRef (not turn) so
@@ -654,6 +661,9 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
         case CONFIG_TAB: return <ConfigGroup focused={contentFocused}
                                              sub={subTabs[CONFIG_TAB] ?? 0}
                                              setSub={cfgSub} />
+        case EIKON_TAB: return <EikonGroup focused={contentFocused}
+                                           sub={subTabs[EIKON_TAB] ?? 0}
+                                           setSub={eikSub} />
         default: {
           const r = extra[tab - TABS.length]
           return r ? r.render() : null

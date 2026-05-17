@@ -94,6 +94,11 @@ export type HermPluginApi = {
   readonly slots: {
     register(p: Omit<SlotPlugin, "id"> & { order?: number }): () => void
   }
+  readonly eikon: {
+    /** Contribute a rasterizer to the Eikon tab. Scope-tracked —
+     *  deactivating the plugin unregisters it. */
+    rasterizer: { register(r: import("../utils/eikon-render").Rasterizer): () => void }
+  }
   readonly lifecycle: Lifecycle
 }
 
