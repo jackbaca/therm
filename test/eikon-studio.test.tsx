@@ -86,7 +86,7 @@ describe("EikonStudio tab", () => {
     un()
   })
 
-  run("dirty Esc → openConfirm; y reloads from disk", async () => {
+  run("dirty Esc → three-way save/discard; [d] reloads from disk", async () => {
     const un = eikon.register(stub)
     seed("dog")
     prefs.set("eikon", "dog")
@@ -100,9 +100,46 @@ describe("EikonStudio tab", () => {
     act(() => t.keys.pressArrow("right"))
     await until(t, () => t.frame().includes("● unsaved"))
     act(() => t.keys.pressEscape())
-    await until(t, () => t.frame().includes("Discard unsaved"))
-    act(() => t.keys.pressKey("y"))
+    await until(t, () => t.frame().includes("Unsaved edits") && t.frame().includes("[D] discard"))
+    act(() => t.keys.pressKey("d"))
     await until(t, () => !t.frame().includes("● unsaved"))
+    un()
+  })
+
+  run("dirty Esc → [s] saves and drops dirty", async () => {
+    const un = eikon.register(stub)
+    seed("cow")
+    prefs.set("eikon", "cow")
+    let sub = 0
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
+    )
+    await until(t, () => t.frame().includes("rasterizer"))
+    for (let i = 0; i < 5; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
+    act(() => t.keys.pressArrow("right"))
+    await until(t, () => t.frame().includes("● unsaved"))
+    act(() => t.keys.pressEscape())
+    await until(t, () => t.frame().includes("Unsaved edits"))
+    act(() => t.keys.pressKey("s"))
+    await until(t, () => t.frame().includes("Saved →"))
+    await until(t, () => !t.frame().includes("● unsaved"))
+    un()
+  })
+
+  run("revert row appears when dirty and routes through three-way", async () => {
+    const un = eikon.register(stub)
+    seed("fox")
+    prefs.set("eikon", "fox")
+    let sub = 0
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
+    )
+    await until(t, () => t.frame().includes("rasterizer"))
+    expect(t.frame()).not.toContain("revert")
+    for (let i = 0; i < 5; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
+    act(() => t.keys.pressArrow("right"))
+    await until(t, () => t.frame().includes("revert"))
+    expect(t.frame()).toContain("▸ reload from disk")
     un()
   })
 

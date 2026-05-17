@@ -24,7 +24,7 @@ import { useToast } from "../ui/toast"
 import { TabShell } from "../ui/shell"
 import { HintBar } from "../ui/hint"
 import { DialogSelect } from "../ui/dialog-select"
-import { openConfirm } from "../dialogs/confirm"
+import { openConfirm, openSaveDiscard } from "../dialogs/confirm"
 import { openTextPrompt } from "../dialogs/text-prompt"
 import * as prefs from "../context/preferences"
 import { eikon } from "../service/eikon"
@@ -66,6 +66,7 @@ const HEAD: readonly Row[] = [
     show: (s, live, url) => !live && !!url },
   { id: "fork",       kind: "action", label: "fork state",  show: (_s, live) => live },
   { id: "reset",      kind: "action", label: "reset knobs", show: (_s, live) => live },
+  { id: "revert",     kind: "action", label: "revert",      show: s => s.dirty },
   { id: "-2",         kind: "divider", label: "", show: (_s, live) => live },
 ]
 
@@ -234,6 +235,7 @@ function valueOf(s: Session, r: Rasterizer, row: Row, src?: string,
   if (row.id === "name") return s.name
   if (row.id === "fork") return s.per[s.state] ? "(forked)" : "▸ copy base → " + s.state
   if (row.id === "reset") return "▸ defaults"
+  if (row.id === "revert") return "▸ reload from disk"
   if (row.id === "fetch") return busy ? "fetching…"
     : peek ? `▸ download to edit  (${peek.n} files, ${mb(peek.bytes)})` : "▸ download to edit"
   if (row.kind === "knob" && row.knob) {
@@ -357,6 +359,7 @@ export const EikonStudio = memo((props: {
   const [peek, setPeek] = useState<{ n: number; bytes: number } | undefined>(undefined)
   const [thumbs, setThumbs] = useState<Map<AvatarState, Frame | undefined>>(new Map())
   const [err, setErr] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
   const frame = frames[tick % frames.length] ?? BLANK
 
   const r = useMemo(() => eikon.pick(s?.rasterizer ?? prefs.get("eikonRasterizer")), [s?.rasterizer])
@@ -434,6 +437,28 @@ export const EikonStudio = memo((props: {
 
   const rows = useMemo(() => (s ? buildRows(r, s, live, url) : []), [r, s, live, url])
   const navRows = useMemo(() => rows.map((x, i) => ({ ...x, i })).filter(x => x.kind !== "divider"), [rows])
+  // Keep selection anchored to its row's id when navRows mutates (the
+  // `revert` row inserts into HEAD when a knob is touched, shifting
+  // knob indices). selRow is the id the user intends to sit on; it's
+  // updated by the keyboard handler (setSelBy) and read here when the
+  // row list changes to re-resolve the index.
+  const selRow = useRef<string | undefined>(undefined)
+  const setSelBy = useCallback<typeof setSel>((arg) => {
+    setSel(prev => {
+      const next = typeof arg === "function" ? (arg as (p: number) => number)(prev) : arg
+      selRow.current = navRows[next]?.id
+      return next
+    })
+  }, [navRows])
+  const prevRows = useRef(navRows)
+  useEffect(() => {
+    if (prevRows.current === navRows) return
+    prevRows.current = navRows
+    const id = selRow.current
+    if (!id) return
+    const ni = navRows.findIndex(x => x.id === id)
+    if (ni >= 0 && ni !== selRef.current) setSel(ni)
+  }, [navRows])
   // Knobs pane: ↑↓ keeps the selected row in view. Rows already carry
   // `id="knob-<row.id>"` (reconciler-id rule) — resolve via that.
   const kScroll = (ni: number) => {
@@ -525,9 +550,11 @@ export const EikonStudio = memo((props: {
     if (!s.dirty) return toast.show({ variant: "info", message: "Nothing to save" })
     if (!live) return toast.show({ variant: "warning",
       message: "No source — fetch or attach before saving" })
+    setSaving(true)
     await eikon.save({ ...s, dirty: false })
       .then(f => { mutate(p => ({ ...p, dirty: false })); toast.show({ variant: "success", message: `Saved → ${basename(f)}` }) })
       .catch(e => toast.error(e instanceof Error ? e : new Error(String(e))))
+      .finally(() => setSaving(false))
   }, [s, live, toast])
 
   const doSelectRasterizer = () => {
@@ -570,6 +597,7 @@ export const EikonStudio = memo((props: {
   const doAction = async (id: string) => {
     if (!s) return
     if (id === "fork") return mutate(knobs.fork)
+    if (id === "revert") { void discard(); return }
     if (id === "reset") {
       const ok = await openConfirm(dialog, { title: "Reset knobs?", body: "Restore rasterizer defaults and drop all per-state overrides.", danger: true })
       if (ok) mutate(p => knobs.reset(p, r))
@@ -640,18 +668,19 @@ export const EikonStudio = memo((props: {
   const discard = async () => {
     const cur = sRef.current
     if (!cur?.dirty) return false
-    const ok = await openConfirm(dialog, {
-      title: "Discard unsaved edits?", danger: true,
-      body: `Reload '${cur.name}' from disk and drop in-memory changes.`,
+    const pick = await openSaveDiscard(dialog, {
+      title: "Unsaved edits",
+      body: `'${cur.name}' has unsaved changes. Save them, discard them, or keep editing?`,
     })
-    if (ok) open(cur.name)
+    if (pick === "save") { await doSave(); open(cur.name) }
+    if (pick === "discard") open(cur.name)
     return true
   }
 
   useKeyboard((key: ParsedKey) => {
     if (!props.focused || dialog.open()) return
     if (key.eventType === "release") return
-    if (keys.match("eikon.save", key)) return void doSave()
+    if (keys.match("eikon.save", key)) { if (!saving) void doSave(); return }
     if (key.name === "escape") return void discard()
     if (key.name === "tab") {
       const i = PANES.indexOf(pane)
@@ -666,7 +695,7 @@ export const EikonStudio = memo((props: {
     }
     if (pane === "knobs") {
       if (handleListKey(keys, key, {
-        count: navRows.length, setSel, scrollTo: kScroll,
+        count: navRows.length, setSel: setSelBy, scrollTo: kScroll,
         page: Math.max(1, (ksb.current?.viewport.height ?? 10) - 1),
         onActivate: activate,
         onToggle: toggle,
@@ -764,7 +793,7 @@ export const EikonStudio = memo((props: {
   )
 
   const panel = (
-    <TabShell title={`Knobs${s?.dirty ? "  ·  ● unsaved" : ""}`} focus={pane === "knobs"} grow={1}>
+    <TabShell title={s ? `Knobs — ${s.name}` : "Knobs"} focus={pane === "knobs"} grow={1}>
       {!s
         ? <box flexGrow={1} alignItems="center" justifyContent="center">
             <text fg={theme.textMuted}>No eikon open. Enter to create one.</text>
@@ -777,8 +806,8 @@ export const EikonStudio = memo((props: {
               return (
                 <KnobRow key={`${r.name}:${row.id}`} id={`knob-${row.id}`} row={row} s={s} r={r} src={src}
                          on={on} dim={dim} peek={peek} busy={row.id === "fetch" && fetching}
-                         onHover={() => { if (ni >= 0) { setPane("knobs"); setSel(ni) } }}
-                         onClick={() => { if (ni >= 0) { setSel(ni); setPane("knobs"); act(row, "click") } }}
+                         onHover={() => { if (ni >= 0) { setPane("knobs"); setSelBy(ni) } }}
+                         onClick={() => { if (ni >= 0) { setSelBy(ni); setPane("knobs"); act(row, "click") } }}
                          onSlide={row.knob?.kind === "slider"
                            ? v => mutate(p => knobs.edit(p, k => knobs.setSlider(k, row.id, row.knob!, v)))
                            : undefined} />
@@ -823,7 +852,7 @@ export const EikonStudio = memo((props: {
         {top}
         {strip}
       </scrollbox>
-      <HintBar pairs={hint} suffix={s?.dirty ? "● unsaved" : undefined} />
+      <HintBar pairs={hint} suffix={saving ? "● saving…" : s?.dirty ? "● unsaved" : undefined} />
     </box>
   )
 })
