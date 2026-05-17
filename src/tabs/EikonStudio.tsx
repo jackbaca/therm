@@ -27,7 +27,9 @@ import { DialogSelect } from "../ui/dialog-select"
 import { openConfirm } from "../dialogs/confirm"
 import { openTextPrompt } from "../dialogs/text-prompt"
 import { openPathPrompt } from "../dialogs/path-prompt"
+import { openGenerate, type GenerateKind } from "../dialogs/eikon-generate"
 import { useGateway } from "../context/gateway"
+import type { Gateway } from "../context/gateway"
 import * as prefs from "../context/preferences"
 import { eikon } from "../service/eikon"
 import type { ParsedEikon } from "../components/avatar/eikon"
@@ -35,6 +37,7 @@ import { W, H, FPS0, caps, thumb, cached, resetCache, prewarm,
          type Rasterizer, type KnobDef, type Spatial, type Frame } from "../utils/eikon-render"
 import { knobs, STATES, type Session } from "../utils/eikon-knobs"
 import type { AvatarState } from "../components/avatar/states"
+import { useSpinnerGlyph } from "../ui/spinner"
 
 // SliderRenderable ships in @opentui/core but isn't in react's default
 // catalogue; register it once so `<slider>` is a valid intrinsic.
@@ -292,10 +295,12 @@ function KnobRow(props: {
 
 function Strip(props: {
   s: Session; frames: Map<AvatarState, Frame | undefined>
+  pending: ReadonlySet<AvatarState>
   focused: boolean; onPick: (st: AvatarState) => void
   onEmpty?: (st: AvatarState) => void
 }) {
   const theme = useTheme().theme
+  const glyph = useSpinnerGlyph(props.pending.size > 0)
   return (
     <box flexDirection="row" gap={1}>
       {STATES.map(st => {
@@ -303,7 +308,8 @@ function Strip(props: {
         const own = !!props.s.per[st]
         const has = !!props.s.sources[st]
         const f = props.frames.get(st)
-        const empty = !f
+        const gen = props.pending.has(st)
+        const empty = !f && !gen
         return (
           <box key={st} flexDirection="column" alignItems="center"
                onMouseDown={() => {
@@ -313,8 +319,9 @@ function Strip(props: {
             <box border borderStyle="rounded"
                  borderColor={on && props.focused ? theme.primary : on ? theme.accent : theme.border}
                  width={18} height={10} overflow="hidden" alignItems="center" justifyContent="center">
-              {f ? f.map((ln, i) => <text key={i} fg={on ? theme.text : theme.textMuted}>{ln}</text>)
-                 : <text fg={theme.textMuted}>+</text>}
+              {gen ? <text fg={theme.accent}>{`${glyph} gen`}</text>
+                : f ? f.map((ln, i) => <text key={i} fg={on ? theme.text : theme.textMuted}>{ln}</text>)
+                : <text fg={theme.textMuted}>+</text>}
             </box>
             <box height={1}><text fg={on ? theme.accent : theme.textMuted}>
               {`${own ? "*" : " "}${has ? "📎" : " "}${st}`}
@@ -329,6 +336,21 @@ function Strip(props: {
 // ── Main ─────────────────────────────────────────────────────────────
 
 const BLANK: Frame = Array.from({ length: H }, () => " ".repeat(W))
+
+// One-shot toolset probe — `toolsets.list` is server state, not session
+// state, so the result is process-stable until the agent restarts. Cache
+// the Promise so concurrent opens share the round trip; reset on null
+// gateway (test reseed). The set holds enabled toolset names.
+let toolsetsCache: Promise<Set<string>> | null = null
+const probeToolsets = (gw: Gateway): Promise<Set<string>> => {
+  if (toolsetsCache) return toolsetsCache
+  toolsetsCache = gw.request<{ toolsets?: Array<{ name: string; enabled?: boolean }> }>("toolsets.list", {})
+    .then(r => new Set((r.toolsets ?? []).filter(t => t.enabled !== false).map(t => t.name)))
+    .catch(() => new Set<string>())
+  return toolsetsCache
+}
+/** Test-only — wipe the toolset cache between mountNode calls. */
+export const resetToolsetsCache = () => { toolsetsCache = null }
 
 export const EikonStudio = memo((props: {
   focused: boolean
@@ -365,6 +387,8 @@ export const EikonStudio = memo((props: {
   const [peek, setPeek] = useState<{ n: number; bytes: number } | undefined>(undefined)
   const [thumbs, setThumbs] = useState<Map<AvatarState, Frame | undefined>>(new Map())
   const [err, setErr] = useState<string | null>(null)
+  const [pending, setPending] = useState<ReadonlySet<AvatarState>>(new Set())
+  const [tools, setTools] = useState<Set<string> | null>(null)
   const frame = frames[tick % frames.length] ?? BLANK
 
   const r = useMemo(() => eikon.pick(s?.rasterizer ?? prefs.get("eikonRasterizer")), [s?.rasterizer])
@@ -402,6 +426,15 @@ export const EikonStudio = memo((props: {
   }, [open, props.name])
 
   useEffect(() => { if (props.name !== undefined) open(props.name || knobs.slug("new")) }, [props.name, open])
+
+  // Probe enabled toolsets once per process so the source menu can hide
+  // Generate rows when image_gen/video_gen aren't on. Cached at module
+  // scope — repeated mounts share one round trip.
+  useEffect(() => {
+    let dead = false
+    void probeToolsets(gw).then(s => { if (!dead) setTools(s) })
+    return () => { dead = true }
+  }, [gw])
 
   const src = useMemo(() => (s ? eikon.findSource(s.name, s.state) : undefined), [s?.name, s?.state, s?.sources])
   const live = useMemo(() => !!(s && eikon.findSource(s.name)), [s?.name, s?.sources])
@@ -545,11 +578,40 @@ export const EikonStudio = memo((props: {
     )
   }
 
+  const runGenerate = async (st: AvatarState, kind: GenerateKind) => {
+    if (!s) return
+    const seed = s.sources.base ? eikon.findSource(s.name) : undefined
+    setPending(prev => { const n = new Set(prev); n.add(st); return n })
+    const out = await openGenerate(dialog, gw, {
+      state: st, kind, seed, lastPrompt: s.prompts?.[st],
+    })
+    if (!out) {
+      setPending(prev => { const n = new Set(prev); n.delete(st); return n })
+      return
+    }
+    const role = st === "idle" && !s.sources.base ? "base" : st
+    try {
+      const f = eikon.adopt(s.name, out.path, role)
+      mutate(p => ({
+        ...p,
+        sources: { ...p.sources, [role]: f },
+        prompts: { ...p.prompts, [st]: out.prompt },
+        dirty: true,
+      }))
+    } catch (e) {
+      toast.error(e instanceof Error ? e : new Error(String(e)))
+    } finally {
+      setPending(prev => { const n = new Set(prev); n.delete(st); return n })
+    }
+  }
+
   const doSource = (forSt?: AvatarState) => {
     if (!s) return
     const st = forSt ?? s.state
     const has = !!s.sources[st]
     const opts: Array<{ title: string; value: string }> = [{ title: "Local file…", value: "local" }]
+    if (tools?.has("image_gen")) opts.push({ title: "Generate image…", value: "gen-image" })
+    if (tools?.has("video_gen")) opts.push({ title: "Generate video…", value: "gen-video" })
     if (has && st !== "idle") opts.push({ title: "Same as base", value: "same" })
     if (has) opts.push({ title: "Remove", value: "remove" })
     dialog.replace(
@@ -567,6 +629,8 @@ export const EikonStudio = memo((props: {
             catch (e) { toast.error(e instanceof Error ? e : new Error(String(e))) }
             return
           }
+          if (o.value === "gen-image") return void runGenerate(st, "image")
+          if (o.value === "gen-video") return void runGenerate(st, "video")
           dialog.clear()
           mutate(prev => {
             const next = { ...prev.sources }
@@ -814,7 +878,7 @@ export const EikonStudio = memo((props: {
   const strip = s ? (
     <box id="studio-strip" flexShrink={0} height={STRIP_H}>
       <TabShell title="States" focus={pane === "strip"}>
-        <Strip s={s} frames={thumbs} focused={pane === "strip"}
+        <Strip s={s} frames={thumbs} pending={pending} focused={pane === "strip"}
                onPick={st => { setPane("strip"); mutate(p => knobs.setState(p, st)) }}
                onEmpty={st => doSource(st)} />
       </TabShell>

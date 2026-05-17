@@ -2,8 +2,9 @@ import { describe, expect, test } from "bun:test"
 import { act } from "react"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { mountNode, until } from "./harness"
+import { mountNode, until, MockGateway } from "./harness"
 import { EikonGroup } from "../src/tabs/EikonGroup"
+import { resetToolsetsCache } from "../src/tabs/EikonStudio"
 import { eikon } from "../src/service/eikon"
 import { native, caps, type Rasterizer } from "../src/utils/eikon-render"
 import * as prefs from "../src/context/preferences"
@@ -141,6 +142,87 @@ describe("EikonStudio tab", () => {
     const adoptedDir = eikon.ensure("fox").source
     const f = Bun.file(join(adoptedDir, "idle.png"))
     expect(await f.exists()).toBe(true)
+    un()
+  })
+
+  run("Generate image… row appears when image_gen toolset enabled; submit adopts + persists prompt", async () => {
+    const un = eikon.register(stub)
+    seed("owlgen")
+    prefs.set("eikon", "owlgen")
+    // Pre-stage the path the mock RPC will return.
+    const genPath = join(HH, "generated.png")
+    writeFileSync(genPath, PX)
+    resetToolsetsCache()
+    const gw = new MockGateway({
+      "toolsets.list": () => ({ toolsets: [
+        { name: "image_gen", description: "", tool_count: 1, enabled: true },
+      ]}),
+      "eikon.generate": p => {
+        expect(p.kind).toBe("image")
+        expect(typeof p.prompt).toBe("string")
+        return { path: genPath }
+      },
+    })
+    let sub = 0
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
+      { width: 160, height: 60, gw },
+    )
+    await until(t, () => t.frame().includes("rasterizer"))
+
+    // Nav to source row → open menu.
+    act(() => t.keys.pressArrow("down"))
+    await until(t, () => /▸ source/.test(t.frame()))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Local file"))
+    expect(t.frame()).toContain("Generate image")
+    // video_gen not enabled → row hidden.
+    expect(t.frame()).not.toContain("Generate video")
+
+    // Move to "Generate image…" (row 2 — Local file is 0, Generate image is 1).
+    act(() => t.keys.pressArrow("down"))
+    await t.settle()
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Generate image"))
+    // Type into the textarea (prompt field is focused by default).
+    await act(async () => { await t.keys.typeText("a wise owl") })
+    // Tab to the submit field; the form has prompt → seed → submit
+    // (base.png is auto-detected because we seeded sources.base).
+    act(() => t.keys.pressTab())
+    await t.settle()
+    act(() => t.keys.pressTab())
+    await t.settle()
+    act(() => t.keys.pressEnter())
+    // Adoption lands in source/idle.png (st='idle' and base exists so role='idle').
+    await until(t, () => {
+      const f = Bun.file(join(eikon.ensure("owlgen").source, "idle.png"))
+      return f.size > 0
+    })
+    expect(t.frame()).toContain("● unsaved")
+    // RPC was called with the typed prompt.
+    const call = gw.last("eikon.generate")
+    expect(call?.params.prompt).toBe("a wise owl")
+    un()
+  })
+
+  run("Generate rows hidden when toolsets.list returns []", async () => {
+    const un = eikon.register(stub)
+    seed("nogen")
+    prefs.set("eikon", "nogen")
+    resetToolsetsCache()
+    const gw = new MockGateway({ "toolsets.list": () => ({ toolsets: [] }) })
+    let sub = 0
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
+      { width: 160, height: 48, gw },
+    )
+    await until(t, () => t.frame().includes("rasterizer"))
+    act(() => t.keys.pressArrow("down"))
+    await until(t, () => /▸ source/.test(t.frame()))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Local file"))
+    expect(t.frame()).not.toContain("Generate image")
+    expect(t.frame()).not.toContain("Generate video")
     un()
   })
 })
