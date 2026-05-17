@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
-const BASE = "https://raw.githubusercontent.com/liftaris/eikon/main/avatars"
+const BASE = "https://raw.githubusercontent.com/liftaris/eikon/main/eikons"
 const map: Record<string, string> = {
   "ares.eikon":    `${BASE}/ares/`,
   "mono.eikon":    `${BASE}/mono/`,
