@@ -262,7 +262,7 @@ function KnobRow(props: {
          backgroundColor={on ? theme.backgroundElement : undefined}
          onMouseMove={props.onHover} onMouseDown={props.onClick}>
       <box width={2}><text fg={on ? theme.primary : theme.textMuted}>{on ? "▸ " : "  "}</text></box>
-      <box width={12}><text fg={dim ? theme.textMuted : on ? theme.text : theme.textMuted}>{row.label}</text></box>
+      <box width={14}><text fg={dim ? theme.textMuted : on ? theme.text : theme.textMuted}>{row.label}</text></box>
       {slider ? (
         <>
           <box width={20} height={1}>
@@ -393,7 +393,20 @@ export const EikonStudio = memo((props: {
     if (n) open(n)
   }, [open, props.name])
 
-  useEffect(() => { if (props.name !== undefined) open(props.name || knobs.slug("new")) }, [props.name, open])
+  const dialogRef = useRef(dialog); dialogRef.current = dialog
+  useEffect(() => {
+    if (props.name === undefined) return
+    const next = props.name || knobs.slug("new")
+    const cur = sRef.current
+    if (cur?.name === next) return
+    if (!cur?.dirty) return open(next)
+    let dead = false
+    void openConfirm(dialogRef.current, {
+      title: "Discard unsaved edits?", danger: true,
+      body: `Switch to '${next}' and drop in-memory changes to '${cur.name}'.`,
+    }).then(ok => { if (!dead && ok) open(next) })
+    return () => { dead = true }
+  }, [props.name, open])
 
   const src = useMemo(() => (s ? eikon.findSource(s.name, s.state) : undefined), [s?.name, s?.state, s?.sources])
   const live = useMemo(() => !!(s && eikon.findSource(s.name)), [s?.name, s?.sources])
@@ -509,6 +522,7 @@ export const EikonStudio = memo((props: {
   // Knob-row actions.
   const doSave = useCallback(async () => {
     if (!s) return
+    if (!s.dirty) return toast.show({ variant: "info", message: "Nothing to save" })
     if (!live) return toast.show({ variant: "warning",
       message: "No source — fetch or attach before saving" })
     await eikon.save({ ...s, dirty: false })
@@ -647,7 +661,7 @@ export const EikonStudio = memo((props: {
       return
     }
     if (!s) {
-      if (key.name === "return") return void doPrompt("source")
+      if (key.name === "return") return open(knobs.slug("new"))
       return
     }
     if (pane === "knobs") {
@@ -706,7 +720,8 @@ export const EikonStudio = memo((props: {
     :       "no source — Enter on 'source' to attach")
 
   const hint: Array<readonly [string, string]> =
-    pane === "knobs"   ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.activate"), "open"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
+    !s                   ? [["Enter", "new eikon"], ["Shift+→", "gallery"]]
+  : pane === "knobs"   ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.activate"), "open"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
   : pane === "preview" ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.toggle"), "play/pause"], ["wheel", "zoom"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
   :                      [["←→", "state"], [keys.print("list.activate"), "actions"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
 

@@ -25,7 +25,7 @@ import { eikon } from "../service/eikon"
 
 type Row = {
   path: string; name: string; slug: string; author?: string; bundled: boolean
-  w: number; h: number; states: number; url?: string; hasSource: boolean
+  w: number; h: number; url?: string; hasSource: boolean
 }
 
 export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: string) => void }) => {
@@ -46,7 +46,7 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
       return {
         path: e.path, name: e.meta.name, slug, author: e.meta.author,
         bundled: e.path.startsWith(BUNDLED_EIKON_DIR),
-        w: e.meta.width, h: e.meta.height, states: e.meta.states.length,
+        w: e.meta.width, h: e.meta.height,
         url: (mine?.sourceUrl ?? e.meta.source_url) as string | undefined,
         hasSource: mine?.hasSource ?? !!eikon.findSource(slug),
       }
@@ -137,7 +137,7 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
                           <span fg={theme.textMuted}>{r.bundled ? "  (bundled)" : ""}</span>
                         </text></box>
                         <box height={1}><text fg={theme.textMuted}>
-                          {`  ${r.author ?? "—"} · ${r.states} states · ${r.w}×${r.h} · `}
+                          {`  ${r.author ?? "—"} · ${r.w}×${r.h} · `}
                           <span fg={r.hasSource ? theme.success : r.url ? theme.textMuted : theme.border}>
                             {r.hasSource ? "● source" : r.url ? "○ source available" : "— no source"}
                           </span>
