@@ -39,7 +39,7 @@ export type SubagentPayload = {
   task_index: number
   goal: string
   task_count?: number
-  status?: "running" | "completed" | "failed" | "interrupted"
+  status?: "completed" | "error" | "failed" | "interrupted" | "queued" | "running" | "timeout"
   text?: string
   tool_name?: string
   tool_preview?: string
@@ -115,7 +115,7 @@ export type SpawnSubagent = {
   started_at: number
   finished_at?: number
   tool_count: number
-  status: "running" | "completed" | "failed" | "interrupted"
+  status: "completed" | "error" | "failed" | "interrupted" | "queued" | "running" | "timeout"
   input_tokens?: number
   output_tokens?: number
   cost_usd?: number
