@@ -102,6 +102,10 @@ export const ThoughtCloud = memo((props: {
   const think = all.filter((p): p is ThinkingPart => p.type === "thinking")
   const tools = all.filter((p): p is ToolPart => p.type === "tool")
   const [pane, setPane] = useState<Pane>("reasoning")
+  useEffect(() => {
+    if (pane === "reasoning" && think.length === 0 && tools.length > 0) setPane("tools")
+    if (pane === "tools" && tools.length === 0 && think.length > 0) setPane("reasoning")
+  }, [pane, think.length, tools.length])
   const body = pane === "reasoning" ? think : tools
 
   // Auto-grow: track content until the user drags; then their size
