@@ -1,3 +1,68 @@
+# [1.6.0](https://github.com/liftaris/herm/compare/v1.5.0...v1.6.0) (2026-05-18)
+
+
+### Bug Fixes
+
+* add missing streaming property in context test ([3733247](https://github.com/liftaris/herm/commit/3733247c73b6fc5d7f043007c052e234b92413c7))
+* avoid Map.groupBy in skills tab ([08cf45e](https://github.com/liftaris/herm/commit/08cf45e43a3921cb67673b3cd9a6b43501aec897))
+* **bin:** node launcher shim so npm .ps1 resolves on Windows ([03e1b9d](https://github.com/liftaris/herm/commit/03e1b9da22f34824cceaaf4757cd6f7cc66c249b))
+* **build:** shim react/jsx-dev-runtime so prod bundle paints ([df87f33](https://github.com/liftaris/herm/commit/df87f3396af123bf67d9030068c71294ed50b1ec))
+* **chat:** drop 'all' pane from ThoughtCloud; hide reasoning count ([7f9e5eb](https://github.com/liftaris/herm/commit/7f9e5eb05c9492d0b39e2c5000c3e0f6eb2eebf1))
+* **chat:** extract tab label path from args JSON, not preview blob (t_49b65e76) ([4ca94a7](https://github.com/liftaris/herm/commit/4ca94a728078b95163add3ad294095f8a7cdc6fa))
+* **chat:** handle gateways arrow-form diff header (a/x → b/x) for tab labels (t_49b65e76) ([5df00af](https://github.com/liftaris/herm/commit/5df00af1b8c9c412dba1654bfba3b0457507eb70))
+* **chat:** sanitize gateway CLI cruft from inline_diff (t_49b65e76) ([c9fd6df](https://github.com/liftaris/herm/commit/c9fd6df16bd93a63d2b3cadfbba4fce5707829b3))
+* **chat:** strip ANSI escapes from tool.preview before tab label (t_49b65e76) ([9fc7d5f](https://github.com/liftaris/herm/commit/9fc7d5fa304476d4f74823df88e54c19a8b4b2e9))
+* **control:** /tab/:n injects alt+arrow to match tab.next binding (t_d72e9ca2) ([0a1997f](https://github.com/liftaris/herm/commit/0a1997feab54e72bedf059e6bd4b9bb13e8a1f56))
+* **eikon:** box()/thumb() were splitting surrogate pairs (sextant/wedge → U+FFFD) ([ebf6a38](https://github.com/liftaris/herm/commit/ebf6a38e86d541105f915199b529b532a00b1867))
+* **eikon:** drop no-op threshold knob; decouple thumbs from preview hot path ([9d033e5](https://github.com/liftaris/herm/commit/9d033e5d1b7522f9e24cdf6f3e0e119482fc264f))
+* **eikon:** nav.md compliance on knob rows; rasterizer-swap row refresh; dialog Esc leak ([39bffd2](https://github.com/liftaris/herm/commit/39bffd2eba53fab2b91000b2d49a4eeb6cd20df9)), closes [hi#commitment](https://github.com/hi/issues/commitment)
+* **eikon:** pan-bar thumb size tracks zoom smoothly; pan-y width 1→2 ([aaf201e](https://github.com/liftaris/herm/commit/aaf201e6dc08d1c9b25ed9d9324c33f38edc26e8))
+* **eikon:** render pan-bar thumbs directly; exact fill at zoom=1 ([63b4ef9](https://github.com/liftaris/herm/commit/63b4ef99573624f85a1842329f59acdc8798c620))
+* **eikon:** SpatialBar nav.md compliance; minimap inline + read-only ([53184c3](https://github.com/liftaris/herm/commit/53184c39a2ea6854e9d3927475c81f6358c395cd))
+* **eikon:** States strip spans full width below Preview|Knobs row ([f741ff0](https://github.com/liftaris/herm/commit/f741ff06d32d3d956d79e3cbd525fd6b7b44ef20))
+* **eikon:** studio panes clip + scroll instead of bleeding past slot ([9b5bae2](https://github.com/liftaris/herm/commit/9b5bae2f7cfdc66296d9696a3ada9703dcbc5953))
+* **exit:** route real SIGINT through quit() so banner always lands ([9d8ca40](https://github.com/liftaris/herm/commit/9d8ca408854f41b360330e93adf0061b47bfefa5))
+* handle TOCTOU race in fs.watch path detection ([8efd474](https://github.com/liftaris/herm/commit/8efd474566bf7c84863a0931915b721715c40615))
+* **plugins:** demo files/clock ship disabled by default ([c7e2c9d](https://github.com/liftaris/herm/commit/c7e2c9d78a70f6432029553f0cd9c623063e0e45))
+* **plugins:** re-bind themeRef when reusing interned SlotCtx ([3882a6d](https://github.com/liftaris/herm/commit/3882a6d4db51d48ede6722441c0cda53a04a99b3))
+* **session:** keep bare herm launch fresh ([697d7e9](https://github.com/liftaris/herm/commit/697d7e9e6ec199da4f87c7a26e33bd1fd923b127))
+* **session:** only reuse root launch stubs ([6273c05](https://github.com/liftaris/herm/commit/6273c0522543aef2506cadc796321d6cddf9e241))
+* show tool-only thought cloud turns ([2db5727](https://github.com/liftaris/herm/commit/2db57272209a6668876d884dd7414ecc7bc3ba69))
+
+
+### Features
+
+* **chat:** tabbed diff frame replaces collapsible chip stack (t_49b65e76) ([fb35b3d](https://github.com/liftaris/herm/commit/fb35b3d21a882326498362ead2a14ece9b84fb4e))
+* **chat:** video_generate tool preview entry (t_9228aefd) ([99ad38e](https://github.com/liftaris/herm/commit/99ad38e0e4aee693f4371e86bf79ce3d46b029d8))
+* **eikon-studio:** auto-open active eikon on tab mount; installed picker in empty-state; reopen restores knobs from baked studio header; findSource matches <name>.* ([3bb3fd4](https://github.com/liftaris/herm/commit/3bb3fd4fb4a8d7a304e1135584d641c76e99f035))
+* **eikon-studio:** dual-slot knob editor — sidebar_content panel w/ symbols/invert/contrast/zoom/pan + minimap; chafa --preprocess off; skill round-trips studio header ([ac8d201](https://github.com/liftaris/herm/commit/ac8d201ef1b6963e2252a2fbc6f182015d3b2a22))
+* **eikon-studio:** render.ts — ffmpeg crop/eq → chafa pipe, probe, LRU cache; ffmpeg-optional fallback ([5309e35](https://github.com/liftaris/herm/commit/5309e35a231588ae24bb1cb773f23bac5aa3f64a))
+* **eikon-studio:** skill scaffold (SKILL.md + preview.sh) — chafa → WIP file → plugin live-proven ([379ab48](https://github.com/liftaris/herm/commit/379ab48344c878fbd40530c0ac2a051a926ca4b8))
+* **eikon/chafa:** expose fill/dither/threshold; expand symbol classes ([7997b9e](https://github.com/liftaris/herm/commit/7997b9e39ba3cea0809cd68404d68e67ac56efbc))
+* **eikon:** built-in top-level tab (Studio + Gallery), Rasterizer interface ([158640c](https://github.com/liftaris/herm/commit/158640c20b540657b0eb1ea1293ded96cd574f36))
+* **eikon:** depend on eikon package; drop duplicate parser + installer ([0f5db57](https://github.com/liftaris/herm/commit/0f5db572c0a1937639364a1106debeabd014874e))
+* **eikon:** fetchSource understands eikon-repo manifest; baked() resolver ([fcc05dd](https://github.com/liftaris/herm/commit/fcc05dda52b5587fe3f02413e66bac6626212ac7))
+* **eikon:** folder layout <name>/{<name>.eikon,source/} — layout.ts, bake adopts source, 'edit installed' cmd, eikonsh+preview.sh write folder form ([e6e3086](https://github.com/liftaris/herm/commit/e6e3086932cf9dc40176cdbba4b57c175e5c950a))
+* **eikon:** name-based active avatar; Gallery install-from; Ctrl+S guard ([932039f](https://github.com/liftaris/herm/commit/932039f04865454cd38aaff241962baf89e03e67))
+* **eikon:** scrollbar-style pan bars flanking the preview frame ([e42c537](https://github.com/liftaris/herm/commit/e42c5371650bca524020b63d027ea6ae68d560cb))
+* **eikonsh:** /eikons suspend-into browser; install via RS-framed stderr picks ([5905982](https://github.com/liftaris/herm/commit/59059826aeaf096095ed40d784d1d4f46ed1a8fc))
+* **eikon:** SpatialBar row (zoom/pan sliders + minimap) below preview ([d6cc61f](https://github.com/liftaris/herm/commit/d6cc61f1d6c07f7706f0ceba3a9685d7dffe1868))
+* **eikon:** Studio baked mode + Gallery source badge ([86c5e62](https://github.com/liftaris/herm/commit/86c5e62041b2584461188486b3e993cd9a2a9b53))
+* **eikon:** video playback via Clip decode + filmstrip render ([5a87cf5](https://github.com/liftaris/herm/commit/5a87cf5b261f20a1104b8bfa11cc23e0287ee454))
+* **goal:** surface subgoals[] in GoalState reader (t_c3990e3d) ([49108b3](https://github.com/liftaris/herm/commit/49108b3e1239e2e9c021b8b8ad9551ba218ceca3))
+* **keys:** clipboard.attach on Ctrl+V; empty-paste image probe; double-tap quit ([62282cf](https://github.com/liftaris/herm/commit/62282cf572c7827077451be630c6379a242d909d))
+* **plugins:** api-object runtime on @opentui/react SlotRegistry (t_ebb5e844) ([adbdbfe](https://github.com/liftaris/herm/commit/adbdbfe98d9ceab65f7283d90360de7576f27b21))
+* **plugins:** bottom-gutter plugin MVP (t_ebb5e844) ([701a428](https://github.com/liftaris/herm/commit/701a428c17d07d4d7939f550522e4d0570236480))
+* **plugins:** eikon-studio — sidebar_avatar replace slot + WIP preview via tool.complete stat, /plugin + /push control, ptyrun e2e ([11b991a](https://github.com/liftaris/herm/commit/11b991a8b09883c31d509e265f26636f9df27ae4))
+* **plugins:** tab extension point + Files plugin (gh[#3](https://github.com/liftaris/herm/issues/3) MVP) ([6090a3c](https://github.com/liftaris/herm/commit/6090a3c9a701b67f529143d7eed1865d85bc9541))
+
+
+### Performance Improvements
+
+* **eikon:** abortable thumb renders; bump plane cache 6→8 ([d4d378b](https://github.com/liftaris/herm/commit/d4d378b449c6684da9edb57849745dd071e1a502))
+* **eikon:** async chafa pipe, native plane cache, LRU 24→64 ([a15818f](https://github.com/liftaris/herm/commit/a15818f832d542c17b7e85978393175306c9b849))
+* **eikon:** defer + debounce state thumbs; paint incrementally ([23b3ba7](https://github.com/liftaris/herm/commit/23b3ba7305c60a7350d6762eb005d025b51f7d7e))
+
 # [1.5.0](https://github.com/liftaris/herm/compare/v1.4.0...v1.5.0) (2026-05-13)
 
 
