@@ -6,6 +6,23 @@ import { hermesPath } from "../src/service/hermes-home"
 import { Skills } from "../src/tabs/Skills"
 
 describe("Skills tab", () => {
+  test("renders installed skills without native Map.groupBy", async () => {
+    const group = Map.groupBy
+    Map.groupBy = undefined as unknown as typeof Map.groupBy
+    try {
+      const gw = new MockGateway({
+        "skills.manage": p => p.action === "list"
+          ? { skills: { general: ["local-skill"] } } : {},
+      })
+      const t = await mountNode(<Skills focused />, { gw, width: 160 })
+      await until(t, () => t.frame().includes("Skills (1)"))
+      expect(t.frame()).toContain("local-skill")
+      t.destroy()
+    } finally {
+      Map.groupBy = group
+    }
+  })
+
   test("enriches description/tags from SKILL.md frontmatter on disk", async () => {
     const dir = hermesPath("skills/general/local-skill")
     mkdirSync(dir, { recursive: true })

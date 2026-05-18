@@ -74,6 +74,12 @@ const HitRow = memo((props: { hit: Hit; selected: boolean; onHover: () => void }
   );
 });
 
+const bycat = (skills: SkillInfo[]) => skills.reduce((map, s) => {
+  const cat = s.category || "uncategorized"
+  map.set(cat, [...(map.get(cat) ?? []), s])
+  return map
+}, new Map<string, SkillInfo[]>())
+
 const line = (e: LineageEvent): string => {
   switch (e.kind) {
     case "absorbed":   return `absorbed ${e.sources.map(s => `\`${s}\``).join(", ")}`
@@ -321,7 +327,7 @@ export const Skills = memo((props: { focused?: boolean }) => {
           return tb - ta;
         })],
       ])
-    : Map.groupBy(skills, s => s.category || "uncategorized");
+    : bycat(skills);
 
   // Flat list for keyboard navigation
   const flat = [...groups].flatMap(([cat, items]) => [
