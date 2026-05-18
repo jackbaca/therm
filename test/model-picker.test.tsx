@@ -73,4 +73,50 @@ describe("model-picker", () => {
     expect(sets[0].session_id).toBeUndefined()
     t.destroy()
   })
+
+  test("provider dialog leads with current provider and Enter selects it", async () => {
+    const opts = {
+      provider: "anthropic",
+      model: "claude-3",
+      providers: [
+        { slug: "openai", name: "OpenAI", total_models: 1, models: ["gpt-4"] },
+        { slug: "anthropic", name: "Anthropic", is_current: true, total_models: 2, models: ["claude-3", "claude-4"] },
+      ],
+    }
+    const t = await mountNode(<Open />, {
+      handlers: { "model.options": () => opts },
+    })
+    await until(t, () => t.frame().includes("Anthropic"))
+    expect(t.frame().indexOf("Current")).toBeLessThan(t.frame().indexOf("Available"))
+
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Switch Model (Anthropic)"))
+    expect(t.frame()).toContain("claude-3")
+    t.destroy()
+  })
+
+  test("model step only marks current model for current provider", async () => {
+    const opts = {
+      provider: "anthropic",
+      model: "shared",
+      providers: [
+        { slug: "anthropic", name: "Anthropic", is_current: true, total_models: 1, models: ["shared"] },
+        { slug: "openai", name: "OpenAI", total_models: 2, models: ["shared", "gpt-4"] },
+      ],
+    }
+    const t = await mountNode(<Open />, {
+      handlers: { "model.options": () => opts },
+    })
+    await until(t, () => t.frame().includes("Anthropic"))
+
+    act(() => t.keys.pressArrow("down"))
+    await t.settle()
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Switch Model (OpenAI)"))
+
+    const row = t.frame().split("\n").find(l => l.includes("shared")) ?? ""
+    expect(row).not.toContain("●")
+    t.destroy()
+  })
+
 })

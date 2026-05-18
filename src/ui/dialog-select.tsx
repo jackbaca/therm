@@ -73,14 +73,22 @@ export const DialogSelect = (props: Props) => {
     return map
   }, [filtered])
 
+  const rowId = (i: number) => `ds-row-${i}`
+
+  const scrollTo = (i: number) => sb.current?.scrollChildIntoView(rowId(i))
+
   // Clamp cursor
   useEffect(() => {
     if (cursor >= filtered.length) setCursor(Math.max(0, filtered.length - 1))
   }, [filtered.length, cursor])
 
-  const rowId = (i: number) => `ds-row-${i}`
-
-  const scrollTo = (i: number) => sb.current?.scrollChildIntoView(rowId(i))
+  useEffect(() => {
+    if (!props.current) { setCursor(0); return }
+    const i = filtered.findIndex(o => o.value === props.current)
+    const n = Math.max(0, i)
+    setCursor(n)
+    scrollTo(n)
+  }, [props.current, filtered])
 
   // Notify on move
   useEffect(() => {
