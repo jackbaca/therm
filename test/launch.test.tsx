@@ -105,13 +105,13 @@ describe("useSession.boot", () => {
   })
   afterAll(wipe)
 
-  test("mode:new creates even when lastSessionId is an empty stub", async () => {
+  test("mode:new reuses standalone empty stub instead of creating", async () => {
     preferences.set("lastSessionId", "stub")
     const gw = new MockGateway()
     const r = await boot(gw, { mode: "new" })
-    expect(gw.calls.some(c => c.method === "session.create")).toBe(true)
-    expect(gw.calls.some(c => c.method === "session.resume")).toBe(false)
-    expect(r.messages).toEqual([])
+    expect(r.id).toBe("stub")
+    expect(gw.calls.some(c => c.method === "session.create")).toBe(false)
+    expect(gw.last("session.resume")?.params.session_id).toBe("stub")
   })
 
   test("mode:new creates instead of resuming empty compression-chain tip", async () => {
@@ -121,6 +121,19 @@ describe("useSession.boot", () => {
     db.close()
     resetDb()
     preferences.set("lastSessionId", "root")
+    const gw = new MockGateway()
+    await boot(gw, { mode: "new" })
+    expect(gw.calls.some(c => c.method === "session.create")).toBe(true)
+    expect(gw.calls.some(c => c.method === "session.resume")).toBe(false)
+  })
+
+  test("mode:new creates instead of reusing stored empty continuation", async () => {
+    const db = seed()
+    sess(db, "root", "tui", 1000, 296, { ended_at: 2000, end_reason: "compression" })
+    sess(db, "tip",  "tui", 2100,   0, { parent_session_id: "root" })
+    db.close()
+    resetDb()
+    preferences.set("lastSessionId", "tip")
     const gw = new MockGateway()
     await boot(gw, { mode: "new" })
     expect(gw.calls.some(c => c.method === "session.create")).toBe(true)

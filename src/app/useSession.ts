@@ -108,8 +108,15 @@ export function useSession(): SessionOps {
       }
     }
 
-    // mode:"new" — bare launch is ALWAYS a fresh session (herm-1jd).
-    // Resume is only for explicit -c/--continue/--resume launches.
+    // mode:"new" — bare launch is fresh unless we can reuse our own
+    // abandoned root stub. Do not chase compression tips here: a stored
+    // old continuation can point at a 0-msg child and silently keep bare
+    // `herm` attached to old lineage.
+    const last = preferences.get("lastSessionId")
+    const row = last ? sdb.byId(last) : null
+    if (row?.message_count === 0 && row.parent_session_id == null) {
+      try { return await resume(row.id) } catch { /* fall through */ }
+    }
     return fresh()
   }, [create, resume])
 
