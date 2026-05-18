@@ -294,8 +294,21 @@ function tone(win: Window, flip: string, con: number): Window {
         const t = new Uint8Array(a); a.set(b); b.set(t)
       }
   }
-  if (Math.abs(con - 1) > 1e-3)
-    for (let i = 0; i < g.length; i++) g[i] = clamp(Math.round((g[i]! - 128) * con + 128), 0, 255)
+  if (Math.abs(con - 1) > 1e-3) {
+    // Center on the per-plane mean, not 128 — a photographic source
+    // whose pixels cluster well above or below mid-gray (a bright
+    // moon scene, a dark owl on a dark branch) barely shifts under
+    // a 128-pivot multiply because most of the dynamic range sits
+    // in the clamp tails. Mean-centering keeps the slider effective
+    // across arbitrary luminance distributions.
+    for (let f = 0; f < n; f++) {
+      const o = f * sz
+      let sum = 0
+      for (let i = 0; i < sz; i++) sum += g[o + i]!
+      const m = sum / sz
+      for (let i = 0; i < sz; i++) g[o + i] = clamp(Math.round((g[o + i]! - m) * con + m), 0, 255)
+    }
+  }
   return win
 }
 
@@ -360,9 +373,19 @@ function sample(g: Uint8Array, w: number, h: number, fw: number, fh: number) {
     g[Math.min(h - 1, Math.floor(gy * sy)) * w + Math.min(w - 1, Math.floor(gx * sx))]!
 }
 
+function mean(g: Uint8Array): number {
+  let s = 0
+  for (let i = 0; i < g.length; i++) s += g[i]!
+  return s / g.length
+}
+
 function braille(g: Uint8Array, w: number, h: number, inv: boolean, con: number): Frame {
   const at = sample(g, w, h, W * 2, H * 4)
-  const thr = 128 / con
+  // Mean-centered threshold: pivot the binarisation around the
+  // plane's actual luminance so photographic sources (bright sky,
+  // dark subject) still respond to the contrast knob.
+  const m = mean(g)
+  const thr = m + (128 - m) / con
   const rows: string[] = []
   for (let y = 0; y < H; y++) {
     let row = ""
@@ -381,12 +404,13 @@ function braille(g: Uint8Array, w: number, h: number, inv: boolean, con: number)
 
 function block(g: Uint8Array, w: number, h: number, inv: boolean, con: number): Frame {
   const at = sample(g, w, h, W, H)
+  const m = mean(g)
   const n = RAMP.length - 1
   const rows: string[] = []
   for (let y = 0; y < H; y++) {
     let row = ""
     for (let x = 0; x < W; x++) {
-      const v = clamp((at(x, y) - 128) * con + 128, 0, 255)
+      const v = clamp((at(x, y) - m) * con + m, 0, 255)
       const i = Math.round((inv ? 255 - v : v) / 255 * n)
       row += RAMP[i]
     }
