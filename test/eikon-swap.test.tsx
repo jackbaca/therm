@@ -17,7 +17,7 @@ function seed(name: string, r: string) {
   spawnSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "lavfi",
     "-i", "color=gray:s=32x32", "-frames:v", "1", "-y", join(p.source, "base.png")])
   writeFileSync(eikon.file(name), JSON.stringify({ eikon: 1, name }) + "\n")
-  eikon.writeStudio(name, { rasterizer: r, spatial: { zoom: 1, ox: 0.5, oy: 0.5 }, fps: 16, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
+  eikon.writeStudio(name, { rasterizer: r, spatial: { zoom: 1, ox: 0.5, oy: 0.5 }, tone: { contrast: 1, flip: "none" }, fps: 16, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
 }
 
 /** DialogSelect filterable=false; registry order [chafa, native]. */
@@ -49,25 +49,30 @@ async function navTo(t: Harness, name: string) {
   throw new Error(`never reached row '${name}'\n${t.frame()}`)
 }
 
-run("chafa↔native: flip row appears/disappears immediately on swap", async () => {
+run("chafa↔native: chafa-only rows appear/disappear immediately on swap", async () => {
   seed("swap", "native")
   prefs.set("eikon", "swap")
   prefs.set("eikonRasterizer", "native")
   await using t = await mountNode(<EikonGroup focused sub={0} setSub={() => {}} />, { width: 180, height: 60 })
   await until(t, () => t.frame().includes("native ▸"))
-  expect(t.frame()).not.toContain("flip")
+  // fill/dither are chafa-only; flip/contrast are now studio-owned
+  // HEAD rows so they're always present.
+  expect(t.frame()).toContain("flip")
+  expect(t.frame()).toContain("contrast")
+  expect(t.frame()).not.toContain("dither")
 
   await pickIdx(t, 0)
   await until(t, () => t.frame().includes("chafa ▸"))
-  expect(t.frame()).toContain("flip")
+  expect(t.frame()).toContain("dither")
+  expect(t.frame()).toContain("fill")
 
   await pickIdx(t, 1)
   await until(t, () => t.frame().includes("native ▸"))
-  expect(t.frame()).not.toContain("flip")
+  expect(t.frame()).not.toContain("dither")
 
   await pickIdx(t, 0)
   await until(t, () => t.frame().includes("chafa ▸"))
-  expect(t.frame()).toContain("flip")
+  expect(t.frame()).toContain("dither")
 })
 
 run("Esc in a prompt dialog does NOT fall through to discard()", async () => {

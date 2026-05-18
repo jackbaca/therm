@@ -27,7 +27,7 @@ function seed(name: string, sp = { zoom: 0.6, ox: 0.3, oy: 0.7 }) {
   const p = eikon.ensure(name)
   writeFileSync(join(p.source, "base.png"), PX)
   writeFileSync(eikon.file(name), JSON.stringify({ eikon: 1, name, width: 48, height: 24 }) + "\n")
-  eikon.writeStudio(name, { rasterizer: "stub", spatial: sp, fps: 16, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
+  eikon.writeStudio(name, { rasterizer: "stub", spatial: sp, tone: { contrast: 1, flip: "none" }, fps: 16, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
 }
 
 run("layout probe (wide)", async () => {
@@ -179,7 +179,7 @@ const tall: Rasterizer = {
 run("wide: knobs overflow scrolls inside its panel", async () => {
   const un = eikon.register(tall); seed("tall")
   eikon.writeStudio("tall", { rasterizer: "tall", spatial: { zoom: 1, ox: 0.5, oy: 0.5 },
-    fps: 16, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
+    tone: { contrast: 1, flip: "none" }, fps: 16, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
   const prefs = await import("../src/context/preferences")
   prefs.set("eikon", "tall")
   await using t = await mountNode(<EikonGroup focused sub={0} setSub={() => {}} />, { width: 180, height: 60 })

@@ -6,8 +6,8 @@
 // (see utils/eikon-render.ts); `step()` is generic over `KnobDef`.
 
 import type { AvatarState } from "../components/avatar/states"
-import type { KnobDef, KnobValues, Rasterizer, Spatial } from "./eikon-render"
-import { S0, FPS0, defaults } from "./eikon-render"
+import type { KnobDef, KnobValues, Rasterizer, Spatial, Tone } from "./eikon-render"
+import { S0, T0, FPS0, defaults } from "./eikon-render"
 
 export const STATES: readonly AvatarState[] = ["idle", "listening", "thinking", "speaking", "working", "error"]
 
@@ -20,6 +20,7 @@ const wrap = <T,>(arr: readonly T[], cur: T, d: 1 | -1): T =>
 export type Studio = {
   rasterizer: string
   spatial: Spatial
+  tone: Tone
   fps: number
   base: KnobValues
   per: Partial<Record<AvatarState, KnobValues>>
@@ -42,6 +43,7 @@ export function fresh(name: string, r: Rasterizer, seed?: Partial<Studio>): Sess
     name, state: "idle", dims: null, dirty: false,
     rasterizer: seed?.rasterizer ?? r.name,
     spatial: seed?.spatial ?? { ...S0 },
+    tone: seed?.tone ?? { ...T0 },
     fps: seed?.fps ?? FPS0,
     base: seed?.base ?? defaults(r),
     per: seed?.per ?? {},
@@ -114,15 +116,15 @@ export function swap(s: Session, r: Rasterizer): Session {
 }
 
 export const reset = (s: Session, r: Rasterizer): Session =>
-  ({ ...s, spatial: { ...S0 }, base: defaults(r), per: {}, dirty: true })
+  ({ ...s, spatial: { ...S0 }, tone: { ...T0 }, base: defaults(r), per: {}, dirty: true })
 
 export const slug = (v: string) =>
   v.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") || "wip"
 
 /** Persisted slice of a session. */
 export const toStudio = (s: Session): Studio => ({
-  rasterizer: s.rasterizer, spatial: s.spatial, fps: s.fps, base: s.base,
-  per: s.per, glyph: s.glyph, sources: s.sources, prompts: s.prompts,
+  rasterizer: s.rasterizer, spatial: s.spatial, tone: s.tone, fps: s.fps,
+  base: s.base, per: s.per, glyph: s.glyph, sources: s.sources, prompts: s.prompts,
 })
 
 export * as knobs from "./eikon-knobs"

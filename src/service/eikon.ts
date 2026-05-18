@@ -214,7 +214,7 @@ export async function save(s: Session): Promise<string> {
     if (!fs) {
       if (!src) fs = blank
       else {
-        const out = await cached(r, src, s.spatial, s.fps, k)
+        const out = await cached(r, src, s.spatial, s.tone, s.fps, k)
         if ("err" in out) throw new Error(out.err)
         fs = out.frames
       }

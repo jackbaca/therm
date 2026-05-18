@@ -39,8 +39,8 @@ import { listEikons } from "../components/avatar/eikon"
 import * as prefs from "../context/preferences"
 import { eikon } from "../service/eikon"
 import type { ParsedEikon } from "../components/avatar/eikon"
-import { W, H, FPS0, caps, thumb, cached, resetCache, prewarm,
-         type Rasterizer, type KnobDef, type Spatial, type Frame } from "../utils/eikon-render"
+import { W, H, FPS0, caps, thumb, cached, resetCache, prewarm, T0,
+         type Rasterizer, type KnobDef, type Spatial, type Tone, type Flip, type Frame } from "../utils/eikon-render"
 import { knobs, STATES, type Session } from "../utils/eikon-knobs"
 import type { AvatarState } from "../components/avatar/states"
 import { useSpinnerGlyph } from "../ui/spinner"
@@ -61,7 +61,7 @@ const HELP_H = 3
 // Stable contentOptions — inline `{}` would re-set on every reconcile.
 const COL = { flexDirection: "column" } as const
 
-type RowKind = "select" | "prompt" | "action" | "divider" | "knob"
+type RowKind = "select" | "prompt" | "action" | "divider" | "header" | "knob" | "tone"
 type Row = {
   id: string; kind: RowKind; label: string
   knob?: KnobDef
@@ -83,6 +83,14 @@ const HEAD: readonly Row[] = [
   { id: "reset",      kind: "action", label: "reset",       show: (_s, live) => live },
   { id: "revert",     kind: "action", label: "revert",      show: s => s.dirty },
   { id: "-2",         kind: "divider", label: "", show: (_s, live) => live },
+  { id: "h-input",    kind: "header",  label: "input", show: (_s, live) => live },
+  { id: "contrast",   kind: "tone",    label: "contrast",   show: (_s, live) => live,
+    knob: { kind: "slider", min: 0.25, max: 4, step: 0.05, default: 1,
+            hint: "Spread pixel values around their mean. ×1 = source as-is; higher sharpens, lower flattens. Applied to the image before rasterizing." } },
+  { id: "flip",       kind: "tone",    label: "flip",       show: (_s, live) => live,
+    knob: { kind: "cycle", options: ["none", "h", "v", "hv"], default: "none",
+            hint: "Mirror the source horizontally, vertically, or both before rasterizing." } },
+  { id: "-3",         kind: "divider", label: "", show: (_s, live) => live },
 ]
 
 // One-sentence help per row, shown at the bottom of the Settings
@@ -99,11 +107,13 @@ const HELP: Readonly<Record<string, string>> = {
   revert:     "Throw away unsaved edits and reload this eikon from disk.",
 }
 
+const FLIPS: readonly Flip[] = ["none", "h", "v", "hv"]
+
 function helpOf(row: Row | undefined): string {
   if (!row) return ""
   const head = HELP[row.id]
   if (head) return head
-  if (row.kind !== "knob" || !row.knob) return ""
+  if (!row.knob) return ""
   if (row.knob.hint) return row.knob.hint
   if (row.knob.kind === "cycle")
     return `←→ or Enter cycles: ${row.knob.options.join(" · ")}.`
@@ -116,7 +126,10 @@ function buildRows(r: Rasterizer, s: Session, live: boolean, url?: string): Row[
     ? Object.entries(r.knobs).map<Row>(([id, def]) =>
         ({ id, kind: "knob", label: def.label ?? id, knob: def }))
     : []
-  return [...HEAD.filter(h => h.show ? h.show(s, live, url) : true), ...dyn]
+  const head = HEAD.filter(h => h.show ? h.show(s, live, url) : true)
+  return dyn.length
+    ? [...head, { id: "h-r", kind: "header", label: r.name }, ...dyn]
+    : head
 }
 
 // ── Minimap (read-only) ──────────────────────────────────────────────
@@ -291,6 +304,10 @@ function valueOf(s: Session, r: Rasterizer, row: Row, theme: Theme,
   }
   if (row.id === "reset") return "▸ defaults"
   if (row.id === "revert") return "▸ reload from disk"
+  if (row.kind === "tone") {
+    if (row.id === "contrast") return `×${s.tone.contrast.toFixed(2)}`
+    if (row.id === "flip") return `◂ ${s.tone.flip} ▸`
+  }
   if (row.id === "fetch") return busy ? "fetching…"
     : peek ? `▸ download to edit  (${peek.n} files, ${mb(peek.bytes)})` : "▸ download to edit"
   if (row.kind === "knob" && row.knob) {
@@ -312,9 +329,21 @@ function KnobRow(props: {
 }) {
   const theme = useTheme().theme
   const { row, on, dim } = props
+  const slider = row.knob?.kind === "slider" ? row.knob : undefined
+  const sval = !slider ? 0
+    : row.kind === "tone" ? props.s.tone.contrast
+    : Number(knobs.eff(props.s, props.s.state)[row.id] ?? slider.default)
+  // SliderRenderable's `value` setter fires onChange, so a prop
+  // update driven by open()/revert()/reset() echoes straight back
+  // into onSlide and re-dirties the just-cleaned session. Track the
+  // value we last pushed *to* the slider and drop onChange calls
+  // that are just that echo.
+  const pushed = useRef(sval); pushed.current = sval
+  const slide = (v: number) => { if (v !== pushed.current) props.onSlide?.(v) }
   if (row.kind === "divider")
     return <box id={props.id} height={1}><text fg={theme.border}>{"─".repeat(24)}</text></box>
-  const slider = row.knob?.kind === "slider" ? row.knob : undefined
+  if (row.kind === "header")
+    return <box id={props.id} height={1}><text fg={theme.textMuted}><u>{row.label}</u></text></box>
   // Wheel over the selected slider row adjusts it and stops bubbling
   // so the enclosing scrollboxes don't also move. Unselected / non-
   // slider rows let the event through for normal list scrolling.
@@ -336,10 +365,10 @@ function KnobRow(props: {
         <>
           <box width={20} height={1}>
             <slider orientation="horizontal" min={slider.min} max={slider.max}
-                    value={Number(knobs.eff(props.s, props.s.state)[row.id] ?? slider.default)}
+                    value={sval}
                     foregroundColor={on ? theme.accent : theme.textMuted}
                     backgroundColor={theme.border}
-                    onChange={props.onSlide} />
+                    onChange={slide} />
           </box>
           <box width={1} />
         </>
@@ -470,6 +499,7 @@ export const EikonStudio = memo((props: {
       if (p) prewarm(p, next.fps)
     }
     setS(next)
+    selRow.current = undefined
     setSel(0); setPane("knobs"); setErr(null); setTick(0); setFrames([BLANK])
   }, [])
 
@@ -532,17 +562,20 @@ export const EikonStudio = memo((props: {
   }, [url, live])
 
   const rows = useMemo(() => (s ? buildRows(r, s, live, url) : []), [r, s, live, url])
-  const navRows = useMemo(() => rows.map((x, i) => ({ ...x, i })).filter(x => x.kind !== "divider"), [rows])
-  // Keep selection anchored to its row's id when navRows mutates (the
-  // `revert` row inserts into HEAD when a knob is touched, shifting
-  // knob indices). selRow is the id the user intends to sit on; it's
-  // updated by the keyboard handler (setSelBy) and read here when the
-  // row list changes to re-resolve the index.
+  const navRows = useMemo(() => rows.map((x, i) => ({ ...x, i }))
+    .filter(x => x.kind !== "divider" && x.kind !== "header"), [rows])
+  // Keep selection anchored to its row identity when navRows mutates
+  // (the `revert` row inserts into HEAD on first dirty, shifting
+  // indices). Anchor on kind+id so a rasterizer knob that reuses a
+  // HEAD id (e.g. a plugin declaring its own `contrast`) can't hijack
+  // the resolved index.
   const selRow = useRef<string | undefined>(undefined)
+  const rid = (x: Row) => `${x.kind}:${x.id}`
   const setSelBy = useCallback<typeof setSel>((arg) => {
     setSel(prev => {
       const next = typeof arg === "function" ? (arg as (p: number) => number)(prev) : arg
-      selRow.current = navRows[next]?.id
+      const row = navRows[next]
+      selRow.current = row ? rid(row) : undefined
       return next
     })
   }, [navRows])
@@ -552,14 +585,14 @@ export const EikonStudio = memo((props: {
     prevRows.current = navRows
     const id = selRow.current
     if (!id) return
-    const ni = navRows.findIndex(x => x.id === id)
+    const ni = navRows.findIndex(x => rid(x) === id)
     if (ni >= 0 && ni !== selRef.current) setSel(ni)
   }, [navRows])
   // Knobs pane: ↑↓ keeps the selected row in view. Rows already carry
   // `id="knob-<row.id>"` (reconciler-id rule) — resolve via that.
   const kScroll = (ni: number) => {
     const row = navRows[ni]
-    if (row) ksb.current?.scrollChildIntoView(`knob-${row.id}`)
+    if (row) ksb.current?.scrollChildIntoView(`knob-${row.kind}-${row.id}`)
   }
 
   // Render the current state's full clip. Sourceless falls through
@@ -576,7 +609,7 @@ export const EikonStudio = memo((props: {
     }
     const ctrl = new AbortController()
     setBusy(true)
-    void cached(r, src, s.spatial, s.fps, knobs.eff(s, s.state), ctrl.signal).then(out => {
+    void cached(r, src, s.spatial, s.tone, s.fps, knobs.eff(s, s.state), ctrl.signal).then(out => {
       if (ctrl.signal.aborted) return
       setBusy(false)
       if ("err" in out) { setErr(out.err); return }
@@ -584,7 +617,7 @@ export const EikonStudio = memo((props: {
       setTick(t => t % out.frames.length)
     })
     return () => ctrl.abort()
-  }, [s?.spatial, s?.base, s?.per, s?.state, s?.fps, s?.rasterizer, src, r, baked])
+  }, [s?.spatial, s?.tone, s?.base, s?.per, s?.state, s?.fps, s?.rasterizer, src, r, baked])
 
   // Playback ticker — pure index advance over the already-rendered
   // `frames`. Zero work per tick; the filmstrip effect above did it
@@ -611,7 +644,7 @@ export const EikonStudio = memo((props: {
           const f = baked?.states.get(st)?.frames[0]
           return Promise.resolve([st, f ? thumb(f) : undefined] as const)
         }
-        return cached(r, sp, s.spatial, s.fps, knobs.eff(s, st))
+        return cached(r, sp, s.spatial, s.tone, s.fps, knobs.eff(s, st))
           .then(res => [st, "err" in res ? undefined : thumb(res.frames[0]!)] as const)
       })
       void Promise.all(jobs).then(done => {
@@ -878,8 +911,26 @@ export const EikonStudio = memo((props: {
     )
   }
 
-  /** Step a knob row (cycle/toggle forward, slider ±). */
+  const setTone = (t: Partial<Tone>) =>
+    mutate(p => ({ ...p, tone: { ...p.tone, ...t }, dirty: true }))
+
+  /** Step a knob row (cycle/toggle forward, slider ±). Tone rows
+   *  (contrast/flip) write to `s.tone`; rasterizer knobs to `s.base`
+   *  or `s.per[state]` via `knobs.edit`. */
   const stepRow = (row: Row, d: 1 | -1) => {
+    if (row.kind === "tone") {
+      if (row.id === "contrast") {
+        const def = row.knob as Extract<KnobDef, { kind: "slider" }>
+        const cur = sRef.current?.tone.contrast ?? 1
+        return setTone({ contrast: +Math.max(def.min, Math.min(def.max, cur + d * def.step)).toFixed(2) })
+      }
+      if (row.id === "flip") {
+        const cur = sRef.current?.tone.flip ?? "none"
+        const i = FLIPS.indexOf(cur)
+        return setTone({ flip: FLIPS[(i + d + FLIPS.length) % FLIPS.length]! })
+      }
+      return
+    }
     if (row.kind !== "knob" || !row.knob) return
     mutate(p => knobs.edit(p, k => knobs.step(k, row.id, row.knob!, d)))
   }
@@ -898,7 +949,7 @@ export const EikonStudio = memo((props: {
       if (via === "space" && row.id === "reset") return
       return void doAction(row.id)
     }
-    if (row.kind === "knob") {
+    if (row.kind === "tone" || row.kind === "knob") {
       // slider has neither toggle nor activate semantics → Enter/Space
       // are inert (←→ and drag are the inputs).
       if (row.knob!.kind === "slider") return
@@ -1069,14 +1120,15 @@ export const EikonStudio = memo((props: {
                 const on = pane === "knobs" && ni === sel
                 const dim = row.kind === "knob" && !src
                 return (
-                  <KnobRow key={`${r.name}:${row.id}`} id={`knob-${row.id}`} row={row} s={s} r={r} src={src}
+                  <KnobRow key={`${row.kind}:${r.name}:${row.id}`} id={`knob-${row.kind}-${row.id}`} row={row} s={s} r={r} src={src}
                            on={on} dim={dim} peek={peek} busy={row.id === "fetch" && fetching}
                            onHover={() => { if (ni >= 0) { setPane("knobs"); setSelBy(ni) } }}
                            onClick={() => { if (ni >= 0) { setSelBy(ni); setPane("knobs"); act(row, "click") } }}
                            onWheel={d => stepRow(row, d)}
-                           onSlide={row.knob?.kind === "slider"
-                             ? v => mutate(p => knobs.edit(p, k => knobs.setSlider(k, row.id, row.knob!, v)))
-                             : undefined} />
+                           onSlide={row.knob?.kind !== "slider" ? undefined
+                             : row.kind === "tone"
+                               ? v => setTone({ contrast: +v.toFixed(2) })
+                               : v => mutate(p => knobs.edit(p, k => knobs.setSlider(k, row.id, row.knob!, v)))} />
                 )
               })}
             </scrollbox>
