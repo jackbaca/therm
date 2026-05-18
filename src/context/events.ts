@@ -15,6 +15,10 @@ export type Side = {
   onBtw?: (text: string) => void
   onStatus?: (text: string) => void
   onSkin?: (skin: GatewaySkin | null | undefined) => void
+  /** voice.status event — gateway VAD loop state change (listening/transcribing/idle). */
+  onVoiceStatus?: (state: string) => void
+  /** voice.transcript event — transcribed text from a completed voice capture. */
+  onVoiceTranscript?: (text: string, noSpeechLimit: boolean) => void
 }
 
 function count(o: Record<string, string[]> | undefined): number {
@@ -205,6 +209,29 @@ export function mapEvent(ev: GatewayEvent, side: Side): Action | null {
           : `◆ background ${m[1]} matched "${m[3]}" · ${m[4]}` }
       }
       return { kind: "system", text }
+    }
+
+    case "voice.status": {
+      // Continuous VAD loop reports its internal state: listening,
+      // transcribing, or idle. The UI uses this for the recording indicator.
+      const state = String(ev.payload?.state ?? "")
+      side.onVoiceStatus?.(state)
+      return null
+    }
+
+    case "voice.transcript": {
+      // Transcribed text from a completed voice capture.
+      // no_speech_limit=true when 3 consecutive silent captures occurred
+      // — in that case voice mode auto-disables (CLI parity).
+      const noSpeechLimit = ev.payload?.no_speech_limit === true
+      if (noSpeechLimit) {
+        side.onVoiceTranscript?.("", true)
+        return null
+      }
+      const text = String(ev.payload?.text ?? "").trim()
+      if (!text) return null
+      side.onVoiceTranscript?.(text, false)
+      return null
     }
   }
   return null
