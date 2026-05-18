@@ -105,7 +105,7 @@ describe("useSession.boot", () => {
   })
   afterAll(wipe)
 
-  test("mode:new reuses own empty stub instead of creating", async () => {
+  test("mode:new reuses standalone empty stub instead of creating", async () => {
     preferences.set("lastSessionId", "stub")
     const gw = new MockGateway()
     const r = await boot(gw, { mode: "new" })
@@ -114,7 +114,7 @@ describe("useSession.boot", () => {
     expect(gw.last("session.resume")?.params.session_id).toBe("stub")
   })
 
-  test("mode:new chases compression chain to reuse empty tip stub", async () => {
+  test("mode:new creates instead of resuming empty compression-chain tip", async () => {
     const db = seed()
     sess(db, "root", "tui", 1000, 296, { ended_at: 2000, end_reason: "compression" })
     sess(db, "tip",  "tui", 2100,   0, { parent_session_id: "root" })
@@ -123,8 +123,21 @@ describe("useSession.boot", () => {
     preferences.set("lastSessionId", "root")
     const gw = new MockGateway()
     await boot(gw, { mode: "new" })
-    expect(gw.calls.some(c => c.method === "session.create")).toBe(false)
-    expect(gw.last("session.resume")?.params.session_id).toBe("tip")
+    expect(gw.calls.some(c => c.method === "session.create")).toBe(true)
+    expect(gw.calls.some(c => c.method === "session.resume")).toBe(false)
+  })
+
+  test("mode:new creates instead of reusing stored empty continuation", async () => {
+    const db = seed()
+    sess(db, "root", "tui", 1000, 296, { ended_at: 2000, end_reason: "compression" })
+    sess(db, "tip",  "tui", 2100,   0, { parent_session_id: "root" })
+    db.close()
+    resetDb()
+    preferences.set("lastSessionId", "tip")
+    const gw = new MockGateway()
+    await boot(gw, { mode: "new" })
+    expect(gw.calls.some(c => c.method === "session.create")).toBe(true)
+    expect(gw.calls.some(c => c.method === "session.resume")).toBe(false)
   })
 
   test("mode:new creates when lastSessionId is non-empty session", async () => {
@@ -141,6 +154,23 @@ describe("useSession.boot", () => {
     const gw = new MockGateway()
     await boot(gw, { mode: "resume" })
     expect(gw.last("session.resume")?.params.session_id).toBe("real")
+  })
+
+  test("mode:resume switches live model to the stored provider/model", async () => {
+    const db = seed()
+    sess(db, "past", "tui", 1005, 5, { model: "gpt-5.5", billing_provider: "openai-codex" })
+    db.close()
+    resetDb()
+
+    const sets: Array<Record<string, unknown>> = []
+    const gw = new MockGateway({
+      "session.resume": p => ({ session_id: "live-past", resumed: p.session_id, messages: [] }),
+      "config.set": p => { sets.push(p); return { value: p.value } },
+    })
+    await boot(gw, { mode: "resume", sid: "past" })
+
+    expect(gw.last("session.resume")?.params.session_id).toBe("past")
+    expect(sets).toEqual([{ session_id: "live-past", key: "model", value: "gpt-5.5 --provider openai-codex" }])
   })
 
   test("mode:resume normalizes session_*.json filenames", async () => {

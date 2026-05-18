@@ -3,7 +3,7 @@ import { act } from "react"
 import { mount, until } from "./harness"
 
 describe("composer: image attachments (D4+D7)", () => {
-  test("Alt+V → clipboard.paste → chip renders; clears on send", async () => {
+  test("Ctrl+V → clipboard.paste → chip renders; clears on send", async () => {
     const t = await mount({
       handlers: {
         "clipboard.paste": () => ({
@@ -14,7 +14,7 @@ describe("composer: image attachments (D4+D7)", () => {
     })
     await until(t, () => t.frame().includes("Ready"))
 
-    act(() => t.keys.pressKey("v", { meta: true }))
+    act(() => t.keys.pressKey("v", { ctrl: true }))
     await until(t, () => t.gw.last("clipboard.paste") !== undefined)
     await until(t, () => t.frame().includes("clip_1.png"))
 
@@ -44,7 +44,7 @@ describe("composer: image attachments (D4+D7)", () => {
     t.destroy()
   })
 
-  test("Alt+V with no clipboard image → toast, no chip", async () => {
+  test("Ctrl+V with no clipboard image → toast, no chip", async () => {
     const t = await mount({
       handlers: {
         "clipboard.paste": () => ({ attached: false, message: "No image found in clipboard" }),
@@ -52,7 +52,7 @@ describe("composer: image attachments (D4+D7)", () => {
     })
     await until(t, () => t.frame().includes("Ready"))
 
-    act(() => t.keys.pressKey("v", { meta: true }))
+    act(() => t.keys.pressKey("v", { ctrl: true }))
     await until(t, () => t.gw.last("clipboard.paste") !== undefined)
     await until(t, () => t.frame().includes("No image found in clipboard"))
     expect(t.frame()).not.toContain(" img ")
@@ -71,9 +71,9 @@ describe("composer: image attachments (D4+D7)", () => {
     })
     await until(t, () => t.frame().includes("Ready"))
 
-    act(() => t.keys.pressKey("v", { meta: true }))
+    act(() => t.keys.pressKey("v", { ctrl: true }))
     await until(t, () => t.frame().includes("i1.png"))
-    act(() => t.keys.pressKey("v", { meta: true }))
+    act(() => t.keys.pressKey("v", { ctrl: true }))
     await until(t, () => t.frame().includes("i2.png"))
 
     expect(t.frame()).toContain("i1.png")
@@ -92,9 +92,9 @@ describe("composer: image attachments (D4+D7)", () => {
       },
     })
     await until(t, () => t.frame().includes("Ready"))
-    act(() => t.keys.pressKey("v", { meta: true }))
+    act(() => t.keys.pressKey("v", { ctrl: true }))
     await until(t, () => t.frame().includes("i1.png"))
-    act(() => t.keys.pressKey("v", { meta: true }))
+    act(() => t.keys.pressKey("v", { ctrl: true }))
     await until(t, () => t.frame().includes("i2.png"))
 
     // First backspace peels i2 (last attached).
@@ -119,7 +119,7 @@ describe("composer: image attachments (D4+D7)", () => {
       },
     })
     await until(t, () => t.frame().includes("Ready"))
-    act(() => t.keys.pressKey("v", { meta: true }))
+    act(() => t.keys.pressKey("v", { ctrl: true }))
     await until(t, () => t.frame().includes("clip_1.png"))
     await act(async () => { await t.keys.typeText("hi") })
     // Backspace with "hi" in buffer → textarea eats it (now "h").
@@ -140,7 +140,7 @@ describe("composer: image attachments (D4+D7)", () => {
       },
     })
     await until(t, () => t.frame().includes("Ready"))
-    act(() => t.keys.pressKey("v", { meta: true }))
+    act(() => t.keys.pressKey("v", { ctrl: true }))
     await until(t, () => t.frame().includes("⌫ to detach"))
     // Enter with no typed text — should still submit (gateway has the image).
     act(() => t.keys.pressEnter())
@@ -149,6 +149,23 @@ describe("composer: image attachments (D4+D7)", () => {
     // Pre-send tray is gone (detach hint disappears; chip still appears in
     // the transcript MEDIA echo, which is expected).
     await until(t, () => !t.frame().includes("⌫ to detach"))
+    t.destroy()
+  })
+
+  test("empty bracketed paste → probes clipboard for image", async () => {
+    // Windows Terminal surfaces an image-only clipboard as ESC[200~ESC[201~.
+    const t = await mount({
+      handlers: {
+        "clipboard.paste": () => ({
+          attached: true, path: "/tmp/wt.png", name: "wt.png", count: 1,
+        }),
+      },
+    })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.pasteBracketedText("") })
+    await until(t, () => t.gw.last("clipboard.paste") !== undefined)
+    await until(t, () => t.frame().includes("wt.png"))
     t.destroy()
   })
 

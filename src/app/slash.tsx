@@ -129,7 +129,7 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
   }, [gw, dialog, toast])
 
   const pickEikon = useCallback(() =>
-    openEikonPicker(dialog, (p) => preferences.set("eikonPath", p)), [dialog])
+    openEikonPicker(dialog, (n) => preferences.set("eikon", n)), [dialog])
 
   const applyTitle = useCallback((t: string) => {
     gw.request<{ title: string }>("session.title", { title: t })
@@ -200,7 +200,6 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
         case "help": dialog.replace(<HelpDialog />); return
         case "keys": openKeys(dialog); return
         case "logs": openLogs(dialog); return
-        case "eikon": pickEikon(); return
         case "title":
           if (arg) { applyTitle(arg); return }
           openTextPrompt(dialog, { title: "Session Title", initial: x.title })
@@ -236,7 +235,7 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
             .then(r => {
               if (r.warning) toast.show({ variant: "warning", message: r.warning })
               if (themeCtx.has(name)) themeCtx.set(name)
-              preferences.set("eikonPath", undefined)
+              preferences.set("eikon", undefined)
               x.dispatch({ kind: "system", text: `skin → ${name}` })
             })
             .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
@@ -484,7 +483,7 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
           })
           .catch((e: Error) => x.dispatch({ kind: "system", text: `error: ${e.message}` }))
       })
-  }, [gw, dialog, toast, themeCtx, renderer, destructive, pickEikon, applyTitle, runCompress])
+  }, [gw, dialog, toast, themeCtx, renderer, destructive, applyTitle, runCompress])
 
   // Palette entries. Closures read through `ctx.current` so the effect
   // runs once (cmd is a stable context value) instead of re-registering

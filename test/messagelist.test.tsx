@@ -4,6 +4,8 @@ import { mountNode, until, type Harness } from "./harness"
 import { MessageList } from "../src/components/chat/MessageList"
 import { Tool } from "../src/components/chat/tool"
 import { isDiff } from "../src/components/chat/DiffBlock"
+import { splitContent } from "../src/components/chat/MediaChip"
+import { turnReducer, initialTurn } from "../src/app/turnReducer"
 import { spec } from "../src/components/chat/tool/preview"
 import type { Message, ToolPart } from "../src/types/message"
 
@@ -49,6 +51,25 @@ function locate(t: Harness, needle: string) {
 }
 
 describe("MessageList", () => {
+  test("markdown image links render as media, not alt text", () => {
+    expect(splitContent("![base](/tmp/owl.png)")).toEqual([{ media: "/tmp/owl.png" }])
+    expect(splitContent("see ![base](/tmp/owl.png) now")).toEqual([
+      { md: "see " }, { media: "/tmp/owl.png" }, { md: " now" },
+    ])
+    expect(splitContent("```md\n![base](/tmp/owl.png)\n```")).toEqual([
+      { code: "![base](/tmp/owl.png)", lang: "md" },
+    ])
+  })
+
+  test("message.complete does not append duplicate final text", () => {
+    const s = turnReducer(turnReducer(initialTurn, { kind: "message.delta", chunk: "Keep, regenerate, or adjust?" }), {
+      kind: "message.complete", text: "Keep, regenerate, or adjust?\n",
+    })
+    const msg = s.messages[0]
+    expect(msg.parts).toHaveLength(1)
+    expect(msg.parts[0]).toMatchObject({ type: "text", content: "Keep, regenerate, or adjust?", streaming: false })
+  })
+
   test("renders gutter + header + trail badge; body is text-only", async () => {
     const t: Harness = await mountNode(
       <box flexDirection="column" width="100%" height="100%">
@@ -152,13 +173,14 @@ describe("tool/file-edit", () => {
     expect(isDiff(undefined)).toBe(false)
   })
 
-  test("patch renders as accent pill with basename; no diff body here", async () => {
+  test("patch renders as generic edit row; no diff body here", async () => {
     const t = await tool({
       type: "tool", id: "td", name: "patch", args: "",
       preview: "src/foo.ts", status: "done", duration: 42, diff: UDIFF,
     })
-    await until(t, () => t.frame().includes("changed foo.ts"))
+    await until(t, () => t.frame().includes("Edit src/foo.ts"))
     const f = t.frame()
+    expect(f).not.toContain("changed")
     // diff body does NOT render in ThoughtCloud — InlineDiff in the
     // assistant message owns that.
     expect(f).not.toContain("┃")
@@ -167,12 +189,13 @@ describe("tool/file-edit", () => {
     t.destroy()
   })
 
-  test("write_file renders same pill shape", async () => {
+  test("write_file renders generic write row", async () => {
     const t = await tool({
       type: "tool", id: "tw", name: "write_file", args: "",
       preview: "docs/README.md", status: "done", duration: 9,
     })
-    await until(t, () => t.frame().includes("changed README.md"))
+    await until(t, () => t.frame().includes("Write docs/README.md"))
+    expect(t.frame()).not.toContain("changed")
     expect(t.frame()).not.toContain("┃")
     t.destroy()
   })

@@ -1,5 +1,5 @@
 import { useRenderer, useTerminalDimensions } from "@opentui/react"
-import { Profiler, useState, useEffect, useRef, useCallback, useMemo, useReducer } from "react"
+import { Profiler, useState, useEffect, useRef, useCallback, useMemo, useReducer, useSyncExternalStore } from "react"
 import * as perf from "./utils/perf"
 import { hasInterp, interpolate } from "./utils/interpolate"
 import { GatewayProvider, useGateway, useGatewayRestart, type Gateway } from "./context/gateway"
@@ -14,6 +14,7 @@ import { Chat } from "./tabs/Chat"
 import { SessionsGroup } from "./tabs/SessionsGroup"
 import { Automation } from "./tabs/Automation"
 import { ConfigGroup } from "./tabs/ConfigGroup"
+import { EikonGroup } from "./tabs/EikonGroup"
 import { copySelection, copy as clipCopy } from "./utils/clipboard"
 import { ThemeProvider, useTheme } from "./theme"
 import { DialogProvider, useDialog } from "./ui/dialog"
@@ -41,11 +42,13 @@ import { SkinProvider, deriveSkin, type SkinState } from "./context/skin"
 import { useAppKeys } from "./app/useAppKeys"
 import { quit } from "./app/exit"
 import { Stash } from "./app/stash"
-import { TABS, TAB_MAX, CHAT_TAB, SESSIONS_TAB, AUTOMATION_TAB, CONFIG_TAB, SUB_TABS } from "./app/tabs"
+import { TABS, CHAT_TAB, SESSIONS_TAB, AUTOMATION_TAB, CONFIG_TAB, EIKON_TAB, SUB_TABS } from "./app/tabs"
+import { eikon as eikonSvc } from "./service/eikon"
 import { activeProfileName } from "./service/hermes-profiles"
 import { rehome } from "./home/rehome"
 import { makeGoalHook } from "./app/goalHook"
 import type { Launch } from "./app/launch"
+import { PluginProvider, usePlugins } from "./plugins/runtime"
 
 type AppProps = { initialTheme?: string; gateway?: Gateway; launch?: Launch }
 
@@ -56,7 +59,9 @@ export const App = (props: AppProps) => (
         <KeysProvider>
           <DialogProvider>
             <CommandProvider>
-              <AppInner launch={props.launch ?? { mode: "new" }} />
+              <PluginProvider>
+                <AppInner launch={props.launch ?? { mode: "new" }} />
+              </PluginProvider>
             </CommandProvider>
           </DialogProvider>
         </KeysProvider>
@@ -72,6 +77,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const themeCtx = useTheme()
   const toast = useToast()
   const renderer = useRenderer()
+  const plugins = usePlugins()
   const session = useSession()
   const dims = useTerminalDimensions()
   const goalHook = useMemo(() => makeGoalHook(dialog, toast), [dialog, toast])
@@ -85,7 +91,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   // Defensive clamp lives inside each group (SessionsGroup/Automation/
   // ConfigGroup) so a shrinking SUB_TABS list doesn't render blank.
   const [subTabs, setSubTabs] = useState<Record<number, number>>(
-    () => ({ [SESSIONS_TAB]: 0, [AUTOMATION_TAB]: 0, [CONFIG_TAB]: 0 }),
+    () => ({ [SESSIONS_TAB]: 0, [AUTOMATION_TAB]: 0, [CONFIG_TAB]: 0, [EIKON_TAB]: 0 }),
   )
   const setSub = useCallback((tabIdx: number, sub: number) =>
     setSubTabs(prev => prev[tabIdx] === sub ? prev : { ...prev, [tabIdx]: sub }), [])
@@ -96,10 +102,22 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const sessSub = useCallback((i: number) => setSub(SESSIONS_TAB, i), [setSub])
   const autoSub = useCallback((i: number) => setSub(AUTOMATION_TAB, i), [setSub])
   const cfgSub = useCallback((i: number) => setSub(CONFIG_TAB, i), [setSub])
+  const eikSub = useCallback((i: number) => setSub(EIKON_TAB, i), [setSub])
   const [hideSidebar, setHideSidebar] = useState(false)
   const [usage, setUsage] = useState<Usage | undefined>(undefined)
   const [info, setInfo] = useState<SessionInfo | null>(null)
   const [title, setTitle] = useState("")
+  const titleRef = useRef(title); titleRef.current = title
+  // Real SIGINT (terminal multiplexer, focus-stolen widget, kernel-delivered
+  // ctrl+c that bypasses the React keyboard tree) goes through the same
+  // quit() path as /quit so the resume banner always lands. Replaces the
+  // bare-exit handler installed by terminal-reset.installExitResetHooks();
+  // quit() ends in process.exit(0), which still fires the `exit` hook that
+  // emits the mode-reset blob. Mount-once: gw/renderer identity is stable.
+  useEffect(() => {
+    process.removeAllListeners("SIGINT")
+    process.on("SIGINT", () => quit(renderer, sidRef.current, titleRef.current, gw))
+  }, [renderer, gw])
   const [focusRegion, setFocusRegion] = useState<"input" | "content">("input")
   const goToTab = useCallback((t: number) => {
     setTab(t)
@@ -333,14 +351,18 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       .catch(() => {})
   }, [])
 
-  // Precedence: user pref → bundled eikon matching active skin → baked-in
-  // default (nous-girl via STATE_FRAMES). Skin match never writes the
-  // pref, so a later manual pick sticks across skin changes.
-  const eikonPath = preferences.usePref("eikonPath")
+  // Precedence: user pref (by name) → bundled eikon matching active
+  // skin → baked-in default (nous via STATE_FRAMES). Resolved through
+  // eikon.baked() which checks <profile>/eikons/ then bundled/.
+  const eikonName = preferences.usePref("eikon")
+  // Revision bumps when service/eikon.save() rewrites a file whose
+  // path hasn't changed — usePref alone would bail on an identical
+  // snapshot and the sidebar wouldn't pick up the new content.
+  const eikonRev = useSyncExternalStore(eikonSvc.onRevision, eikonSvc.revision)
   useEffect(() => {
-    const p = eikonPath || bundledEikonPath(skin.skin?.name)
+    const p = (eikonName && eikonSvc.baked(eikonName)) || bundledEikonPath(skin.skin?.name)
     if (p) loadEikon(p); else setEikon(undefined)
-  }, [eikonPath, skin.skin?.name, loadEikon])
+  }, [eikonName, eikonRev, skin.skin?.name, loadEikon])
 
   // turnsFrom counts user turns at-or-after m — each session.undo pops
   // one user+assistant pair server-side. Reads turnRef (not turn) so
@@ -516,6 +538,21 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     composer.current?.set(item)
     setFocusRegion("input")
   }, [])
+
+  // Plugin routes append after the built-in four. `plugins.routes`
+  // rebuilds when a plugin registers or is (de)activated; built-in
+  // indices (CHAT_TAB…CONFIG_TAB) stay stable.
+  const extra = plugins.routes
+  const all = useMemo(
+    () => [...TABS, ...extra.map(r => ({ name: r.name, description: r.description ?? "Plugin" }))],
+    [extra],
+  )
+  const tabMax = all.length - 1
+  // Late-bind the plugin router to this shell's tab navigator so
+  // `api.route.navigate(name)` can drive `goTo`. `bind` is idempotent.
+  useEffect(() => {
+    plugins.bind(goTo, () => all[tab]?.name)
+  }, [plugins, goTo, all, tab])
   const subCount = SUB_TABS[tab]?.length ?? 0
   const cycleSub = useCallback((dir: -1 | 1) => {
     const labels = SUB_TABS[tab]
@@ -527,7 +564,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     })
   }, [tab])
   useAppKeys({
-    tab, tabMax: TAB_MAX, chatTab: CHAT_TAB, setTab,
+    tab, tabMax, chatTab: CHAT_TAB, setTab,
     subCount, cycleSub,
     focusRegion, setFocusRegion,
     streaming: turn.streaming,
@@ -550,6 +587,8 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     queued: queue.length,
     onFlushQueue: stream.doInterrupt,
     onQuit: () => quit(renderer, sid, title, gw),
+    onQuitArm: (label) =>
+      toast.show({ variant: "info", message: `${label} again to quit` }),
     onInterruptNotice: () => {
       setEscHint(true)
       setTimeout(() => setEscHint(false), 5000)
@@ -622,10 +661,16 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
         case CONFIG_TAB: return <ConfigGroup focused={contentFocused}
                                              sub={subTabs[CONFIG_TAB] ?? 0}
                                              setSub={cfgSub} />
-        default: return null
+        case EIKON_TAB: return <EikonGroup focused={contentFocused}
+                                           sub={subTabs[EIKON_TAB] ?? 0}
+                                           setSub={eikSub} />
+        default: {
+          const r = extra[tab - TABS.length]
+          return r ? r.render() : null
+        }
       }
     })()
-    const name = TABS[tab]?.name ?? "unknown"
+    const name = all[tab]?.name ?? "unknown"
     return <Profiler id={`tab:${name}`} onRender={perf.onRender}>{inner}</Profiler>
   }
 
@@ -643,7 +688,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
      <SkinProvider value={skin}>
       <box width="100%" height="100%" flexDirection="column"
            backgroundColor={theme.background} onMouseUp={onMouseUp}>
-        <TabBar tabs={TABS} activeTab={tab} onTabChange={goToTab} />
+        <TabBar tabs={all} activeTab={tab} onTabChange={goToTab} />
         <box flexGrow={1} flexDirection="row">
           <box flexGrow={1} flexDirection="column">
             <box flexGrow={1} position="relative">
@@ -670,6 +715,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
                 cmds={cmds}
                 onSend={onSend} onSlash={slash} onShell={onShell}
                 onAttach={onAttach}
+                onAttachClipboard={attachClipboard}
                 onEnqueue={onEnqueue}
                 onDequeue={dequeue}
                 onDirty={setComposing}
@@ -686,8 +732,15 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
             </Profiler>
           ) : null}
         </box>
+        {plugins.has("app_bottom") ? (
+          <box height={1} flexShrink={0} paddingX={1} overflow="hidden">
+            <plugins.Slot name="app_bottom" mode="single_winner"
+                          sid={sid} tab={tab} streaming={turn.streaming} />
+          </box>
+        ) : null}
       </box>
      </SkinProvider>
     </Profiler>
   )
 }
+

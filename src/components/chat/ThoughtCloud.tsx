@@ -14,12 +14,11 @@ import { useTheme } from "../../theme"
 export const CLOUD_MIN = 12
 const CLOUD_MAX = 24
 
-// Heavy triple-dash — reads as thick + noncontinuous. Corners stay
-// heavy-solid so the box parses as a bubble, not a grid.
+// Light triple-dash with rounded corners — reads as a bubble, not a grid.
 const CLOUD: BorderCharacters = {
-  topLeft: "┏", topRight: "┓", bottomLeft: "┗", bottomRight: "┛",
-  horizontal: "┅", vertical: "┇",
-  topT: "┅", bottomT: "┅", leftT: "┇", rightT: "┇", cross: "╋",
+  topLeft: "╭", topRight: "╮", bottomLeft: "╰", bottomRight: "╯",
+  horizontal: "┄", vertical: "┆",
+  topT: "┄", bottomT: "┄", leftT: "┆", rightT: "┆", cross: "┼",
 }
 
 // Stepped bubbles bridging the cloud to the avatar's upper-left. Three
@@ -27,9 +26,9 @@ const CLOUD: BorderCharacters = {
 // frame and travels bottom→top (away from the head, into the cloud);
 // the trailing empty frame reads as the bubble entering the cloud.
 const SLOTS = [
-  ["┏┅┅┓   ", "┗┅┅┛   "],
-  ["   ┏┓  ", "   ┗┛  "],
-  ["     ╸ ", "       "],
+  ["╭┄┄╮   ", "╰┄┄╯   "],
+  ["   ╭╮  ", "   ╰╯  "],
+  ["     ╶ ", "       "],
 ]
 const BLANK = "       "
 const ORDER = [2, 1, 0, -1]
@@ -73,7 +72,7 @@ function parts(m: Message | undefined): Part[] {
   return m?.parts.filter(p => p.type === "thinking" || p.type === "tool") ?? []
 }
 
-type Pane = "all" | "reasoning" | "tools"
+type Pane = "reasoning" | "tools"
 
 function latest(messages: Message[]): Message | undefined {
   for (let i = messages.length - 1; i >= 0; i--)
@@ -96,14 +95,18 @@ export const ThoughtCloud = memo((props: {
   onResize: (h: number) => void
   onClose?: () => void
 }) => {
-  const theme = useTheme().theme
+  const { theme, syntaxStyle } = useTheme()
   const detail = usePref("toolDetails") ?? "expanded"
   const src = props.pick ?? latest(props.messages)
   const all = parts(src)
   const think = all.filter((p): p is ThinkingPart => p.type === "thinking")
   const tools = all.filter((p): p is ToolPart => p.type === "tool")
-  const [pane, setPane] = useState<Pane>("all")
-  const body = pane === "reasoning" ? think : pane === "tools" ? tools : all
+  const [pane, setPane] = useState<Pane>("reasoning")
+  useEffect(() => {
+    if (pane === "reasoning" && think.length === 0 && tools.length > 0) setPane("tools")
+    if (pane === "tools" && tools.length === 0 && think.length > 0) setPane("reasoning")
+  }, [pane, think.length, tools.length])
+  const body = pane === "reasoning" ? think : tools
 
   // Auto-grow: track content until the user drags; then their size
   // sticks. `want` is the dep so growth follows streamed thinking text,
@@ -130,7 +133,7 @@ export const ThoughtCloud = memo((props: {
   }
   const drop = () => { drag.current = null }
 
-  const pill = (id: Pane, label: string, n: number) => {
+  const pill = (id: Pane, label: string, n: number | null) => {
     const on = pane === id
     return (
       <box height={1} marginRight={2}
@@ -139,7 +142,7 @@ export const ThoughtCloud = memo((props: {
           <span fg={on ? theme.accent : theme.textMuted}>
             {on ? <strong>{label}</strong> : label}
           </span>
-          {n > 0 ? <span fg={theme.textMuted}>{` ${n}`}</span> : null}
+          {n !== null && n > 0 ? <span fg={theme.textMuted}>{` ${n}`}</span> : null}
         </text>
       </box>
     )
@@ -147,13 +150,12 @@ export const ThoughtCloud = memo((props: {
 
   return (
     <box
-      height={props.height} flexDirection="column" position="relative"
+      height={props.height} flexDirection="column" position="relative" marginLeft={1}
       border borderColor={theme.hermAvatar} customBorderChars={CLOUD}
       backgroundColor={theme.backgroundPanel} paddingX={1}
     >
       <box height={1} flexShrink={0} flexDirection="row">
-        {pill("all", "all", all.length)}
-        {pill("reasoning", "reasoning", think.length)}
+        {pill("reasoning", "reasoning", null)}
         {pill("tools", "tools", tools.length)}
         <box flexGrow={1} />
         {detail !== "expanded" ? (
@@ -170,7 +172,7 @@ export const ThoughtCloud = memo((props: {
           {body.map((p, i) =>
             p.type === "thinking"
               ? <box key={(p as ThinkingPart).key ?? `th-${i}`} minHeight={1} width="100%" flexShrink={0}>
-                  <text fg={theme.textMuted} wrapMode="word">{(p as ThinkingPart).content}</text>
+                  <markdown content={(p as ThinkingPart).content} fg={theme.markdownText} syntaxStyle={syntaxStyle} />
                 </box>
               : <box key={(p as ToolPart).id || `t-${i}`} width="100%" flexShrink={0}>
                   <Tool tool={p as ToolPart} detail={detail === "hidden" ? "hidden" : "collapsed"} />

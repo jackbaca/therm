@@ -196,6 +196,14 @@ export function mapEvent(ev: GatewayEvent, side: Side): Action | null {
       // Generic "status" is cosmetic; lifecycle/error/warn carry real
       // signal (retries, fallbacks, auth failures) and must persist.
       if (!kind || kind === "status") return null
+      // process: the same [IMPORTANT:...] text is replayed as a synthesized
+      // user turn immediately after, so render a one-line herald, not a dump.
+      if (kind === "process") {
+        const m = text.match(/Background process (\S+) (?:completed \(exit code (\S+)\)|matched watch pattern "([^"]+)")\.\nCommand: (.+)/)
+        if (m) return { kind: "system", text: m[2] !== undefined
+          ? `◆ background ${m[1]} exited ${m[2]} · ${m[4]}`
+          : `◆ background ${m[1]} matched "${m[3]}" · ${m[4]}` }
+      }
       return { kind: "system", text }
     }
   }

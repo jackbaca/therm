@@ -42,6 +42,8 @@ type Bridge = {
   setFocusRegion: (r: "input" | "content") => void
   renderer: () => unknown // OpenTUI renderer instance
   logs: (n?: number) => string
+  plugin: (id: string, on: boolean) => Promise<boolean>
+  push: (ev: { type: string; payload?: unknown }) => void
 }
 
 let bridge: Bridge | null = null
@@ -249,7 +251,9 @@ async function handle(req: Request): Promise<Response> {
     })
   }
 
-  // GET /tab/:n — switch tab by injecting Ctrl+Right/Left key events
+  // GET /tab/:n — switch tab via the real key path (tab.next/prev is
+  // alt+arrow → meta:true per chord.ts). Falls back to setTab() when
+  // the renderer isn't ready yet.
   const tabMatch = path.match(/^\/tab\/(\d+)$/)
   if (tabMatch) {
     const n = Number(tabMatch[1])
@@ -257,18 +261,11 @@ async function handle(req: Request): Promise<Response> {
 
     const renderer = bridge.renderer()
     if (renderer) {
-      // Inject Ctrl+Left/Right keys to navigate to target tab
       const cur = bridge.tab()
       const diff = n - cur
-      if (diff !== 0) {
-        const keyName = diff > 0 ? "right" : "left"
-        const steps = Math.abs(diff)
-        for (let i = 0; i < steps; i++) {
-          injectKey(renderer, makeKey({ name: keyName, ctrl: true }))
-        }
-      }
+      const key = makeKey({ name: diff > 0 ? "right" : "left", meta: true })
+      for (let i = Math.abs(diff); i > 0; i--) injectKey(renderer, key)
     } else {
-      // Fallback to direct setState (may not work reliably)
       bridge.setTab(n)
     }
     pendingTab = n
@@ -451,6 +448,22 @@ async function handle(req: Request): Promise<Response> {
     return new Response(bridge.logs(n), { headers: { "Content-Type": "text/plain; charset=utf-8" } })
   }
 
+  // POST /plugin/:id — {on: bool}. Flips enablement and (de)activates.
+  const pm = path.match(/^\/plugin\/([^/]+)$/)
+  if (pm && req.method === "POST") {
+    const body = await req.json() as { on?: boolean }
+    const ok = await bridge.plugin(pm[1]!, body.on !== false)
+    return json({ id: pm[1], on: body.on !== false, ok })
+  }
+
+  // POST /push — inject a synthetic GatewayEvent for tests/automation.
+  if (path === "/push" && req.method === "POST") {
+    const body = await req.json() as { type: string; payload?: unknown }
+    if (!body.type) return json({ error: "type required" }, 400)
+    bridge.push(body)
+    return json({ pushed: body.type })
+  }
+
   // GET /perf — return all profiling data as JSON
   if (path === "/perf") {
     const d = perf.data()
@@ -491,6 +504,8 @@ async function handle(req: Request): Promise<Response> {
       "POST /keys   {keys: [{name, ...}], delay?, safe?}",
       "POST /type   {text, delay?, safe?}",
       "POST /input  {text}",
+      "POST /plugin/:id {on}",
+      "POST /push   {type, payload?}",
       "GET  /quit",
       "GET  /frame  ?grep=pat&json=1",
       "GET  /logs   ?n=200",

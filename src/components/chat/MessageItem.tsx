@@ -4,7 +4,8 @@ import type { Message, Part, TextPart, ToolPart, PromptPart } from "../../types/
 import { ErrorBlock } from "./ErrorBlock"
 import { MediaChip, classify, splitContent } from "./MediaChip"
 import { CodeBlock } from "./CodeBlock"
-import { DiffBlock, isDiff } from "./DiffBlock"
+import { DiffTabs } from "./DiffTabs"
+import { isDiff } from "./DiffBlock"
 import { PromptCard, type PromptCardHandle } from "./PromptCard"
 import { ChafaImage } from "../../ui/ChafaImage"
 import { useTheme } from "../../theme"
@@ -34,36 +35,6 @@ function extract(msg: Message): string {
 }
 
 const trunc = (s: string, max: number) => s.length <= max ? s : s.slice(0, max - 1) + "…"
-
-// Collapsible diff chip: shows filename/preview + +N/-M, expands to full
-// DiffBlock on click. Lives in the message body so edits land in the
-// transcript (not buried in the ThoughtCloud). stopPropagation keeps the
-// click from triggering onPick on the parent message.
-const InlineDiff = memo(({ tool }: { tool: ToolPart }) => {
-  const theme = useTheme().theme
-  const [open, setOpen] = useState(false)
-  const diff = tool.diff ?? (isDiff(tool.result) ? tool.result : undefined)
-  if (!diff) return null
-  const lines = diff.split("\n")
-  const add = lines.filter(l => /^\+(?!\+\+)/.test(l)).length
-  const del = lines.filter(l => /^-(?!--)/.test(l)).length
-  return (
-    <box flexDirection="column" marginTop={1}
-         onMouseDown={(e: MouseEvent) => { e.stopPropagation(); setOpen(o => !o) }}>
-      <box height={1}>
-        <text>
-          <span fg={theme.textMuted}>{open ? "▾ " : "▸ "}</span>
-          <span fg={theme.text}>{trunc(tool.preview ?? tool.name, 50)}</span>
-          <span fg={theme.textMuted}>  </span>
-          <span fg={theme.success}>+{add}</span>
-          <span fg={theme.textMuted}> / </span>
-          <span fg={theme.error}>-{del}</span>
-        </text>
-      </box>
-      {open ? <box marginTop={1}><DiffBlock text={diff} /></box> : null}
-    </box>
-  )
-})
 
 // OpenTUI has no onClick; synthesize one from down→up at the same cell
 // so text-selection drags don't fire it.
@@ -274,7 +245,7 @@ const AssistantMessage = memo(({ message, streaming, prompt, onPick }: {
           ) : null}
         </box>
         {message.parts.map(part)}
-        {diffs.map(t => <InlineDiff key={t.id || t.name} tool={t} />)}
+        {diffs.length ? <DiffTabs tools={diffs} /> : null}
         {err ? <ErrorBlock text={message.error!} /> : null}
       </Gutter>
     </box>

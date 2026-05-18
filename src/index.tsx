@@ -11,6 +11,7 @@ import { App } from "./app";
 import { parseLaunch, HELP, VERSION } from "./app/launch";
 import * as perf from "./utils/perf";
 import { warm as warmIO } from "./io";
+import { skills } from "./service/bundled-skills";
 import * as control from "./app/control";
 import * as preferences from "./context/preferences";
 import { resetTerminalModes, installExitResetHooks } from "./utils/terminal-reset";
@@ -83,6 +84,10 @@ const main = async () => {
   // kick it off the hot path so the first count() call doesn't stall.
   warmTokens()
   warmIO()
+  // First-launch copies only; steady state is two existsSync per
+  // bundled skill. Off the first-render path so a slow fs doesn't
+  // delay the frame.
+  skills.sync()
 
   perf.mem("post-first-render")
 

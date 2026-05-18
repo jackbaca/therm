@@ -1,5 +1,6 @@
 /**
- * Local TUI preferences — persisted to ~/.config/herm/tui.json
+ * Local TUI preferences — persisted to $HERM_CONFIG_DIR/tui.json
+ * (defaults to ~/.hermes/herm/tui.json; see utils/paths.ts).
  *
  * Compatible with OpenCode's tui.json schema pattern:
  *   - JSON file in XDG config dir
@@ -28,8 +29,12 @@ interface TuiPreferences {
   targetFps?: number
   /** Last active session ID — stub-reuse check on fresh launch */
   lastSessionId?: string
-  /** Path to a .eikon avatar file for the sidebar */
+  /** Active avatar by name; resolved against <profile>/eikons/ → bundled. */
+  eikon?: string
+  /** @deprecated absolute .eikon path — migrated to `eikon` on load. */
   eikonPath?: string
+  /** Active rasterizer name for the Eikon Studio tab */
+  eikonRasterizer?: string
   /** Spinner/avatar frame animations (off → static glyphs) */
   animations?: boolean
   /** Thought-cloud tool trail verbosity */
@@ -50,6 +55,9 @@ interface TuiPreferences {
    *  cursor position or transient toggles. */
   kanban?: KanbanPrefs
   sessions?: SessionsPrefs
+  /** Opaque plugin storage. Per-plugin keys are namespaced at the api
+   *  layer (`${id}.${key}`); `enabled` holds the id→bool override map. */
+  plugin?: Record<string, unknown>
 }
 
 /** Persisted Sessions-tab state. */
@@ -113,6 +121,11 @@ export function load(): TuiPreferences {
       return prefs
     }
     const raw = JSON.parse(readFileSync(CONFIG_FILE, "utf-8"))
+    // eikonPath (abs) → eikon (name). One-shot; persisted on next set().
+    if (raw.eikonPath && !raw.eikon) {
+      raw.eikon = raw.eikonPath.split("/").pop()?.replace(/\.eikon$/, "")
+      delete raw.eikonPath
+    }
     const prefs = { ...DEFAULTS, ...raw }
     cached = prefs
     return prefs

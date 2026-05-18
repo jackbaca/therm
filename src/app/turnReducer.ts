@@ -270,9 +270,11 @@ function finalize(messages: Message[], final?: string, usage?: Usage): Message[]
   const last = messages[messages.length - 1]
   if (last?.role === "assistant") {
     const tail = last.parts[last.parts.length - 1]
+    const dup = final && last.parts.some(p => p.type === "text" && sameText(p.content, final))
+    const text = tail?.type === "text" && final && sameText(tail.content, final) ? tail.content : final
     const parts = tail?.type === "text" && tail.streaming
-      ? [...last.parts.slice(0, -1), { ...tail, content: final || tail.content, streaming: false }]
-      : final && final !== joinText(last.parts)
+      ? [...last.parts.slice(0, -1), { ...tail, content: text || tail.content, streaming: false }]
+      : final && !dup && !sameText(joinText(last.parts), final)
         ? [...last.parts, { type: "text" as const, content: final, streaming: false }]
         : seal(last.parts)
     return [...messages.slice(0, -1), { ...last, parts, usage }]
@@ -283,6 +285,10 @@ function finalize(messages: Message[], final?: string, usage?: Usage): Message[]
 
 function joinText(parts: Part[]): string {
   return parts.filter(p => p.type === "text").map(p => p.content).join("")
+}
+
+function sameText(a: string, b: string): boolean {
+  return a.trim() === b.trim()
 }
 
 function updateRunningTool(
@@ -374,7 +380,7 @@ function renderSubagent(
     const extra = tokens ? ` · ${(tokens / 1000).toFixed(1)}k tok` : ""
     return updateToolById(messages, id, t => ({
       ...t,
-      status: (p.status === "failed" ? "error" : "done") as ToolPart["status"],
+      status: ((p.status === "failed" || p.status === "error" || p.status === "timeout" || p.status === "interrupted") ? "error" : "done") as ToolPart["status"],
       duration: p.duration_seconds ? p.duration_seconds * 1000 : (t.startedAt ? Date.now() - t.startedAt : undefined),
       result: p.summary ? p.summary + extra : undefined,
       preview: t.goal ?? t.preview,

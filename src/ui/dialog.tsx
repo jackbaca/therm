@@ -35,6 +35,7 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
   const renderer = useRenderer()
   const [stack, setStack] = useState<Entry[]>([])
   const gate = useRef(false)
+  const gen = useRef(0)
   const prev = useRef<Renderable | null>(null)
 
   // Refocus whatever held focus before the first dialog opened. The
@@ -70,6 +71,7 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
       prev.current?.blur()
     }
     gate.current = true
+    gen.current++
     setStack(cur => {
       for (const e of cur) e.onClose?.()
       return [{ element, onClose, ownCancel: opts?.ownCancel }]
@@ -77,11 +79,18 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
   }, [renderer])
 
   const clear = useCallback(() => {
-    gate.current = false
     setStack(cur => {
       for (const e of cur) e.onClose?.()
       return []
     })
+    // Keep open()→true for the remainder of the synchronous emit loop
+    // that triggered clear(). Downstream useKeyboard subscribers gate
+    // on `dialog.open()` and fire in the same tick; flipping the gate
+    // here would let the Esc that closed the dialog fall through to
+    // tab-scope handlers as if no dialog had been open. `gen` guards
+    // against a replace() that chained synchronously after clear().
+    const at = gen.current
+    queueMicrotask(() => { if (gen.current === at) gate.current = false })
     refocus()
   }, [refocus])
 
