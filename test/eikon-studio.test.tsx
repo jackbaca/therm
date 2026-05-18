@@ -336,11 +336,12 @@ describe("EikonStudio tab", () => {
     // Prompt textarea is pre-filled with style hints on line 2+ and
     // the cursor is parked at (0,0). Type the subject on line 1.
     await act(async () => { await t.keys.typeText("a wise owl") })
-    // Tab to the submit field; the form has prompt → seed → submit
-    // (base.png is auto-detected because we seeded sources.base).
-    act(() => t.keys.pressTab())
+    // Enter on the textarea advances to the next field (BINDS maps
+    // return→submit); the form is prompt → seed → submit since
+    // base.png is auto-detected. Enter×3 walks through and fires.
+    act(() => t.keys.pressEnter())
     await t.settle()
-    act(() => t.keys.pressTab())
+    act(() => t.keys.pressEnter())
     await t.settle()
     act(() => t.keys.pressEnter())
     // Adoption lands in source/idle.png (st='idle' and base exists so role='idle').
@@ -351,7 +352,7 @@ describe("EikonStudio tab", () => {
     expect(t.frame()).toContain("● unsaved")
     // Gen fn was called with subject + the pre-filled style hints.
     expect(got?.kind).toBe("image")
-    expect(got?.prompt).toMatch(/^a wise owl\nhigh contrast, light subject on solid black background/)
+    expect(got?.prompt).toMatch(/^a wise owl\nhigh contrast, light subject on dark, black background$/)
     gen.setImpl(null); gen.setProbe(null)
     un()
   })
@@ -398,6 +399,9 @@ describe("EikonStudio tab", () => {
     // ↓ to source.
     act(() => t.keys.pressArrow("down")); await t.settle()
     expect(t.frame()).toContain("image or video file the avatar is rendered from")
+    // Bold /eikon-create recommendation may hyphen-wrap; match a run
+    // that's guaranteed contiguous.
+    expect(t.frame()).toContain("interactively (recommended)")
     // ↓↓↓ → contrast (studio-owned tone row, has a KnobDef.hint).
     for (let i = 0; i < 3; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
     expect(t.frame()).toContain("Spread pixel values around their mean")

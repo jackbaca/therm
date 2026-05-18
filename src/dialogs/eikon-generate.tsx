@@ -9,7 +9,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useKeyboard } from "@opentui/react"
-import type { TextareaRenderable } from "@opentui/core"
+import type { TextareaRenderable, KeyBinding } from "@opentui/core"
 import { useTheme } from "../theme"
 import { Spinner } from "../ui/spinner"
 import type { DialogContext } from "../ui/dialog"
@@ -39,15 +39,21 @@ type Field = "prompt" | "seed" | "seconds" | "submit"
 // text avatar. Pre-filled on a blank first-open so new users start
 // from something usable; leading newline leaves line 1 for their
 // own subject description with the cursor parked there.
-const BASE_PROMPT = {
-  image: "\nhigh contrast, light subject on solid black background, centered, strong rim lighting, monochrome",
-  video: "\nhigh contrast, light subject on solid black background, centered, seamless loop, monochrome",
-} as const
+const BASE = "\nhigh contrast, light subject on dark, black background"
+
+// Bare Enter in the prompt textarea confirms the field and advances
+// focus (like a single-line input); Shift+Enter inserts a newline.
+// mergeKeyBindings keys on (name, ctrl, shift, meta, super), so
+// `return` overrides the default `return → newline` entry exactly.
+const BINDS: KeyBinding[] = [
+  { name: "return",              action: "submit"  },
+  { name: "return", shift: true, action: "newline" },
+]
 
 const Generate = (props: Props) => {
   const theme = useTheme().theme
   const ta = useRef<TextareaRenderable | null>(null)
-  const [prompt, setPrompt] = useState(props.lastPrompt ?? BASE_PROMPT[props.kind])
+  const [prompt, setPrompt] = useState(props.lastPrompt ?? BASE)
   const [useSeed, setUseSeed] = useState(!!props.seed)
   const [secs, setSecs] = useState(2)
   const [busy, setBusy] = useState(false)
@@ -63,11 +69,13 @@ const Generate = (props: Props) => {
     ? (props.seed ? ["prompt", "seed", "seconds", "submit"] : ["prompt", "seconds", "submit"])
     : (props.seed ? ["prompt", "seed", "submit"] : ["prompt", "submit"])
 
+  const advance = () => setField(f => fields[(fields.indexOf(f) + 1) % fields.length]!)
+
   const submit = () => {
     const p = prompt.trim()
     // Blank line 1 with only the pre-filled style hints below = no
     // subject described yet. Don't submit.
-    const bare = !props.lastPrompt && p === BASE_PROMPT[props.kind].trim()
+    const bare = !props.lastPrompt && p === BASE.trim()
     if (!p || bare || busy) {
       if (bare) setErr("describe the subject on line 1")
       return
@@ -93,6 +101,7 @@ const Generate = (props: Props) => {
       return
     }
     if (field === "prompt") return
+    if (key.name === "return") return field === "submit" ? submit() : advance()
     if (field === "seed" && (key.name === "space" || key.name === "left" || key.name === "right")) {
       setUseSeed(v => !v)
       return
@@ -101,7 +110,7 @@ const Generate = (props: Props) => {
       if (key.name === "left") return setSecs(v => Math.max(1, v - 1))
       if (key.name === "right") return setSecs(v => Math.min(4, v + 1))
     }
-    if (field === "submit" && (key.name === "return" || key.name === "space")) {
+    if (field === "submit" && key.name === "space") {
       submit()
     }
   })
@@ -126,6 +135,8 @@ const Generate = (props: Props) => {
           <textarea
             ref={ta}
             initialValue={prompt}
+            keyBindings={BINDS}
+            onSubmit={advance}
             onContentChange={() => { if (ta.current) setPrompt(ta.current.plainText) }}
             focused={field === "prompt"}
             placeholder={props.kind === "image" ? "describe the image…" : "describe the motion…"}
@@ -182,7 +193,7 @@ const Generate = (props: Props) => {
 
       <box height={1} marginTop={1}>
         <text fg={theme.textMuted}>
-          {"Tab field  ·  Enter submit  ·  Esc cancel"}
+          {"Enter next  ·  Shift+Enter newline  ·  Tab field  ·  Esc cancel"}
         </text>
       </box>
     </box>

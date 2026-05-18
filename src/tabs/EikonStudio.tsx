@@ -56,8 +56,8 @@ declare module "@opentui/react" {
 type Pane = "knobs" | "preview" | "strip"
 const PANES: readonly Pane[] = ["knobs", "preview", "strip"]
 // Help footer rows (fixed so the narrow layout can size the panel
-// exactly — no scrollbar unless row count actually overflows).
-const HELP_H = 3
+// deterministically without measuring post-wrap).
+const HELP_H = 4
 // Stable contentOptions — inline `{}` would re-set on every reconcile.
 const COL = { flexDirection: "column" } as const
 
@@ -103,7 +103,7 @@ const HEAD: readonly Row[] = [
 const HELP: Readonly<Record<string, string>> = {
   open:       "Which eikon you're editing. Enter to switch, create a new one, or install from elsewhere.",
   rasterizer: "The engine that turns your source image/video into text art. Each rasterizer exposes its own look-and-feel settings below the divider.",
-  source:     "The image or video file the avatar is rendered from. Enter to pick a local file, generate one with AI, or clear it. Each state can have its own source.",
+  source:     "The image or video file the avatar is rendered from. Enter to pick, generate, or clear.",
   fetch:      "Download this eikon's published source media so you can re-tune it locally.",
   knobsfor:   "←→ toggles whether the settings below apply to every state or just the one selected in the strip.",
   reset:      "Restore every setting below to this rasterizer's defaults and drop per-state overrides.",
@@ -112,8 +112,12 @@ const HELP: Readonly<Record<string, string>> = {
 
 const FLIPS: readonly Flip[] = ["none", "h", "v", "hv"]
 
-function helpOf(row: Row | undefined): string {
+function helpOf(row: Row | undefined): ReactNode {
   if (!row) return ""
+  if (row.id === "source") return <>
+    <span>{HELP.source} </span>
+    <strong>Use /eikon-create to generate source files interactively (recommended).</strong>
+  </>
   const head = HELP[row.id]
   if (head) return head
   if (!row.knob) return ""
