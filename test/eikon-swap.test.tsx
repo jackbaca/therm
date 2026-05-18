@@ -17,12 +17,13 @@ function seed(name: string, r: string) {
   spawnSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "lavfi",
     "-i", "color=gray:s=32x32", "-frames:v", "1", "-y", join(p.source, "base.png")])
   writeFileSync(eikon.file(name), JSON.stringify({ eikon: 1, name }) + "\n")
-  eikon.writeStudio(name, { rasterizer: r, spatial: { zoom: 1, ox: 0.5, oy: 0.5 }, fps: 16, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
+  eikon.writeStudio(name, { rasterizer: r, spatial: { zoom: 1, ox: 0.5, oy: 0.5 }, tone: { contrast: 1, invert: true, flip: "none" }, fps: 16, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
 }
 
 /** DialogSelect filterable=false; registry order [chafa, native]. */
 async function pickIdx(t: Harness, idx: number) {
-  act(() => t.keys.pressKey("HOME")); await t.settle()  // sel → row 0 (rasterizer)
+  act(() => t.keys.pressKey("HOME")); await t.settle()  // sel → row 0 (eikon)
+  act(() => t.keys.pressArrow("down")); await t.settle()  // → row 1 (rasterizer)
   act(() => t.keys.pressEnter())
   await until(t, () => t.frame().includes("Rasterizer"))
   act(() => t.keys.pressKey("HOME")); await t.settle()
@@ -48,25 +49,30 @@ async function navTo(t: Harness, name: string) {
   throw new Error(`never reached row '${name}'\n${t.frame()}`)
 }
 
-run("chafa↔native: flip row appears/disappears immediately on swap", async () => {
+run("chafa↔native: chafa-only rows appear/disappear immediately on swap", async () => {
   seed("swap", "native")
   prefs.set("eikon", "swap")
   prefs.set("eikonRasterizer", "native")
   await using t = await mountNode(<EikonGroup focused sub={0} setSub={() => {}} />, { width: 180, height: 60 })
   await until(t, () => t.frame().includes("native ▸"))
-  expect(t.frame()).not.toContain("flip")
+  // fill/dither are chafa-only; flip/contrast are now studio-owned
+  // HEAD rows so they're always present.
+  expect(t.frame()).toContain("flip")
+  expect(t.frame()).toContain("contrast")
+  expect(t.frame()).not.toContain("dither")
 
   await pickIdx(t, 0)
   await until(t, () => t.frame().includes("chafa ▸"))
-  expect(t.frame()).toContain("flip")
+  expect(t.frame()).toContain("dither")
+  expect(t.frame()).toContain("fill")
 
   await pickIdx(t, 1)
   await until(t, () => t.frame().includes("native ▸"))
-  expect(t.frame()).not.toContain("flip")
+  expect(t.frame()).not.toContain("dither")
 
   await pickIdx(t, 0)
   await until(t, () => t.frame().includes("chafa ▸"))
-  expect(t.frame()).toContain("flip")
+  expect(t.frame()).toContain("dither")
 })
 
 run("Esc in a prompt dialog does NOT fall through to discard()", async () => {
@@ -80,12 +86,12 @@ run("Esc in a prompt dialog does NOT fall through to discard()", async () => {
   act(() => t.keys.pressArrow("right")); await t.settle()
   await until(t, () => t.frame().includes("● unsaved"))
 
-  // Open 'name' prompt → Esc closes it, no discard confirm.
-  await navTo(t, "name")
+  // Open 'source' menu → Esc closes it, no discard confirm.
+  await navTo(t, "source")
   act(() => t.keys.pressEnter())
-  await until(t, () => t.frame().includes("Name") && t.frame().includes("Enter confirm"))
+  await until(t, () => t.frame().includes("Source for '"))
   act(() => t.keys.pressEscape()); await t.settle(); await t.settle()
-  expect(t.frame()).not.toContain("Enter confirm")
+  expect(t.frame()).not.toContain("Source for '")
   expect(t.frame()).not.toContain("Discard unsaved")
   expect(t.frame()).toContain("● unsaved")  // dirty retained
 
@@ -128,9 +134,9 @@ run("knob rows: Space and Enter both act per nav.md; click = activate", async ()
   // action/reset: Space is inert (high-commitment); Enter opens confirm.
   await navTo(t, "reset")
   act(() => t.keys.pressKey(" ")); await t.settle(); await t.settle()
-  expect(t.frame()).not.toContain("Reset knobs?")
+  expect(t.frame()).not.toContain("Reset settings?")
   act(() => t.keys.pressEnter())
-  await until(t, () => t.frame().includes("Reset knobs?"))
+  await until(t, () => t.frame().includes("Reset settings?"))
   act(() => t.keys.pressKey("n")); await t.settle()
 
   // slider: Space/Enter inert (no value change).

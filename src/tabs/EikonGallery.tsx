@@ -2,7 +2,7 @@
 // Same content model as the Ctrl+K "Pick Avatar" palette entry, but as
 // a full tab body with a larger preview and delete/new affordances.
 
-import { memo, useEffect, useMemo, useState, useSyncExternalStore } from "react"
+import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react"
 import { readFileSync } from "node:fs"
 import { basename, dirname } from "node:path"
 import { useTheme } from "../theme"
@@ -13,8 +13,7 @@ import { HintBar } from "../ui/hint"
 import { VBAR } from "../ui/table"
 import { useKeys, handleListKey, useFollow } from "../keys"
 import { openConfirm } from "../dialogs/confirm"
-import { openTextPrompt } from "../dialogs/text-prompt"
-import { DialogSelect } from "../ui/dialog-select"
+import { openNewEikon } from "../dialogs/new-eikon"
 import { useKeyboard } from "@opentui/react"
 import { AnimatedAvatar } from "../components/avatar/AnimatedAvatar"
 import { listEikons, parseEikon, type ParsedEikon } from "../components/avatar/eikon"
@@ -25,7 +24,7 @@ import { eikon } from "../service/eikon"
 
 type Row = {
   path: string; name: string; slug: string; author?: string; bundled: boolean
-  w: number; h: number; states: number; url?: string; hasSource: boolean
+  w: number; h: number; url?: string; hasSource: boolean
 }
 
 export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: string) => void }) => {
@@ -46,7 +45,7 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
       return {
         path: e.path, name: e.meta.name, slug, author: e.meta.author,
         bundled: e.path.startsWith(BUNDLED_EIKON_DIR),
-        w: e.meta.width, h: e.meta.height, states: e.meta.states.length,
+        w: e.meta.width, h: e.meta.height,
         url: (mine?.sourceUrl ?? e.meta.source_url) as string | undefined,
         hasSource: mine?.hasSource ?? !!eikon.findSource(slug),
       }
@@ -69,30 +68,27 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
     toast.show({ variant: "success", message: `Avatar → ${cur.name}` })
   }
 
-  const doInstall = async () => {
-    const src = await openTextPrompt(dialog, {
-      title: "Install eikon",
-      label: "catalog name · github.com/u/r · git URL · http://…/ · local dir",
-    })
-    if (!src) return
-    toast.show({ variant: "info", message: `Installing from ${src}…` })
-    await eikon.fetchSource(src)
-      .then(out => toast.show({ variant: "success", message: `Installed '${out.name}' (${out.n} files)` }))
+  const doNew = useCallback(async () => {
+    const res = await openNewEikon(dialog, {})
+    if (!res) return
+    if (res.from === "blank") {
+      eikon.ensure(res.name)
+      return props.onEdit?.(res.name)
+    }
+    if (res.from === "file") {
+      eikon.ensure(res.name)
+      try { eikon.adopt(res.name, res.file, "base") }
+      catch (e) { return toast.error(e instanceof Error ? e : new Error(String(e))) }
+      return props.onEdit?.(res.name)
+    }
+    toast.show({ variant: "info", message: `Installing '${res.name}' from ${res.src}…` })
+    await eikon.fetchSource(res.src, { name: res.name })
+      .then(out => {
+        toast.show({ variant: "success", message: `Installed '${out.name}' (${out.n} files)` })
+        prefs.set("eikon", out.name)
+      })
       .catch(e => toast.error(e instanceof Error ? e : new Error(String(e))))
-  }
-
-  const doNew = () => dialog.replace(
-    <DialogSelect title="New eikon" filterable={false}
-      options={[
-        { title: "Blank — author in Studio", value: "blank" },
-        { title: "Install from…", value: "install",
-          description: "catalog name, git URL, local dir, or http manifest" },
-      ]}
-      onSelect={o => {
-        dialog.clear()
-        if (o.value === "blank") return props.onEdit?.("")
-        void doInstall()
-      }} />, () => {})
+  }, [dialog, toast, props])
 
   const del = async () => {
     if (!cur || cur.bundled) return
@@ -137,7 +133,7 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
                           <span fg={theme.textMuted}>{r.bundled ? "  (bundled)" : ""}</span>
                         </text></box>
                         <box height={1}><text fg={theme.textMuted}>
-                          {`  ${r.author ?? "—"} · ${r.states} states · ${r.w}×${r.h} · `}
+                          {`  ${r.author ?? "—"} · ${r.w}×${r.h} · `}
                           <span fg={r.hasSource ? theme.success : r.url ? theme.textMuted : theme.border}>
                             {r.hasSource ? "● source" : r.url ? "○ source available" : "— no source"}
                           </span>

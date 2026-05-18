@@ -39,8 +39,9 @@ test("baked mode: plays packed frames, hides spatial, shows fetch row", async ()
   // knobs absent, fork/reset hidden.
   expect(f).toContain("fetch source")
   expect(f).toContain("download to edit")
-  expect(f).not.toContain("fork state")
-  expect(f).not.toContain("reset knobs")
+  // Live-only action rows absent in baked mode.
+  expect(f).not.toMatch(/▸?\s+tune\s+◂/)
+  expect(f).not.toMatch(/▸?\s+reset\s+▸ defaults/)
   // peek hint lands async.
   await until(t, () => t.frame().includes("1 files"))
   // Tab to preview, Space still toggles play (⏸ appears in title).

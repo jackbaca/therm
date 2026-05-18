@@ -14,9 +14,11 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExterna
 import { extend, useKeyboard, useTerminalDimensions } from "@opentui/react"
 import { SliderRenderable } from "@opentui/core"
 import type { ParsedKey, ScrollBoxRenderable } from "@opentui/core"
-import { readFileSync } from "node:fs"
+import { readFileSync, statSync } from "node:fs"
 import { basename } from "node:path"
+import type { ReactNode } from "react"
 import { useTheme } from "../theme"
+import type { Theme } from "../theme/types"
 import { Spinner } from "../ui/spinner"
 import { useKeys, handleListKey } from "../keys"
 import { useDialog } from "../ui/dialog"
@@ -24,15 +26,25 @@ import { useToast } from "../ui/toast"
 import { TabShell } from "../ui/shell"
 import { HintBar } from "../ui/hint"
 import { DialogSelect } from "../ui/dialog-select"
-import { openConfirm } from "../dialogs/confirm"
+import { openConfirm, openSaveDiscard } from "../dialogs/confirm"
 import { openTextPrompt } from "../dialogs/text-prompt"
+import { openPathPrompt } from "../dialogs/path-prompt"
+import { openGenerate, type GenerateKind } from "../dialogs/eikon-generate"
+import { gen } from "../service/eikon-gen"
+import { useGateway } from "../context/gateway"
+import { openNewEikon } from "../dialogs/new-eikon"
+import { BUNDLED_EIKON_DIR } from "../components/avatar/bundled"
+import { hermesPath } from "../service/hermes-home"
+import { listEikons } from "../components/avatar/eikon"
 import * as prefs from "../context/preferences"
 import { eikon } from "../service/eikon"
 import type { ParsedEikon } from "../components/avatar/eikon"
-import { W, H, FPS0, caps, thumb, cached, resetCache, prewarm,
-         type Rasterizer, type KnobDef, type Spatial, type Frame } from "../utils/eikon-render"
+import { W, H, FPS0, caps, thumb, cached, resetCache, prewarm, T0,
+         type Rasterizer, type KnobDef, type Spatial, type Tone, type Flip, type Frame } from "../utils/eikon-render"
 import { knobs, STATES, type Session } from "../utils/eikon-knobs"
 import type { AvatarState } from "../components/avatar/states"
+import { useSpinnerGlyph } from "../ui/spinner"
+import type { MouseEvent } from "@opentui/core"
 
 // SliderRenderable ships in @opentui/core but isn't in react's default
 // catalogue; register it once so `<slider>` is a valid intrinsic.
@@ -43,10 +55,13 @@ declare module "@opentui/react" {
 
 type Pane = "knobs" | "preview" | "strip"
 const PANES: readonly Pane[] = ["knobs", "preview", "strip"]
+// Help footer rows (fixed so the narrow layout can size the panel
+// deterministically without measuring post-wrap).
+const HELP_H = 4
 // Stable contentOptions — inline `{}` would re-set on every reconcile.
 const COL = { flexDirection: "column" } as const
 
-type RowKind = "select" | "prompt" | "action" | "divider" | "knob"
+type RowKind = "select" | "prompt" | "action" | "divider" | "header" | "knob" | "tone"
 type Row = {
   id: string; kind: RowKind; label: string
   knob?: KnobDef
@@ -57,24 +72,71 @@ const mb = (n: number) => n < 1024 ? `${n} B`
   : n < 1 << 20 ? `${(n / 1024).toFixed(0)} KB` : `${(n / (1 << 20)).toFixed(1)} MB`
 
 const HEAD: readonly Row[] = [
+  { id: "open",       kind: "select", label: "eikon" },
   { id: "rasterizer", kind: "select", label: "rasterizer" },
   { id: "source",     kind: "prompt", label: "source" },
-  { id: "name",       kind: "prompt", label: "name" },
   // { id: "glyph",   kind: "prompt", label: "glyph" }, // reserved — PRD § 3
   { id: "-1",         kind: "divider", label: "" },
   { id: "fetch",      kind: "action", label: "fetch source",
     show: (s, live, url) => !live && !!url },
-  { id: "fork",       kind: "action", label: "fork state",  show: (_s, live) => live },
-  { id: "reset",      kind: "action", label: "reset knobs", show: (_s, live) => live },
+  { id: "knobsfor",   kind: "action", label: "tune",        show: (_s, live) => live },
+  { id: "reset",      kind: "action", label: "reset",       show: (_s, live) => live },
+  { id: "revert",     kind: "action", label: "revert",      show: s => s.dirty },
   { id: "-2",         kind: "divider", label: "", show: (_s, live) => live },
+  { id: "h-input",    kind: "header",  label: "input", show: (_s, live) => live },
+  { id: "contrast",   kind: "tone",    label: "contrast",   show: (_s, live) => live,
+    knob: { kind: "slider", min: 0.25, max: 4, step: 0.05, default: 1,
+            hint: "Spread pixel values around their mean. ×1 = source as-is; higher sharpens, lower flattens. Applied to the image before rasterizing." } },
+  { id: "invert",     kind: "tone",    label: "invert",     show: (_s, live) => live,
+    knob: { kind: "toggle", default: true,
+            hint: "Swap light↔dark in the source pixels. On for a light subject on a dark terminal background — turn off if the subject is darker than its surround." } },
+  { id: "flip",       kind: "tone",    label: "flip",       show: (_s, live) => live,
+    knob: { kind: "cycle", options: ["none", "h", "v", "hv"], default: "none",
+            hint: "Mirror the source horizontally, vertically, or both before rasterizing." } },
+  { id: "-3",         kind: "divider", label: "", show: (_s, live) => live },
 ]
+
+// One-sentence help per row, shown at the bottom of the Settings
+// pane when the row is selected/hovered. Rasterizer-declared knobs
+// fall through to helpOf() which reads KnobDef.hint or synthesizes
+// one from the knob kind.
+const HELP: Readonly<Record<string, string>> = {
+  open:       "Which eikon you're editing. Enter to switch, create a new one, or install from elsewhere.",
+  rasterizer: "The engine that turns your source image/video into text art. Each rasterizer exposes its own look-and-feel settings below the divider.",
+  source:     "The image or video file the avatar is rendered from. Enter to pick, generate, or clear.",
+  fetch:      "Download this eikon's published source media so you can re-tune it locally.",
+  knobsfor:   "←→ toggles whether the settings below apply to every state or just the one selected in the strip.",
+  reset:      "Restore every setting below to this rasterizer's defaults and drop per-state overrides.",
+  revert:     "Throw away unsaved edits and reload this eikon from disk.",
+}
+
+const FLIPS: readonly Flip[] = ["none", "h", "v", "hv"]
+
+function helpOf(row: Row | undefined): ReactNode {
+  if (!row) return ""
+  if (row.id === "source") return <>
+    <span>{HELP.source} </span>
+    <strong>Use /eikon-create to generate source files interactively (recommended).</strong>
+  </>
+  const head = HELP[row.id]
+  if (head) return head
+  if (!row.knob) return ""
+  if (row.knob.hint) return row.knob.hint
+  if (row.knob.kind === "cycle")
+    return `←→ or Enter cycles: ${row.knob.options.join(" · ")}.`
+  if (row.knob.kind === "toggle") return "Space or Enter toggles on/off."
+  return `←→ or drag adjusts (${row.knob.min}–${row.knob.max}); scroll while selected also works.`
+}
 
 function buildRows(r: Rasterizer, s: Session, live: boolean, url?: string): Row[] {
   const dyn = live
     ? Object.entries(r.knobs).map<Row>(([id, def]) =>
         ({ id, kind: "knob", label: def.label ?? id, knob: def }))
     : []
-  return [...HEAD.filter(h => h.show ? h.show(s, live, url) : true), ...dyn]
+  const head = HEAD.filter(h => h.show ? h.show(s, live, url) : true)
+  return dyn.length
+    ? [...head, { id: "h-r", kind: "header", label: r.name }, ...dyn]
+    : head
 }
 
 // ── Minimap (read-only) ──────────────────────────────────────────────
@@ -133,7 +195,8 @@ function PanBars(props: {
   const slack = 1 - z
   const on = (i: number) => props.focused && props.sel === i
   const fg = (i: number) => on(i) ? theme.accent : theme.textMuted
-  const wheel = (k: SpKey) => (e: { scroll?: { direction: string } }) => {
+  const wheel = (k: SpKey) => (e: MouseEvent) => {
+    e.stopPropagation()
     const d = e.scroll?.direction
     if (d === "up" || d === "left") props.onWheel(k, -1)
     if (d === "down" || d === "right") props.onWheel(k, 1)
@@ -190,7 +253,8 @@ function SpatialBar(props: {
     { label: "zoom", k: "zoom", min: 0.1, max: 1.0, v: props.sp.zoom, i: 2 },
     { label: "fps",  k: "fps",  min: 4,   max: 30,  v: props.fps,     i: 3 },
   ]
-  const wheel = (k: SpKey) => (e: { scroll?: { direction: string } }) => {
+  const wheel = (k: SpKey) => (e: MouseEvent) => {
+    e.stopPropagation()
     const d = e.scroll?.direction
     if (d === "up") props.onWheel(k, -1)
     if (d === "down") props.onWheel(k, 1)
@@ -227,13 +291,31 @@ function SpatialBar(props: {
 
 // ── Knob row renderers ───────────────────────────────────────────────
 
-function valueOf(s: Session, r: Rasterizer, row: Row, src?: string,
-                 peek?: { n: number; bytes: number }, busy?: boolean): string {
-  if (row.id === "rasterizer") return `${r.name} ▸`
-  if (row.id === "source") return src ? src.replace(process.env.HOME ?? "", "~") : "(none — Enter to attach)"
-  if (row.id === "name") return s.name
-  if (row.id === "fork") return s.per[s.state] ? "(forked)" : "▸ copy base → " + s.state
+function valueOf(s: Session, r: Rasterizer, row: Row, theme: Theme,
+                 src?: string, peek?: { n: number; bytes: number }, busy?: boolean): string | ReactNode {
+  if (row.id === "open") return `${s.name} ▸`
+  if (row.id === "rasterizer") {
+    const a = r.available()
+    if (a === true) return `${r.name} ▸`
+    return <><span>{`${r.name} ▸`}</span><span fg={theme.warning}>{` ⚠ ${a}`}</span></>
+  }
+  if (row.id === "source") {
+    if (!src) return "(none — Enter to attach)"
+    const d = s.dims
+    const sz = (() => { try { return mb(statSync(src).size) } catch { return "?" } })()
+    return d ? `${basename(src)} · ${d.w}×${d.h} · ${sz}` : `${basename(src)} · ${sz}`
+  }
+  if (row.id === "knobsfor") {
+    const forked = !!s.per[s.state]
+    return `◂ ${forked ? `${s.state} only` : "all states"} ▸`
+  }
   if (row.id === "reset") return "▸ defaults"
+  if (row.id === "revert") return "▸ reload from disk"
+  if (row.kind === "tone") {
+    if (row.id === "contrast") return `×${s.tone.contrast.toFixed(2)}`
+    if (row.id === "invert") return s.tone.invert ? "● on" : "○ off"
+    if (row.id === "flip") return `◂ ${s.tone.flip} ▸`
+  }
   if (row.id === "fetch") return busy ? "fetching…"
     : peek ? `▸ download to edit  (${peek.n} files, ${mb(peek.bytes)})` : "▸ download to edit"
   if (row.kind === "knob" && row.knob) {
@@ -251,26 +333,50 @@ function KnobRow(props: {
   peek?: { n: number; bytes: number }; busy?: boolean
   onHover: () => void; onClick: () => void
   onSlide?: (v: number) => void
+  onWheel?: (d: 1 | -1) => void
 }) {
   const theme = useTheme().theme
   const { row, on, dim } = props
+  const slider = row.knob?.kind === "slider" ? row.knob : undefined
+  const sval = !slider ? 0
+    : row.kind === "tone" ? props.s.tone.contrast
+    : Number(knobs.eff(props.s, props.s.state)[row.id] ?? slider.default)
+  // SliderRenderable's `value` setter fires onChange, so a prop
+  // update driven by open()/revert()/reset() echoes straight back
+  // into onSlide and re-dirties the just-cleaned session. Track the
+  // value we last pushed *to* the slider and drop onChange calls
+  // that are just that echo.
+  const pushed = useRef(sval); pushed.current = sval
+  const slide = (v: number) => { if (v !== pushed.current) props.onSlide?.(v) }
   if (row.kind === "divider")
     return <box id={props.id} height={1}><text fg={theme.border}>{"─".repeat(24)}</text></box>
-  const slider = row.knob?.kind === "slider" ? row.knob : undefined
+  if (row.kind === "header")
+    return <box id={props.id} height={1}><text fg={theme.textMuted}><u>{row.label}</u></text></box>
+  // Wheel over the selected slider row adjusts it and stops bubbling
+  // so the enclosing scrollboxes don't also move. Unselected / non-
+  // slider rows let the event through for normal list scrolling.
+  const scroll = (e: MouseEvent) => {
+    if (!on || !slider || !props.onWheel) return
+    e.stopPropagation()
+    const d = e.scroll?.direction
+    if (d === "up" || d === "left") props.onWheel(-1)
+    if (d === "down" || d === "right") props.onWheel(1)
+  }
   return (
     <box id={props.id} height={1} flexDirection="row"
          backgroundColor={on ? theme.backgroundElement : undefined}
-         onMouseMove={props.onHover} onMouseDown={props.onClick}>
+         onMouseMove={props.onHover} onMouseDown={props.onClick}
+         onMouseScroll={scroll}>
       <box width={2}><text fg={on ? theme.primary : theme.textMuted}>{on ? "▸ " : "  "}</text></box>
-      <box width={12}><text fg={dim ? theme.textMuted : on ? theme.text : theme.textMuted}>{row.label}</text></box>
+      <box width={14}><text fg={dim ? theme.textMuted : on ? theme.text : theme.textMuted}>{row.label}</text></box>
       {slider ? (
         <>
           <box width={20} height={1}>
             <slider orientation="horizontal" min={slider.min} max={slider.max}
-                    value={Number(knobs.eff(props.s, props.s.state)[row.id] ?? slider.default)}
+                    value={sval}
                     foregroundColor={on ? theme.accent : theme.textMuted}
                     backgroundColor={theme.border}
-                    onChange={props.onSlide} />
+                    onChange={slide} />
           </box>
           <box width={1} />
         </>
@@ -279,7 +385,7 @@ function KnobRow(props: {
         {props.busy && row.id === "fetch"
           ? <Spinner color={theme.accent} label="fetching…" />
           : <text fg={dim ? theme.textMuted : theme.text}>
-              {valueOf(props.s, props.r, row, props.src, props.peek, props.busy)}
+              {valueOf(props.s, props.r, row, theme, props.src, props.peek, props.busy)}
             </text>}
       </box>
     </box>
@@ -290,9 +396,12 @@ function KnobRow(props: {
 
 function Strip(props: {
   s: Session; frames: Map<AvatarState, Frame | undefined>
+  pending: ReadonlySet<AvatarState>
   focused: boolean; onPick: (st: AvatarState) => void
+  onEmpty?: (st: AvatarState) => void
 }) {
   const theme = useTheme().theme
+  const glyph = useSpinnerGlyph(props.pending.size > 0)
   return (
     <box flexDirection="row" gap={1}>
       {STATES.map(st => {
@@ -300,18 +409,23 @@ function Strip(props: {
         const own = !!props.s.per[st]
         const has = !!props.s.sources[st]
         const f = props.frames.get(st)
+        const gen = props.pending.has(st)
+        const empty = !f && !gen
         return (
           <box key={st} flexDirection="column" alignItems="center"
-               onMouseDown={() => props.onPick(st)}>
+               onMouseDown={() => {
+                 props.onPick(st)
+                 if (empty) props.onEmpty?.(st)
+               }}>
             <box border borderStyle="rounded"
                  borderColor={on && props.focused ? theme.primary : on ? theme.accent : theme.border}
                  width={18} height={10} overflow="hidden" alignItems="center" justifyContent="center">
-              {f ? f.map((ln, i) => <text key={i} fg={on ? theme.text : theme.textMuted}>{ln}</text>)
-                 : <text fg={theme.textMuted}>·</text>}
+              {gen ? <text fg={theme.accent}>{`${glyph} gen`}</text>
+                : f ? f.map((ln, i) => <text key={i} fg={on ? theme.text : theme.textMuted}>{ln}</text>)
+                : <text fg={theme.textMuted}>+</text>}
             </box>
-            <box height={1}><text fg={on ? theme.accent : theme.textMuted}>
-              {`${own ? "*" : " "}${has ? "📎" : " "}${st}`}
-            </text></box>
+            <box height={1}><text fg={on ? theme.accent : theme.textMuted}>{st}</text></box>
+            <box height={1}><text fg={theme.textMuted}>{has ? "own src" : own ? "forked" : ""}</text></box>
           </box>
         )
       })}
@@ -323,6 +437,15 @@ function Strip(props: {
 
 const BLANK: Frame = Array.from({ length: H }, () => " ".repeat(W))
 
+// One-shot gen backend probe — calls the installed hermes-agent's
+// check_*_requirements() directly so the source menu reflects actual
+// provider availability (configured key/gateway), not just the
+// toolset toggle. Cached at module scope; tests reset via setImpl.
+let genCaps: Promise<{ image: boolean; video: boolean }> | null = null
+const probeGen = () => (genCaps ??= gen.probeCached())
+/** Test-only — wipe the gen-caps cache between mountNode calls. */
+export const resetToolsetsCache = () => { genCaps = null }
+
 export const EikonStudio = memo((props: {
   focused: boolean
   /** Name to open on mount / when Gallery hands over. Empty → fresh. */
@@ -331,6 +454,7 @@ export const EikonStudio = memo((props: {
   const theme = useTheme().theme
   const keys = useKeys()
   const dialog = useDialog()
+  const gw = useGateway()
   const toast = useToast()
   const dims = useTerminalDimensions()
   const wide = dims.width >= 120
@@ -357,6 +481,9 @@ export const EikonStudio = memo((props: {
   const [peek, setPeek] = useState<{ n: number; bytes: number } | undefined>(undefined)
   const [thumbs, setThumbs] = useState<Map<AvatarState, Frame | undefined>>(new Map())
   const [err, setErr] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [pending, setPending] = useState<ReadonlySet<AvatarState>>(new Set())
+  const [genOk, setGenOk] = useState<{ image: boolean; video: boolean } | null>(null)
   const frame = frames[tick % frames.length] ?? BLANK
 
   const r = useMemo(() => eikon.pick(s?.rasterizer ?? prefs.get("eikonRasterizer")), [s?.rasterizer])
@@ -380,6 +507,7 @@ export const EikonStudio = memo((props: {
       if (p) prewarm(p, next.fps)
     }
     setS(next)
+    selRow.current = undefined
     setSel(0); setPane("knobs"); setErr(null); setTick(0); setFrames([BLANK])
   }, [])
 
@@ -393,7 +521,29 @@ export const EikonStudio = memo((props: {
     if (n) open(n)
   }, [open, props.name])
 
-  useEffect(() => { if (props.name !== undefined) open(props.name || knobs.slug("new")) }, [props.name, open])
+  const dialogRef = useRef(dialog); dialogRef.current = dialog
+  useEffect(() => {
+    if (props.name === undefined) return
+    const next = props.name || knobs.slug("new")
+    const cur = sRef.current
+    if (cur?.name === next) return
+    if (!cur?.dirty) return open(next)
+    let dead = false
+    void openConfirm(dialogRef.current, {
+      title: "Discard unsaved edits?", danger: true,
+      body: `Switch to '${next}' and drop in-memory changes to '${cur.name}'.`,
+    }).then(ok => { if (!dead && ok) open(next) })
+    return () => { dead = true }
+  }, [props.name, open])
+
+  // Probe gen backends once per process so the source menu can hide
+  // Generate rows when no image/video provider is configured. Cached
+  // at module scope — repeated mounts share one subprocess.
+  useEffect(() => {
+    let dead = false
+    void probeGen().then(c => { if (!dead) setGenOk(c) })
+    return () => { dead = true }
+  }, [])
 
   const src = useMemo(() => (s ? eikon.findSource(s.name, s.state) : undefined), [s?.name, s?.state, s?.sources])
   const live = useMemo(() => !!(s && eikon.findSource(s.name)), [s?.name, s?.sources])
@@ -420,12 +570,37 @@ export const EikonStudio = memo((props: {
   }, [url, live])
 
   const rows = useMemo(() => (s ? buildRows(r, s, live, url) : []), [r, s, live, url])
-  const navRows = useMemo(() => rows.map((x, i) => ({ ...x, i })).filter(x => x.kind !== "divider"), [rows])
+  const navRows = useMemo(() => rows.map((x, i) => ({ ...x, i }))
+    .filter(x => x.kind !== "divider" && x.kind !== "header"), [rows])
+  // Keep selection anchored to its row identity when navRows mutates
+  // (the `revert` row inserts into HEAD on first dirty, shifting
+  // indices). Anchor on kind+id so a rasterizer knob that reuses a
+  // HEAD id (e.g. a plugin declaring its own `contrast`) can't hijack
+  // the resolved index.
+  const selRow = useRef<string | undefined>(undefined)
+  const rid = (x: Row) => `${x.kind}:${x.id}`
+  const setSelBy = useCallback<typeof setSel>((arg) => {
+    setSel(prev => {
+      const next = typeof arg === "function" ? (arg as (p: number) => number)(prev) : arg
+      const row = navRows[next]
+      selRow.current = row ? rid(row) : undefined
+      return next
+    })
+  }, [navRows])
+  const prevRows = useRef(navRows)
+  useEffect(() => {
+    if (prevRows.current === navRows) return
+    prevRows.current = navRows
+    const id = selRow.current
+    if (!id) return
+    const ni = navRows.findIndex(x => rid(x) === id)
+    if (ni >= 0 && ni !== selRef.current) setSel(ni)
+  }, [navRows])
   // Knobs pane: ↑↓ keeps the selected row in view. Rows already carry
   // `id="knob-<row.id>"` (reconciler-id rule) — resolve via that.
   const kScroll = (ni: number) => {
     const row = navRows[ni]
-    if (row) ksb.current?.scrollChildIntoView(`knob-${row.id}`)
+    if (row) ksb.current?.scrollChildIntoView(`knob-${row.kind}-${row.id}`)
   }
 
   // Render the current state's full clip. Sourceless falls through
@@ -442,7 +617,7 @@ export const EikonStudio = memo((props: {
     }
     const ctrl = new AbortController()
     setBusy(true)
-    void cached(r, src, s.spatial, s.fps, knobs.eff(s, s.state), ctrl.signal).then(out => {
+    void cached(r, src, s.spatial, s.tone, s.fps, knobs.eff(s, s.state), ctrl.signal).then(out => {
       if (ctrl.signal.aborted) return
       setBusy(false)
       if ("err" in out) { setErr(out.err); return }
@@ -450,7 +625,7 @@ export const EikonStudio = memo((props: {
       setTick(t => t % out.frames.length)
     })
     return () => ctrl.abort()
-  }, [s?.spatial, s?.base, s?.per, s?.state, s?.fps, s?.rasterizer, src, r, baked])
+  }, [s?.spatial, s?.tone, s?.base, s?.per, s?.state, s?.fps, s?.rasterizer, src, r, baked])
 
   // Playback ticker — pure index advance over the already-rendered
   // `frames`. Zero work per tick; the filmstrip effect above did it
@@ -477,7 +652,7 @@ export const EikonStudio = memo((props: {
           const f = baked?.states.get(st)?.frames[0]
           return Promise.resolve([st, f ? thumb(f) : undefined] as const)
         }
-        return cached(r, sp, s.spatial, s.fps, knobs.eff(s, st))
+        return cached(r, sp, s.spatial, s.tone, s.fps, knobs.eff(s, st))
           .then(res => [st, "err" in res ? undefined : thumb(res.frames[0]!)] as const)
       })
       void Promise.all(jobs).then(done => {
@@ -509,11 +684,14 @@ export const EikonStudio = memo((props: {
   // Knob-row actions.
   const doSave = useCallback(async () => {
     if (!s) return
+    if (!s.dirty) return toast.show({ variant: "info", message: "Nothing to save" })
     if (!live) return toast.show({ variant: "warning",
       message: "No source — fetch or attach before saving" })
+    setSaving(true)
     await eikon.save({ ...s, dirty: false })
       .then(f => { mutate(p => ({ ...p, dirty: false })); toast.show({ variant: "success", message: `Saved → ${basename(f)}` }) })
       .catch(e => toast.error(e instanceof Error ? e : new Error(String(e))))
+      .finally(() => setSaving(false))
   }, [s, live, toast])
 
   const doSelectRasterizer = () => {
@@ -537,27 +715,177 @@ export const EikonStudio = memo((props: {
     )
   }
 
-  const doPrompt = async (id: string) => {
+  const runGenerate = async (st: AvatarState, kind: GenerateKind) => {
     if (!s) return
-    if (id === "source") {
-      const v = await openTextPrompt(dialog, { title: "Source image", label: `for state '${s.state}' (png/jpg/webp/gif/mp4)` })
-      if (!v) return
-      const role = s.state === "idle" && !s.sources.base ? "base" : s.state
-      try { const f = eikon.adopt(s.name, v, role); mutate(p => ({ ...p, sources: { ...p.sources, [role]: f }, dirty: true })) }
-      catch (e) { toast.error(e instanceof Error ? e : new Error(String(e))) }
+    const seed = s.sources.base ? eikon.findSource(s.name) : undefined
+    setPending(prev => { const n = new Set(prev); n.add(st); return n })
+    const out = await openGenerate(dialog, gen.current(), {
+      state: st, kind, seed, lastPrompt: s.prompts?.[st],
+    })
+    if (!out) {
+      setPending(prev => { const n = new Set(prev); n.delete(st); return n })
       return
     }
-    if (id === "name") {
-      const v = await openTextPrompt(dialog, { title: "Name", initial: s.name })
-      if (v) mutate(p => ({ ...p, name: knobs.slug(v), dirty: true }))
+    const role = st === "idle" && !s.sources.base ? "base" : st
+    try {
+      const f = eikon.adopt(s.name, out.path, role)
+      mutate(p => ({
+        ...p,
+        sources: { ...p.sources, [role]: f },
+        prompts: { ...p.prompts, [st]: out.prompt },
+        dirty: true,
+      }))
+    } catch (e) {
+      toast.error(e instanceof Error ? e : new Error(String(e)))
+    } finally {
+      setPending(prev => { const n = new Set(prev); n.delete(st); return n })
     }
   }
 
+  const doSource = (forSt?: AvatarState) => {
+    if (!s) return
+    const st = forSt ?? s.state
+    const has = !!s.sources[st]
+    const opts: Array<{ title: string; value: string }> = [{ title: "Local file…", value: "local" }]
+    if (genOk?.image) opts.push({ title: "Generate image…", value: "gen-image" })
+    if (genOk?.video) opts.push({ title: "Generate video…", value: "gen-video" })
+    if (has && st !== "idle") opts.push({ title: "Same as base", value: "same" })
+    if (has) opts.push({ title: "Remove", value: "remove" })
+    dialog.replace(
+      <DialogSelect title={`Source for '${st}'`} filterable={false} options={opts}
+        onSelect={async o => {
+          if (o.value === "local") {
+            const p = await openPathPrompt(dialog, gw, {
+              title: `Source for '${st}'`,
+              label: "png/jpg/webp/gif/mp4/webm/mov  ·  Tab completes",
+              filter: /\.(png|jpe?g|webp|gif|mp4|webm|mov)$/i,
+            })
+            if (!p) return
+            const role = st === "idle" && !s.sources.base ? "base" : st
+            try { const f = eikon.adopt(s.name, p, role); mutate(prev => ({ ...prev, sources: { ...prev.sources, [role]: f }, dirty: true })) }
+            catch (e) { toast.error(e instanceof Error ? e : new Error(String(e))) }
+            return
+          }
+          if (o.value === "gen-image") return void runGenerate(st, "image")
+          if (o.value === "gen-video") return void runGenerate(st, "video")
+          dialog.clear()
+          mutate(prev => {
+            const next = { ...prev.sources }
+            delete next[st]
+            return { ...prev, sources: next, dirty: true }
+          })
+        }} />,
+      () => {},
+    )
+  }
+
+  const doPrompt = async (id: string) => {
+    if (!s) return
+    if (id === "source") return doSource()
+  }
+
+  // Prompts before discarding when the current draft is dirty.
+  const switchTo = useCallback(async (name: string) => {
+    const cur = sRef.current
+    if (cur?.name === name) return
+    if (cur?.dirty) {
+      const ok = await openConfirm(dialog, {
+        title: "Discard unsaved edits?", danger: true,
+        body: `Open '${name}' and drop in-memory changes to '${cur.name}'.`,
+      })
+      if (!ok) return
+    }
+    open(name)
+  }, [dialog, open])
+
+  const apply = useCallback(async (res: Awaited<ReturnType<typeof openNewEikon>>) => {
+    if (!res) return
+    if (res.from === "blank") {
+      eikon.ensure(res.name)
+      return switchTo(res.name)
+    }
+    if (res.from === "file") {
+      eikon.ensure(res.name)
+      try { eikon.adopt(res.name, res.file, "base") }
+      catch (e) { return toast.error(e instanceof Error ? e : new Error(String(e))) }
+      return switchTo(res.name)
+    }
+    toast.show({ variant: "info", message: `Installing '${res.name}' from ${res.src}…` })
+    await eikon.fetchSource(res.src, { name: res.name })
+      .then(out => {
+        toast.show({ variant: "success", message: `Installed '${out.name}' (${out.n} files)` })
+        void switchTo(out.name)
+      })
+      .catch(e => toast.error(e instanceof Error ? e : new Error(String(e))))
+  }, [switchTo, toast])
+
+  const doNew = useCallback(async () => {
+    const res = await openNewEikon(dialog, {})
+    await apply(res)
+  }, [dialog, apply])
+
+  // Installed-folder eikons take precedence over bundled flat-file
+  // duplicates by slug; trailers are appended in doOpen.
+  const eikonOptions = useCallback(() => {
+    const installed = eikon.list().map(e => ({
+      title: e.name, value: e.name, category: "installed",
+      hint: e.hasSource ? "● source" : e.sourceUrl ? "○ source available" : "—",
+    }))
+    const seen = new Set(installed.map(o => o.value))
+    const bundled = listEikons([BUNDLED_EIKON_DIR, hermesPath("eikons")])
+      .filter(e => e.path.startsWith(BUNDLED_EIKON_DIR))
+      .map(e => {
+        const slug = e.meta.name.toLowerCase()
+        return { title: e.meta.name, value: slug, category: "bundled",
+                 hint: `${e.meta.width}×${e.meta.height}` }
+      })
+      .filter(o => !seen.has(o.value))
+    // Folders with no .eikon yet (fresh `ensure()`d) — list() skips them.
+    const raw = eikon.raw().filter(n => !seen.has(n)).map(n =>
+      ({ title: n, value: n, category: "installed", hint: "(unsaved)" }))
+    return [...installed, ...raw, ...bundled]
+  }, [])
+
+  const doInstall = useCallback(async () => {
+    const src = await openTextPrompt(dialog, {
+      title: "Install eikon",
+      label: "catalog name · github.com/u/r · git URL · http://…/ · local dir",
+    })
+    if (!src) return
+    toast.show({ variant: "info", message: `Installing from ${src}…` })
+    await eikon.fetchSource(src)
+      .then(out => {
+        toast.show({ variant: "success", message: `Installed '${out.name}' (${out.n} files)` })
+        void switchTo(out.name)
+      })
+      .catch(e => toast.error(e instanceof Error ? e : new Error(String(e))))
+  }, [dialog, switchTo, toast])
+
+  const doOpen = useCallback(() => {
+    const cur = sRef.current
+    const opts = [
+      ...eikonOptions(),
+      { title: "+ New…",      value: "__new",     category: "" },
+      { title: "+ Install…",  value: "__install", category: "" },
+    ]
+    dialog.replace(
+      <DialogSelect title="Open eikon" current={cur?.name} options={opts}
+        onSelect={o => {
+          dialog.clear()
+          if (o.value === "__new") return void doNew()
+          if (o.value === "__install") return void doInstall()
+          void switchTo(o.value)
+        }} />,
+      () => {},
+    )
+  }, [dialog, eikonOptions, switchTo, doNew, doInstall])
+
   const doAction = async (id: string) => {
     if (!s) return
-    if (id === "fork") return mutate(knobs.fork)
+    if (id === "knobsfor") return mutate(p => p.per[p.state] ? knobs.unfork(p) : knobs.fork(p))
+    if (id === "revert") { void discard(); return }
     if (id === "reset") {
-      const ok = await openConfirm(dialog, { title: "Reset knobs?", body: "Restore rasterizer defaults and drop all per-state overrides.", danger: true })
+      const ok = await openConfirm(dialog, { title: "Reset settings?", body: "Restore rasterizer defaults and drop all per-state overrides.", danger: true })
       if (ok) mutate(p => knobs.reset(p, r))
       return
     }
@@ -579,20 +907,39 @@ export const EikonStudio = memo((props: {
     dialog.replace(
       <DialogSelect title={`State: ${s.state}`} filterable={false}
         options={[
-          { title: "Attach source image…", value: "attach" },
-          { title: s.per[s.state] ? "Clear override (back to base)" : "Fork knobs from base", value: "fork" },
+          { title: "Source…", value: "source" },
+          { title: s.per[s.state] ? "Clear override (back to base)" : "Tune this state only", value: "fork" },
         ]}
         onSelect={o => {
+          if (o.value === "source") { doSource(); return }
           dialog.clear()
-          if (o.value === "attach") return void doPrompt("source")
           mutate(s.per[s.state] ? knobs.unfork : knobs.fork)
         }} />,
       () => {},
     )
   }
 
-  /** Step a knob row (cycle/toggle forward, slider ±). */
+  const setTone = (t: Partial<Tone>) =>
+    mutate(p => ({ ...p, tone: { ...p.tone, ...t }, dirty: true }))
+
+  /** Step a knob row (cycle/toggle forward, slider ±). Tone rows
+   *  (contrast/flip) write to `s.tone`; rasterizer knobs to `s.base`
+   *  or `s.per[state]` via `knobs.edit`. */
   const stepRow = (row: Row, d: 1 | -1) => {
+    if (row.kind === "tone") {
+      if (row.id === "contrast") {
+        const def = row.knob as Extract<KnobDef, { kind: "slider" }>
+        const cur = sRef.current?.tone.contrast ?? 1
+        return setTone({ contrast: +Math.max(def.min, Math.min(def.max, cur + d * def.step)).toFixed(2) })
+      }
+      if (row.id === "invert") return setTone({ invert: !sRef.current?.tone.invert })
+      if (row.id === "flip") {
+        const cur = sRef.current?.tone.flip ?? "none"
+        const i = FLIPS.indexOf(cur)
+        return setTone({ flip: FLIPS[(i + d + FLIPS.length) % FLIPS.length]! })
+      }
+      return
+    }
     if (row.kind !== "knob" || !row.knob) return
     mutate(p => knobs.edit(p, k => knobs.step(k, row.id, row.knob!, d)))
   }
@@ -602,13 +949,16 @@ export const EikonStudio = memo((props: {
    *  actions (reset → confirm dialog) are Enter/click only. */
   const act = (row: Row | undefined, via: "enter" | "space" | "click") => {
     if (!row || !sRef.current) return
-    if (row.kind === "select") return doSelectRasterizer()
+    if (row.kind === "select") {
+      if (row.id === "open") return doOpen()
+      return doSelectRasterizer()
+    }
     if (row.kind === "prompt") return void doPrompt(row.id)
     if (row.kind === "action") {
       if (via === "space" && row.id === "reset") return
       return void doAction(row.id)
     }
-    if (row.kind === "knob") {
+    if (row.kind === "tone" || row.kind === "knob") {
       // slider has neither toggle nor activate semantics → Enter/Space
       // are inert (←→ and drag are the inputs).
       if (row.knob!.kind === "slider") return
@@ -620,24 +970,27 @@ export const EikonStudio = memo((props: {
   const toggle   = () => act(navRows[selRef.current], "space")
   const adjust = (d: 1 | -1) => {
     const row = navRows[selRef.current]
-    if (row) stepRow(row, d)
+    if (!row) return
+    if (row.id === "knobsfor") return void doAction("knobsfor")
+    stepRow(row, d)
   }
 
   const discard = async () => {
     const cur = sRef.current
     if (!cur?.dirty) return false
-    const ok = await openConfirm(dialog, {
-      title: "Discard unsaved edits?", danger: true,
-      body: `Reload '${cur.name}' from disk and drop in-memory changes.`,
+    const pick = await openSaveDiscard(dialog, {
+      title: "Unsaved edits",
+      body: `'${cur.name}' has unsaved changes. Save them, discard them, or keep editing?`,
     })
-    if (ok) open(cur.name)
+    if (pick === "save") { await doSave(); open(cur.name) }
+    if (pick === "discard") open(cur.name)
     return true
   }
 
   useKeyboard((key: ParsedKey) => {
     if (!props.focused || dialog.open()) return
     if (key.eventType === "release") return
-    if (keys.match("eikon.save", key)) return void doSave()
+    if (keys.match("eikon.save", key)) { if (!saving) void doSave(); return }
     if (key.name === "escape") return void discard()
     if (key.name === "tab") {
       const i = PANES.indexOf(pane)
@@ -647,16 +1000,16 @@ export const EikonStudio = memo((props: {
       return
     }
     if (!s) {
-      if (key.name === "return") return void doPrompt("source")
+      if (key.name === "return") return void doNew()
       return
     }
     if (pane === "knobs") {
       if (handleListKey(keys, key, {
-        count: navRows.length, setSel, scrollTo: kScroll,
+        count: navRows.length, setSel: setSelBy, scrollTo: kScroll,
         page: Math.max(1, (ksb.current?.viewport.height ?? 10) - 1),
         onActivate: activate,
         onToggle: toggle,
-        onNew: () => void doPrompt("source"),
+        onNew: () => void doNew(),
       })) return
       if (key.name === "left") return adjust(-1)
       if (key.name === "right") return adjust(1)
@@ -687,12 +1040,20 @@ export const EikonStudio = memo((props: {
     if (key.name === "return") return doStripMenu()
   })
 
-  // Preview mouse: wheel-zoom only (drag-pan removed — sliders cover it).
-  const onScroll = (e: { scroll?: { direction: string } }) => {
+  // Preview wheel: pan-y by default; +Shift → pan-x; +Ctrl → zoom.
+  // Always swallowed so the outer scrollbox never moves while the
+  // pointer is over the frame.
+  const onScroll = (e: MouseEvent) => {
+    e.stopPropagation()
     if (!spatialOk || !live || !e.scroll) return
     const d = e.scroll.direction
     if (d !== "up" && d !== "down") return
-    mutate(p => ({ ...p, spatial: knobs.zoom(p.spatial, d === "up" ? -1 : 1), dirty: true }))
+    const sign = d === "up" ? -1 : 1
+    if (e.modifiers.ctrl)
+      return mutate(p => ({ ...p, spatial: knobs.zoom(p.spatial, sign), dirty: true }))
+    if (e.modifiers.shift)
+      return mutate(p => ({ ...p, spatial: knobs.pan(p.spatial, sign, 0), dirty: true }))
+    mutate(p => ({ ...p, spatial: knobs.pan(p.spatial, 0, sign), dirty: true }))
   }
 
   const n = frames.length
@@ -706,8 +1067,9 @@ export const EikonStudio = memo((props: {
     :       "no source — Enter on 'source' to attach")
 
   const hint: Array<readonly [string, string]> =
-    pane === "knobs"   ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.activate"), "open"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
-  : pane === "preview" ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.toggle"), "play/pause"], ["wheel", "zoom"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
+    !s                   ? [["Enter", "new eikon"], ["Shift+→", "gallery"]]
+  : pane === "knobs"   ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.activate"), "edit"], [keys.print("list.new"), "new"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
+  : pane === "preview" ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.toggle"), "play/pause"], ["wheel", "pan"], ["Ctrl+wheel", "zoom"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
   :                      [["←→", "state"], [keys.print("list.activate"), "actions"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
 
   // TabShell chrome = border(2) + padding(2) + title(1) + gap(1).
@@ -733,6 +1095,11 @@ export const EikonStudio = memo((props: {
   const preview = (
     <TabShell title={spatialOk ? title : `${title}  ·  (ffmpeg not installed)`}
               error={previewErr} focus={pane === "preview"}>
+      {!live && baked
+        ? <box height={1} overflow="hidden">
+            <text fg={theme.textMuted} wrapMode="none">Baked — fetch or attach a source to edit.</text>
+          </box>
+        : null}
       {spatialOk && live && s
         ? <>
             <PanBars sp={s.spatial} sel={spSel} focused={pane === "preview"}
@@ -748,40 +1115,49 @@ export const EikonStudio = memo((props: {
     </TabShell>
   )
 
+  const help = helpOf(navRows[sel])
   const panel = (
-    <TabShell title={`Knobs${s?.dirty ? "  ·  ● unsaved" : ""}`} focus={pane === "knobs"} grow={1}>
+    <TabShell title={s ? `Settings — ${s.name}` : "Settings"} focus={pane === "knobs"} grow={1}>
       {!s
         ? <box flexGrow={1} alignItems="center" justifyContent="center">
-            <text fg={theme.textMuted}>No eikon open. Enter to create one.</text>
+            <text fg={theme.textMuted}>No eikon open. Enter to create or pick one.</text>
           </box>
-        : <scrollbox ref={ksb} scrollY flexGrow={1} contentOptions={COL}>
-            {rows.map((row, i) => {
-              const ni = navRows.findIndex(x => x.i === i)
-              const on = pane === "knobs" && ni === sel
-              const dim = row.kind === "knob" && !src
-              return (
-                <KnobRow key={`${r.name}:${row.id}`} id={`knob-${row.id}`} row={row} s={s} r={r} src={src}
-                         on={on} dim={dim} peek={peek} busy={row.id === "fetch" && fetching}
-                         onHover={() => { if (ni >= 0) { setPane("knobs"); setSel(ni) } }}
-                         onClick={() => { if (ni >= 0) { setSel(ni); setPane("knobs"); act(row, "click") } }}
-                         onSlide={row.knob?.kind === "slider"
-                           ? v => mutate(p => knobs.edit(p, k => knobs.setSlider(k, row.id, row.knob!, v)))
-                           : undefined} />
-              )
-            })}
-          </scrollbox>}
+        : <>
+            <scrollbox ref={ksb} scrollY flexGrow={1} contentOptions={COL}>
+              {rows.map((row, i) => {
+                const ni = navRows.findIndex(x => x.i === i)
+                const on = pane === "knobs" && ni === sel
+                const dim = row.kind === "knob" && !src
+                return (
+                  <KnobRow key={`${row.kind}:${r.name}:${row.id}`} id={`knob-${row.kind}-${row.id}`} row={row} s={s} r={r} src={src}
+                           on={on} dim={dim} peek={peek} busy={row.id === "fetch" && fetching}
+                           onHover={() => { if (ni >= 0) { setPane("knobs"); setSelBy(ni) } }}
+                           onClick={() => { if (ni >= 0) { setSelBy(ni); setPane("knobs"); act(row, "click") } }}
+                           onWheel={d => stepRow(row, d)}
+                           onSlide={row.knob?.kind !== "slider" ? undefined
+                             : row.kind === "tone"
+                               ? v => setTone({ contrast: +v.toFixed(2) })
+                               : v => mutate(p => knobs.edit(p, k => knobs.setSlider(k, row.id, row.knob!, v)))} />
+                )
+              })}
+            </scrollbox>
+            <box flexShrink={0} height={HELP_H} marginTop={1} overflow="hidden">
+              <text fg={theme.textMuted} wrapMode="word">{help}</text>
+            </box>
+          </>}
     </TabShell>
   )
 
-  // Strip cell = 10 (bordered thumb) + 1 (label). TabShell chrome =
+  // Strip cell = 10 (bordered thumb) + 2 (label lines). TabShell chrome =
   // border(2) + padding(2) + title(1) + gap(1). flexBasis=0 on TabShell
   // would collapse it in a column, so pin the wrapper height.
-  const STRIP_H = 17
+  const STRIP_H = 18
   const strip = s ? (
     <box id="studio-strip" flexShrink={0} height={STRIP_H}>
       <TabShell title="States" focus={pane === "strip"}>
-        <Strip s={s} frames={thumbs} focused={pane === "strip"}
-               onPick={st => { setPane("strip"); mutate(p => knobs.setState(p, st)) }} />
+        <Strip s={s} frames={thumbs} pending={pending} focused={pane === "strip"}
+               onPick={st => { setPane("strip"); mutate(p => knobs.setState(p, st)) }}
+               onEmpty={st => doSource(st)} />
       </TabShell>
     </box>
   ) : null
@@ -799,7 +1175,8 @@ export const EikonStudio = memo((props: {
   ) : (
     <>
       <box id="studio-preview" flexShrink={0} height={PREVIEW_H}>{preview}</box>
-      <box id="studio-knobs" flexShrink={0} height={Math.max(rows.length, 1) + 6}>{panel}</box>
+      <box id="studio-knobs" flexShrink={0}
+           height={Math.max(rows.length, 1) + HELP_H + 1 + 6}>{panel}</box>
     </>
   )
   return (
@@ -808,7 +1185,7 @@ export const EikonStudio = memo((props: {
         {top}
         {strip}
       </scrollbox>
-      <HintBar pairs={hint} suffix={s?.dirty ? "● unsaved" : undefined} />
+      <HintBar pairs={hint} suffix={saving ? "● saving…" : s?.dirty ? "● unsaved" : undefined} />
     </box>
   )
 })
