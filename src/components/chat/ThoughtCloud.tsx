@@ -72,7 +72,7 @@ function parts(m: Message | undefined): Part[] {
   return m?.parts.filter(p => p.type === "thinking" || p.type === "tool") ?? []
 }
 
-type Pane = "all" | "reasoning" | "tools"
+type Pane = "reasoning" | "tools"
 
 function latest(messages: Message[]): Message | undefined {
   for (let i = messages.length - 1; i >= 0; i--)
@@ -101,8 +101,8 @@ export const ThoughtCloud = memo((props: {
   const all = parts(src)
   const think = all.filter((p): p is ThinkingPart => p.type === "thinking")
   const tools = all.filter((p): p is ToolPart => p.type === "tool")
-  const [pane, setPane] = useState<Pane>("all")
-  const body = pane === "reasoning" ? think : pane === "tools" ? tools : all
+  const [pane, setPane] = useState<Pane>("reasoning")
+  const body = pane === "reasoning" ? think : tools
 
   // Auto-grow: track content until the user drags; then their size
   // sticks. `want` is the dep so growth follows streamed thinking text,
@@ -129,7 +129,7 @@ export const ThoughtCloud = memo((props: {
   }
   const drop = () => { drag.current = null }
 
-  const pill = (id: Pane, label: string, n: number) => {
+  const pill = (id: Pane, label: string, n: number | null) => {
     const on = pane === id
     return (
       <box height={1} marginRight={2}
@@ -138,7 +138,7 @@ export const ThoughtCloud = memo((props: {
           <span fg={on ? theme.accent : theme.textMuted}>
             {on ? <strong>{label}</strong> : label}
           </span>
-          {n > 0 ? <span fg={theme.textMuted}>{` ${n}`}</span> : null}
+          {n !== null && n > 0 ? <span fg={theme.textMuted}>{` ${n}`}</span> : null}
         </text>
       </box>
     )
@@ -151,8 +151,7 @@ export const ThoughtCloud = memo((props: {
       backgroundColor={theme.backgroundPanel} paddingX={1}
     >
       <box height={1} flexShrink={0} flexDirection="row">
-        {pill("all", "all", all.length)}
-        {pill("reasoning", "reasoning", think.length)}
+        {pill("reasoning", "reasoning", null)}
         {pill("tools", "tools", tools.length)}
         <box flexGrow={1} />
         {detail !== "expanded" ? (
