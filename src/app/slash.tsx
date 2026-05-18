@@ -201,7 +201,6 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
         case "help": dialog.replace(<HelpDialog />); return
         case "keys": openKeys(dialog); return
         case "logs": openLogs(dialog); return
-        case "eikon": pickEikon(); return
         case "eikons":
           if (!eikonsh.configured()) {
             toast.show({ variant: "info", message: "Set $EIKON_DIR (dev checkout) or $EIKON_SSH (host:port)" })
@@ -494,7 +493,7 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
           })
           .catch((e: Error) => x.dispatch({ kind: "system", text: `error: ${e.message}` }))
       })
-  }, [gw, dialog, toast, themeCtx, renderer, destructive, pickEikon, applyTitle, runCompress])
+  }, [gw, dialog, toast, themeCtx, renderer, destructive, applyTitle, runCompress])
 
   // Palette entries. Closures read through `ctx.current` so the effect
   // runs once (cmd is a stable context value) instead of re-registering
