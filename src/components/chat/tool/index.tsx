@@ -13,23 +13,13 @@ import { memo } from "react"
 import type { ToolPart as Part } from "../../../types/message"
 import type { DetailMode } from "../../../context/preferences"
 import { InlineTool } from "./frame"
-import { isDiff } from "../DiffBlock"
 import { Subagent } from "./Subagent"
 import { spec } from "./preview"
-import { useTheme } from "../../../theme"
-
-const FILE = new Set(["write_file", "patch"])
 
 function short(s: string | undefined, n = 120): string {
   if (!s) return ""
   const one = s.replace(/\s+/g, " ").trim()
   return one.length > n ? one.slice(0, n - 1) + "…" : one
-}
-
-function base(path: string): string {
-  const clean = path.replace(/\/+$/, "")
-  const slash = clean.lastIndexOf("/")
-  return slash >= 0 ? clean.slice(slash + 1) : clean
 }
 
 const Inline = memo(({ tool }: { tool: Part }) => {
@@ -42,24 +32,8 @@ const Inline = memo(({ tool }: { tool: Part }) => {
   )
 })
 
-/** Accent-filled pill: `changed <basename>`. The actual diff renders
- *  as an InlineDiff chip in the assistant message body (d39945f), so
- *  the ThoughtCloud row only needs to say *that* a file changed. */
-const FileEdit = memo(({ tool }: { tool: Part }) => {
-  const theme = useTheme().theme
-  // While running (no result yet) or when preview is absent (some
-  // providers omit the path), fall through to the generic inline row.
-  if (tool.status === "running" || !tool.preview) return <Inline tool={tool} />
-  return (
-    <InlineTool part={tool}>
-      <span bg={theme.accent} fg={theme.background}> changed {short(base(tool.preview), 48)} </span>
-    </InlineTool>
-  )
-})
-
 export const Tool = memo(({ tool, detail = "expanded" }: { tool: Part; detail?: DetailMode }) => {
   if (detail === "hidden" && tool.status !== "running") return null
   if (tool.trail || tool.name === "delegate_task") return <Subagent tool={tool} />
-  if (FILE.has(tool.name) || tool.diff || isDiff(tool.result)) return <FileEdit tool={tool} />
   return <Inline tool={tool} />
 })

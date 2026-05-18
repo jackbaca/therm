@@ -152,13 +152,14 @@ describe("tool/file-edit", () => {
     expect(isDiff(undefined)).toBe(false)
   })
 
-  test("patch renders as accent pill with basename; no diff body here", async () => {
+  test("patch renders as generic edit row; no diff body here", async () => {
     const t = await tool({
       type: "tool", id: "td", name: "patch", args: "",
       preview: "src/foo.ts", status: "done", duration: 42, diff: UDIFF,
     })
-    await until(t, () => t.frame().includes("changed foo.ts"))
+    await until(t, () => t.frame().includes("Edit src/foo.ts"))
     const f = t.frame()
+    expect(f).not.toContain("changed")
     // diff body does NOT render in ThoughtCloud — InlineDiff in the
     // assistant message owns that.
     expect(f).not.toContain("┃")
@@ -167,12 +168,13 @@ describe("tool/file-edit", () => {
     t.destroy()
   })
 
-  test("write_file renders same pill shape", async () => {
+  test("write_file renders generic write row", async () => {
     const t = await tool({
       type: "tool", id: "tw", name: "write_file", args: "",
       preview: "docs/README.md", status: "done", duration: 9,
     })
-    await until(t, () => t.frame().includes("changed README.md"))
+    await until(t, () => t.frame().includes("Write docs/README.md"))
+    expect(t.frame()).not.toContain("changed")
     expect(t.frame()).not.toContain("┃")
     t.destroy()
   })

@@ -2,7 +2,8 @@ import { describe, test, expect } from "bun:test"
 import { act } from "react"
 import { useState } from "react"
 import { mountNode } from "./harness"
-import { Tail } from "../src/components/chat/ThoughtCloud"
+import { Tail, ThoughtCloud } from "../src/components/chat/ThoughtCloud"
+import type { Message } from "../src/types/message"
 
 // Tail animates by mutating span .children out of React's view. The
 // `run` prop toggle forces a React reconcile of the span subtree;
@@ -34,6 +35,30 @@ describe("ThoughtCloud/Tail (ref-mutation animation)", () => {
     await t.settle()
     expect(t.frame()).toContain("╭┄┄╮")
     expect(t.frame()).toContain("╶")
+    t.destroy()
+  })
+})
+
+describe("ThoughtCloud reasoning", () => {
+  test("renders reasoning as markdown while tools stay custom rows", async () => {
+    const messages: Message[] = [{
+      id: "a1", role: "assistant", timestamp: 0,
+      parts: [
+        { type: "thinking", content: "Use `scan_skill_commands()` then **verify**.", streaming: false },
+        { type: "tool", id: "tw", name: "write_file", args: "", preview: "src/x.ts", status: "done", duration: 9 },
+      ],
+    }]
+    const t = await mountNode(
+      <box flexDirection="column" width="100%" height="100%">
+        <ThoughtCloud height={12} messages={messages} onResize={() => {}} />
+      </box>,
+      { width: 100, height: 20 },
+    )
+    await t.settle()
+    const f = t.frame()
+    expect(f).not.toContain("`scan_skill_commands()`")
+    expect(f).not.toContain("**verify**")
+    expect(f).not.toContain("Write src/x.ts")
     t.destroy()
   })
 })

@@ -95,7 +95,7 @@ export const ThoughtCloud = memo((props: {
   onResize: (h: number) => void
   onClose?: () => void
 }) => {
-  const theme = useTheme().theme
+  const { theme, syntaxStyle } = useTheme()
   const detail = usePref("toolDetails") ?? "expanded"
   const src = props.pick ?? latest(props.messages)
   const all = parts(src)
@@ -168,7 +168,7 @@ export const ThoughtCloud = memo((props: {
           {body.map((p, i) =>
             p.type === "thinking"
               ? <box key={(p as ThinkingPart).key ?? `th-${i}`} minHeight={1} width="100%" flexShrink={0}>
-                  <text fg={theme.textMuted} wrapMode="word">{(p as ThinkingPart).content}</text>
+                  <markdown content={(p as ThinkingPart).content} fg={theme.markdownText} syntaxStyle={syntaxStyle} />
                 </box>
               : <box key={(p as ToolPart).id || `t-${i}`} width="100%" flexShrink={0}>
                   <Tool tool={p as ToolPart} detail={detail === "hidden" ? "hidden" : "collapsed"} />

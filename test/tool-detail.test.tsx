@@ -44,11 +44,12 @@ describe("Tool > detail mode", () => {
     { width: 100, height: 20 },
   )
 
-  test("FileEdit renders accent pill regardless of detail mode", async () => {
+  test("file edits render generic rows, not accent pills", async () => {
     for (const mode of ["expanded", "collapsed"] as const) {
       const t = await mount(file, mode)
-      await until(t, () => t.frame().includes("changed x.ts"))
+      await until(t, () => t.frame().includes("Edit src/x.ts"))
       const f = t.frame()
+      expect(f).not.toContain("changed")
       expect(f).not.toContain("@@")
       expect(f).not.toContain("+1")
       t.destroy()
