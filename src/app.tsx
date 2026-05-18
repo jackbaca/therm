@@ -732,10 +732,12 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
             </Profiler>
           ) : null}
         </box>
-        <box height={1} flexShrink={0} paddingX={1} overflow="hidden">
-          <plugins.Slot name="app_bottom" mode="single_winner"
-                        sid={sid} tab={tab} streaming={turn.streaming} />
-        </box>
+        {plugins.has("app_bottom") ? (
+          <box height={1} flexShrink={0} paddingX={1} overflow="hidden">
+            <plugins.Slot name="app_bottom" mode="single_winner"
+                          sid={sid} tab={tab} streaming={turn.streaming} />
+          </box>
+        ) : null}
       </box>
      </SkinProvider>
     </Profiler>

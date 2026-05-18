@@ -35,6 +35,7 @@ export type PluginCtx = {
   /** Wire the shell's tab navigator. Called once by AppInner. */
   bind(nav: (tab: number, sub: number) => void, current: () => string | undefined): void
   status(): ReadonlyArray<PluginStatus>
+  has(slot: keyof Slots): boolean
   activate(id: string): Promise<boolean>
   deactivate(id: string): Promise<boolean>
 }
@@ -218,6 +219,7 @@ export function PluginProvider(props: { children: ReactNode; plugins?: ReadonlyA
     status: () => [...entries.current.values()].map(e => ({
       id: e.plugin.id, enabled: e.enabled, active: !!e.scope, error: e.error,
     })),
+    has: slot => reg.resolveEntries(slot).length > 0,
     activate: id => activate(id),
     deactivate: id => deactivate(id),
   // `routes` is a stable Map ref; snapshot rebuilds on `rev`. `gen`

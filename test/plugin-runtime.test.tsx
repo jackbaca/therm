@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { mountNode, until, type Harness } from "./harness"
+import { mount, mountNode, until, type Harness } from "./harness"
 import { usePlugins } from "../src/plugins/runtime"
 import type { HermPlugin, HermPluginApi } from "../src/plugins/types"
 
@@ -109,6 +109,15 @@ describe("PluginProvider", () => {
     await t.settle()
     expect(seen).toContain("gateway.ready")
     t.destroy()
+  })
+})
+
+describe("app_bottom slot", () => {
+  test("shell does not reserve a bottom row when no plugin contributes", async () => {
+    await using t = await mount({ width: 80, height: 18 })
+    await until(t, () => t.frame().includes("Ready"))
+    const lines = t.frame().split("\n")
+    expect(lines.findIndex(l => l.includes("Ready"))).toBe(lines.length - 2)
   })
 })
 
