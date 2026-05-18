@@ -90,6 +90,7 @@ export interface SessionRow {
   id: string
   sessionSource: string
   model: string | null
+  billing_provider: string | null
   started_at: number
   ended_at: number | null
   end_reason: string | null
@@ -180,7 +181,7 @@ export const kind = (
 // correlated subqueries — cheap at herm's DB sizes (thousands of rows)
 // and keeps the outer query a plain single-table scan.
 const COLS = `
-  s.id, s.source, s.model, s.started_at, s.ended_at, s.end_reason,
+  s.id, s.source, s.model, s.billing_provider, s.started_at, s.ended_at, s.end_reason,
   s.message_count, s.tool_call_count,
   s.input_tokens, s.output_tokens,
   s.cache_read_tokens, s.cache_write_tokens, s.reasoning_tokens,
@@ -196,7 +197,7 @@ const COLS = `
      AND (s.ended_at IS NULL OR c.started_at < s.ended_at)) AS subagent_count`
 
 type Raw = {
-  id: string; source: string; model: string | null
+  id: string; source: string; model: string | null; billing_provider: string | null
   started_at: number; ended_at: number | null; end_reason: string | null
   message_count: number; tool_call_count: number
   input_tokens: number; output_tokens: number
@@ -211,6 +212,7 @@ const toRow = (r: Raw, lineage: string | null = null): SessionRow => ({
   id: r.id,
   sessionSource: r.source,
   model: r.model,
+  billing_provider: r.billing_provider,
   started_at: r.started_at,
   ended_at: r.ended_at,
   end_reason: r.end_reason,

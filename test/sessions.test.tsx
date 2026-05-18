@@ -17,7 +17,7 @@ const NOIO = { list: () => [], search: () => [], remove: () => true, rename: () 
 // Stub SessionRow fields we actually consume; zero the rest.
 const detail = (over: Partial<SessionRow> & { id: string; sessionSource: string }): SessionRow => ({
   source: { file: "/tmp/state.db", relative: "state.db", label: "state.db" },
-  model: null, started_at: 1699999000, ended_at: null, end_reason: null,
+  model: null, billing_provider: null, started_at: 1699999000, ended_at: null, end_reason: null,
   message_count: 0, tool_call_count: 0,
   input_tokens: 0, output_tokens: 0,
   cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0,

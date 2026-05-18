@@ -74,12 +74,14 @@ const ModelPickerDialog = (props: Props) => {
   if (!data) return <box width={50} padding={1}><text>Loading models…</text></box>
 
   if (step === "provider") {
-    const options: SelectOption[] = (data.providers ?? []).map(p => ({
-      title: p.name,
-      value: p.slug,
-      description: p.total_models ? `${p.total_models} models` : undefined,
-      category: p.is_current ? "Current" : "Available",
-    }))
+    const options: SelectOption[] = (data.providers ?? [])
+      .toSorted((a, b) => Number(Boolean(b.is_current)) - Number(Boolean(a.is_current)))
+      .map(p => ({
+        title: p.name,
+        value: p.slug,
+        description: p.total_models ? `${p.total_models} models` : undefined,
+        category: p.is_current ? "Current" : "Available",
+      }))
     return (
       <DialogSelect
         title={props.title ?? "Switch Provider"}
@@ -103,7 +105,7 @@ const ModelPickerDialog = (props: Props) => {
     <DialogSelect
       title={props.title ? `${props.title} · ${p?.name ?? provider}` : `Switch Model (${p?.name ?? provider})`}
       options={options}
-      current={data.model}
+      current={provider === data.provider ? data.model : undefined}
       onSelect={(o) => {
         if (provider) apply(o.value, provider)
         dialog.clear()

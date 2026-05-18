@@ -24,7 +24,7 @@ export const openStateDb = (): Database => {
   mkdirSync(HH, { recursive: true })
   const db = new Database(`${HH}/state.db`, { create: true })
   db.run(`CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY, title TEXT, source TEXT, model TEXT,
+    id TEXT PRIMARY KEY, title TEXT, source TEXT, model TEXT, billing_provider TEXT,
     started_at REAL, ended_at REAL, end_reason TEXT,
     message_count INTEGER DEFAULT 0, tool_call_count INTEGER DEFAULT 0,
     input_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0,
