@@ -87,6 +87,9 @@ const HEAD: readonly Row[] = [
   { id: "contrast",   kind: "tone",    label: "contrast",   show: (_s, live) => live,
     knob: { kind: "slider", min: 0.25, max: 4, step: 0.05, default: 1,
             hint: "Spread pixel values around their mean. ×1 = source as-is; higher sharpens, lower flattens. Applied to the image before rasterizing." } },
+  { id: "invert",     kind: "tone",    label: "invert",     show: (_s, live) => live,
+    knob: { kind: "toggle", default: true,
+            hint: "Swap light↔dark in the source pixels. On for a light subject on a dark terminal background — turn off if the subject is darker than its surround." } },
   { id: "flip",       kind: "tone",    label: "flip",       show: (_s, live) => live,
     knob: { kind: "cycle", options: ["none", "h", "v", "hv"], default: "none",
             hint: "Mirror the source horizontally, vertically, or both before rasterizing." } },
@@ -306,6 +309,7 @@ function valueOf(s: Session, r: Rasterizer, row: Row, theme: Theme,
   if (row.id === "revert") return "▸ reload from disk"
   if (row.kind === "tone") {
     if (row.id === "contrast") return `×${s.tone.contrast.toFixed(2)}`
+    if (row.id === "invert") return s.tone.invert ? "● on" : "○ off"
     if (row.id === "flip") return `◂ ${s.tone.flip} ▸`
   }
   if (row.id === "fetch") return busy ? "fetching…"
@@ -924,6 +928,7 @@ export const EikonStudio = memo((props: {
         const cur = sRef.current?.tone.contrast ?? 1
         return setTone({ contrast: +Math.max(def.min, Math.min(def.max, cur + d * def.step)).toFixed(2) })
       }
+      if (row.id === "invert") return setTone({ invert: !sRef.current?.tone.invert })
       if (row.id === "flip") {
         const cur = sRef.current?.tone.flip ?? "none"
         const i = FLIPS.indexOf(cur)

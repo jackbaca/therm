@@ -30,7 +30,7 @@ function seed(name: string) {
   const p = eikon.ensure(name)
   writeFileSync(join(p.source, "base.png"), PX)
   writeFileSync(eikon.file(name), JSON.stringify({ eikon: 1, name, width: 48, height: 24 }) + "\n")
-  eikon.writeStudio(name, { rasterizer: "stub", spatial: { zoom: 1, ox: 0.5, oy: 0.5 }, tone: { contrast: 1, flip: "none" }, fps: 16, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
+  eikon.writeStudio(name, { rasterizer: "stub", spatial: { zoom: 1, ox: 0.5, oy: 0.5 }, tone: { contrast: 1, invert: true, flip: "none" }, fps: 16, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
 }
 
 describe("EikonStudio tab", () => {
@@ -60,10 +60,10 @@ describe("EikonStudio tab", () => {
     // Knobs hint uses "edit", not "open".
     expect(t.frame()).toContain("[Enter] edit")
 
-    // Nav to first rasterizer knob (stub's 'tone') — HEAD has 7 nav
+    // Nav to first rasterizer knob (stub's 'tone') — HEAD has 8 nav
     // rows when not dirty (open, rasterizer, source, knobsfor, reset,
-    // contrast, flip), so stub.tone is at index 7.
-    for (let i = 0; i < 7; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
+    // contrast, invert, flip), so stub.tone is at index 8.
+    for (let i = 0; i < 8; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
     await until(t, () => /▸ tone/.test(t.frame()))
     act(() => t.keys.pressArrow("right"))
     await until(t, () => t.frame().includes("◂ hi ▸"))
@@ -333,7 +333,8 @@ describe("EikonStudio tab", () => {
     await t.settle()
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Generate image"))
-    // Type into the textarea (prompt field is focused by default).
+    // Prompt textarea is pre-filled with style hints on line 2+ and
+    // the cursor is parked at (0,0). Type the subject on line 1.
     await act(async () => { await t.keys.typeText("a wise owl") })
     // Tab to the submit field; the form has prompt → seed → submit
     // (base.png is auto-detected because we seeded sources.base).
@@ -348,9 +349,9 @@ describe("EikonStudio tab", () => {
       return f.size > 0
     })
     expect(t.frame()).toContain("● unsaved")
-    // Gen fn was called with the typed prompt.
+    // Gen fn was called with subject + the pre-filled style hints.
     expect(got?.kind).toBe("image")
-    expect(got?.prompt).toBe("a wise owl")
+    expect(got?.prompt).toMatch(/^a wise owl\nhigh contrast, light subject on solid black background/)
     gen.setImpl(null); gen.setProbe(null)
     un()
   })
@@ -400,9 +401,9 @@ describe("EikonStudio tab", () => {
     // ↓↓↓ → contrast (studio-owned tone row, has a KnobDef.hint).
     for (let i = 0; i < 3; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
     expect(t.frame()).toContain("Spread pixel values around their mean")
-    // ↓↓ past flip → first rasterizer knob (stub's 'tone' has no
-    // declared hint, so the generic cycle text renders).
-    for (let i = 0; i < 2; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
+    // ↓↓↓ past invert/flip → first rasterizer knob (stub's 'tone' has
+    // no declared hint, so the generic cycle text renders).
+    for (let i = 0; i < 3; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
     expect(t.frame()).toMatch(/←→ or Enter cycles: lo · hi/)
     un()
   })
@@ -411,7 +412,7 @@ describe("EikonStudio tab", () => {
     const un = eikon.register(stub)
     seed("wheelt")
     // Start at zoom 0.5 so pan has room and the vbar thumb is ~half.
-    eikon.writeStudio("wheelt", { rasterizer: "stub", spatial: { zoom: 0.5, ox: 0.5, oy: 0.5 }, tone: { contrast: 1, flip: "none" }, fps: 16, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
+    eikon.writeStudio("wheelt", { rasterizer: "stub", spatial: { zoom: 0.5, ox: 0.5, oy: 0.5 }, tone: { contrast: 1, invert: true, flip: "none" }, fps: 16, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
     prefs.set("eikon", "wheelt")
     await using t = await mountNode(
       <EikonGroup focused sub={0} setSub={() => {}} />,

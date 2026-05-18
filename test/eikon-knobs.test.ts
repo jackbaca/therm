@@ -58,10 +58,10 @@ describe("eikon-knobs", () => {
   })
 
   test("swap resets tonal, preserves spatial", () => {
-    const moved = { ...s0, spatial: { zoom: 0.5, ox: 0.3, oy: 0.7 }, base: { ...s0.base, invert: false } }
+    const moved = { ...s0, spatial: { zoom: 0.5, ox: 0.3, oy: 0.7 }, base: { ...s0.base, symbols: "block" } }
     const sw = knobs.swap(moved, native)
     expect(sw.spatial.zoom).toBe(0.5)
-    expect(sw.base.invert).toBe(true)  // back to default
+    expect(sw.base.symbols).toBe("braille")  // back to default
     expect(sw.per).toEqual({})
   })
 

@@ -29,8 +29,8 @@ export const S0: Spatial = { zoom: 1.0, ox: 0.5, oy: 0.5 }
 /** Pixel-domain prep applied to the gray Window before it reaches
  *  any rasterizer. Rasterizer knobs are glyph-domain only. */
 export type Flip = "none" | "h" | "v" | "hv"
-export type Tone = { contrast: number; flip: Flip }
-export const T0: Tone = { contrast: 1.0, flip: "none" }
+export type Tone = { contrast: number; invert: boolean; flip: Flip }
+export const T0: Tone = { contrast: 1.0, invert: true, flip: "none" }
 
 export type KnobDef =
   | { kind: "cycle";  label?: string; hint?: string; options: readonly string[]; default: string }
@@ -232,7 +232,7 @@ function hit(key: string): Frame[] | undefined {
 export function resetCache() { cache.clear(); clips.clear() }
 
 const keyOf = (r: string, src: string, sp: Spatial, tn: Tone, fps: number, k: KnobValues) =>
-  `${r}|${src}|${fps}|${sp.zoom.toFixed(3)}:${sp.ox.toFixed(3)}:${sp.oy.toFixed(3)}|${tn.contrast.toFixed(2)}:${tn.flip}|${JSON.stringify(k)}`
+  `${r}|${src}|${fps}|${sp.zoom.toFixed(3)}:${sp.ox.toFixed(3)}:${sp.oy.toFixed(3)}|${tn.contrast.toFixed(2)}:${+tn.invert}:${tn.flip}|${JSON.stringify(k)}`
 
 /** Decode → crop → tone → rasterize (all frames), with LRU over the result. */
 export async function cached(r: Rasterizer, src: string, sp: Spatial, tn: Tone,
@@ -318,6 +318,7 @@ export function tone(win: Window, t: Tone): Window {
       for (let i = 0; i < sz; i++) g[o + i] = clamp(Math.round((g[o + i]! - m) * con + m), 0, 255)
     }
   }
+  if (t.invert) for (let i = 0; i < g.length; i++) g[i] = 255 - g[i]!
   return win
 }
 
@@ -330,8 +331,6 @@ export const chafa: Rasterizer = {
                  hint: "Secondary glyph set used where the primary leaves gaps." },
     dither:    { kind: "cycle",  options: ["none", "ordered", "diffusion", "noise"], default: "none",
                  hint: "Adds texture to smooth gradients so mid-tones don't band." },
-    invert:    { kind: "toggle", default: true,
-                 hint: "Flip light↔dark. On for dark terminal backgrounds." },
   },
   available: () => caps.chafa ? true : "chafa not installed",
   async render(win, k, signal) {
@@ -344,11 +343,9 @@ export const chafa: Rasterizer = {
       ...(fill === "none" ? [] : [`--fill=${fill}`]),
       `--dither=${String(k.dither ?? "none")}`,
       // chafa's default --preprocess auto-levels the input, which
-      // would undo the studio-owned tone() pass.
+      // would undo the studio-owned tone() pass. Invert is also
+      // applied upstream (255-g), so --invert is never passed.
       "--preprocess", "off",
-      // --invert tells chafa the terminal bg is light, which flips its
-      // luminance→density mapping — correct semantics for mono output.
-      ...(k.invert ? ["--invert"] : []),
       "-",
     ]
     if (signal?.aborted) return { err: "aborted" }
@@ -383,10 +380,10 @@ function mean(g: Uint8Array): number {
   return s / g.length
 }
 
-function braille(g: Uint8Array, w: number, h: number, inv: boolean): Frame {
+function braille(g: Uint8Array, w: number, h: number): Frame {
   const at = sample(g, w, h, W * 2, H * 4)
-  // Mean threshold on the already-tone()d plane — contrast is
-  // studio-owned and applied upstream, so no `con` parameter here.
+  // Mean threshold on the already-tone()d plane — contrast/invert
+  // are studio-owned and applied upstream.
   const thr = mean(g)
   const rows: string[] = []
   for (let y = 0; y < H; y++) {
@@ -394,8 +391,7 @@ function braille(g: Uint8Array, w: number, h: number, inv: boolean): Frame {
     for (let x = 0; x < W; x++) {
       let bits = 0
       for (let dy = 0; dy < 4; dy++) for (let dx = 0; dx < 2; dx++) {
-        const v = at(x * 2 + dx, y * 4 + dy)
-        if ((v > thr) !== inv) bits |= DOT[dy]![dx]!
+        if (at(x * 2 + dx, y * 4 + dy) > thr) bits |= DOT[dy]![dx]!
       }
       row += String.fromCodePoint(0x2800 + bits)
     }
@@ -404,17 +400,13 @@ function braille(g: Uint8Array, w: number, h: number, inv: boolean): Frame {
   return rows
 }
 
-function block(g: Uint8Array, w: number, h: number, inv: boolean): Frame {
+function block(g: Uint8Array, w: number, h: number): Frame {
   const at = sample(g, w, h, W, H)
   const n = RAMP.length - 1
   const rows: string[] = []
   for (let y = 0; y < H; y++) {
     let row = ""
-    for (let x = 0; x < W; x++) {
-      const v = at(x, y)
-      const i = Math.round((inv ? 255 - v : v) / 255 * n)
-      row += RAMP[i]
-    }
+    for (let x = 0; x < W; x++) row += RAMP[Math.round(at(x, y) / 255 * n)]
     rows.push(row)
   }
   return rows
@@ -425,16 +417,13 @@ export const native: Rasterizer = {
   knobs: {
     symbols:  { kind: "cycle",  options: ["braille", "block"], default: "braille",
                 hint: "Glyph family used to draw pixels. Braille is denser; block is bolder." },
-    invert:   { kind: "toggle", default: true,
-                hint: "Flip light↔dark. On for dark terminal backgrounds." },
   },
   available: () => caps.ffmpeg ? true : "ffmpeg not installed",
   async render(win, k) {
-    const inv = !!k.invert
     const fn = k.symbols === "block" ? block : braille
     const sz = win.w * win.h
     const frames = Array.from({ length: win.frames }, (_, i) =>
-      fn(win.gray.subarray(i * sz, (i + 1) * sz), win.w, win.h, inv))
+      fn(win.gray.subarray(i * sz, (i + 1) * sz), win.w, win.h))
     return { frames }
   },
 }

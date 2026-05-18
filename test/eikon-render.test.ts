@@ -15,9 +15,9 @@ describe("eikon-render", () => {
 
   test("defaults() seeds from KnobDef", () => {
     expect(defaults(chafa)).toEqual({
-      symbols: "braille", fill: "none", dither: "none", invert: true,
+      symbols: "braille", fill: "none", dither: "none",
     })
-    expect(defaults(native).symbols).toBe("braille")
+    expect(defaults(native)).toEqual({ symbols: "braille" })
   })
 
   test("available() gates on caps", () => {
@@ -48,12 +48,13 @@ describe("eikon-render", () => {
     if ("err" in out) throw new Error(out.err)
     const row = out.frames[0]![H >> 1]!
     expect(row.slice(0, W >> 1)).not.toBe(row.slice(W >> 1))
-    // block mode: left heavy (inverted), right light.
+    // block mode: right (white) half heavy — invert is studio-owned
+    // and not applied here, so rasterizer maps bright→dense directly.
     const b = await native.render(windowOf(g, 64, 64), { ...defaults(native), symbols: "block" })
     if ("err" in b) throw new Error(b.err)
     const br = b.frames[0]![H >> 1]!
-    expect("@#%*".includes(br[4]!)).toBe(true)
-    expect(" .:".includes(br[W - 4]!)).toBe(true)
+    expect("@#%*".includes(br[W - 4]!)).toBe(true)
+    expect(" .:".includes(br[4]!)).toBe(true)
   })
 
   test("cached() LRU hits on identical key; miss re-renders", async () => {
@@ -82,11 +83,12 @@ describe("eikon-render", () => {
     resetCache()
     spawnSync("ffmpeg", ["-hide_banner","-loglevel","error","-f","lavfi",
       "-i","nullsrc=s=64x64,format=gray,geq=lum=255*gte(X\\,32)","-frames:v","1","-y",IMG])
-    // Crop window at ox=1 zoom=0.3 sits entirely in the right (white) half.
+    // Crop window at ox=1 zoom=0.3 sits entirely in the right (white)
+    // half; T0.invert maps it to all-black → all-light glyphs.
     const out = await cached(native, IMG, { zoom: 0.3, ox: 1, oy: 0.5 }, T0, 16, { ...defaults(native), symbols: "block" })
     if ("err" in out) throw new Error(out.err)
     expect(out.frames[0]!.every(r => /^[ .:]+$/.test(r))).toBe(true)
-    // ox=0 → all-black → invert on → all-heavy.
+    // ox=0 → all-black → inverted → all-heavy.
     const l = await cached(native, IMG, { zoom: 0.3, ox: 0, oy: 0.5 }, T0, 16, { ...defaults(native), symbols: "block" })
     if ("err" in l) throw new Error(l.err)
     expect(l.frames[0]!.every(r => /^[@#%*]+$/.test(r))).toBe(true)
@@ -118,7 +120,7 @@ describe("eikon-render", () => {
     runc("tone: flip applied on the gray buffer before rasterize", async () => {
     resetCache()
     const a = await cached(chafa, IMG, S0, T0, 16, { ...defaults(chafa), symbols: "block" })
-    const b = await cached(chafa, IMG, S0, { contrast: 1, flip: "h" }, 16, { ...defaults(chafa), symbols: "block" })
+    const b = await cached(chafa, IMG, S0, { ...T0, flip: "h" }, 16, { ...defaults(chafa), symbols: "block" })
     if ("err" in a || "err" in b) throw new Error("render err")
     // Horizontal flip of a left/right step swaps where the █ run sits.
     const ar = a.frames[0]![H >> 1]!, br = b.frames[0]![H >> 1]!
@@ -134,9 +136,15 @@ describe("eikon-render", () => {
     const g = new Uint8Array(64).fill(200)
     g[0] = g[1] = g[2] = g[3] = 40
     const win = windowOf(new Uint8Array(g), 8, 8)
-    tone(win, { contrast: 2, flip: "none" })
+    tone(win, { contrast: 2, invert: false, flip: "none" })
     expect(win.gray[10]).toBeGreaterThan(200)
     expect(win.gray[0]).toBeLessThan(40)
+  })
+
+  test("tone: invert is 255-g, post-contrast", () => {
+    const g = Uint8Array.of(0, 64, 128, 255)
+    tone(windowOf(g, 4, 1), { contrast: 1, invert: true, flip: "none" })
+    expect(Array.from(g)).toEqual([255, 191, 127, 0])
   })
 
   runc("chafa: symbol classes incl. non-BMP (sextant/wedge) accepted, no U+FFFD", async () => {
@@ -199,8 +207,8 @@ describe("eikon-render", () => {
     const out = await native.render(windowOf(g, 4, 4, 3), { ...defaults(native), symbols: "block" })
     if ("err" in out) throw new Error(out.err)
     expect(out.frames.length).toBe(3)
-    // invert on → black=heavy, white=light.
-    expect(out.frames[0]![0]![0]).toBe("@")
-    expect(out.frames[2]![0]![0]).toBe(" ")
+    // No rasterizer invert; bright plane → dense glyph.
+    expect(out.frames[0]![0]![0]).toBe(" ")
+    expect(out.frames[2]![0]![0]).toBe("@")
   })
 })

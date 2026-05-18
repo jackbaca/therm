@@ -43,7 +43,7 @@ export function fresh(name: string, r: Rasterizer, seed?: Partial<Studio>): Sess
     name, state: "idle", dims: null, dirty: false,
     rasterizer: seed?.rasterizer ?? r.name,
     spatial: seed?.spatial ?? { ...S0 },
-    tone: seed?.tone ?? { ...T0 },
+    tone: { ...T0, ...seed?.tone },
     fps: seed?.fps ?? FPS0,
     base: seed?.base ?? defaults(r),
     per: seed?.per ?? {},
