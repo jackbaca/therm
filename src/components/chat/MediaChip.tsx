@@ -15,6 +15,7 @@ export const MEDIA_LINE_RE = /^\s*[`"']?MEDIA:\s*(\S+?)[`"']?\s*$/
 const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp"])
 const AUDIO_EXT = new Set(["mp3", "wav", "ogg", "m4a", "flac", "opus"])
 const VIDEO_EXT = new Set(["mp4", "webm", "mov", "mkv"])
+const IMG_RE = /!\[[^\]\n]*\]\(([^)\s]+)(?:\s+[^)]*)?\)/g
 
 export type MediaKind = "img" | "audio" | "video" | "file" | "url"
 
@@ -39,7 +40,7 @@ export type Seg = { md: string } | { media: string } | { code: string; lang?: st
 // unclosed fence stays in the markdown buffer so streaming output
 // doesn't flash into a CodeBlock mid-word.
 export function splitContent(text: string): Seg[] {
-  if (!text.includes("MEDIA:") && !text.includes("```") && !text.includes("~~~"))
+  if (!text.includes("MEDIA:") && !text.includes("```") && !text.includes("~~~") && !text.includes("!["))
     return [{ md: text }]
   const out: Seg[] = []
   let buf: string[] = []
@@ -65,6 +66,21 @@ export function splitContent(text: string): Seg[] {
     if (fence) { fence.body.push(line); continue }
     const m = line.match(MEDIA_LINE_RE)?.[1]
     if (m) { flush(); out.push({ media: m }); continue }
+    let at = 0
+    let hit = false
+    for (const img of line.matchAll(IMG_RE)) {
+      const path = img[1]
+      if (classify(path) !== "img") continue
+      if (!hit) flush()
+      if (img.index > at) out.push({ md: line.slice(at, img.index) })
+      out.push({ media: path })
+      at = img.index + img[0].length
+      hit = true
+    }
+    if (hit) {
+      if (at < line.length) out.push({ md: line.slice(at) })
+      continue
+    }
     buf.push(line)
   }
   // Unclosed fence → put it back verbatim so the markdown renderable

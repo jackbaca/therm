@@ -4,6 +4,8 @@ import { mountNode, until, type Harness } from "./harness"
 import { MessageList } from "../src/components/chat/MessageList"
 import { Tool } from "../src/components/chat/tool"
 import { isDiff } from "../src/components/chat/DiffBlock"
+import { splitContent } from "../src/components/chat/MediaChip"
+import { turnReducer, initialTurn } from "../src/app/turnReducer"
 import { spec } from "../src/components/chat/tool/preview"
 import type { Message, ToolPart } from "../src/types/message"
 
@@ -49,6 +51,25 @@ function locate(t: Harness, needle: string) {
 }
 
 describe("MessageList", () => {
+  test("markdown image links render as media, not alt text", () => {
+    expect(splitContent("![base](/tmp/owl.png)")).toEqual([{ media: "/tmp/owl.png" }])
+    expect(splitContent("see ![base](/tmp/owl.png) now")).toEqual([
+      { md: "see " }, { media: "/tmp/owl.png" }, { md: " now" },
+    ])
+    expect(splitContent("```md\n![base](/tmp/owl.png)\n```")).toEqual([
+      { code: "![base](/tmp/owl.png)", lang: "md" },
+    ])
+  })
+
+  test("message.complete does not append duplicate final text", () => {
+    const s = turnReducer(turnReducer(initialTurn, { kind: "message.delta", chunk: "Keep, regenerate, or adjust?" }), {
+      kind: "message.complete", text: "Keep, regenerate, or adjust?\n",
+    })
+    const msg = s.messages[0]
+    expect(msg.parts).toHaveLength(1)
+    expect(msg.parts[0]).toMatchObject({ type: "text", content: "Keep, regenerate, or adjust?", streaming: false })
+  })
+
   test("renders gutter + header + trail badge; body is text-only", async () => {
     const t: Harness = await mountNode(
       <box flexDirection="column" width="100%" height="100%">
