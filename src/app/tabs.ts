@@ -49,8 +49,6 @@ export const TAB_SLASH: Record<string, { tab: number; sub: number }> = {
   toolsets:   { tab: CONFIG_TAB,     sub: 2 },
   env:        { tab: CONFIG_TAB,     sub: 3 },
   memory:     { tab: CONFIG_TAB,     sub: 4 },
-  eikon:      { tab: EIKON_TAB,      sub: 0 },
   studio:     { tab: EIKON_TAB,      sub: 0 },
-  eikons:     { tab: EIKON_TAB,      sub: 1 },
   gallery:    { tab: EIKON_TAB,      sub: 1 },
 }

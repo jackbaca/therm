@@ -22,7 +22,6 @@ import { openLogs } from "../dialogs/logs"
 import { openThemePicker } from "../dialogs/theme-picker"
 import { openModelPicker } from "../dialogs/model-picker"
 import { openEikonPicker } from "../dialogs/eikon-picker"
-import * as eikonsh from "../utils/eikonsh"
 import { openTextPrompt } from "../dialogs/text-prompt"
 import { openConfirm } from "../dialogs/confirm"
 import { openRollback } from "../dialogs/rollback"
@@ -201,15 +200,6 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
         case "help": dialog.replace(<HelpDialog />); return
         case "keys": openKeys(dialog); return
         case "logs": openLogs(dialog); return
-        case "eikons":
-          if (!eikonsh.configured()) {
-            toast.show({ variant: "info", message: "Set $EIKON_DIR (dev checkout) or $EIKON_SSH (host:port)" })
-            return
-          }
-          void eikonsh.browse(renderer).then(p => {
-            if (p) preferences.set("eikon", p.name)
-          })
-          return
         case "title":
           if (arg) { applyTitle(arg); return }
           openTextPrompt(dialog, { title: "Session Title", initial: x.title })
