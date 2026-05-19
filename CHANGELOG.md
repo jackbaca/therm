@@ -1,3 +1,10 @@
+## [1.6.1](https://github.com/liftaris/herm/compare/v1.6.0...v1.6.1) (2026-05-19)
+
+
+### Bug Fixes
+
+* sanitize ANSI/control bytes before OpenTUI text render ([d3f6f00](https://github.com/liftaris/herm/commit/d3f6f001b186071c29f308069a02f3f8bcf68777))
+
 # [1.6.0](https://github.com/liftaris/herm/compare/v1.5.0...v1.6.0) (2026-05-18)
 
 
