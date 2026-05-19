@@ -37,7 +37,12 @@ import { Database } from "bun:sqlite"
 import { existsSync, readdirSync, statSync, openSync, readSync, closeSync, readFileSync } from "node:fs"
 import { hermesPath } from "./hermes-home"
 
-export const STATUSES = ["triage", "todo", "ready", "running", "blocked", "done"] as const
+// Order matches the CLI's status enumeration so columns line up
+// L→R with `hermes kanban list`. 'scheduled' (upstream e3823657d)
+// sits between 'todo' and 'ready' — it's a time-delayed park, not a
+// human-blocker, so the dispatcher skips it until an external nudge
+// transitions it back via unblock.
+export const STATUSES = ["triage", "todo", "scheduled", "ready", "running", "blocked", "done"] as const
 export type Status = typeof STATUSES[number]
 
 export type Task = {
@@ -47,9 +52,13 @@ export type Task = {
   result: string | null; error: string | null
   tenant: string | null; pid: number | null
   workspace_kind: string | null; workspace_path: string | null
+  branch_name: string | null
   skills: string[]
   max_runtime_seconds: number | null
   max_retries: number | null
+  model_override: string | null
+  session_id: string | null
+  last_heartbeat_at: number | null
 }
 
 export type Run = {
@@ -341,8 +350,11 @@ const taskColumns = (have: Set<string>): string => [
   selectCol(have, "result"), selectCol(have, "last_spawn_error"),
   selectCol(have, "worker_pid"),
   selectCol(have, "workspace_kind"), selectCol(have, "workspace_path"),
+  selectCol(have, "branch_name"),
   selectCol(have, "skills"), selectCol(have, "max_runtime_seconds"),
   selectCol(have, "max_retries"),
+  selectCol(have, "model_override"), selectCol(have, "session_id"),
+  selectCol(have, "last_heartbeat_at"),
   `${AT} AS updated_at`,
 ].join(", ")
 
@@ -369,9 +381,13 @@ const toTask = (r: Record<string, unknown>): Task => ({
   pid: (r.worker_pid as number) ?? null,
   workspace_kind: (r.workspace_kind as string) ?? null,
   workspace_path: (r.workspace_path as string) ?? null,
+  branch_name: (r.branch_name as string) ?? null,
   skills: parseSkills(r.skills),
   max_runtime_seconds: (r.max_runtime_seconds as number) ?? null,
   max_retries: (r.max_retries as number) ?? null,
+  model_override: (r.model_override as string) ?? null,
+  session_id: (r.session_id as string) ?? null,
+  last_heartbeat_at: (r.last_heartbeat_at as number) ?? null,
 })
 
 const toRun = (r: Record<string, unknown>): Run => ({
