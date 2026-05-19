@@ -5,6 +5,7 @@
 import type { Message, Part, TextPart, ToolPart, PromptPart, PromptReq, Usage } from "../types/message"
 import { mid, pid } from "../types/message"
 import type { SubagentPayload, TranscriptMessage } from "../context/wire"
+import { sanitize } from "../utils/sanitize"
 
 export type TurnState = {
   messages: Message[]
@@ -55,18 +56,21 @@ export function turnReducer(state: TurnState, a: Action): TurnState {
       return { ...state, messages: [...state.messages, userMessage(a.text)] }
 
     case "system":
-      return { ...state, messages: [...state.messages, systemMessage(a.text)] }
+      return { ...state, messages: [...state.messages, systemMessage(sanitize(a.text))] }
 
     case "message.start":
       return { ...state, streaming: true, hasContent: false, toolActive: false }
 
-    case "message.delta":
+    case "message.delta": {
+      const chunk = sanitize(a.chunk)
+      if (!chunk) return state
       return {
         ...state,
         hasContent: true,
         toolActive: false,
-        messages: appendText(state.messages, a.chunk),
+        messages: appendText(state.messages, chunk),
       }
+    }
 
     case "message.complete":
       return {
@@ -74,18 +78,19 @@ export function turnReducer(state: TurnState, a: Action): TurnState {
         streaming: false,
         hasContent: false,
         toolActive: false,
-        messages: finalize(state.messages, a.text, a.usage),
+        messages: finalize(state.messages, a.text != null ? sanitize(a.text) : undefined, a.usage),
       }
 
     case "tool.start": {
       // `context` carries the raw tool input; when JSON-shaped we keep it
       // as args so the UI can render KV lines on expand.
-      const json = a.preview && /^\s*\{/.test(a.preview)
+      const preview = sanitize(a.preview)
+      const json = preview && /^\s*\{/.test(preview)
       const part: ToolPart = {
         type: "tool", id: a.id, name: a.name,
-        args: json ? a.preview! : "",
+        args: json ? preview : "",
         status: "running", startedAt: Date.now(),
-        preview: a.preview,
+        preview: preview || undefined,
       }
       return {
         ...state,
@@ -99,7 +104,7 @@ export function turnReducer(state: TurnState, a: Action): TurnState {
       return {
         ...state,
         messages: updateRunningTool(state.messages, a.name, p => ({
-          ...p, preview: a.preview || p.preview,
+          ...p, preview: sanitize(a.preview) || p.preview,
         })),
       }
 
@@ -111,7 +116,10 @@ export function turnReducer(state: TurnState, a: Action): TurnState {
         })),
       }
 
-    case "tool.complete":
+    case "tool.complete": {
+      const summary = sanitize(a.summary)
+      const error = sanitize(a.error)
+      const diff = sanitize(a.inline_diff)
       return {
         ...state,
         toolActive: false,
@@ -119,14 +127,15 @@ export function turnReducer(state: TurnState, a: Action): TurnState {
           ...p,
           status: (a.error ? "error" : "done") as ToolPart["status"],
           duration: p.startedAt ? Date.now() - p.startedAt : undefined,
-          preview: a.summary || a.inline_diff || p.preview,
-          result: a.error || a.summary,
-          diff: a.inline_diff,
+          preview: summary || diff || p.preview,
+          result: error || summary || undefined,
+          diff: diff || undefined,
         })),
       }
+    }
 
     case "thinking":
-      return { ...state, messages: upsertThinking(state.messages, a.text, a.final) }
+      return { ...state, messages: upsertThinking(state.messages, sanitize(a.text), a.final) }
 
     case "subagent":
       return { ...state, messages: renderSubagent(state.messages, a.event, a.payload) }
@@ -158,16 +167,17 @@ export function turnReducer(state: TurnState, a: Action): TurnState {
         streaming: false,
         hasContent: false,
         toolActive: false,
-        messages: [...state.messages, systemMessage(`Error: ${a.text}`)],
+        messages: [...state.messages, systemMessage(`Error: ${sanitize(a.text)}`)],
       }
 
     case "interrupt.notice": {
+      const clean = sanitize(a.text)
       const last = state.messages[state.messages.length - 1]
       const already = last?.role === "system"
         && last.parts[0]?.type === "text"
-        && last.parts[0].content.includes(a.text)
+        && last.parts[0].content.includes(clean)
       if (already) return state
-      return { ...state, messages: [...state.messages, systemMessage(a.text)] }
+      return { ...state, messages: [...state.messages, systemMessage(clean)] }
     }
   }
 }
@@ -209,7 +219,7 @@ function flatten(text: TranscriptMessage["text"]): string {
 export function transcriptToMessages(rows: TranscriptMessage[]): Message[] {
   return rows
     .filter(r => r.role === "user" || r.role === "assistant")
-    .map(r => ({ role: r.role, content: flatten(r.text) }))
+    .map(r => ({ role: r.role, content: sanitize(flatten(r.text)) }))
     .filter(r => r.content)
     .map(r => ({
       id: mid(),
@@ -359,34 +369,39 @@ function renderSubagent(
   const id = p.subagent_id ? `sub-${p.subagent_id}` : `sub-${p.task_index}`
 
   if (event === "start") {
+    const goal = sanitize(p.goal)
     const part: ToolPart = {
       type: "tool", id, name: "delegate_task", args: "",
       status: "running", startedAt: Date.now(),
-      preview: p.goal, goal: p.goal, depth: p.depth ?? 0, trail: [],
+      preview: goal || undefined, goal: goal || undefined,
+      depth: p.depth ?? 0, trail: [],
     }
     return appendPart(messages, part, true)
   }
 
   if (event === "tool" && p.tool_name) {
+    const tname = sanitize(p.tool_name)
+    const tprev = sanitize(p.tool_preview)
     return updateToolById(messages, id, t => ({
       ...t,
-      trail: [...(t.trail ?? []), { name: p.tool_name!, preview: p.tool_preview }],
-      preview: p.tool_preview ? `${p.tool_name}: ${p.tool_preview}` : p.tool_name,
+      trail: [...(t.trail ?? []), { name: tname, preview: tprev || undefined }],
+      preview: tprev ? `${tname}: ${tprev}` : tname,
     }))
   }
 
   if (event === "complete") {
     const tokens = (p.input_tokens ?? 0) + (p.output_tokens ?? 0)
     const extra = tokens ? ` · ${(tokens / 1000).toFixed(1)}k tok` : ""
+    const summary = sanitize(p.summary)
     return updateToolById(messages, id, t => ({
       ...t,
       status: ((p.status === "failed" || p.status === "error" || p.status === "timeout" || p.status === "interrupted") ? "error" : "done") as ToolPart["status"],
       duration: p.duration_seconds ? p.duration_seconds * 1000 : (t.startedAt ? Date.now() - t.startedAt : undefined),
-      result: p.summary ? p.summary + extra : undefined,
+      result: summary ? summary + extra : undefined,
       preview: t.goal ?? t.preview,
     }))
   }
 
   // thinking / progress — surface transient text on the row.
-  return updateToolById(messages, id, t => ({ ...t, preview: p.text ?? t.preview }))
+  return updateToolById(messages, id, t => ({ ...t, preview: sanitize(p.text) || t.preview }))
 }
