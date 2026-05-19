@@ -19,6 +19,8 @@ export type Side = {
   onVoiceStatus?: (state: string) => void
   /** voice.transcript event — transcribed text from a completed voice capture. */
   onVoiceTranscript?: (text: string, noSpeechLimit: boolean) => void
+  /** status.update with kind=process — debounced client-side to prevent TUI lag. */
+  onProcessNotification?: (text: string) => void
 }
 
 function count(o: Record<string, string[]> | undefined): number {
@@ -200,17 +202,15 @@ export function mapEvent(ev: GatewayEvent, side: Side): Action | null {
       // Generic "status" is cosmetic; lifecycle/error/warn carry real
       // signal (retries, fallbacks, auth failures) and must persist.
       if (!kind || kind === "status") return null
-      // process: the same [IMPORTANT:...] text is replayed as a synthesized
-      // user turn immediately after, so render a one-line herald, not a dump.
+      // process: route through debounced accumulator instead of dispatching
+      // directly — prevents TUI lag when many terminal(background=true)
+      // processes finish in rapid succession.
       if (kind === "process") {
-        const m = text.match(/Background process (\S+) (?:completed \(exit code (\S+)\)|matched watch pattern "([^"]+)")\.\nCommand: (.+)/)
-        if (m) return { kind: "system", text: m[2] !== undefined
-          ? `◆ background ${m[1]} exited ${m[2]} · ${m[4]}`
-          : `◆ background ${m[1]} matched "${m[3]}" · ${m[4]}` }
+        side.onProcessNotification?.(text)
+        return null
       }
       return { kind: "system", text }
     }
-
     case "voice.status": {
       // Continuous VAD loop reports its internal state: listening,
       // transcribing, or idle. The UI uses this for the recording indicator.
