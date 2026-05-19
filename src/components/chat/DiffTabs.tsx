@@ -9,10 +9,7 @@ import type { ToolPart } from "../../types/message"
 import { LEFT_BAR } from "../../ui/borders"
 import { DiffBlock, isDiff } from "./DiffBlock"
 import { useTheme } from "../../theme"
-
-// eslint-disable-next-line no-control-regex
-const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g
-const clean = (s: string) => s.replace(ANSI, "")
+import { sanitize as clean } from "../../utils/sanitize"
 
 // `tool.preview` is whatever the gateway's tool.start.context emitted —
 // for patch/edit tools that's a clean path. But on tool.complete, the
