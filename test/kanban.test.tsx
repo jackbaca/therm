@@ -178,7 +178,7 @@ describe("Kanban tab", () => {
     expect(chipLine).toContain("writer")
     expect(chipLine).toContain("P2")
     // Status chips always present, in STATUSES order.
-    expect(chipLine).toMatch(/triage\s+todo\s+ready\s+running\s+blocked\s+done/)
+    expect(chipLine).toMatch(/triage\s+todo\s+scheduled\s+ready\s+running\s+blocked\s+done/)
     // atm10 has no assignees — its chip row is priority + status only.
     expect(f).not.toMatch(/ATM10 Server[\s\S]*?\n.*researcher.*\n/)
     // One-line cards: title renders, meta line does not.
@@ -191,7 +191,9 @@ describe("Kanban tab", () => {
   test("arrows nav within board; Enter → detail pane", async () => {
     const t = await mountNode(<Kanban focused />, { width: 180, height: 44 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
-    // Initial tier = grid on current board. → → to 'ready' (col 2 at full width).
+    // Initial tier = grid on current board. → → → to 'ready' (col 3
+    // at full width: triage, todo, scheduled, ready).
+    act(() => t.keys.pressArrow("right")); await t.settle()
     act(() => t.keys.pressArrow("right")); await t.settle()
     act(() => t.keys.pressArrow("right")); await t.settle()
     act(() => t.keys.pressEnter())
@@ -215,9 +217,10 @@ describe("Kanban tab", () => {
     // Tab → atm10; hint switches to head-tier wording.
     act(() => t.keys.pressTab()); await t.settle()
     await until(t, () => t.frame().includes("Space fold"))
-    // ↓↓ descends filter → grid; →→ to 'ready' on atm10.
+    // ↓↓ descends filter → grid; →→→ to 'ready' on atm10 (col 3).
     act(() => t.keys.pressArrow("down")); await t.settle()
     act(() => t.keys.pressArrow("down")); await t.settle()
+    act(() => t.keys.pressArrow("right")); await t.settle()
     act(() => t.keys.pressArrow("right")); await t.settle()
     act(() => t.keys.pressArrow("right")); await t.settle()
     await until(t, () => /d archive/.test(t.frame()))
@@ -274,6 +277,7 @@ describe("Kanban tab", () => {
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
     act(() => t.keys.pressArrow("right")); await t.settle()
     act(() => t.keys.pressArrow("right")); await t.settle()
+    act(() => t.keys.pressArrow("right")); await t.settle()
     await act(async () => { await t.keys.typeText("a") })
     await until(t, () => t.frame().includes("Assign t1"))
     await act(async () => { await t.keys.typeText("writer") })
@@ -291,7 +295,7 @@ describe("Kanban tab", () => {
     })
     const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
-    for (let i = 0; i < 4; i++) { act(() => t.keys.pressArrow("right")); await t.settle() }
+    for (let i = 0; i < 5; i++) { act(() => t.keys.pressArrow("right")); await t.settle() }
     await act(async () => { await t.keys.typeText("u") })
     await until(t, () => t.frame().includes("Unblock t5"))
     await act(async () => { await t.keys.typeText("use user_id") })
@@ -310,7 +314,7 @@ describe("Kanban tab", () => {
     })
     const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
-    for (let i = 0; i < 5; i++) { act(() => t.keys.pressArrow("right")); await t.settle() }
+    for (let i = 0; i < 6; i++) { act(() => t.keys.pressArrow("right")); await t.settle() }
     await act(async () => { await t.keys.typeText("d") })
     await until(t, () => t.frame().includes("Archive task?"))
     await act(async () => { await t.keys.typeText("y") })
@@ -689,7 +693,7 @@ describe("Kanban tab", () => {
   test("l opens log pane; Esc closes", async () => {
     const t = await mountNode(<Kanban focused />, { width: 180, height: 44 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
-    for (let i = 0; i < 3; i++) { act(() => t.keys.pressArrow("right")); await t.settle() }
+    for (let i = 0; i < 4; i++) { act(() => t.keys.pressArrow("right")); await t.settle() }
     await act(async () => { await t.keys.typeText("l") })
     await until(t, () => t.frame().includes("worker log (tail)"))
     expect(t.frame()).toContain("step 2")
@@ -704,6 +708,7 @@ describe("Kanban tab", () => {
     })
     const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    act(() => t.keys.pressArrow("right")); await t.settle()
     act(() => t.keys.pressArrow("right")); await t.settle()
     act(() => t.keys.pressArrow("right")); await t.settle()
     await act(async () => { await t.keys.typeText("a") })
@@ -722,9 +727,11 @@ describe("Kanban tab", () => {
     // row 0 → ↓ crosses into atm10 head.
     act(() => t.keys.pressArrow("down")); await t.settle()
     await until(t, () => t.frame().includes("Space fold"))
-    // ↓↓ → filter → grid on atm10; → → to ready.
+    // ↓↓ → filter → grid on atm10; → → to ready (col 3 → col on atm10
+    // stays where default left it = 1, so 2 rights advances to col 3).
     act(() => t.keys.pressArrow("down")); await t.settle()
     act(() => t.keys.pressArrow("down")); await t.settle()
+    act(() => t.keys.pressArrow("right")); await t.settle()
     act(() => t.keys.pressArrow("right")); await t.settle()
     await until(t, () => /d archive/.test(t.frame()))
     // ↑ back through tiers returns to default's grid (same column preserved).
@@ -737,7 +744,8 @@ describe("Kanban tab", () => {
   test("dialog open ⇒ underlying tab ignores nav keys", async () => {
     const t = await mountNode(<Kanban focused />, { width: 180, height: 48 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
-    // →→ to 'ready' on Default; open detail on t1.
+    // →→→ to 'ready' on Default; open detail on t1.
+    act(() => t.keys.pressArrow("right")); await t.settle()
     act(() => t.keys.pressArrow("right")); await t.settle()
     act(() => t.keys.pressArrow("right")); await t.settle()
     act(() => t.keys.pressEnter())
@@ -796,17 +804,18 @@ describe("Kanban tab", () => {
   test("detail pane follows selection while open", async () => {
     const t = await mountNode(<Kanban focused />, { width: 180, height: 48 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
-    // → to 'todo' (t3), Enter opens detail.
-    act(() => t.keys.pressArrow("right")); await t.settle()
+    // Start on triage (t0), Enter opens detail. → to 'todo' (t3) —
+    // pane rehydrates without another Enter. Avoid empty 'scheduled'
+    // column between todo and ready: transiting through a no-task
+    // column closes the pane (intentional behavior).
     act(() => t.keys.pressEnter())
-    await until(t, () => /Assignee\s+analyst/.test(t.frame()))
-    // → to 'ready' (t1) — pane rehydrates without another Enter.
+    await until(t, () => /Title\s+one-liner idea/.test(t.frame()))
     act(() => t.keys.pressArrow("right")); await t.settle()
-    await until(t, () => /Assignee\s+researcher/.test(t.frame()))
-    expect(t.frame()).toMatch(/Children\s+t3/)
+    await until(t, () => /Assignee\s+analyst/.test(t.frame()))
+    expect(t.frame()).toMatch(/Title\s+synthesize/)
     // ↑ leaves grid → pane closes.
     act(() => t.keys.pressArrow("up")); await t.settle()
-    await until(t, () => !/Assignee\s+researcher/.test(t.frame()))
+    await until(t, () => !/Assignee\s+analyst/.test(t.frame()))
     t.destroy()
   })
 
@@ -898,7 +907,8 @@ describe("Kanban detail pane", () => {
   test("Tab with pane open enters pane; Tab inside pane walks fields", async () => {
     const t = await mountNode(<Kanban focused />, { width: 180, height: 48 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
-    // → → to 'ready' (t1), Enter opens detail.
+    // → → → to 'ready' (t1), Enter opens detail.
+    act(() => t.keys.pressArrow("right")); await t.settle()
     act(() => t.keys.pressArrow("right")); await t.settle()
     act(() => t.keys.pressArrow("right")); await t.settle()
     act(() => t.keys.pressEnter())
@@ -926,6 +936,7 @@ describe("Kanban detail pane", () => {
     resetKanban()
     const t = await mountNode(<Kanban focused />, { width: 180, height: 48 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    act(() => t.keys.pressArrow("right")); await t.settle()
     act(() => t.keys.pressArrow("right")); await t.settle()
     act(() => t.keys.pressArrow("right")); await t.settle()
     act(() => t.keys.pressEnter())
@@ -1018,11 +1029,12 @@ describe("max_retries parity", () => {
     try {
       await until(t, () => /mxr/.test(t.frame()))
       // Tab walks heads (default → atm10 → mxr); ↓↓ head → filter → grid;
-      // →→ triage → todo → ready. Row 0 is mxr1 (priority 3).
+      // →→→ triage → todo → scheduled → ready. Row 0 is mxr1 (priority 3).
       act(() => t.keys.pressTab()); await t.settle()
       act(() => t.keys.pressTab()); await t.settle()
       act(() => t.keys.pressArrow("down")); await t.settle()
       act(() => t.keys.pressArrow("down")); await t.settle()
+      act(() => t.keys.pressArrow("right")); await t.settle()
       act(() => t.keys.pressArrow("right")); await t.settle()
       act(() => t.keys.pressArrow("right")); await t.settle()
       act(() => t.keys.pressEnter())
@@ -1130,8 +1142,9 @@ describe("Kanban diagnostics UI", () => {
         return !!row && /!!/.test(row)
       })
 
-      // Tab → grid; arrow over to the blocked column (index 4: triage, todo,
-      // ready, running, blocked). Row 0 is t5 by priority sort.
+      // Tab → grid; arrow over to the blocked column (index 5: triage, todo,
+      // scheduled, ready, running, blocked). Row 0 is t5 by priority sort.
+      act(() => t.keys.pressArrow("right")); await t.settle()
       act(() => t.keys.pressArrow("right")); await t.settle()
       act(() => t.keys.pressArrow("right")); await t.settle()
       act(() => t.keys.pressArrow("right")); await t.settle()
@@ -1196,5 +1209,103 @@ describe("Kanban diagnostics UI", () => {
     } finally {
       t.destroy()
     }
+  })
+})
+
+// ── upstream parity: scheduled status + new task columns ─────────────
+// Upstream e3823657d (scheduled), 31fe22903 (session_id), 79f6654d1 /
+// f01ee0b57 (model_override), 1733cb3a1 (branch_name), e286e6875
+// (stale → last_heartbeat_at). All additive nullable columns; herm's
+// selectCol() tolerates absence so prior-version DBs still load.
+describe("scheduled status + new fields parity", () => {
+  beforeAll(() => {
+    mkdirSync(hermesPath("kanban/boards/sched"), { recursive: true })
+    const db = new Database(hermesPath("kanban/boards/sched/kanban.db"), { create: true })
+    schema(db)
+    db.run("ALTER TABLE tasks ADD COLUMN branch_name TEXT")
+    db.run("ALTER TABLE tasks ADD COLUMN model_override TEXT")
+    db.run("ALTER TABLE tasks ADD COLUMN session_id TEXT")
+    db.run("ALTER TABLE tasks ADD COLUMN last_heartbeat_at INTEGER")
+    const ins = db.prepare(
+      `INSERT INTO tasks (id, title, status, priority, created_at,
+         started_at, workspace_kind, workspace_path, branch_name,
+         model_override, session_id, last_heartbeat_at, worker_pid)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    // sch1: parked in scheduled, full set of new fields.
+    ins.run("sch1", "delayed follow-up", "scheduled", 4, now - 300,
+      null, "worktree", "/tmp/wt/sch1", "feat/delayed",
+      "anthropic/claude-sonnet-4", "sess-abc123", null, null)
+    // sch2: running with model + heartbeat.
+    ins.run("sch2", "model-pinned worker", "running", 3, now - 60,
+      now - 60, null, null, null,
+      "openrouter/qwen3-coder", null, now - 45, 9999)
+    // sch3: plain ready task, exercises null-column fallback.
+    ins.run("sch3", "vanilla", "ready", 1, now - 30,
+      null, null, null, null, null, null, null, null)
+    db.close()
+    resetKanban()
+  })
+
+  test("STATUSES includes 'scheduled' between todo and ready", async () => {
+    const { STATUSES } = await import("../src/service/hermes-kanban")
+    expect(STATUSES).toEqual(["triage", "todo", "scheduled", "ready", "running", "blocked", "done"])
+  })
+
+  test("boardOf() loads scheduled tasks into their column with new fields populated", () => {
+    const b = boardOf("sched")
+    const row = b.get("scheduled")?.[0]
+    expect(row?.id).toBe("sch1")
+    expect(row?.branch_name).toBe("feat/delayed")
+    expect(row?.model_override).toBe("anthropic/claude-sonnet-4")
+    expect(row?.session_id).toBe("sess-abc123")
+    expect(row?.workspace_kind).toBe("worktree")
+    // last_heartbeat_at null on scheduled (never ran).
+    expect(row?.last_heartbeat_at).toBeNull()
+
+    const run = b.get("running")?.[0]
+    expect(run?.id).toBe("sch2")
+    expect(run?.model_override).toBe("openrouter/qwen3-coder")
+    expect(run?.last_heartbeat_at).toBe(now - 45)
+
+    // Schema-tolerance: vanilla task has all new fields null.
+    const ready = b.get("ready")?.find(t => t.id === "sch3")
+    expect(ready?.branch_name).toBeNull()
+    expect(ready?.model_override).toBeNull()
+    expect(ready?.session_id).toBeNull()
+    expect(ready?.last_heartbeat_at).toBeNull()
+  })
+
+  test("detail pane renders Branch / Model / Session for scheduled task", async () => {
+    const t = await mountNode(<Kanban focused />, { width: 200, height: 60 })
+    try {
+      await until(t, () => /▾\s+sched/.test(t.frame()))
+      // Tab through heads (default → atm10 → mxr → sched). Then ↓↓
+      // head → filter → grid. Tab/goBoard resets col=0, so →→ to
+      // scheduled (col 2: triage, todo, scheduled).
+      act(() => t.keys.pressTab()); await t.settle()
+      act(() => t.keys.pressTab()); await t.settle()
+      act(() => t.keys.pressTab()); await t.settle()
+      await until(t, () => /▾\s+sched/.test(t.frame()))
+      act(() => t.keys.pressArrow("down")); await t.settle()
+      act(() => t.keys.pressArrow("down")); await t.settle()
+      act(() => t.keys.pressArrow("right")); await t.settle()
+      act(() => t.keys.pressArrow("right")); await t.settle()
+      act(() => t.keys.pressEnter())
+      await until(t, () => /Title\s+delayed follow-up/.test(t.frame()))
+      const f = t.frame()
+      expect(f).toMatch(/Branch\s+feat\/delayed/)
+      expect(f).toMatch(/Model\s+anthropic\/claude-sonnet-4/)
+      expect(f).toMatch(/Session\s+sess-abc123/)
+    } finally {
+      t.destroy()
+    }
+  })
+
+  test("detail pane shows Heartbeat row only for running tasks with a heartbeat", async () => {
+    const { detailOf } = await import("../src/service/hermes-kanban")
+    expect(detailOf("sched", "sch2")?.last_heartbeat_at).toBe(now - 45)
+    expect(detailOf("sched", "sch1")?.last_heartbeat_at).toBeNull()
+    expect(detailOf("sched", "sch3")?.last_heartbeat_at).toBeNull()
   })
 })

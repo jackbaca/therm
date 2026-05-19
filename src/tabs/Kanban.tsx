@@ -63,8 +63,8 @@ const NOBAR = { visible: false } as const
 const RULE: BorderSides[] = ["bottom"]
 
 const HEAD: Record<Status, string> = {
-  triage: "triage", todo: "todo", ready: "ready",
-  running: "running", blocked: "blocked", done: "done",
+  triage: "triage", todo: "todo", scheduled: "scheduled",
+  ready: "ready", running: "running", blocked: "blocked", done: "done",
 }
 // Each chip cycles off → include → exclude → off. Per-group
 // semantics: a group with no `in` chips passes everything not
@@ -211,8 +211,12 @@ const Column = memo((p: {
   useEffect(() => {
     if (p.on && p.tasks.length > 0) box.current?.scrollChildIntoView(id(p.sel))
   }, [p.on, p.sel, p.tasks.length])
+  // 'scheduled' (upstream e3823657d) is a parked/delayed state — distinct
+  // from blocked (waiting on human) and done (terminal). Mute the
+  // header so it reads as paused rather than active.
   const tint = p.status === "blocked" ? theme.warning
     : p.status === "running" ? theme.success
+    : p.status === "scheduled" ? theme.textMuted
     : p.status === "done" ? theme.textMuted : theme.primary
   return (
     <box flexDirection="column" flexGrow={1} flexBasis={0} minWidth={18}
@@ -408,11 +412,27 @@ const SidePane = memo((p: { pane: Pane; on: boolean; sel: number; diags: Diag[] 
                 </box>
               </box>
             : null}
+          {d.branch_name
+            ? <box height={1} flexDirection="row" paddingLeft={1}>
+                <box width={10} flexShrink={0}><text fg={theme.textMuted}>Branch</text></box>
+                <box flexGrow={1} minWidth={0} overflow="hidden">
+                  <text fg={theme.textMuted}>{d.branch_name}</text>
+                </box>
+              </box>
+            : null}
           {d.skills.length
             ? <box height={1} flexDirection="row" paddingLeft={1}>
                 <box width={10} flexShrink={0}><text fg={theme.textMuted}>Skills</text></box>
                 <box flexGrow={1} minWidth={0} overflow="hidden">
                   <text fg={theme.textMuted}>{d.skills.join(", ")}</text>
+                </box>
+              </box>
+            : null}
+          {d.model_override
+            ? <box height={1} flexDirection="row" paddingLeft={1}>
+                <box width={10} flexShrink={0}><text fg={theme.textMuted}>Model</text></box>
+                <box flexGrow={1} minWidth={0} overflow="hidden">
+                  <text fg={theme.textMuted}>{d.model_override}</text>
                 </box>
               </box>
             : null}
@@ -429,6 +449,22 @@ const SidePane = memo((p: { pane: Pane; on: boolean; sel: number; diags: Diag[] 
                 <box width={10} flexShrink={0}><text fg={theme.textMuted}>PID</text></box>
                 <box flexGrow={1} minWidth={0} overflow="hidden">
                   <text fg={theme.textMuted}>{String(d.pid)}</text>
+                </box>
+              </box>
+            : null}
+          {d.last_heartbeat_at && d.status === "running"
+            ? <box height={1} flexDirection="row" paddingLeft={1}>
+                <box width={10} flexShrink={0}><text fg={theme.textMuted}>Heartbeat</text></box>
+                <box flexGrow={1} minWidth={0} overflow="hidden">
+                  <text fg={theme.textMuted}>{ago(d.last_heartbeat_at)}</text>
+                </box>
+              </box>
+            : null}
+          {d.session_id
+            ? <box height={1} flexDirection="row" paddingLeft={1}>
+                <box width={10} flexShrink={0}><text fg={theme.textMuted}>Session</text></box>
+                <box flexGrow={1} minWidth={0} overflow="hidden">
+                  <text fg={theme.textMuted}>{d.session_id}</text>
                 </box>
               </box>
             : null}
@@ -827,9 +863,14 @@ export const Kanban = memo((props: { focused?: boolean }) => {
       .then(v => v && sh(`comment ${q(t.id)} ${q(v)} --author user`, "Comment added")),
   [dialog, sh])
 
+  // Upstream e3823657d: unblock_task releases BOTH 'blocked' AND
+  // 'scheduled' tasks. Same CLI verb on both — for scheduled the
+  // comment prompt is skipped (no human is waiting on input).
   const unblock = useCallback((t: Task) => {
-    if (t.status !== "blocked")
-      return void toast.show({ variant: "info", message: `${t.id} is ${t.status}, not blocked` })
+    if (t.status !== "blocked" && t.status !== "scheduled")
+      return void toast.show({ variant: "info", message: `${t.id} is ${t.status}, not blocked/scheduled` })
+    if (t.status === "scheduled")
+      return void sh(`unblock ${q(t.id)}`, `Released ${t.id}`)
     return openTextPrompt(dialog, {
       title: `Unblock ${t.id}`, label: "Answer (posted as comment, then task → ready)",
     }).then(v => {
@@ -951,15 +992,20 @@ export const Kanban = memo((props: { focused?: boolean }) => {
   }, [dialog, sh, toast])
 
   const editStatus = useCallback((t: Task) => {
-    // Only expose transitions the CLI has verbs for; skip `ready`
-    // unless task is blocked (unblock path).
+    // Only expose transitions the CLI has verbs for. 'unblock' covers
+    // both blocked (human-waiting) and scheduled (time-waiting) per
+    // upstream e3823657d. 'schedule' is the time-delay park; no
+    // dispatcher will pick it up until something unblocks it.
     const opts: Array<{ title: string; value: string; description?: string }> = []
     if (t.status !== "done") opts.push({ title: "done", value: "complete",
       description: "mark complete (prompts for result)" })
     if (t.status !== "blocked") opts.push({ title: "blocked", value: "block",
       description: "mark blocked (prompts for reason)" })
-    if (t.status === "blocked") opts.push({ title: "ready", value: "unblock",
-      description: "return to ready" })
+    if (t.status !== "scheduled") opts.push({ title: "scheduled", value: "schedule",
+      description: "park until externally unblocked (prompts for reason)" })
+    if (t.status === "blocked" || t.status === "scheduled")
+      opts.push({ title: "ready", value: "unblock",
+        description: t.status === "scheduled" ? "release back to ready" : "return to ready" })
     opts.push({ title: "archived", value: "archive", description: "archive (terminal)" })
     dialog.replace(
       <DialogSelect title={`Status for ${t.id}`} options={opts}
@@ -981,6 +1027,14 @@ export const Kanban = memo((props: { focused?: boolean }) => {
             })
             const arg = r ? ` ${q(r)}` : ""
             void sh(`block ${q(t.id)}${arg}`, `Blocked ${t.id}`)
+            return
+          }
+          if (o.value === "schedule") {
+            const r = await openTextPrompt(dialog, {
+              title: `Schedule ${t.id}`, label: "Reason (optional, posted as comment)",
+            })
+            const arg = r ? ` ${q(r)}` : ""
+            void sh(`schedule ${q(t.id)}${arg}`, `Scheduled ${t.id}`)
             return
           }
           if (o.value === "unblock")
@@ -1049,7 +1103,7 @@ export const Kanban = memo((props: { focused?: boolean }) => {
     { key: "c", title: "Comment",       when: t => !!t,              run: t => void comment(t!) },
     { key: "s", title: "Specify",       when: t => t?.status === "triage", run: t => void specify(t!) },
     { key: "S", title: "Specify all",   when: () => true,            run: () => void specifyAll() },
-    { key: "u", title: "Unblock",       when: t => t?.status === "blocked", run: t => void unblock(t!) },
+    { key: "u", title: "Unblock",       when: t => t?.status === "blocked" || t?.status === "scheduled", run: t => void unblock(t!) },
     { key: "d", title: "Archive",       when: t => !!t,              run: t => void archive(t!) },
     { key: "l", title: "Worker log",    when: t => !!t,              run: t => showLog(t!) },
     { key: "b", title: "New board",     when: () => true,            run: () => void newBoard() },
