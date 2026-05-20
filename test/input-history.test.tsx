@@ -3,7 +3,8 @@ import { act } from "react"
 import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "fs"
 import { join } from "path"
 import { mountNode } from "./harness"
-import { useInputHistory } from "../src/app/useInputHistory"
+import { useInputHistory, type HistEntry } from "../src/app/useInputHistory"
+import type { FilePart } from "../src/app/parts"
 
 const dir = process.env.HERM_CONFIG_DIR!
 const file = join(dir, "history")
@@ -12,14 +13,14 @@ type Hook = ReturnType<typeof useInputHistory>
 
 async function setup() {
   let hook!: Hook
-  let val = ""
+  let val: HistEntry = { input: "", parts: [] }
   const Probe = () => {
-    const h = useInputHistory(val, v => (val = v))
+    const h = useInputHistory(val.input, e => (val = e))
     hook = h
     return null
   }
   const t = await mountNode(<Probe />)
-  return { t, hook: () => hook, val: () => val }
+  return { t, hook: () => hook, val: () => val.input, entry: () => val }
 }
 
 describe("useInputHistory", () => {
@@ -27,7 +28,7 @@ describe("useInputHistory", () => {
     rmSync(file, { force: true })
   })
 
-  test("loads from disk — ↑ recalls newest-last entry", async () => {
+  test("loads legacy raw-string entries from disk — ↑ recalls newest-last", async () => {
     mkdirSync(dir, { recursive: true })
     writeFileSync(file, "old\nmid\nnew\n")
     const s = await setup()
@@ -40,18 +41,40 @@ describe("useInputHistory", () => {
     s.t.destroy()
   })
 
-  test("push appends to disk and dedupes adjacent", async () => {
+  test("push appends JSONL to disk and dedupes adjacent", async () => {
     const s = await setup()
     act(() => s.hook().push("a"))
     act(() => s.hook().push("a"))
     act(() => s.hook().push("b"))
     act(() => s.hook().push("a"))
     await s.t.settle()
-    expect(readFileSync(file, "utf-8")).toBe("a\nb\na\n")
+    expect(readFileSync(file, "utf-8")).toBe(
+      `{"input":"a"}\n{"input":"b"}\n{"input":"a"}\n`,
+    )
     act(() => s.hook().up())
     expect(s.val()).toBe("a")
     act(() => s.hook().up())
     expect(s.val()).toBe("b")
+    s.t.destroy()
+  })
+
+  test("entries with parts round-trip through disk", async () => {
+    const part: FilePart = {
+      type: "file",
+      mime: "text/uri-list",
+      filename: "@file:src/x.ts",
+      source: { type: "file", path: "@file:src/x.ts", text: { start: 0, end: 14, value: "@file:src/x.ts" } },
+    }
+    const s = await setup()
+    act(() => s.hook().push({ input: "@file:src/x.ts here", parts: [part] }))
+    await s.t.settle()
+    const line = readFileSync(file, "utf-8").trim()
+    const parsed = JSON.parse(line)
+    expect(parsed.input).toBe("@file:src/x.ts here")
+    expect(parsed.parts).toHaveLength(1)
+    expect(parsed.parts[0].type).toBe("file")
+    act(() => s.hook().up())
+    expect(s.entry().parts).toHaveLength(1)
     s.t.destroy()
   })
 
@@ -70,7 +93,7 @@ describe("useInputHistory", () => {
     const s = await setup()
     act(() => s.hook().push("over"))
     await s.t.settle()
-    const out = readFileSync(file, "utf-8").split("\n").filter(Boolean)
+    const out = readFileSync(file, "utf-8").split("\n").filter(Boolean).map(l => JSON.parse(l).input)
     expect(out.length).toBe(500)
     expect(out[0]).toBe("m1")
     expect(out[499]).toBe("over")
