@@ -352,6 +352,17 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     },
   }), [hist.up, hist.down, pop.setCursor, write])
 
+  // Stable ref callback so re-renders don't cycle (r → null → r) and
+  // throw away the PartsBuffer's extmark→part map mid-edit. sids is a
+  // ref-via-closure rather than a dep so theme swaps rebuild the buffer
+  // through the unmount path instead of on every render.
+  const sidsRef = useRef(sids); sidsRef.current = sids
+  const taRef = useCallback((r: TextareaRenderable | null) => {
+    ta.current = r
+    if (r && !buf.current) buf.current = new PartsBuffer(r, sidsRef.current)
+    if (!r) buf.current = null
+  }, [])
+
   const label = !props.ready ? "Connecting..."
     : props.streaming ? (props.status || "Generating...")
     : "Ready"
@@ -435,11 +446,7 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
         <box width={1}><text fg={theme.primary}>{mode === "shell" ? "$" : ">"}</text></box>
         <box width={1} />
         <textarea
-          ref={(r) => {
-            ta.current = r
-            if (r && !buf.current) buf.current = new PartsBuffer(r, sids)
-            if (!r) buf.current = null
-          }}
+          ref={taRef}
           syntaxStyle={syntaxStyle}
           onContentChange={() => {
             const t = ta.current
