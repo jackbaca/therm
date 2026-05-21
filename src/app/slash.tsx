@@ -34,6 +34,7 @@ import * as preferences from "../context/preferences"
 import { redraw } from "./useAppKeys"
 import { quit } from "./exit"
 import { Stash } from "./stash"
+import { useBackground } from "./background"
 import { useHome, home } from "../home"
 import { TAB_SLASH } from "./tabs"
 import { transcriptToMessages, type Action, type TurnState } from "./turnReducer"
@@ -76,6 +77,7 @@ export type SlashCtx = {
   rewind: (m: Message) => Promise<void>
   goTo: (tab: number, sub: number) => void
   attachClipboard: () => void
+  voiceToggle: (action: string, sid: string) => Promise<void>
 }
 
 export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void {
@@ -86,6 +88,7 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
   const cmd = useCommand()
   const renderer = useRenderer()
   const cfg = useHome("config")
+  const bg = useBackground()
 
   const ctx = useRef(c); ctx.current = c
   const gate = useRef(cfg); gate.current = cfg
@@ -353,16 +356,16 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
         case "background":
           if (!arg) { toast.show({ variant: "info", message: "usage: /background <prompt>" }); return }
           gw.request<{ task_id?: string }>("prompt.background", { text: arg })
-            .then(r => toast.show(r.task_id
-              ? { variant: "success", message: `background ${r.task_id} started` }
-              : { variant: "error", message: "background start failed" }))
+            .then(r => {
+              if (r.task_id) bg.register(r.task_id)
+              toast.show(r.task_id
+                ? { variant: "success", message: `background ${r.task_id} started` }
+                : { variant: "error", message: "background start failed" })
+            })
             .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
           return
         case "voice":
-          gw.request<{ enabled?: boolean; tts?: boolean }>("voice.toggle",
-            { action: (arg || "status").toLowerCase() })
-            .then(r => x.dispatch({ kind: "system",
-              text: `voice ${r.enabled ? "on" : "off"}${r.tts ? " · tts on" : ""}` }))
+          x.voiceToggle((arg || "status").toLowerCase(), x.sid)
             .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
           return
         case "mouse": {

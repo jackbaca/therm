@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { mapEvent, type Side } from "../src/context/events"
+import { formatProcessNotification, mapEvent, type Side } from "../src/context/events"
 import type { GatewayEvent } from "../src/context/wire"
 
 function map(ev: GatewayEvent, side: Partial<Side> = {}) {
@@ -74,15 +74,29 @@ describe("mapEvent", () => {
     expect(b.action).toEqual({ kind: "system", text: "HTTP 404" })
   })
 
-  test("status.update kind=process folds [IMPORTANT:...] to one-line herald", () => {
-    const done = map({ type: "status.update", payload: { kind: "process", text:
-      "[IMPORTANT: Background process proc_abc completed (exit code 0).\nCommand: bun test\nOutput:\n…long stdout…]" } })
-    expect(done.action).toEqual({ kind: "system", text: "◆ background proc_abc exited 0 · bun test" })
-    const hit = map({ type: "status.update", payload: { kind: "process", text:
-      "[IMPORTANT: Background process srv_1 matched watch pattern \"ready\".\nCommand: bun run dev\nMatched output:\nApplication startup complete]" } })
-    expect(hit.action).toEqual({ kind: "system", text: "◆ background srv_1 matched \"ready\" · bun run dev" })
-    const miss = map({ type: "status.update", payload: { kind: "process", text: "weird shape" } })
-    expect(miss.action).toEqual({ kind: "system", text: "weird shape" })
+  test("status.update kind=process routes to debounced side callback", () => {
+    const text = "[IMPORTANT: Background process proc_abc completed (exit code 0).\nCommand: bun test\nOutput:\n…long stdout…]"
+    const done = map({ type: "status.update", payload: { kind: "process", text } })
+    expect(done.action).toBeNull()
+    expect(done.calls.status).toEqual([text])
+
+    const calls: string[] = []
+    const routed = map(
+      { type: "status.update", payload: { kind: "process", text } },
+      { onProcessNotification: t => calls.push(t) },
+    )
+    expect(routed.action).toBeNull()
+    expect(calls).toEqual([text])
+  })
+
+  test("formatProcessNotification preserves completion and watch-pattern shapes", () => {
+    expect(formatProcessNotification(
+      "[IMPORTANT: Background process proc_abc completed (exit code 0).\nCommand: bun test\nOutput:\n…long stdout…]",
+    )).toBe("proc_abc exited 0 · bun test")
+    expect(formatProcessNotification(
+      "[IMPORTANT: Background process srv_1 matched watch pattern \"ready\".\nCommand: bun run dev\nMatched output:\nApplication startup complete]",
+    )).toBe("srv_1 matched \"ready\" · bun run dev")
+    expect(formatProcessNotification("weird shape")).toBe("weird shape")
   })
 
   test("gateway.stderr: errorish → system; benign → null", () => {

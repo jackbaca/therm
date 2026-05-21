@@ -70,6 +70,7 @@ export const LOCAL_COMMANDS: ReadonlyArray<SlashCommand> = [
   { name: "splash", description: "Show the launch splash",              category: "Client",  aliases: [], argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "goal",   description: "Set/control the session goal",        category: "Session", aliases: [], argsHint: "[text|done|pause|resume|clear|status]", subcommands: ["done", "pause", "resume", "clear", "status"], source: "command", target: "gateway" },
   { name: "skin",   description: "Switch Hermes skin (+ theme + eikon)", category: "Client",  aliases: [], argsHint: "[name]", subcommands: [...SKINS], source: "local", target: "local" },
+  { name: "voice",  description: "Toggle voice recording",               category: "Client",  aliases: [], argsHint: "[on|off|status|tts]", subcommands: ["on", "off", "status", "tts"], source: "local", target: "local" },
   { name: "stash",  description: "Park the prompt (pop/list to restore)", category: "Client",  aliases: [], argsHint: "[pop|list]", subcommands: ["pop", "list"], source: "local", target: "local" },
   { name: "redo",   description: "Re-send the last undone message",       category: "Session", aliases: [], argsHint: "", subcommands: [], source: "local", target: "local" },
 ]

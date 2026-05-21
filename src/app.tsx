@@ -49,6 +49,9 @@ import { rehome } from "./home/rehome"
 import { makeGoalHook } from "./app/goalHook"
 import type { Launch } from "./app/launch"
 import { PluginProvider, usePlugins } from "./plugins/runtime"
+import { BackgroundProvider } from "./app/background"
+import { useVoice } from "./voice/useVoice"
+import { VoiceIndicator } from "./voice/Indicator"
 
 type AppProps = { initialTheme?: string; gateway?: Gateway; launch?: Launch }
 
@@ -60,7 +63,9 @@ export const App = (props: AppProps) => (
           <DialogProvider>
             <CommandProvider>
               <PluginProvider>
-                <AppInner launch={props.launch ?? { mode: "new" }} />
+                <BackgroundProvider>
+                  <AppInner launch={props.launch ?? { mode: "new" }} />
+                </BackgroundProvider>
               </PluginProvider>
             </CommandProvider>
           </DialogProvider>
@@ -187,6 +192,20 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   // Live ref so send() (stable for queue-drain) reads the current catalog
   // without re-creating itself on every catalog refresh.
   const cmdsRef = useRef(cmds); cmdsRef.current = cmds
+
+  // ── Voice ──────────────────────────────────────────────────────────
+  const sys = useCallback((text: string) => dispatch({ kind: "system", text }), [])
+  const voice = useVoice(gw.request.bind(gw), sys)
+  // Transcript → composer: insert text and auto-send (CLI parity).
+  useEffect(() => {
+    voice.setOnTranscript((text: string) => {
+      const c = composer.current
+      if (!c) return
+      c.set("")
+      // Defer submit so the cleared input commits before send reads it.
+      setTimeout(() => sendRef.current(text), 0)
+    })
+  }, [])
 
   // Transient error pulse — set on any reducer {kind:"error"} or
   // gateway exit; cleared when the avatar's play-once error clip
@@ -429,7 +448,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     dispatch, session, turnRef, queueRef, sendRef, composer, summoned, undone,
     ready, info, sid, title, skin,
     setQueue, setFocusRegion, setSplash, setAttachments, setInfo, setUsage, setTitle,
-    newSession, switchSession, rewind, goTo, attachClipboard,
+    newSession, switchSession, rewind, goTo, attachClipboard, voiceToggle: voice.toggle,
   })
   const send = useCallback(async (raw: string) => {
     // Bare exit/quit/:q — pass through as literals so a
@@ -621,6 +640,9 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       c?.set("")
       toast.show({ variant: "info", message: `stashed (${n})` })
     },
+    voiceRecordKey: voice.state.recordKey,
+    voiceEnabled: voice.state.enabled,
+    onVoiceRecord: () => voice.record(sidRef.current),
   })
   useBridge({
     tab, ready, streaming: turn.streaming, messages: turn.messages, sid, focusRegion,
@@ -704,6 +726,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
               ) : null}
             </box>
             <box flexShrink={0} zIndex={1}>
+              <VoiceIndicator voice={voice.state} keyLabel={voice.keyLabel} />
               <Composer
                 ref={composer}
                 focused={inputFocused} ready={ready} streaming={turn.streaming}

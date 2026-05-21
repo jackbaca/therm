@@ -21,6 +21,8 @@ import { Selection } from "../utils/selection"
 import { useKeys, conflicts } from "../keys"
 import { print as chordPrint } from "../keys/chord"
 import type { ComposerHandle } from "../components/chat/Composer"
+import { isVoiceToggleKey } from "../voice/platform"
+import type { VoiceKey } from "../voice/types"
 
 const INTERRUPT_MS = 5000
 export const DOUBLE_TAB_MS = 400
@@ -60,6 +62,12 @@ type Opts = {
   onNotice: (text: string) => void
   onToggleSidebar: () => void
   onStash: () => void
+  /** Voice recording key binding + handler from useVoice hook. */
+  voiceRecordKey?: VoiceKey
+  /** True when voice recording mode is on (/voice on). */
+  voiceEnabled?: boolean
+  /** Toggle push-to-talk recording (start or stop). */
+  onVoiceRecord?: () => void
 }
 
 export function useAppKeys(o: Opts) {
@@ -162,6 +170,14 @@ export function useAppKeys(o: Opts) {
     // handles Esc-to-close; tabs/composer/interrupt all sit behind the
     // overlay and shouldn't move.
     if (o.dialogOpen()) return
+
+    // Voice recording key — must win before prompt/editor/composer
+    // so the configured shortcut always fires push-to-talk.
+    if (o.voiceRecordKey && o.onVoiceRecord && isVoiceToggleKey(key, o.voiceRecordKey)) {
+      o.onVoiceRecord()
+      key.stopPropagation()
+      return
+    }
 
     // Shell mode: Esc exits (pre-empts the interrupt double-tap);
     // backspace at offset 0 also exits.
