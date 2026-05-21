@@ -28,6 +28,8 @@ export type GatewayEvent =
   | { type: "review.summary"; payload?: { text?: string } }
   | { type: "btw.complete"; payload: { text: string } }
   | { type: "browser.progress"; payload?: { message?: string; level?: "info" | "error" } }
+  | { type: "voice.status"; payload?: { state?: "idle" | "listening" | "transcribing" } }
+  | { type: "voice.transcript"; payload?: { text?: string; no_speech_limit?: boolean } }
   | { type: "subagent.start"; payload: SubagentPayload }
   | { type: "subagent.thinking"; payload: SubagentPayload }
   | { type: "subagent.tool"; payload: SubagentPayload }

@@ -711,6 +711,7 @@ describe("app", () => {
     t.destroy()
   })
 
+
   test("click user message → action menu → Rewind → N×session.undo → composer seeded", async () => {
     // History after rewind: server-authoritative via session.history.
     const hist = (n: number) => Array.from({ length: n }, (_, i) => ({

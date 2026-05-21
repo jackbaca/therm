@@ -10,7 +10,7 @@ import { useGateway, useGatewayEvent } from "../context/gateway"
 import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
 import { openAlert } from "../dialogs/alert"
-import { mapEvent } from "../context/events"
+import { formatProcessNotification, mapEvent } from "../context/events"
 import { deriveSkin, type SkinState } from "../context/skin"
 import { useBackground } from "./background"
 import type { Action } from "./turnReducer"
@@ -70,11 +70,35 @@ export function useStream(c: Ctx) {
   // action flushes synchronously first so part ordering is preserved.
   const deltas = useRef({ text: "", think: "", timer: null as ReturnType<typeof setTimeout> | null })
 
+  // Process notification batching: status.update/kind=process events
+  // accumulate over a 500ms window and dispatch as one combined system
+  // message. Prevents TUI lag when many background processes finish
+  // in rapid succession (each one otherwise triggers a full React
+  // re-render of the Chat transcript).
+  const procs = useRef<{ texts: string[]; timer: ReturnType<typeof setTimeout> | null }>(
+    { texts: [], timer: null },
+  )
+
   const flush = useCallback(() => {
     const d = deltas.current
     if (d.timer) { clearTimeout(d.timer); d.timer = null }
     if (d.think) { ctx.current.dispatch({ kind: "thinking", text: d.think, final: false }); d.think = "" }
     if (d.text) { ctx.current.dispatch({ kind: "message.delta", chunk: d.text }); d.text = "" }
+  }, [])
+
+  // Flush accumulated process notifications as one combined system msg.
+  const flushProcs = useCallback(() => {
+    const n = procs.current
+    if (n.timer) { clearTimeout(n.timer); n.timer = null }
+    if (!n.texts.length) return
+    const batch = n.texts.splice(0)
+    const lines = batch.map(t => `  ${formatProcessNotification(t)}`)
+    ctx.current.dispatch({
+      kind: "system",
+      text: batch.length === 1
+        ? `◆ background ${lines[0].trim()}`
+        : `◆ ${batch.length} background notifications\n${lines.join("\n")}`,
+    })
   }, [])
 
   const handle = useCallback((ev: GatewayEvent) => {
@@ -140,6 +164,12 @@ export function useStream(c: Ctx) {
         })
       },
       onStatus: (text) => x.setStatus(text),
+      onProcessNotification: (text) => {
+        const n = procs.current
+        n.texts.push(text)
+        if (n.timer) clearTimeout(n.timer)
+        n.timer = setTimeout(flushProcs, 500)
+      },
       onSkin: (s) => x.setSkin(deriveSkin(s)),
     })
     if (!action) return
