@@ -12,9 +12,11 @@ import type { ImageAttachResponse, DropDetectResponse } from "../../context/wire
 import { looksLikePath } from "../../utils/drop"
 import type { SlashCommand } from "../../app/slashCommands"
 import { useSlashPopover } from "../../app/useSlashPopover"
-import { useAtRefPopover } from "../../app/useAtRefPopover"
-import { useInputHistory } from "../../app/useInputHistory"
+import { useAtRefPopover, atWordAt } from "../../app/useAtRefPopover"
+import { frecency } from "../../app/frecency"
+import { useInputHistory, type HistEntry } from "../../app/useInputHistory"
 import { useBackground } from "../../app/background"
+import { PartsBuffer, styles as partStyles, type Part, type FilePart } from "../../app/parts"
 import { SlashPopover } from "./SlashPopover"
 import { AtRefPopover } from "./AtRefPopover"
 import { ChafaImage } from "../../ui/ChafaImage"
@@ -56,7 +58,7 @@ type Props = {
   queue?: ReadonlyArray<string>
   attachments?: ReadonlyArray<ImageAttachResponse>
   cmds: ReadonlyArray<SlashCommand>
-  onSend: (text: string) => void
+  onSend: (text: string, parts?: readonly Part[]) => void
   onSlash: (cmd: SlashCommand) => void
   /** Shell-mode submit (`!` at cursor 0). Not a prompt turn — routed
    *  to shell.exec and rendered as a transcript $ cmd / stdout pair. */
@@ -82,10 +84,13 @@ function fmt(n: number): string {
 
 export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
   const theme = useTheme().theme
+  const syntaxStyle = useTheme().syntaxStyle
   const gw = useGateway()
   const keys = useKeys()
   const bg = useBackground()
   const ta = useRef<TextareaRenderable | null>(null)
+  const buf = useRef<PartsBuffer | null>(null)
+  const sids = useMemo(() => partStyles(syntaxStyle, theme), [syntaxStyle, theme])
   // Mirror of the textarea buffer. The renderable is the source of truth;
   // this drives React-side derivations (popover matching, row count, hints).
   const [input, setInput] = useState("")
@@ -109,12 +114,21 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
   const at = useAtRefPopover(mode === "normal" ? input : "", caret)
 
   const write = useCallback((v: string) => {
-    ta.current?.setText(v)
+    // clear() wipes text + extmarks via setText(""); replay v after.
+    buf.current?.clear()
+    if (v) ta.current?.setText(v)
     ta.current?.gotoBufferEnd()
     setInput(v)
   }, [])
 
-  const hist = useInputHistory(input, write)
+  // Entries with parts restore via snapshot so chips + ranges rebuild.
+  const restore = useCallback((e: HistEntry) => {
+    if (e.parts.length === 0) { write(e.input); return }
+    buf.current?.fromSnapshot({ v: 1, input: e.input, parts: [...e.parts] })
+    setInput(e.input)
+  }, [write])
+
+  const hist = useInputHistory(input, restore)
 
   // Merged over the renderable's default map (which has bare return →
   // newline), so input.submit's `return` entry overrides it and the
@@ -146,10 +160,39 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     live.current.props.onSlash(c)
   }
 
+  // Complete @-refs land as styled chips; prefix keywords that keep the
+  // popover open have nothing to anchor a mark to and stay plain text.
   const atAccept = (idx?: number) => {
     const off = ta.current?.cursorOffset
-    const next = live.current.at.accept(live.current.input, idx, off)
-    if (next !== null) write(next)
+    const src = live.current.input
+    const which = idx ?? live.current.at.cursor
+    const it = live.current.at.items[which]
+    if (!it) return
+    const a = atWordAt(src, off)
+    const trail = it.text.endsWith(":") || it.text.endsWith("/")
+    const b = buf.current
+    if (trail || !b || !ta.current || !a) {
+      const next = live.current.at.accept(src, idx, off)
+      if (next !== null) write(next)
+      return
+    }
+    // Splice the @word out via deleteRange — setText would wipe every
+    // prior chip's mark.
+    if (it.text.includes(":")) frecency.bump(it.text)
+    const eb = ta.current.editBuffer
+    const s = eb.offsetToPosition(a.start)
+    const e = eb.offsetToPosition(a.start + a.word.length)
+    if (!s || !e) return
+    ta.current.deleteRange(s.row, s.col, e.row, e.col)
+    ta.current.cursorOffset = a.start
+    const part: FilePart = {
+      type: "file",
+      mime: "text/uri-list",
+      filename: it.text,
+      source: { type: "file", path: it.text, text: { start: a.start, end: a.start + it.text.length, value: it.text } },
+    }
+    b.insertPart(part, it.text)
+    setInput(ta.current.plainText)
   }
 
   // Paste routing, in priority order:
@@ -213,34 +256,35 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
       if (c) select(c)
       return
     }
+    const exp = buf.current?.expand() ?? { text: live.current.input, parts: [] }
     if (modeRef.current === "shell") {
-      const text = live.current.input.trim()
-      if (!text) return
-      hist.push(text)
+      const cmd = exp.text.trim()
+      if (!cmd) return
+      hist.push({ input: cmd, parts: exp.parts })
       write("")
       setMode("normal")
-      live.current.props.onShell?.(text)
+      live.current.props.onShell?.(cmd)
       return
     }
-    const text = live.current.input.trim()
+    const text = exp.text.trim()
     if (live.current.props.streaming) {
       if (!text || !live.current.props.ready) return
-      hist.push(text)
+      hist.push({ input: text, parts: exp.parts })
       write("")
       // Slash-shaped input routes through onSend so send() → slash()
       // can apply per-command streaming policy (local cases fire now,
       // gateway-target cases self-queue). Only plain text hits the
       // app-side busy-mode branch.
-      if (text.startsWith("/")) return void live.current.props.onSend(text)
+      if (text.startsWith("/")) return void live.current.props.onSend(text, exp.parts)
       live.current.props.onEnqueue?.(text)
       return
     }
     const hasAtt = (live.current.props.attachments?.length ?? 0) > 0
     if (!text && !hasAtt) { live.current.props.onEmptyEnter?.(); return }
     if (!live.current.props.ready) return
-    if (text) hist.push(text)
+    if (text) hist.push({ input: text, parts: exp.parts })
     write("")
-    live.current.props.onSend(text)
+    live.current.props.onSend(text, exp.parts)
   }
 
   useImperativeHandle(ref, () => ({
@@ -298,6 +342,16 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
       return true
     },
   }), [hist.up, hist.down, pop.setCursor, write])
+
+  // Stable ref callback so re-renders don't cycle r → null → r and drop
+  // the PartsBuffer mid-edit; sids via closure so theme swaps rebuild
+  // through the unmount path.
+  const sidsRef = useRef(sids); sidsRef.current = sids
+  const taRef = useCallback((r: TextareaRenderable | null) => {
+    ta.current = r
+    if (r && !buf.current) buf.current = new PartsBuffer(r, sidsRef.current)
+    if (!r) buf.current = null
+  }, [])
 
   const label = !props.ready ? "Connecting..."
     : props.streaming ? (props.status || "Generating...")
@@ -382,7 +436,8 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
         <box width={1}><text fg={theme.primary}>{mode === "shell" ? "$" : ">"}</text></box>
         <box width={1} />
         <textarea
-          ref={ta}
+          ref={taRef}
+          syntaxStyle={syntaxStyle}
           onContentChange={() => {
             const t = ta.current
             setInput(t?.plainText ?? "")
