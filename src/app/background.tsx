@@ -1,7 +1,5 @@
-// Client-side registry of in-flight /background task ids.
-// Consumers call register/unregister to mutate the set; count/ids
-// update reactively so a status-bar component can read len() the way
-// hermes-agent's _get_status_bar_snapshot does server-side.
+// In-flight /background task ids. Registered on prompt.background,
+// unregistered on background.complete.
 
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react"
 import { makeUse } from "../context/helper"
