@@ -14,6 +14,7 @@ import type { SlashCommand } from "../../app/slashCommands"
 import { useSlashPopover } from "../../app/useSlashPopover"
 import { useAtRefPopover } from "../../app/useAtRefPopover"
 import { useInputHistory } from "../../app/useInputHistory"
+import { useBackground } from "../../app/background"
 import { SlashPopover } from "./SlashPopover"
 import { AtRefPopover } from "./AtRefPopover"
 import { ChafaImage } from "../../ui/ChafaImage"
@@ -83,6 +84,7 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
   const theme = useTheme().theme
   const gw = useGateway()
   const keys = useKeys()
+  const bg = useBackground()
   const ta = useRef<TextareaRenderable | null>(null)
   // Mirror of the textarea buffer. The renderable is the source of truth;
   // this drives React-side derivations (popover matching, row count, hints).
@@ -433,6 +435,7 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
         {props.streaming && (props.queue?.length ?? 0) > 0 ? (
           <text fg={theme.textMuted}>{keys.print("queue.flush")} to send queued now  </text>
         ) : null}
+        {bg.count > 0 ? <text fg={theme.text}>▶ {bg.count}  </text> : null}
         {props.model ? <text fg={theme.textMuted}>{props.model}</text> : null}
       </box>
     </box>
