@@ -89,6 +89,25 @@ describe("composer parts — submit", () => {
     expect(sent).toEqual([{ text: "no chips here", parts: [] }])
     t.destroy()
   })
+
+  test("two chips back-to-back → parts[] carries both FileParts on submit", async () => {
+    const { t, ref, sent } = await setup(fileGateway())
+    await chip(t, ref, "@file:src/a.ts")
+    await chip(t, ref, "@file:src/b.ts")
+    expect(ref.current?.value()).toBe("@file:src/a.ts @file:src/b.ts ")
+
+    act(() => t.keys.pressEnter())
+    await t.settle()
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.text).toBe("@file:src/a.ts @file:src/b.ts")
+    expect(sent[0]!.parts).toHaveLength(2)
+    const parts = sent[0]!.parts as readonly FilePart[]
+    expect(parts[0]!.type).toBe("file")
+    expect(parts[0]!.filename).toBe("@file:src/a.ts")
+    expect(parts[1]!.type).toBe("file")
+    expect(parts[1]!.filename).toBe("@file:src/b.ts")
+    t.destroy()
+  })
 })
 describe("composer parts — atomic backspace", () => {
   test("single backspace past a chip removes it whole (and drops its part on submit)", async () => {

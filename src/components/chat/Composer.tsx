@@ -182,13 +182,17 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
       if (next !== null) write(next)
       return
     }
-    // Complete ref → chip. Splice the `@word` out, position the caret,
-    // then let PartsBuffer.insertPart drop a mark-backed virtual run.
-    // Match at.accept()'s frecency bump for path-like items so ranking
-    // still reflects acceptance.
+    // Complete ref → chip. Splice the `@word` out via deleteRange
+    // (surgical — preserves existing extmarks; setText would wipe
+    // every prior chip's mark), then let PartsBuffer.insertPart drop
+    // a mark-backed virtual run. Match at.accept()'s frecency bump
+    // for path-like items so ranking still reflects acceptance.
     if (it.text.includes(":")) frecency.bump(it.text)
-    const trimmed = src.slice(0, a.start) + src.slice(a.start + a.word.length)
-    ta.current.setText(trimmed)
+    const eb = ta.current.editBuffer
+    const s = eb.offsetToPosition(a.start)
+    const e = eb.offsetToPosition(a.start + a.word.length)
+    if (!s || !e) return
+    ta.current.deleteRange(s.row, s.col, e.row, e.col)
     ta.current.cursorOffset = a.start
     const part: FilePart = {
       type: "file",
