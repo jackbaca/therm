@@ -36,7 +36,9 @@ export function useVoice(gw: GwRpc, sys: (text: string) => void): VoiceApi {
   const [processing, setProcessing] = useState(false)
   const [recordKeyRaw, setRecordKeyRaw] = useState<string>()
   const [tts, setTts] = useState(false)
-  const [onTranscript, setOnTranscript] = useState<((text: string) => void) | null>(null)
+  const [onTranscript, setTranscript] = useState<((text: string) => void) | null>(null)
+  const setOnTranscript = useCallback((fn: ((text: string) => void) | null) =>
+    setTranscript(fn ? () => fn : null), [])
 
   const recordKey = useMemo(
     () => parseVoiceRecordKey(recordKeyRaw),

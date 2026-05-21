@@ -10,7 +10,7 @@ import { useGateway, useGatewayEvent } from "../context/gateway"
 import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
 import { openAlert } from "../dialogs/alert"
-import { mapEvent } from "../context/events"
+import { formatProcessNotification, mapEvent } from "../context/events"
 import { deriveSkin, type SkinState } from "../context/skin"
 import { useBackground } from "./background"
 import type { Action } from "./turnReducer"
@@ -92,15 +92,12 @@ export function useStream(c: Ctx) {
     if (n.timer) { clearTimeout(n.timer); n.timer = null }
     if (!n.texts.length) return
     const batch = n.texts.splice(0)
-    const lines = batch.map(t => {
-      const m = t.match(/Background process (\S+) completed \(exit code (\S+)\)\.\nCommand: (.+)/)
-      return m ? `  ${m[1]} (exit ${m[2]}) · ${m[3]}` : `  ${t.replace(/^\[IMPORTANT: |\]$/g, "").slice(0, 100)}`
-    })
+    const lines = batch.map(t => `  ${formatProcessNotification(t)}`)
     ctx.current.dispatch({
       kind: "system",
       text: batch.length === 1
         ? `◆ background ${lines[0].trim()}`
-        : `◆ ${batch.length} background processes completed\n${lines.join("\n")}`,
+        : `◆ ${batch.length} background notifications\n${lines.join("\n")}`,
     })
   }, [])
 

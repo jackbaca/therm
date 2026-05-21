@@ -77,6 +77,7 @@ export type SlashCtx = {
   rewind: (m: Message) => Promise<void>
   goTo: (tab: number, sub: number) => void
   attachClipboard: () => void
+  voiceToggle: (action: string, sid: string) => Promise<void>
 }
 
 export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void {
@@ -364,10 +365,7 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
             .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
           return
         case "voice":
-          gw.request<{ enabled?: boolean; tts?: boolean }>("voice.toggle",
-            { action: (arg || "status").toLowerCase() })
-            .then(r => x.dispatch({ kind: "system",
-              text: `voice ${r.enabled ? "on" : "off"}${r.tts ? " · tts on" : ""}` }))
+          x.voiceToggle((arg || "status").toLowerCase(), x.sid)
             .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
           return
         case "mouse": {

@@ -27,6 +27,15 @@ function count(o: Record<string, string[]> | undefined): number {
   return o ? Object.values(o).reduce((n, v) => n + v.length, 0) : 0
 }
 
+export function formatProcessNotification(text: string): string {
+  const body = text.replace(/^\[IMPORTANT: /, "").replace(/\]$/, "")
+  const done = body.match(/^Background process (\S+) completed \(exit code (\S+)\)\.\nCommand: (.+?)(?:\n|$)/)
+  if (done) return `${done[1]} exited ${done[2]} · ${done[3]}`
+  const hit = body.match(/^Background process (\S+) matched watch pattern "([^"]+)"\.\nCommand: (.+?)(?:\n|$)/)
+  if (hit) return `${hit[1]} matched "${hit[2]}" · ${hit[3]}`
+  return body.slice(0, 100)
+}
+
 export function mapEvent(ev: GatewayEvent, side: Side): Action | null {
   switch (ev.type) {
     case "gateway.ready":

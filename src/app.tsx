@@ -448,7 +448,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     dispatch, session, turnRef, queueRef, sendRef, composer, summoned, undone,
     ready, info, sid, title, skin,
     setQueue, setFocusRegion, setSplash, setAttachments, setInfo, setUsage, setTitle,
-    newSession, switchSession, rewind, goTo, attachClipboard,
+    newSession, switchSession, rewind, goTo, attachClipboard, voiceToggle: voice.toggle,
   })
   const send = useCallback(async (raw: string) => {
     // Bare exit/quit/:q — pass through as literals so a
