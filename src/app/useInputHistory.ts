@@ -1,9 +1,6 @@
-// Up/down history for composer input.
-// Persisted under the herm config dir (typically ~/.hermes/herm/history).
-//
-// On-disk format is JSONL of { input, parts? } entries. Legacy lines
-// that are raw strings (with `\n` encoded as NUL) are read as
-// { input: <decoded>, parts: [] } so existing histories keep working.
+// Up/down history for composer input, persisted under the herm config dir.
+// On-disk format is JSONL of { input, parts? }. Legacy raw-string lines
+// (newlines NUL-encoded) still load.
 
 import { useState, useRef, useCallback } from "react"
 import { join } from "path"

@@ -1,12 +1,6 @@
-// Extmark-backed parts model for the composer. Mirrors the opencode
-// shape (file/agent/text kinds with asymmetric `source` fields) so
-// serialized snapshots round-trip through the gateway wire when the
-// rest of the parts pipeline lands; today they only drive chip
-// rendering, atomic-chip backspace, and history restore.
-//
-// Offsets are display-width (what opentui's extmarks consume), not
-// JS string indices. virtual:true marks give cursor-atomic + delete-
-// atomic behavior for free — there is no custom backspace code here.
+// Extmark-backed parts model for the composer. Offsets are display-width
+// (what extmarks consume), not JS string indices. virtual:true marks give
+// cursor-atomic + delete-atomic behavior; there is no custom backspace code.
 
 import type { TextareaRenderable, ExtmarksController, SyntaxStyle, ColorInput } from "@opentui/core"
 
@@ -52,8 +46,7 @@ export const STYLE = {
   paste: "extmark.paste",
 } as const
 
-// One-shot registration of extmark styles on a shared SyntaxStyle.
-// Idempotent — resolveStyleId short-circuits after the first register.
+// Idempotent style registration on a shared SyntaxStyle.
 export function styles(syntax: SyntaxStyle, theme: { accent: ColorInput; primary: ColorInput; textMuted: ColorInput }) {
   const ensure = (name: string, def: { fg?: ColorInput; italic?: boolean }) => {
     const id = syntax.getStyleId(name)
@@ -69,11 +62,9 @@ export function styles(syntax: SyntaxStyle, theme: { accent: ColorInput; primary
 
 type StyleIds = { file: number; agent: number; paste: number }
 
-// Bridge between a TextareaRenderable (source of truth for text +
-// extmarks) and a parallel parts[] array. The map id→index keeps the
-// two in sync: when a mark is deleted (atomic-chip backspace) we drop
-// the matching part; when marks shift (text inserted before them) we
-// rewrite the part's source range before emitting/snapshotting.
+// Bridges a TextareaRenderable (source of truth) and a parallel parts[].
+// The id→index map drops parts whose mark was deleted and rewrites ranges
+// when marks shift.
 export class PartsBuffer {
   private ta: TextareaRenderable
   private ex: ExtmarksController
@@ -91,9 +82,7 @@ export class PartsBuffer {
 
   text() { return this.ta.plainText }
 
-  // The textarea may be destroyed mid-session (tab switch unmounting
-  // the composer, hot reload, etc.). Every op that reaches into
-  // opentui internals guards so the caller doesn't need to.
+  // The textarea can be destroyed mid-session (tab switch, hot reload).
   private alive() { return !this.ta.isDestroyed }
 
   insertText(str: string) {
@@ -101,11 +90,8 @@ export class PartsBuffer {
     this.ta.insertText(str)
   }
 
-  // Insert a part at the current cursor. Writes the virtual text into
-  // the buffer and binds a mark to its display range. Trailing space
-  // matches opencode and keeps the caret outside the chip so the next
-  // keystroke doesn't extend the range. Extmark offsets are display-
-  // width — visualCursor.offset, not cursorOffset.
+  // Trailing space keeps the caret outside the chip so the next keystroke
+  // doesn't extend the range. Offsets are visualCursor.offset, not cursorOffset.
   insertPart(part: Part, virtualText: string) {
     if (!this.alive()) return
     const start = this.ta.visualCursor.offset
@@ -123,9 +109,7 @@ export class PartsBuffer {
     this.map.set(id, idx)
   }
 
-  // Re-read mark ranges from the textarea and rebuild a compact
-  // parts[] reflecting only the marks that still exist. Any parts
-  // whose mark was deleted (atomic-chip backspace) drop out.
+  // Rebuild parts[] from the marks that still exist.
   sync() {
     if (!this.alive()) return
     const alive = this.ex.getAllForTypeId(this.typeId)
@@ -143,15 +127,11 @@ export class PartsBuffer {
     this.map = nextMap
   }
 
-  // Parts in display order. `sync()` first so callers always see the
-  // current mark ranges — callers don't need to remember to call it.
   parts(): readonly Part[] {
     this.sync()
     return this.list
   }
 
-  // Snapshot for history/rewind: stores the plain text + parts with
-  // their source ranges frozen. fromSnapshot() rebuilds both.
   toSnapshot(): PartsSnapshot {
     return { v: 1, input: this.text(), parts: [...this.parts()] }
   }
@@ -186,9 +166,8 @@ export class PartsBuffer {
     this.ex.clear()
   }
 
-  // Inline-expand text parts into their original value (paste body)
-  // and strip them from the parts[] — only file/agent parts ride as
-  // real message parts to the gateway. Matches opencode submit path.
+  // Inline text parts (paste bodies) back into the string; only file/agent
+  // parts ride to the gateway.
   expand(): { text: string; parts: Part[] } {
     if (!this.alive()) return { text: "", parts: [] }
     this.sync()
@@ -206,8 +185,7 @@ export class PartsBuffer {
 }
 
 function visualLen(s: string): number {
-  // Fallback for runtimes without Bun.stringWidth; matches opentui's
-  // assumption that ASCII chips are one column per char.
+
   const B = (globalThis as { Bun?: { stringWidth?: (s: string) => number } }).Bun
   return B?.stringWidth ? B.stringWidth(s) : s.length
 }

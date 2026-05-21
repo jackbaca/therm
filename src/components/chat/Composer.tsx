@@ -90,8 +90,6 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
   const bg = useBackground()
   const ta = useRef<TextareaRenderable | null>(null)
   const buf = useRef<PartsBuffer | null>(null)
-  // Style ids are registered once per SyntaxStyle; memoized so theme
-  // swaps (which build a new SyntaxStyle) re-register automatically.
   const sids = useMemo(() => partStyles(syntaxStyle, theme), [syntaxStyle, theme])
   // Mirror of the textarea buffer. The renderable is the source of truth;
   // this drives React-side derivations (popover matching, row count, hints).
@@ -123,8 +121,7 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     setInput(v)
   }, [])
 
-  // History restore. Plain strings round-trip through setText; entries
-  // with parts go through the snapshot path so chips + ranges rebuild.
+  // Entries with parts restore via snapshot so chips + ranges rebuild.
   const restore = useCallback((e: HistEntry) => {
     if (e.parts.length === 0) { write(e.input); return }
     buf.current?.fromSnapshot({ v: 1, input: e.input, parts: [...e.parts] })
@@ -163,11 +160,8 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     live.current.props.onSlash(c)
   }
 
-  // Accept an @-ref from the popover. Complete refs (`@file:path`,
-  // `@diff`, `@git:3`, `@url:…`) land as styled chips — one keystroke
-  // deletes them whole. Prefix keywords that keep the popover open
-  // (`@file:`, `@folder:`, `@url:`) take the classic string-write
-  // path since there's nothing yet to anchor a mark to.
+  // Complete @-refs land as styled chips; prefix keywords that keep the
+  // popover open have nothing to anchor a mark to and stay plain text.
   const atAccept = (idx?: number) => {
     const off = ta.current?.cursorOffset
     const src = live.current.input
@@ -182,11 +176,8 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
       if (next !== null) write(next)
       return
     }
-    // Complete ref → chip. Splice the `@word` out via deleteRange
-    // (surgical — preserves existing extmarks; setText would wipe
-    // every prior chip's mark), then let PartsBuffer.insertPart drop
-    // a mark-backed virtual run. Match at.accept()'s frecency bump
-    // for path-like items so ranking still reflects acceptance.
+    // Splice the @word out via deleteRange — setText would wipe every
+    // prior chip's mark.
     if (it.text.includes(":")) frecency.bump(it.text)
     const eb = ta.current.editBuffer
     const s = eb.offsetToPosition(a.start)
@@ -265,10 +256,6 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
       if (c) select(c)
       return
     }
-    // Expand captures the current buffer + parts, inline-expands any
-    // text parts (pasted content) so the wire still sees plain text,
-    // and filters them out of the emitted parts[] — matches opencode
-    // submit semantics.
     const exp = buf.current?.expand() ?? { text: live.current.input, parts: [] }
     if (modeRef.current === "shell") {
       const cmd = exp.text.trim()
@@ -356,10 +343,9 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     },
   }), [hist.up, hist.down, pop.setCursor, write])
 
-  // Stable ref callback so re-renders don't cycle (r → null → r) and
-  // throw away the PartsBuffer's extmark→part map mid-edit. sids is a
-  // ref-via-closure rather than a dep so theme swaps rebuild the buffer
-  // through the unmount path instead of on every render.
+  // Stable ref callback so re-renders don't cycle r → null → r and drop
+  // the PartsBuffer mid-edit; sids via closure so theme swaps rebuild
+  // through the unmount path.
   const sidsRef = useRef(sids); sidsRef.current = sids
   const taRef = useCallback((r: TextareaRenderable | null) => {
     ta.current = r
