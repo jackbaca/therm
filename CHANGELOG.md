@@ -1,3 +1,17 @@
+# [1.7.0](https://github.com/liftaris/herm/compare/v1.6.1...v1.7.0) (2026-05-21)
+
+
+### Bug Fixes
+
+* debounce process notification events in TUI ([65e4b87](https://github.com/liftaris/herm/commit/65e4b87cb2c533d9b3a76f3718ddc2c6527b7981))
+* rebase process notifications on dev ([cdb3e9e](https://github.com/liftaris/herm/commit/cdb3e9e7958326c5b510a1b89bfd7c40f21970df))
+
+
+### Features
+
+* **composer:** show ▶ N indicator while background tasks run ([a8d67fc](https://github.com/liftaris/herm/commit/a8d67fc40fc0f2b382c601b08f37bd0508589f67))
+* **voice:** integrate voice mode STT recording into herm TUI ([4e8e821](https://github.com/liftaris/herm/commit/4e8e82178aa788eebdfd9975bc4c0de40edadf76))
+
 ## [1.6.1](https://github.com/liftaris/herm/compare/v1.6.0...v1.6.1) (2026-05-19)
 
 
