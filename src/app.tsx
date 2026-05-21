@@ -49,6 +49,7 @@ import { rehome } from "./home/rehome"
 import { makeGoalHook } from "./app/goalHook"
 import type { Launch } from "./app/launch"
 import { PluginProvider, usePlugins } from "./plugins/runtime"
+import { BackgroundProvider } from "./app/background"
 
 type AppProps = { initialTheme?: string; gateway?: Gateway; launch?: Launch }
 
@@ -60,7 +61,9 @@ export const App = (props: AppProps) => (
           <DialogProvider>
             <CommandProvider>
               <PluginProvider>
-                <AppInner launch={props.launch ?? { mode: "new" }} />
+                <BackgroundProvider>
+                  <AppInner launch={props.launch ?? { mode: "new" }} />
+                </BackgroundProvider>
               </PluginProvider>
             </CommandProvider>
           </DialogProvider>

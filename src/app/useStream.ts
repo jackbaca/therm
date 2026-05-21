@@ -12,6 +12,7 @@ import { useToast } from "../ui/toast"
 import { openAlert } from "../dialogs/alert"
 import { mapEvent } from "../context/events"
 import { deriveSkin, type SkinState } from "../context/skin"
+import { useBackground } from "./background"
 import type { Action } from "./turnReducer"
 import type { useSession } from "./useSession"
 import type { GatewayEvent, SessionInfo } from "../context/wire"
@@ -50,6 +51,7 @@ export function useStream(c: Ctx) {
   const gw = useGateway()
   const dialog = useDialog()
   const toast = useToast()
+  const bg = useBackground()
   const ctx = useRef(c); ctx.current = c
 
   // Client-side interrupt latch: flipped on Esc×2 before the gateway
@@ -120,6 +122,7 @@ export function useStream(c: Ctx) {
         x.goalHook.check(x.sidRef.current)
       },
       onBackground: (tid, text) => {
+        bg.unregister(tid)
         const head = text.split("\n")[0].slice(0, 80)
         x.dispatch({ kind: "system", text: `◷ background task ${tid} complete — ${head}` })
         toast.show({
