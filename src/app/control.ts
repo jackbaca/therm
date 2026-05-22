@@ -18,13 +18,53 @@
  *
  * SAFETY: Key injection is blocked for keys that would mutate state
  * on dangerous tabs (Config, Sessions) unless safe=false is passed.
+ *
+ * BIND: Binds 127.0.0.1 by default so a laptop on a hostile LAN / café
+ * wifi doesn't expose /send or /key to the network. Override with
+ * CONTROL_BIND for intentional cross-host use (VM host testing the
+ * guest's TUI); anything other than loopback surfaces a warning banner
+ * on startup so the exposure is never silent.
  */
 
 import * as perf from "../utils/perf"
 import { TABS, TAB_MAX, CHAT_TAB } from "../app/tabs"
 
 const PORT = Number(process.env.CONTROL_PORT) || 7777
+const BIND = process.env.CONTROL_BIND || "127.0.0.1"
 export const enabled = process.env.CONTROL === "1"
+
+// Hostnames that keep the control server reachable only from this machine.
+// `localhost` resolves to loopback on every sane system; anything else
+// (including 0.0.0.0, ::, and explicit external IPs) is treated as exposed.
+const LOOPBACK = new Set(["127.0.0.1", "::1", "localhost"])
+
+export function isLoopback(host: string): boolean {
+  return LOOPBACK.has(host)
+}
+
+export type Warning = {
+  host: string
+  port: number
+  message: string
+}
+
+// Computes the exposure warning for an arbitrary (enabled, bind, port)
+// triple so tests can exercise the decision without re-importing the
+// module under different env. `warning()` uses the process env values
+// captured at module load.
+export function warningFor(on: boolean, bind: string, port: number): Warning | null {
+  if (!on) return null
+  if (isLoopback(bind)) return null
+  return {
+    host: bind,
+    port,
+    message: `CONTROL server bound to ${bind}:${port} — reachable from the network. Set CONTROL_BIND=127.0.0.1 to restrict to loopback.`,
+  }
+}
+
+export function warning(): Warning | null {
+  return warningFor(enabled, BIND, PORT)
+}
 
 const TAB_NAMES: readonly string[] = TABS.map(t => t.name)
 
@@ -519,6 +559,11 @@ async function handle(req: Request): Promise<Response> {
 
 export function start() {
   if (!enabled) return
-  Bun.serve({ port: PORT, fetch: handle })
-  process.stderr.write(`\x1b[90m[control] http://localhost:${PORT}\x1b[0m\n`)
+  Bun.serve({ port: PORT, hostname: BIND, fetch: handle })
+  const w = warning()
+  if (w) {
+    process.stderr.write(`\x1b[33m[control] WARNING: ${w.message}\x1b[0m\n`)
+    return
+  }
+  process.stderr.write(`\x1b[90m[control] http://${BIND}:${PORT}\x1b[0m\n`)
 }
