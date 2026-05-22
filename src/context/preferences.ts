@@ -166,8 +166,11 @@ export function get<K extends keyof TuiPreferences>(key: K): TuiPreferences[K] {
   return load()[key]
 }
 
-/** Set a single preference value and persist */
+/** Set a single preference value and persist. No-op when unchanged so
+ *  redundant writes (e.g. a picker's live-preview re-firing on the same
+ *  row) don't notify subscribers and trigger render loops. */
 export function set<K extends keyof TuiPreferences>(key: K, value: TuiPreferences[K]): void {
+  if (load()[key] === value) return
   save({ [key]: value } as Partial<TuiPreferences>)
   for (const l of listeners) l()
 }

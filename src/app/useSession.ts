@@ -83,6 +83,12 @@ export function useSession(): SessionOps {
     return { id, messages }
   }, [gw])
 
+  // No `cols` param and no `terminal.resize` RPC on SIGWINCH: herm renders
+  // markdown via OpenTUI's <markdown> from raw payload.text, so wrapping is
+  // handled client-side by the layout tree on resize. The agent-side width
+  // (session["cols"], fed to make_stream_renderer) only populates the
+  // payload.rendered field that herm ignores, plus render_diff for the
+  // checkpoint diff RPC — both default-80 is fine for our flow.
   const create = useCallback(async () => {
     const res = await gw.request<SessionCreateResponse>("session.create", {})
     gw.setSession(res.session_id)

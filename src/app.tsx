@@ -34,6 +34,7 @@ import { useSlashCommands } from "./app/useSlashCommands"
 import { useSlash } from "./app/slash"
 import { useStream } from "./app/useStream"
 import { useBridge } from "./app/bridge"
+import * as control from "./app/control"
 import { Composer, type ComposerHandle } from "./components/chat/Composer"
 import * as preferences from "./context/preferences"
 import { turnReducer, initialTurn, transcriptToMessages } from "./app/turnReducer"
@@ -123,6 +124,21 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     process.removeAllListeners("SIGINT")
     process.on("SIGINT", () => quit(renderer, sidRef.current, titleRef.current, gw))
   }, [renderer, gw])
+  // CONTROL=1 binds 127.0.0.1 by default; if the user overrode
+  // CONTROL_BIND to a non-loopback host, the HTTP server is exposed to
+  // whatever network the machine is on. Surface it once so the exposure
+  // is never silent — stderr warning in start() is easy to miss behind
+  // the splash.
+  useEffect(() => {
+    const w = control.warning()
+    if (!w) return
+    toast.show({
+      variant: "warning",
+      title: "control server exposed",
+      message: w.message,
+      duration: 15000,
+    })
+  }, [toast])
   const [focusRegion, setFocusRegion] = useState<"input" | "content">("input")
   const goToTab = useCallback((t: number) => {
     setTab(t)
@@ -301,13 +317,20 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     reset()
     summoned.current = true
     setSplash(true)
+    // Clear the gateway's active sid before session.create lands so
+    // any event emitted in the window between here and setSession(new)
+    // isn't auto-attributed to the outgoing session (stale-sid race).
+    // Mirrors switchProfile. session.close below passes prev
+    // explicitly, so it isn't affected by the clear.
+    gw.setSession("")
+    setSid("")
     // Close the outgoing session so the gateway finalizes it (ends the
     // DB row, reaps its slash_worker subprocess, drops the AIAgent from
     // `_sessions`). Fire-and-forget — create() doesn't depend on it.
     if (prev) void session.close(prev)
     try { setSid(await session.create()); sessionStart.current = Date.now() }
     catch {}
-  }, [reset, session])
+  }, [reset, session, gw])
 
   const switchSession = useCallback(async (target: string) => {
     const prev = sidRef.current
