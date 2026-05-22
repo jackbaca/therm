@@ -79,7 +79,7 @@ describe("Config → models category", () => {
       "cli.exec": (p) => { cli.push(p.argv as string[]); return { code: 0, output: "" } },
     })
     const t = await mountNode(<Config focused />, { gw, width: 160, height: 40 })
-    await until(t, () => t.frame().includes("models (10)"))
+    await until(t, () => t.frame().includes("models (13)"))
 
     // ↓ to 'models', → into slots
     act(() => t.keys.pressArrow("down"))
@@ -124,7 +124,7 @@ describe("Config → models category", () => {
       "config.set": (p) => { sets.push(p); return { value: p.value } },
     })
     const t = await mountNode(<Config focused />, { gw, width: 160, height: 40 })
-    await until(t, () => t.frame().includes("models (10)"))
+    await until(t, () => t.frame().includes("models (13)"))
     act(() => t.keys.pressArrow("down"))
     act(() => t.keys.pressTab())
     act(() => t.keys.pressEnter())
