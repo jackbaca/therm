@@ -16,6 +16,7 @@ import * as control from "./app/control";
 import * as preferences from "./context/preferences";
 import { resetTerminalModes, installExitResetHooks } from "./utils/terminal-reset";
 import { warmup as warmTokens } from "./utils/tokens";
+import { prime as primeTheme, DEFAULT_THEME } from "./theme";
 
 // Static ESM imports hoist above module-level code, so the only
 // honest import-graph measurement is process-uptime at the point
@@ -72,6 +73,12 @@ const main = async () => {
   renderer.on("focus", bump)
 
   perf.mem("post-renderer")
+
+  // Theme JSONs load lazily (src/theme/load.ts). Prime the active
+  // theme here so the first frame has its colors — otherwise the
+  // provider falls back to DEFAULT_THEME for one tick while the
+  // import() resolves.
+  await primeTheme(prefs.theme ?? DEFAULT_THEME)
 
   const root = createRoot(renderer);
 

@@ -32,6 +32,12 @@ const bag = (globalThis as Record<symbol, unknown>)[Symbol.for("@opentui/core/si
   { RendererTracker?: { addRenderer: (r: unknown) => void } }
 bag.RendererTracker?.addRenderer({})
 
+// Theme bodies load lazily in prod (src/theme/load.ts). Prime the default
+// so ThemeProvider paints on the first frame in every test mount, matching
+// src/index.tsx's boot sequence.
+const { prime, DEFAULT_THEME } = await import("../src/theme")
+await prime(DEFAULT_THEME)
+
 // tips.ts scrapes <agent>/hermes_cli/tips.py at first call and caches
 // module-level. Provide a fixture so loadTips() exercises the scraper
 // (not FALLBACK) on machines without a real hermes-agent checkout.
