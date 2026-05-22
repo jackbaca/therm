@@ -1,3 +1,18 @@
+## [1.7.1](https://github.com/liftaris/herm/compare/v1.7.0...v1.7.1) (2026-05-22)
+
+
+### Bug Fixes
+
+* **events:** gateway stderr → kind:error, full line (no 200-char slice) ([6277028](https://github.com/liftaris/herm/commit/6277028e3c115abc2c54763a86d5c46725472040))
+* **session:** reset gateway sid before session.create on /new ([ece98b3](https://github.com/liftaris/herm/commit/ece98b3c9e09eb00235f2d3a90efc5b86957198d))
+* **ui:** drop setRevision from command registry; add DialogHost ErrorBoundary ([a3198e9](https://github.com/liftaris/herm/commit/a3198e97e2059e919600241900ebd3a08f311f32))
+* **ui:** theme picker loop — onMove fires on user moves only; prefs.set no-ops on unchanged value ([2471f10](https://github.com/liftaris/herm/commit/2471f105994d428d7361ae55b8a85dac7d7c8022))
+
+
+### Performance Improvements
+
+* **theme:** lazy-load theme JSONs (eager 42 → prime active only) ([f10dbc5](https://github.com/liftaris/herm/commit/f10dbc516607fc9e530451eea528a807d1b47df6))
+
 # [1.7.0](https://github.com/liftaris/herm/compare/v1.6.1...v1.7.0) (2026-05-21)
 
 
