@@ -282,13 +282,20 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     reset()
     summoned.current = true
     setSplash(true)
+    // Clear the gateway's active sid before session.create lands so
+    // any event emitted in the window between here and setSession(new)
+    // isn't auto-attributed to the outgoing session (stale-sid race).
+    // Mirrors switchProfile. session.close below passes prev
+    // explicitly, so it isn't affected by the clear.
+    gw.setSession("")
+    setSid("")
     // Close the outgoing session so the gateway finalizes it (ends the
     // DB row, reaps its slash_worker subprocess, drops the AIAgent from
     // `_sessions`). Fire-and-forget — create() doesn't depend on it.
     if (prev) void session.close(prev)
     try { setSid(await session.create()); sessionStart.current = Date.now() }
     catch {}
-  }, [reset, session])
+  }, [reset, session, gw])
 
   const switchSession = useCallback(async (target: string) => {
     const prev = sidRef.current
