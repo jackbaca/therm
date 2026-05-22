@@ -1,5 +1,5 @@
 - ALWAYS USE PARALLEL TOOLS WHEN APPLICABLE.
-- The default branch in this repo is `main`.
+- The default branch in this repo is `dev`. Feature branches and PRs target `dev`; `main` only receives release PRs.
 - Prefer automation: execute requested actions without confirmation unless blocked by missing info or safety/irreversibility.
 - This is a TUI app built with OpenTUI React (`@opentui/react`), NOT React DOM. JSX renders to a terminal.
 - Data from `~/.hermes/` carries `source: Source` provenance. Use `<FileLink>` in UI, never hardcode paths.

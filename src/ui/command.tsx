@@ -9,9 +9,16 @@
  *   useEffect(() => cmd.register([
  *     { title: "Help", value: "help", action: "help.open", onSelect: ... },
  *   ]), [])
+ *
+ * The registry is a pure ref — no setState on (un)register. `open()`
+ * and `useKeyboard` read it lazily at press time, so nothing
+ * downstream needs to re-render when callers add or drop commands.
+ * Bumping state here caused an infinite commit loop when a caller's
+ * register effect depended on a value that itself changed during the
+ * commit (e.g. theme context mid-theme-picker navigation).
  */
 
-import { createContext, useState, useCallback, useRef, useMemo } from "react"
+import { createContext, useCallback, useRef, useMemo } from "react"
 import { makeUse } from "../context/helper"
 import type { ReactNode } from "react"
 import { useKeyboard } from "@opentui/react"
@@ -37,25 +44,20 @@ const Ctx = createContext<CommandContext | null>(null)
 
 export const CommandProvider = ({ children }: { children: ReactNode }) => {
   const registry = useRef<Map<string, ReadonlyArray<Command>>>(new Map())
-  const [, setRevision] = useState(0)
   const enabled = useRef(true)
   const dialog = useDialog()
   const keys = useKeys()
 
   const all = useCallback((): Command[] => {
-    const result: Command[] = []
-    registry.current.forEach(cmds => cmds.forEach(c => result.push(c)))
-    return result
+    const out: Command[] = []
+    registry.current.forEach(cmds => cmds.forEach(c => out.push(c)))
+    return out
   }, [])
 
   const register = useCallback((cmds: ReadonlyArray<Command>) => {
     const id = String(Date.now()) + Math.random()
     registry.current.set(id, cmds)
-    setRevision(r => r + 1)
-    return () => {
-      registry.current.delete(id)
-      setRevision(r => r + 1)
-    }
+    return () => { registry.current.delete(id) }
   }, [])
 
   const setEnabled = useCallback((val: boolean) => {

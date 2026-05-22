@@ -1,4 +1,7 @@
-export { ThemeProvider, useTheme } from "./context";
-export { resolveTheme } from "./resolve";
-export { DEFAULT_THEMES, DEFAULT_THEME } from "./builtin";
-export type { ThemeCurrent, Theme, ThemeJson, ThemeColor } from "./types";
+export { ThemeProvider, useTheme } from "./context"
+export { resolveTheme } from "./resolve"
+export { DEFAULT_THEME } from "./builtin"
+export { load, prime, get as getTheme } from "./load"
+export { PREVIEW, NAMES } from "./manifest"
+export type { ThemePreview } from "./manifest"
+export type { ThemeCurrent, Theme, ThemeJson, ThemeColor } from "./types"

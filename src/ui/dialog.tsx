@@ -1,10 +1,11 @@
-import { createContext, useState, useCallback, useMemo, useRef } from "react"
+import { Component, createContext, useState, useCallback, useMemo, useRef } from "react"
 import { makeUse } from "../context/helper"
-import type { ReactNode } from "react"
+import type { ErrorInfo, ReactNode } from "react"
 import { useKeyboard, useTerminalDimensions, useRenderer } from "@opentui/react"
 import { RGBA, type Renderable } from "@opentui/core"
 import { useKeys } from "../keys"
 import { useTheme } from "../theme"
+import { useToast } from "./toast"
 
 type Entry = {
   readonly element: ReactNode
@@ -33,6 +34,7 @@ const BACKDROP = RGBA.fromInts(0, 0, 0, 150)
 
 export const DialogProvider = ({ children }: { children: ReactNode }) => {
   const renderer = useRenderer()
+  const toast = useToast()
   const [stack, setStack] = useState<Entry[]>([])
   const gate = useRef(false)
   const gen = useRef(0)
@@ -96,6 +98,11 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
 
   const open = useCallback(() => gate.current, [])
 
+  const onError = useCallback((err: Error) => {
+    clear()
+    toast.error(err)
+  }, [clear, toast])
+
   const keys = useKeys()
   useKeyboard((key) => {
     if (stack.length === 0) return
@@ -116,9 +123,34 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
   return (
     <Ctx.Provider value={value}>
       {children}
-      {top ? <Overlay entry={top} onClose={clear} /> : null}
+      {top ? <Boundary onError={onError}><Overlay entry={top} onClose={clear} /></Boundary> : null}
     </Ctx.Provider>
   )
+}
+
+// React error boundaries must be classes — hooks can't catch render
+// errors. A throw inside any dialog body (the register-during-render
+// loop, a bad picker option, …) bubbles here, onError dismisses the
+// dialog + toasts the message, and the TUI stays alive. Dismissal
+// unmounts this boundary too, so no state reset is needed.
+class Boundary extends Component<
+  { readonly children: ReactNode; readonly onError: (err: Error) => void },
+  { readonly dead: boolean }
+> {
+  state = { dead: false }
+
+  static getDerivedStateFromError() {
+    return { dead: true }
+  }
+
+  componentDidCatch(err: Error, _info: ErrorInfo) {
+    this.props.onError(err)
+  }
+
+  render() {
+    if (this.state.dead) return null
+    return this.props.children
+  }
 }
 
 const Overlay = ({ entry, onClose }: { entry: Entry; onClose: () => void }) => {

@@ -50,6 +50,11 @@ export const DialogSelect = (props: Props) => {
   // which would snap the cursor back. Only honor the pointer once it
   // has genuinely moved.
   const mode = useRef<"kb" | "mouse">("kb")
+  // onMove is a live-preview hook for USER moves only. Programmatic
+  // cursor syncs (the props.current effect below) must not fire it:
+  // preview → consumer setState → new options identity → sync effect →
+  // preview again is an infinite ping-pong (the /theme picker crash).
+  const moved = useRef(false)
   const sb = useRef<ScrollBoxRenderable | null>(null)
   const theme = useTheme().theme
 
@@ -90,8 +95,10 @@ export const DialogSelect = (props: Props) => {
     scrollTo(n)
   }, [props.current, filtered])
 
-  // Notify on move
+  // Notify on user-driven move only (keyboard nav / mouse hover).
   useEffect(() => {
+    if (!moved.current) return
+    moved.current = false
     const item = filtered[cursor]
     if (item && props.onMove) props.onMove(item)
   }, [cursor, filtered, props.onMove])
@@ -107,7 +114,7 @@ export const DialogSelect = (props: Props) => {
       : undefined
     const consumed = handleListKey(keys, key, {
       count: filtered.length,
-      setSel: (fn) => { mode.current = "kb"; setCursor(fn) },
+      setSel: (fn) => { mode.current = "kb"; moved.current = true; setCursor(fn) },
       scrollTo,
       page: Math.max(1, (sb.current?.viewport.height ?? 10) - 1),
       onActivate: () => { const item = filtered[cursor]; if (item) props.onSelect(item) },
@@ -169,8 +176,8 @@ export const DialogSelect = (props: Props) => {
                 id={rowId(i)}
                 flexDirection="row"
                 backgroundColor={active ? theme.backgroundElement : undefined}
-                onMouseMove={() => { mode.current = "mouse"; setCursor(c => c === i ? c : i) }}
-                onMouseOver={() => { if (mode.current === "mouse") setCursor(i) }}
+                onMouseMove={() => { mode.current = "mouse"; moved.current = true; setCursor(c => c === i ? c : i) }}
+                onMouseOver={() => { if (mode.current === "mouse") { moved.current = true; setCursor(i) } }}
                 onMouseDown={() => props.onSelect(item)}
                 paddingLeft={1}
                 paddingRight={1}

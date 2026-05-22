@@ -99,10 +99,11 @@ describe("Context tab", () => {
   describe("categorical palette", () => {
     test("all category ids map to unique RGBA across every built-in theme", async () => {
       const { clr, SLOTS } = await import("../src/tabs/Context")
-      const { DEFAULT_THEMES, resolveTheme } = await import("../src/theme")
+      const { NAMES, load, resolveTheme } = await import("../src/theme")
       const key = (c: { r: number; g: number; b: number }) =>
         `${c.r.toFixed(4)},${c.g.toFixed(4)},${c.b.toFixed(4)}`
-      for (const [name, json] of Object.entries(DEFAULT_THEMES)) {
+      for (const name of NAMES) {
+        const json = await load(name)
         for (const mode of ["dark", "light"] as const) {
           const theme = resolveTheme(json, mode)
           const seen = new Map<string, string>()
@@ -119,8 +120,8 @@ describe("Context tab", () => {
 
     test("unknown id falls through to 'other' slot", async () => {
       const { clr } = await import("../src/tabs/Context")
-      const { DEFAULT_THEMES, DEFAULT_THEME, resolveTheme } = await import("../src/theme")
-      const theme = resolveTheme(DEFAULT_THEMES[DEFAULT_THEME], "dark")
+      const { DEFAULT_THEME, load, resolveTheme } = await import("../src/theme")
+      const theme = resolveTheme(await load(DEFAULT_THEME), "dark")
       expect(clr("does_not_exist", theme)).toEqual(clr("other", theme))
     })
   })
