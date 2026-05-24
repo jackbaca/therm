@@ -1,3 +1,11 @@
+## [1.7.2](https://github.com/liftaris/herm/compare/v1.7.1...v1.7.2) (2026-05-24)
+
+
+### Bug Fixes
+
+* add missing aux model slots to model picker ([dcfcf0d](https://github.com/liftaris/herm/commit/dcfcf0d7ff7e630608f28f67cfd2c503b0ec7c20))
+* **build:** include theme JSON assets in published dist ([cdcaaab](https://github.com/liftaris/herm/commit/cdcaaab3236ca32c792411111ff2f7a1ef98bf56))
+
 ## [1.7.1](https://github.com/liftaris/herm/compare/v1.7.0...v1.7.1) (2026-05-22)
 
 
