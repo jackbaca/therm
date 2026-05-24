@@ -27,8 +27,11 @@ export const AUX_TASKS = [
   { key: "skills_hub",       label: "Skills Hub",     hint: "Skill search" },
   { key: "approval",         label: "Approval",       hint: "Smart auto-approve" },
   { key: "mcp",              label: "MCP",            hint: "MCP tool routing" },
-  { key: "title_generation", label: "Title Gen",      hint: "Session titles" },
-  { key: "curator",          label: "Curator",        hint: "Skill-usage review" },
+  { key: "title_generation",  label: "Title Gen",         hint: "Session titles" },
+  { key: "triage_specifier",  label: "Triage Specifier",  hint: "Kanban spec fleshing" },
+  { key: "kanban_decomposer", label: "Kanban Decomposer", hint: "Task decomposition" },
+  { key: "profile_describer", label: "Profile Describer", hint: "Auto profile descriptions" },
+  { key: "curator",           label: "Curator",           hint: "Skill-usage review" },
 ] as const
 
 export type AuxKey = typeof AUX_TASKS[number]["key"]
@@ -45,7 +48,7 @@ const dig = (o: unknown, ...path: string[]): unknown =>
 
 const str = (v: unknown) => typeof v === "string" ? v : ""
 
-/** Project config.yaml → 1 main + 9 aux slots. */
+/** Project config.yaml → 1 main + 12 aux slots. */
 export const readSlots = (raw: Record<string, unknown>): Slot[] => {
   const main: Slot = {
     kind: "main", key: "main", label: "Main model", hint: "Primary agent model",
