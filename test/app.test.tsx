@@ -43,8 +43,10 @@ describe("app", () => {
 
     // → Sessions (index 1, the consolidated Sessions/Context/Analytics group).
     act(() => t.keys.pressArrow("right", { meta: true }))
-    // Sandboxed HERMES_HOME has no state.db → empty state
-    await until(t, () => t.frame().includes("No sessions"))
+    // Other test files may seed the process-wide sandbox state.db while this
+    // file is running under Bun's concurrent test scheduler. Assert the tab
+    // transition itself, not a globally-empty Sessions fixture.
+    await until(t, () => t.frame().includes("Sessions ("))
 
     t.destroy()
   })
@@ -58,7 +60,7 @@ describe("app", () => {
 
     // <leader>2 → Sessions group (landing sub-tab is Sessions).
     act(() => { t.keys.pressKey("x", { ctrl: true }); t.keys.pressKey("2") })
-    await until(t, () => t.frame().includes("No sessions"))
+    await until(t, () => t.frame().includes("Sessions ("))
 
     // <leader>4 → Config group. Landing sub-tab is Config.
     act(() => { t.keys.pressKey("x", { ctrl: true }); t.keys.pressKey("4") })
@@ -153,7 +155,7 @@ describe("app", () => {
 
     // Rebound chord does (one step → Sessions group).
     act(() => t.keys.pressKey("]", { ctrl: true }))
-    await until(t, () => t.frame().includes("No sessions"))
+    await until(t, () => t.frame().includes("Sessions ("))
 
     act(() => t.keys.pressKey("[", { ctrl: true }))
     await t.settle()
@@ -299,7 +301,7 @@ describe("app", () => {
 
     // <leader>2 → Sessions group (landing sub-tab: Sessions).
     act(() => { t.keys.pressKey("x", { ctrl: true }); t.keys.pressKey("2") })
-    await until(t, () => t.frame().includes("Sessions (1)"))
+    await until(t, () => t.frame().includes("Session Detail"))
     // Sidebar dropped, detail pane kept.
     expect(t.frame()).not.toMatch(/Profile\s+default/)
     expect(t.frame()).toContain("Session Detail")
