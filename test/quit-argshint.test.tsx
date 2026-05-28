@@ -13,7 +13,7 @@ const Probe = forwardRef<Handle>((_, ref) => {
   return null
 })
 
-async function setup(catalog: { pairs: [string, string][] }) {
+async function setup(catalog: { pairs: [string, string][], canon?: Record<string, string> }) {
   const gw = new MockGateway()
   gw.on$("commands.catalog", () => catalog)
   const ref = createRef<Handle>()
@@ -45,6 +45,19 @@ describe("useSlashCommands /quit description", () => {
     })
     const quit = ref.current!.cmds().find(c => c.name === "quit")!
     expect(quit.description).toBe("Exit the CLI")
+    t.destroy()
+  })
+
+  test("keeps catalog alias canonicalization for /q → /queue and /exit → /quit", async () => {
+    const { t, ref } = await setup({
+      pairs: [["/queue", "Queue a prompt"], ["/quit", "Exit the CLI"]],
+      canon: { "/q": "/queue", "/exit": "/quit" },
+    })
+    const queue = ref.current!.cmds().find(c => c.name === "queue")!
+    const quit = ref.current!.cmds().find(c => c.name === "quit")!
+    expect(queue.aliases).toContain("q")
+    expect(quit.aliases).toContain("exit")
+    expect(quit.aliases).not.toContain("q")
     t.destroy()
   })
 })

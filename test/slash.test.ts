@@ -33,8 +33,13 @@ describe("slash", () => {
     expect(r.map(c => c.name)).toEqual(["a", "c", "b"])
   })
 
-  test("LOCAL_COMMANDS includes logs", () => {
-    expect(LOCAL_COMMANDS.some(c => c.name === "logs")).toBe(true)
+  test("LOCAL_COMMANDS includes local fallbacks for queue and quit aliases", () => {
+    const queue = LOCAL_COMMANDS.find(c => c.name === "queue")
+    const quit = LOCAL_COMMANDS.find(c => c.name === "quit")
+    expect(queue?.aliases).toContain("q")
+    expect(quit?.aliases).toContain("exit")
+    expect(quit?.aliases).not.toContain("q")
+    expect(resolve(LOCAL_COMMANDS, "q")).toMatchObject({ hit: { name: "queue" } })
   })
 
   // Parity guard — every `case "x"` in app/slash.tsx must be in
