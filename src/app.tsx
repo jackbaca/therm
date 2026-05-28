@@ -54,13 +54,13 @@ import { BackgroundProvider } from "./app/background"
 import { useVoice } from "./voice/useVoice"
 import { VoiceIndicator } from "./voice/Indicator"
 
-type AppProps = { initialTheme?: string; gateway?: Gateway; launch?: Launch }
+type AppProps = { initialTheme?: string; gateway?: Gateway; launch?: Launch; keyOverrides?: Record<string, string> }
 
 export const App = (props: AppProps) => (
   <ThemeProvider initial={props.initialTheme}>
     <GatewayProvider client={props.gateway}>
       <ToastProvider>
-        <KeysProvider>
+        <KeysProvider overrides={props.keyOverrides}>
           <DialogProvider>
             <CommandProvider>
               <PluginProvider>
