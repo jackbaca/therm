@@ -34,7 +34,7 @@
 //   create-time-only.
 
 import { Database } from "bun:sqlite"
-import { existsSync, readdirSync, statSync, openSync, readSync, closeSync, readFileSync } from "node:fs"
+import { existsSync, readdirSync, statSync, openSync, readSync, closeSync, readFileSync, fstatSync } from "node:fs"
 import { hermesPath } from "./hermes-home"
 
 // Order matches the CLI's status enumeration so columns line up
@@ -85,6 +85,18 @@ export type Detail = Task & {
 }
 
 export type Board = { slug: string; name: string }
+
+export type BoardErrorKind = "corrupt" | "unreadable" | "query"
+export type BoardError = {
+  kind: BoardErrorKind
+  path: string
+  message: string
+}
+export type BoardState = {
+  columns: Map<Status, Task[]>
+  error: BoardError | null
+  corruptBackups: string[]
+}
 // Fetched by shelling `hermes kanban --board <slug> diagnostics --json`.
 // Parsed here so Kanban.tsx holds only the UI shape. The Python rule
 // engine (hermes_cli/kanban_diagnostics.py, ~650 LOC) owns all rule
@@ -235,12 +247,19 @@ let slug = resolve()
  *  the WAL/foreign_keys pragmas and serves patches. */
 type Handles = { ro: Database | null; rw: Database | null }
 const handles = new Map<string, Handles>()
+const errors = new Map<string, BoardError>()
+
+const SQLITE_HEADER = Buffer.from("SQLite format 3\0", "binary")
+const CORRUPT_BACKUP = /^kanban\.db\.corrupt\..+\.bak$/
 
 export const currentBoard = () => slug
 
 /** default keeps legacy <root>/kanban.db; others live under boards/<slug>/. */
 const dbPath = (s: string) =>
   kp(s === DEFAULT ? "kanban.db" : `kanban/boards/${s}/kanban.db`)
+
+const dbDir = (s: string) =>
+  kp(s === DEFAULT ? "" : `kanban/boards/${s}`)
 
 const logsDir = (s: string) =>
   kp(s === DEFAULT ? "kanban/logs" : `kanban/boards/${s}/logs`)
@@ -253,14 +272,62 @@ const pair = (s: string): Handles => {
   return next
 }
 
+const emptyBoard = (): Map<Status, Task[]> =>
+  new Map<Status, Task[]>(STATUSES.map(k => [k, []]))
+
+const boardErr = (kind: BoardErrorKind, path: string, msg: string): BoardError => ({
+  kind, path, message: msg,
+})
+
+const isCorrupt = (err: unknown): boolean => {
+  const msg = String((err as Error)?.message ?? err).toLowerCase()
+  return msg.includes("not a database")
+    || msg.includes("malformed")
+    || msg.includes("database disk image")
+    || msg.includes("file is not a database")
+}
+
+const headerError = (path: string): BoardError | null => {
+  let st
+  try { st = statSync(path) }
+  catch (e) {
+    const code = (e as NodeJS.ErrnoException).code
+    return code === "ENOENT" ? null : boardErr("unreadable", path, String((e as Error).message ?? e))
+  }
+  if (st.size === 0) return null
+  let fd = -1
+  try {
+    fd = openSync(path, "r")
+    const head = Buffer.alloc(SQLITE_HEADER.length)
+    const n = readSync(fd, head, 0, head.length, 0)
+    if (n >= SQLITE_HEADER.length && head.subarray(0, SQLITE_HEADER.length).equals(SQLITE_HEADER)) return null
+    return boardErr("corrupt", path,
+      `invalid SQLite header; first_32=${head.subarray(0, Math.min(32, n)).toString("hex").match(/../g)?.join(" ") ?? ""}`)
+  } catch (e) {
+    return boardErr("unreadable", path, String((e as Error).message ?? e))
+  } finally {
+    if (fd >= 0) try { closeSync(fd) } catch {}
+  }
+}
+
 const dbOf = (s: string): Database | null => {
   const h = pair(s)
   if (h.ro) return h.ro
+  const path = dbPath(s)
+  if (!existsSync(path)) { errors.delete(s); return null }
+  const hdr = headerError(path)
+  if (hdr) { errors.set(s, hdr); return null }
   // Not { readonly: true } — Bun 1.3.x readonly mode can fail with
   // "unable to open database file" on WAL DBs whose sidecars don't
   // exist yet (gh#29). RW-no-create is safe: we only SELECT on this
   // handle, and create:false still throws when the file is absent.
-  try { h.ro = new Database(dbPath(s), { readwrite: true, create: false }) } catch { h.ro = null }
+  try {
+    h.ro = new Database(path, { readwrite: true, create: false })
+    errors.delete(s)
+  } catch (e) {
+    h.ro = null
+    errors.set(s, boardErr(isCorrupt(e) ? "corrupt" : "unreadable", path, String((e as Error).message ?? e)))
+  }
   return h.ro
 }
 
@@ -271,15 +338,27 @@ const dbOf = (s: string): Database | null => {
 const rwOf = (s: string): Database | null => {
   const h = pair(s)
   if (h.rw) return h.rw
-  if (!existsSync(dbPath(s))) return null
+  const path = dbPath(s)
+  if (!existsSync(path)) return null
+  const hdr = headerError(path)
+  if (hdr) { errors.set(s, hdr); return null }
   try {
-    const db = new Database(dbPath(s))
-    // Match kanban_db.connect() pragmas. WAL is a no-op after the first
-    // time but cheap; synchronous=NORMAL matches upstream.
-    db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON")
+    const db = new Database(path)
+    try { db.exec("PRAGMA journal_mode=WAL") } catch {}
+    db.exec([
+      "PRAGMA synchronous=FULL",
+      "PRAGMA wal_autocheckpoint=100",
+      "PRAGMA secure_delete=ON",
+      "PRAGMA cell_size_check=ON",
+      "PRAGMA foreign_keys=ON",
+    ].join(";"))
     h.rw = db
+    errors.delete(s)
     return db
-  } catch { return null }
+  } catch (e) {
+    errors.set(s, boardErr(isCorrupt(e) ? "corrupt" : "unreadable", path, String((e as Error).message ?? e)))
+    return null
+  }
 }
 
 /** Close every cached handle and re-resolve the active board.
@@ -287,7 +366,18 @@ const rwOf = (s: string): Database | null => {
 export const resetKanban = () => {
   for (const h of handles.values()) { h.ro?.close(); h.rw?.close() }
   handles.clear()
+  errors.clear()
   slug = resolve()
+}
+
+export function corruptBackupsOf(s: string): string[] {
+  const dir = dbDir(s) || kanbanRoot()
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter(e => e.isFile() && CORRUPT_BACKUP.test(e.name))
+      .map(e => `${dir}/${e.name}`)
+      .sort()
+  } catch { return [] }
 }
 
 /** Enumerate boards on disk. 'default' always first; others sorted. */
@@ -420,7 +510,7 @@ const toEvent = (r: Record<string, unknown>): Event => {
  *  dispatcher's pick-next ordering roughly matches the top of
  *  `ready`. */
 export function boardOf(s: string): Map<Status, Task[]> {
-  const out = new Map<Status, Task[]>(STATUSES.map(k => [k, []]))
+  const out = emptyBoard()
   const conn = dbOf(s)
   if (!conn) return out
   try {
@@ -433,8 +523,23 @@ export function boardOf(s: string): Map<Status, Task[]> {
       const t = toTask(r)
       out.get(t.status)?.push(t)
     }
-  } catch {}
+    errors.delete(s)
+  } catch (e) {
+    errors.set(s, boardErr(isCorrupt(e) ? "corrupt" : "query", dbPath(s), String((e as Error).message ?? e)))
+  }
   return out
+}
+
+export function boardStateOf(s: string): BoardState {
+  const columns = boardOf(s)
+  return { columns, error: errors.get(s) ?? null, corruptBackups: corruptBackupsOf(s) }
+}
+
+export function boardErrors(): Array<{ slug: string; error: BoardError }> {
+  return listBoards().flatMap(b => {
+    const state = boardStateOf(b.slug)
+    return state.error ? [{ slug: b.slug, error: state.error }] : []
+  })
 }
 
 const EVENT_TAIL = 20
@@ -552,6 +657,50 @@ export function assignees(s: string = slug): string[] {
 // states only; herm doesn't have a drag affordance, so the simpler
 // "verbs for status, raw for fields" split is enough.
 
+export function kanbanWritePragmas(s: string = slug): Record<string, string | number | null> | null {
+  const conn = rwOf(s)
+  if (!conn) return null
+  const read = (sql: string): string | number | null => {
+    const row = conn.query(sql).get() as Record<string, unknown> | null
+    const val = Object.values(row ?? {})[0]
+    return typeof val === "string" || typeof val === "number" ? val : null
+  }
+  return {
+    journal_mode: read("PRAGMA journal_mode"),
+    synchronous: read("PRAGMA synchronous"),
+    wal_autocheckpoint: read("PRAGMA wal_autocheckpoint"),
+    secure_delete: read("PRAGMA secure_delete"),
+    cell_size_check: read("PRAGMA cell_size_check"),
+    foreign_keys: read("PRAGMA foreign_keys"),
+  }
+}
+
+function checkFileLength(conn: Database) {
+  try {
+    const row = conn.query("PRAGMA database_list").get() as Record<string, unknown> | null
+    const path = String(row?.file ?? row?.[2] ?? "")
+    if (!path) return
+    const pageRow = conn.query("PRAGMA page_size").get() as Record<string, unknown> | null
+    const pageSize = Number(Object.values(pageRow ?? {})[0])
+    if (!pageSize) return
+    const fd = openSync(path, "r")
+    try {
+      const buf = Buffer.alloc(4)
+      if (readSync(fd, buf, 0, 4, 28) < 4) return
+      const headerPages = buf.readUInt32BE(0)
+      if (!headerPages) return
+      const actualPages = Math.floor(fstatSync(fd).size / pageSize)
+      if (actualPages < headerPages)
+        throw new Error(
+          `torn-extend detected: page count mismatch on ${path}: ` +
+          `header claims ${headerPages} pages, file has ${actualPages} pages`,
+        )
+    } finally { closeSync(fd) }
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("torn-extend detected")) throw err
+  }
+}
+
 /** Wrap `fn` in a BEGIN IMMEDIATE txn on `conn`. Mirrors
  *  kanban_db.write_txn — IMMEDIATE takes the reserved lock up front so
  *  concurrent writers fail fast instead of racing mid-txn. */
@@ -560,6 +709,7 @@ function writeTxn<T>(conn: Database, fn: () => T): T {
   try {
     const out = fn()
     conn.exec("COMMIT")
+    checkFileLength(conn)
     return out
   } catch (err) {
     try { conn.exec("ROLLBACK") } catch {}

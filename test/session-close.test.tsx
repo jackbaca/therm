@@ -94,4 +94,40 @@ describe("session.close", () => {
 
     t.destroy()
   })
+
+  test("live session activation does not close the outgoing session and hydrates inflight", async () => {
+    const gw = new MockGateway({
+      "commands.catalog": () => ({ pairs: [["/sessions", "sessions"]] }),
+      "session.active_list": () => ({ sessions: [
+        { id: "live-a", title: "Live A", message_count: 2, started_at: 1700000000, status: "working" },
+      ]}),
+      "session.activate": p => ({
+        session_id: p.session_id,
+        session_key: "live-key",
+        status: "working",
+        running: true,
+        started_at: 1700000000,
+        info: { model: "live-model", session_id: p.session_id, tools: {}, skills: {} },
+        messages: [
+          { role: "user", text: "older question" },
+          { role: "assistant", text: "older answer" },
+        ],
+        inflight: { user: "new question", assistant: "partial answer", streaming: true },
+      }),
+    })
+    const t = await mount({ gw, launch: { mode: "resume", sid: "first", splash: false } })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("/sessions") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Live Sessions"))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("partial answer"))
+
+    expect(t.gw.last("session.activate")?.params.session_id).toBe("live-a")
+    expect(t.gw.last("session.close")).toBeUndefined()
+    expect(t.frame()).toContain("new question")
+
+    t.destroy()
+  })
 })

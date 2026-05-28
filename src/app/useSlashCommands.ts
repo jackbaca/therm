@@ -37,11 +37,16 @@ export function useSlashCommands() {
 
     // canonical → aliases[] (invert canon)
     const alias = new Map<string, string[]>()
-    for (const [a, c] of Object.entries(res.canon ?? {})) {
-      const k = bare(c), v = bare(a)
-      if (k === v) continue
-      ;(alias.get(k) ?? alias.set(k, []).get(k)!).push(v)
+    const addAlias = (name: string, value: string) => {
+      const k = bare(name), v = bare(value)
+      if (k === v) return
+      const list = alias.get(k) ?? []
+      if (!list.includes(v)) alias.set(k, [...list, v])
     }
+    for (const l of LOCAL_COMMANDS)
+      for (const a of l.aliases) addAlias(l.name, a)
+    for (const [a, c] of Object.entries(res.canon ?? {}))
+      addAlias(c, a)
 
     const sub = new Map(Object.entries(res.sub ?? {}).map(([k, v]) => [bare(k), v]))
     const local = new Map(LOCAL_COMMANDS.map(c => [c.name, c]))

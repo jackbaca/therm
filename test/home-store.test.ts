@@ -170,7 +170,7 @@ describe("HomeStore > core", () => {
     expect(Array.isArray(await h.ensure("recentSessions"))).toBe(true)
     expect(Array.isArray(await h.ensure("memoryActivity"))).toBe(true)
     expect(await h.ensure("systemPrompt")).toBeNull()
-    // toolsInfo scans sessions/ for session_*.json; fixture has none.
+    // toolsInfo is a legacy/debug snapshot fallback; fixture has none.
     expect(await h.ensure("toolsInfo")).toBeNull()
   })
 

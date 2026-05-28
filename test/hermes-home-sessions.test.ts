@@ -24,6 +24,22 @@ const seed = () => {
   return db
 }
 
+const resetMessagesSchema = () => {
+  const db = openStateDb()
+  db.run("DROP TRIGGER IF EXISTS messages_fts_insert")
+  db.run("DROP TRIGGER IF EXISTS messages_fts_delete")
+  db.run("DROP TABLE IF EXISTS messages_fts")
+  db.run("DROP TABLE IF EXISTS messages")
+  db.close()
+  openStateDb().close()
+  resetDb()
+}
+
+const addMessageProvenanceColumns = (db: ReturnType<typeof openStateDb>) => {
+  db.run("ALTER TABLE messages ADD COLUMN platform_message_id TEXT")
+  db.run("ALTER TABLE messages ADD COLUMN observed INTEGER DEFAULT 0")
+}
+
 const sess = (
   db: ReturnType<typeof openStateDb>,
   id: string,
@@ -569,10 +585,12 @@ describe("chainTip() — returns tip regardless of message_count", () => {
 afterAll(() => { wipe(); resetDb() })
 
 describe("peek() — tail N messages for a session", () => {
+  beforeEach(resetMessagesSchema)
   afterAll(wipe)
 
   test("returns last N rows chronological, content SUBSTR'd", () => {
     const db = seed()
+    addMessageProvenanceColumns(db)
     sess(db, "px", "tui", 1700000000)
     for (let i = 0; i < 8; i++) msg(db, "px", "user", `m${i}`, 1000 + i)
     db.close()
@@ -584,6 +602,7 @@ describe("peek() — tail N messages for a session", () => {
 
   test("includes tool_name and tool_calls columns", () => {
     const db = seed()
+    addMessageProvenanceColumns(db)
     sess(db, "px", "tui", 1700000000)
     db.prepare("INSERT INTO messages (session_id, role, content, tool_calls, timestamp) VALUES (?,?,?,?,?)")
       .run("px", "assistant", null, '[{"name":"terminal"}]', 1000)
@@ -596,7 +615,37 @@ describe("peek() — tail N messages for a session", () => {
     expect(rows[1].tool_name).toBe("terminal")
   })
 
+  test("omits v13 provenance fields when the messages table is old schema", () => {
+    const db = seed()
+    sess(db, "px", "tui", 1700000000)
+    msg(db, "px", "user", "legacy", 1000)
+    db.close()
+
+    const rows = peek("px", 10)
+    expect(rows[0].platform_message_id).toBeUndefined()
+    expect(rows[0].observed).toBeUndefined()
+  })
+
+  test("includes v13 provenance fields when the messages table has them", () => {
+    const db = seed()
+    addMessageProvenanceColumns(db)
+    sess(db, "px", "tui", 1700000000)
+    db.prepare("INSERT INTO messages (session_id, role, content, platform_message_id, observed, timestamp) VALUES (?,?,?,?,?,?)")
+      .run("px", "user", "from discord", "discord-42", 1, 1000)
+    db.close()
+    resetDb()
+
+    const rows = peek("px", 10)
+    expect(rows[0].platform_message_id).toBe("discord-42")
+    expect(rows[0].observed).toBe(1)
+  })
+
   test("unknown session → empty", () => {
+    const db = seed()
+    addMessageProvenanceColumns(db)
+    db.close()
+    resetDb()
+
     expect(peek("nope", 10)).toEqual([])
   })
 })

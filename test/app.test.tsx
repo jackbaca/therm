@@ -1,12 +1,23 @@
-import { describe, expect, test, spyOn } from "bun:test"
+import { afterEach, beforeEach, describe, expect, test, spyOn } from "bun:test"
 import { act } from "react"
-import { mount, until, MockGateway } from "./harness"
+import { mount as mountApp, until, MockGateway } from "./harness"
 import * as prefs from "../src/context/preferences"
 import * as exit from "../src/app/exit"
 import { DOUBLE_TAB_MS, QUIT_MS } from "../src/app/useAppKeys"
 import type { GatewayEvent } from "../src/context/wire"
 
 describe("app", () => {
+  const mount = (opts: Parameters<typeof mountApp>[0] = {}) =>
+    mountApp({ keyOverrides: {}, ...opts })
+
+  const clearKeyPrefs = () => {
+    prefs.set("keys", undefined)
+    prefs.reset()
+  }
+
+  beforeEach(clearKeyPrefs)
+  afterEach(clearKeyPrefs)
+
   test("boots and renders chat tab with status bar", async () => {
     const t = await mount()
     await until(t, () => t.frame().includes("Ready"))
@@ -66,8 +77,7 @@ describe("app", () => {
 
   test("user keybind override that collides surfaces a system-line warning", async () => {
     // agents.kill → 'r' collides with list.refresh (list↔agents overlap).
-    prefs.set("keys", { "agents.kill": "r" })
-    const t = await mount()
+    const t = await mount({ keyOverrides: { "agents.kill": "r" } })
     await until(t, () => t.frame().includes("Keybinding conflict"))
     expect(t.frame()).toMatch(/R → .*list\.refresh.*agents\.kill|R → .*agents\.kill.*list\.refresh/)
     t.destroy()
@@ -133,8 +143,7 @@ describe("app", () => {
   })
 
   test("tab.next rebind via preferences.keys is honored end-to-end", async () => {
-    prefs.set("keys", { "tab.next": "ctrl+]", "tab.prev": "ctrl+[" })
-    const t = await mount()
+    const t = await mount({ keyOverrides: { "tab.next": "ctrl+]", "tab.prev": "ctrl+[" } })
     await until(t, () => t.frame().includes("Ready"))
 
     // Default chord no longer switches.

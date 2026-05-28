@@ -16,12 +16,15 @@ function ms(d?: number): string {
   return `${Math.floor(d / 60000)}m${Math.round((d % 60000) / 1000)}s`
 }
 
+export type Detail = { label: string; text: string }
+
 type InlineProps = {
   part: ToolPart
   /** Content for the collapsed row; usually preview text. */
   children: ReactNode
   /** True once enough input exists to show `children` instead of pending. */
   complete?: boolean
+  details?: Detail[]
   iconColor?: RGBA
   onClick?: () => void
 }
@@ -63,6 +66,12 @@ export const InlineTool = memo((p: InlineProps) => {
           <text fg={theme.error} wrapMode="word">{p.part.result}</text>
         </box>
       ) : null}
+      {p.details?.map(d => (
+        <box key={d.label} flexDirection="column" paddingLeft={2} marginTop={1}>
+          <box height={1}><text fg={theme.textMuted}>{d.label}</text></box>
+          <box minHeight={1}><text fg={theme.textMuted} wrapMode="word">{d.text}</text></box>
+        </box>
+      ))}
     </box>
   )
 })

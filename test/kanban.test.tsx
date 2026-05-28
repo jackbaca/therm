@@ -1,12 +1,13 @@
-import { describe, test, expect, beforeAll } from "bun:test"
+import { describe, test, expect, beforeAll, afterEach } from "bun:test"
 import { act } from "react"
 import { Database } from "bun:sqlite"
-import { mkdirSync, writeFileSync, rmSync } from "node:fs"
+import { mkdirSync, writeFileSync, rmSync, chmodSync } from "node:fs"
 import { mountNode, MockGateway, until } from "./harness"
 import { hermesPath } from "../src/service/hermes-home"
 import {
   board, boardOf, detail, assignees, tailLog, q, resetKanban,
   currentBoard, listBoards, parseDiagnostics, maxSeverity, sortDiags,
+  boardStateOf, boardErrors, corruptBackupsOf,
 } from "../src/service/hermes-kanban"
 import { Kanban } from "../src/tabs/Kanban"
 
@@ -37,6 +38,16 @@ const schema = (db: Database) => {
     status TEXT, outcome TEXT, started_at INTEGER, ended_at INTEGER,
     summary TEXT, error TEXT, worker_pid INTEGER)`)
 }
+
+
+const cleanupHazardBoards = () => {
+  for (const slug of ["bad", "missing", "quarantined", "ui_bad", "unreadable"])
+    rmSync(hermesPath(`kanban/boards/${slug}`), { recursive: true, force: true })
+  rmSync(hermesPath("kanban.db.corrupt.20260527_010204.bak"), { force: true })
+  resetKanban()
+}
+
+afterEach(() => cleanupHazardBoards())
 
 beforeAll(() => {
   delete process.env.HERMES_KANBAN_BOARD
@@ -105,6 +116,57 @@ describe("hermes-kanban readers", () => {
     expect(boardOf("atm10").get("ready")?.[0]?.id).toBe("m1")
     expect(boardOf("default").get("ready")?.[0]?.id).toBe("t1")
     expect([...boardOf("zeta").values()].every(v => v.length === 0)).toBe(true)
+  })
+
+
+  test("boardStateOf() keeps missing DB empty but reports corrupt existing DB", () => {
+    rmSync(hermesPath("kanban/boards/missing"), { recursive: true, force: true })
+    mkdirSync(hermesPath("kanban/boards/missing"), { recursive: true })
+    resetKanban()
+
+    const missing = boardStateOf("missing")
+    expect(missing.error).toBeNull()
+    expect([...missing.columns.values()].every(v => v.length === 0)).toBe(true)
+
+    mkdirSync(hermesPath("kanban/boards/bad"), { recursive: true })
+    writeFileSync(hermesPath("kanban/boards/bad/kanban.db"), "not sqlite\n")
+    resetKanban()
+
+    const bad = boardStateOf("bad")
+    expect(bad.error?.kind).toBe("corrupt")
+    expect(bad.error?.path).toContain("kanban/boards/bad/kanban.db")
+    expect(bad.error?.message).toContain("invalid SQLite header")
+    expect([...bad.columns.values()].every(v => v.length === 0)).toBe(true)
+  })
+
+  test("boardStateOf() reports unreadable existing DB separately from missing DB", () => {
+    mkdirSync(hermesPath("kanban/boards/unreadable"), { recursive: true })
+    writeFileSync(hermesPath("kanban/boards/unreadable/kanban.db"), "SQLite format 3\0")
+    chmodSync(hermesPath("kanban/boards/unreadable/kanban.db"), 0o000)
+    resetKanban()
+    try {
+      const unreadable = boardStateOf("unreadable")
+      expect(unreadable.error).not.toBeNull()
+      expect(unreadable.error?.kind).not.toBe("missing")
+      expect(unreadable.error?.path).toContain("kanban/boards/unreadable/kanban.db")
+    } finally {
+      chmodSync(hermesPath("kanban/boards/unreadable/kanban.db"), 0o600)
+    }
+  })
+
+  test("boardErrors() and corruptBackupsOf() expose board-level DB hazards", () => {
+    mkdirSync(hermesPath("kanban/boards/bad"), { recursive: true })
+    writeFileSync(hermesPath("kanban/boards/bad/kanban.db"), "not sqlite\n")
+    mkdirSync(hermesPath("kanban/boards/quarantined"), { recursive: true })
+    writeFileSync(hermesPath("kanban/boards/quarantined/kanban.db.corrupt.20260527_010203.bak"), "old bytes")
+    writeFileSync(hermesPath("kanban.db.corrupt.20260527_010204.bak"), "old default bytes")
+    resetKanban()
+
+    const qs = corruptBackupsOf("quarantined")
+    const ds = corruptBackupsOf("default")
+    expect(qs.some(p => p.endsWith("kanban.db.corrupt.20260527_010203.bak"))).toBe(true)
+    expect(ds.some(p => p.endsWith("kanban.db.corrupt.20260527_010204.bak"))).toBe(true)
+    expect(boardErrors().some(e => e.slug === "bad" && e.error.kind === "corrupt")).toBe(true)
   })
 
   test("detail() hydrates parents/children/comments", () => {
@@ -186,6 +248,26 @@ describe("Kanban tab", () => {
     expect(f).toContain("upgrade forge")
     expect(f).not.toMatch(/t2\s+researcher\s+P3/)
     t.destroy()
+  })
+
+
+  test("renders corrupt DB as a board error instead of an empty create prompt", async () => {
+    mkdirSync(hermesPath("kanban/boards/ui_bad"), { recursive: true })
+    writeFileSync(hermesPath("kanban/boards/ui_bad/board.json"), JSON.stringify({ name: "Bad Board" }))
+    writeFileSync(hermesPath("kanban/boards/ui_bad/kanban.db"), "broken board bytes")
+    resetKanban()
+
+    const t = await mountNode(<Kanban focused />, { width: 180, height: 44 })
+    try {
+      await until(t, () => t.frame().includes("Bad Board"))
+      const f = t.frame()
+      expect(f).toMatch(/Bad Board\s+·\s+corrupt/)
+      expect(f).toContain("Kanban DB corrupt")
+      expect(f).toContain("invalid SQLite header")
+      expect(f).not.toMatch(/Bad Board[\s\S]*no tasks —/)
+    } finally {
+      t.destroy()
+    }
   })
 
   test("arrows nav within board; Enter → detail pane", async () => {
@@ -866,6 +948,17 @@ describe("patchTask direct writes", () => {
       ).all(id) as Array<{ kind: string; payload: string | null }>
     } finally { db.close() }
   }
+
+  test("write handle applies hardened SQLite pragmas", async () => {
+    const { kanbanWritePragmas } = await import("../src/service/hermes-kanban")
+    const p = kanbanWritePragmas("default")!
+    expect(String(p.journal_mode).toLowerCase()).toBe("wal")
+    expect(p.synchronous).toBe(2) // FULL
+    expect(p.wal_autocheckpoint).toBe(100)
+    expect(p.secure_delete).toBe(1)
+    expect(p.cell_size_check).toBe(1)
+    expect(p.foreign_keys).toBe(1)
+  })
 
   test("title + body in one txn ⇒ single 'edited' event", async () => {
     const { patchTask } = await import("../src/service/hermes-kanban")
