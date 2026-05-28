@@ -867,6 +867,17 @@ describe("patchTask direct writes", () => {
     } finally { db.close() }
   }
 
+  test("write handle applies hardened SQLite pragmas", async () => {
+    const { kanbanWritePragmas } = await import("../src/service/hermes-kanban")
+    const p = kanbanWritePragmas("default")!
+    expect(String(p.journal_mode).toLowerCase()).toBe("wal")
+    expect(p.synchronous).toBe(2) // FULL
+    expect(p.wal_autocheckpoint).toBe(100)
+    expect(p.secure_delete).toBe(1)
+    expect(p.cell_size_check).toBe(1)
+    expect(p.foreign_keys).toBe(1)
+  })
+
   test("title + body in one txn ⇒ single 'edited' event", async () => {
     const { patchTask } = await import("../src/service/hermes-kanban")
     // Seed by re-using t4 (done) so we have a stable target.
