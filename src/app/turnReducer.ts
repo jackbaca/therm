@@ -24,17 +24,18 @@ export const initialTurn: TurnState = {
 export type Action =
   | { kind: "reset" }
   | { kind: "load"; messages: Message[] }
+  | { kind: "load.live"; messages: Message[]; streaming: boolean }
   | { kind: "push"; message: Message }
   | { kind: "user"; text: string }
   | { kind: "system"; text: string }
   | { kind: "message.start" }
   | { kind: "message.delta"; chunk: string }
   | { kind: "message.complete"; text?: string; usage?: Usage }
-  | { kind: "tool.start"; id: string; name: string; preview?: string }
+  | { kind: "tool.start"; id: string; name: string; preview?: string; args?: string }
   | { kind: "tool.progress"; name?: string; preview?: string }
   | { kind: "tool.generating"; name?: string }
-  | { kind: "tool.complete"; id: string; summary?: string; error?: string; inline_diff?: string }
-  | { kind: "thinking"; text: string; final: boolean }
+  | { kind: "tool.complete"; id: string; summary?: string; error?: string; inline_diff?: string; duration?: number; result?: string }
+  | { kind: "thinking"; text: string; final: boolean; verbose?: boolean }
   | { kind: "subagent"; event: "start" | "thinking" | "tool" | "progress" | "complete"; payload: SubagentPayload }
   | { kind: "prompt"; id: string; req: PromptReq }
   | { kind: "prompt.answered"; id: string; label: string; ok: boolean }
@@ -48,6 +49,14 @@ export function turnReducer(state: TurnState, a: Action): TurnState {
 
     case "load":
       return { ...initialTurn, messages: a.messages }
+
+    case "load.live":
+      return {
+        ...initialTurn,
+        messages: a.messages,
+        streaming: a.streaming,
+        hasContent: a.streaming && Boolean(joinText(a.messages.at(-1)?.parts ?? [])),
+      }
 
     case "push":
       return { ...state, messages: [...state.messages, a.message] }
@@ -85,12 +94,15 @@ export function turnReducer(state: TurnState, a: Action): TurnState {
       // `context` carries the raw tool input; when JSON-shaped we keep it
       // as args so the UI can render KV lines on expand.
       const preview = sanitize(a.preview)
-      const json = preview && /^\s*\{/.test(preview)
+      const args = sanitize(a.args)
+      const raw = args || preview
+      const json = raw && /^\s*\{/.test(raw)
       const part: ToolPart = {
         type: "tool", id: a.id, name: a.name,
-        args: json ? preview : "",
+        args: json ? raw : "",
         status: "running", startedAt: Date.now(),
         preview: preview || undefined,
+        verboseArgs: args || undefined,
       }
       return {
         ...state,
@@ -120,22 +132,24 @@ export function turnReducer(state: TurnState, a: Action): TurnState {
       const summary = sanitize(a.summary)
       const error = sanitize(a.error)
       const diff = sanitize(a.inline_diff)
+      const result = sanitize(a.result)
       return {
         ...state,
         toolActive: false,
         messages: updateToolById(state.messages, a.id, p => ({
           ...p,
           status: (a.error ? "error" : "done") as ToolPart["status"],
-          duration: p.startedAt ? Date.now() - p.startedAt : undefined,
+          duration: a.duration ?? (p.startedAt ? Date.now() - p.startedAt : undefined),
           preview: summary || diff || p.preview,
           result: error || summary || undefined,
+          verboseResult: result || undefined,
           diff: diff || undefined,
         })),
       }
     }
 
     case "thinking":
-      return { ...state, messages: upsertThinking(state.messages, sanitize(a.text), a.final) }
+      return { ...state, messages: upsertThinking(state.messages, sanitize(a.text), a.final, a.verbose) }
 
     case "subagent":
       return { ...state, messages: renderSubagent(state.messages, a.event, a.payload) }
@@ -337,7 +351,7 @@ function updatePrompt(messages: Message[], id: string, fn: (p: PromptPart) => Pr
   })
 }
 
-function upsertThinking(messages: Message[], text: string, final: boolean): Message[] {
+function upsertThinking(messages: Message[], text: string, final: boolean, verbose?: boolean): Message[] {
   return withLastAssistant(
     messages,
     m => {
@@ -349,12 +363,12 @@ function upsertThinking(messages: Message[], text: string, final: boolean): Mess
         // have one. Matches Ink turnController.recordReasoningAvailable.
         const content = final ? prev.content.trim() || text : prev.content + text
         const parts = [...m.parts]
-        parts[idx] = { ...prev, content, streaming: !final }
+        parts[idx] = { ...prev, content, streaming: !final, verbose: prev.verbose || verbose || undefined }
         return { ...m, parts }
       }
-      return { ...m, parts: [{ type: "thinking" as const, key: pid(), content: text, streaming: !final }, ...m.parts] }
+      return { ...m, parts: [{ type: "thinking" as const, key: pid(), content: text, streaming: !final, verbose }, ...m.parts] }
     },
-    () => assistant([{ type: "thinking", key: pid(), content: text, streaming: !final }]),
+    () => assistant([{ type: "thinking", key: pid(), content: text, streaming: !final, verbose }]),
   )
 }
 

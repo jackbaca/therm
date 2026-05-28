@@ -17,7 +17,7 @@ import { useKeyboard } from "@opentui/react"
 
 import type { Message } from "../types/message"
 import { text as msgText } from "../types/message"
-import type { ToolInfo, HermesConfig } from "../service/hermes-home"
+import { makeSource, type ToolInfo, type HermesConfig, type ToolsInfo } from "../service/hermes-home"
 import type { SessionInfo } from "../context/wire"
 import { useHome, home } from "../home"
 import { useGateway } from "../context/gateway"
@@ -285,6 +285,19 @@ const FreePanel = memo(({ seg, theme, ctxLen, comp, onEditThreshold }: {
 // deps don't see a fresh [] reference on every render.
 const NO_MESSAGES: readonly Message[] = Object.freeze([])
 
+const toolsFromInfo = (info?: SessionInfo | null): ToolsInfo | null => {
+  if (!info?.tools) return null
+  const tools = Object.entries(info.tools).flatMap(([group, names]) =>
+    names.map(name => ({
+      name,
+      descriptionLength: 0,
+      paramsLength: group.length,
+    })),
+  )
+  if (tools.length === 0) return null
+  return { source: makeSource("state.db", "session.info"), tools }
+}
+
 export const Context = memo(({ messages = NO_MESSAGES as Message[], info, focused }: Props) => {
   const config = useHome("config")
   const memory = useHome("memory")
@@ -354,13 +367,15 @@ export const Context = memo(({ messages = NO_MESSAGES as Message[], info, focuse
   const sections = useMemo(() => parse(promptText), [promptText])
   const convTok = useMemo(() => est(messages.filter(m => m.role !== "system").map(m => msgText(m)).join("")), [messages])
 
+  const currentTools = useMemo(() => toolsFromInfo(info) ?? toolsInfo, [info, toolsInfo])
+
   const top = useMemo(() => build({
     contextLength: ctxLen,
     inputTokens: fill,
     sections,
     conversationTokens: convTok,
-    tools: toolsInfo?.tools ?? [],
-  }), [ctxLen, fill, sections, convTok, toolsInfo?.tools])
+    tools: currentTools?.tools ?? [],
+  }), [ctxLen, fill, sections, convTok, currentTools])
 
   // Current view: top-level or drilled
   const drilledGroup = drilled ? top.find(s => s.id === drilled) : null
@@ -463,12 +478,12 @@ export const Context = memo(({ messages = NO_MESSAGES as Message[], info, focuse
       return <MemoryPanel seg={seg} theme={theme} label="User Profile" chars={userProfile.charCount} limit={userProfile.charLimit} pct={userProfile.usagePercent} entries={userEntries} source={userProfile.source} />
     }
     if (selected === "skills") return <SkillsPanel seg={seg} theme={theme} />
-    if (selected === "system_tools" && toolsInfo) {
-      const { system } = classifyTools(toolsInfo.tools)
+    if (selected === "system_tools" && currentTools) {
+      const { system } = classifyTools(currentTools.tools)
       return <ToolsPanel seg={seg} theme={theme} tools={system} kind="system_tools" />
     }
-    if (selected === "mcp_tools" && toolsInfo) {
-      const { mcp } = classifyTools(toolsInfo.tools)
+    if (selected === "mcp_tools" && currentTools) {
+      const { mcp } = classifyTools(currentTools.tools)
       return <ToolsPanel seg={seg} theme={theme} tools={mcp} kind="mcp_tools" />
     }
     // SOUL drill: prefer the file-backed slice (authoritative read) over

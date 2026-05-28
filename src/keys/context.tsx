@@ -40,9 +40,10 @@ const Ctx = createContext<Keys | null>(null)
 
 const NO_OVERRIDES: Readonly<Record<string, string>> = Object.freeze({})
 
-export const KeysProvider = ({ children }: { children: ReactNode }) => {
+export const KeysProvider = ({ children, overrides: fixedOverrides }: { children: ReactNode; overrides?: Record<string, string> }) => {
   const renderer = useRenderer()
-  const overrides = usePref("keys") ?? NO_OVERRIDES
+  const prefOverrides = usePref("keys")
+  const overrides = fixedOverrides ?? prefOverrides ?? NO_OVERRIDES
 
   // id → Chord[] computed once per overrides identity. Leader's own chord
   // is looked up from the same table so it's rebindable.

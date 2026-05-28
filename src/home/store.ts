@@ -100,6 +100,8 @@ const SLICES: Slices = {
     watch: () => [hermesPath("SOUL.md")],
   },
   liveSessions: {
+    // Optional legacy/debug file. state.db is the persisted session source;
+    // current runtime facts come from gateway session.info.
     read: () => readLiveSessions(),
     watch: () => [hermesPath("sessions/sessions.json")],
   },
@@ -123,8 +125,9 @@ const SLICES: Slices = {
     }).catch(() => null),
   },
   toolsInfo: {
-    // Scans sessions/ for newest session_*.json — watching the dir picks
-    // up new files without tracking a specific one.
+    // Optional legacy/debug snapshot fallback. Context prefers live
+    // gateway session.info; this only preserves older profiles that still
+    // emit session_*.json tool schemas.
     read: () => readToolsFromLatestSession(),
     watch: () => [hermesPath("sessions")],
   },

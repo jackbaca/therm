@@ -66,12 +66,14 @@ Call `image_generate` with the subject on line 1 and the fixed suffix
 on line 2 — same suffix Studio seeds:
 
 ```
-<subject>
+<subject>, close-up portrait emphasizing the face/head, looking slightly left, stark black and white, bold silhouette, simple uncluttered shape
 high contrast, light subject on dark, black background
 ```
 
-Prefer square if the tool takes `aspect_ratio`; if it doesn't, don't
-worry — Studio crops. Show the result inline with `![base](<path>)`
+Keep this general: replace `face/head` with the subject's most readable
+feature if it is not a character or creature. Prefer square if the tool
+takes `aspect_ratio`; if it doesn't, don't worry — Studio crops. Show
+the result inline with `![base](<path>)`
 and a 48-wide terminal preview:
 
 ```bash
@@ -79,9 +81,11 @@ chafa --size=48x24 --symbols=braille --colors=none --format=symbols --stretch "<
 ```
 
 Ask: **keep, regenerate, or adjust?** On adjust, fold their note into
-the subject line (leave the suffix alone). Loop. If two rounds fail on
-background clutter, silently append `, isolated on pure black, no
-floor, no environment` and try again.
+the subject line (leave the suffix alone). Loop. **Always overwrite the
+same `<state>.<ext>` in `source/` on every iteration** — Studio reads
+that path live, so a new candidate that lives only in cache is invisible
+to the user. If two rounds fail on background clutter, silently append
+`, isolated on pure black, no floor, no environment` and try again.
 
 ### 3. Adopt
 

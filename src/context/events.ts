@@ -87,6 +87,7 @@ export function mapEvent(ev: GatewayEvent, side: Side): Action | null {
         id: ev.payload.tool_id,
         name: ev.payload.name ?? "unknown",
         preview: ev.payload.context,
+        args: ev.payload.args_text,
       }
 
     case "tool.progress":
@@ -102,6 +103,8 @@ export function mapEvent(ev: GatewayEvent, side: Side): Action | null {
         summary: ev.payload.summary,
         error: ev.payload.error,
         inline_diff: ev.payload.inline_diff,
+        duration: typeof ev.payload.duration_s === "number" ? ev.payload.duration_s * 1000 : undefined,
+        result: ev.payload.result_text,
       }
 
     case "thinking.delta":
@@ -114,7 +117,7 @@ export function mapEvent(ev: GatewayEvent, side: Side): Action | null {
     case "reasoning.available": {
       const text = ev.payload?.text
       if (!text) return null
-      return { kind: "thinking", text, final: ev.type === "reasoning.available" }
+      return { kind: "thinking", text, final: ev.type === "reasoning.available", verbose: ev.payload?.verbose }
     }
 
     case "subagent.start":

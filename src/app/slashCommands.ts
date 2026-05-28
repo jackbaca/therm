@@ -2,9 +2,9 @@
  * Slash command definitions for the chat input.
  *
  * Commands are fetched dynamically from Hermes `GET /api/commands` — the
- * unified registry of built-ins + skills + plugins + MCP prompts. There is
- * no static fallback: if the gateway is unreachable, no slash commands are
- * available (the popover simply won't open).
+ * unified registry of built-ins + skills + plugins + MCP prompts. Local
+ * commands are kept as a fallback while the gateway is unreachable and are
+ * merged with the gateway catalog once it is ready.
  *
  * `target` is derived: "local" if the name is a client-handled command,
  * otherwise "gateway" (forwarded as /{name} to the Hermes API).
@@ -42,6 +42,8 @@ export const LOCAL_NAMES = new Set([
   "stash",
   // Ink-only UI toggles — local no-op with a note
   "compact", "setup",
+  // browser: use browser.manage RPC, not slash.exec (issue #82)
+  "browser",
 ])
 
 /**
@@ -71,8 +73,11 @@ export const LOCAL_COMMANDS: ReadonlyArray<SlashCommand> = [
   { name: "goal",   description: "Set/control the session goal",        category: "Session", aliases: [], argsHint: "[text|done|pause|resume|clear|status]", subcommands: ["done", "pause", "resume", "clear", "status"], source: "command", target: "gateway" },
   { name: "skin",   description: "Switch Hermes skin (+ theme + eikon)", category: "Client",  aliases: [], argsHint: "[name]", subcommands: [...SKINS], source: "local", target: "local" },
   { name: "voice",  description: "Toggle voice recording",               category: "Client",  aliases: [], argsHint: "[on|off|status|tts]", subcommands: ["on", "off", "status", "tts"], source: "local", target: "local" },
+  { name: "queue",  description: "Queue a prompt for the next idle turn", category: "Session", aliases: ["q"], argsHint: "[text]", subcommands: [], source: "local", target: "local" },
+  { name: "quit",   description: "Exit herm",                             category: "Exit",    aliases: ["exit"], argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "stash",  description: "Park the prompt (pop/list to restore)", category: "Client",  aliases: [], argsHint: "[pop|list]", subcommands: ["pop", "list"], source: "local", target: "local" },
   { name: "redo",   description: "Re-send the last undone message",       category: "Session", aliases: [], argsHint: "", subcommands: [], source: "local", target: "local" },
+  { name: "browser", description: "Connect/disconnect a CDP browser",      category: "Session", aliases: [], argsHint: "[connect|disconnect|status] [url]", subcommands: ["connect", "disconnect", "status"], source: "local", target: "local" },
 ]
 
 /** Filter commands by prefix (text after `/`). Searches names + aliases. */

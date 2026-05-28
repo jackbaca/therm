@@ -82,6 +82,37 @@ describe("turnReducer", () => {
     expect((last(s).parts[0] as ToolPart).status).toBe("error")
   })
 
+  test("verbose tool details are stored without replacing normal preview", () => {
+    const s = run([
+      { kind: "message.start" },
+      { kind: "tool.start", id: "t1", name: "patch", preview: "src/x.ts", args: "{\"path\":\"src/x.ts\"}" },
+      { kind: "tool.complete", id: "t1", summary: "edited src/x.ts", result: "raw result text", duration: 1200 },
+    ])
+    const tool = last(s).parts[0] as ToolPart
+    expect(tool).toMatchObject({
+      status: "done",
+      preview: "edited src/x.ts",
+      args: "{\"path\":\"src/x.ts\"}",
+      result: "edited src/x.ts",
+      verboseResult: "raw result text",
+      duration: 1200,
+    })
+  })
+
+  test("inline_diff completion keeps verbose result text for details", () => {
+    const s = run([
+      { kind: "message.start" },
+      { kind: "tool.start", id: "t1", name: "patch", preview: "src/x.ts", args: "args" },
+      { kind: "tool.complete", id: "t1", inline_diff: "--- a\n+++ b", result: "patched result" },
+    ])
+    const tool = last(s).parts[0] as ToolPart
+    expect(tool.preview).toBe("--- a\n+++ b")
+    expect(tool.diff).toBe("--- a\n+++ b")
+    expect(tool.result).toBeUndefined()
+    expect(tool.verboseResult).toBe("patched result")
+    expect(tool.verboseArgs).toBe("args")
+  })
+
   test("thinking deltas win; reasoning.available is fallback-only", () => {
     const s = run([
       { kind: "message.start" },
@@ -98,6 +129,14 @@ describe("turnReducer", () => {
       { kind: "thinking", text: "recovered from last_reasoning", final: true },
     ])
     expect(last(s).parts[0]).toMatchObject({ type: "thinking", content: "recovered from last_reasoning", streaming: false })
+  })
+
+  test("reasoning.available preserves forced verbose flag", () => {
+    const s = run([
+      { kind: "message.start" },
+      { kind: "thinking", text: "trace", final: true, verbose: true },
+    ])
+    expect(last(s).parts[0]).toMatchObject({ type: "thinking", content: "trace", streaming: false, verbose: true })
   })
 
   test("interrupt.notice dedupes consecutive identical notices", () => {

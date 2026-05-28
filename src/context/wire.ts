@@ -2,7 +2,9 @@
 
 import type { Usage } from "../types/message"
 
-export type GatewayEvent =
+export type GatewayEvent = ({
+  session_id?: string
+} & (
   | { type: "gateway.ready"; payload?: { skin?: GatewaySkin } }
   | { type: "gateway.stderr"; payload: { line: string } }
   | { type: "gateway.start_timeout"; payload?: { cwd?: string; python?: string } }
@@ -13,13 +15,13 @@ export type GatewayEvent =
   | { type: "message.delta"; payload?: { text?: string; rendered?: string } }
   | { type: "message.complete"; payload?: { text?: string | null; rendered?: string; reasoning?: string; status?: "complete" | "error" | "interrupted"; usage?: Usage } }
   | { type: "thinking.delta"; payload?: { text?: string } }
-  | { type: "reasoning.delta"; payload?: { text?: string } }
-  | { type: "reasoning.available"; payload?: { text?: string } }
+  | { type: "reasoning.delta"; payload?: { text?: string; verbose?: boolean } }
+  | { type: "reasoning.available"; payload?: { text?: string; verbose?: boolean } }
   | { type: "status.update"; payload?: { text?: string; kind?: string } }
-  | { type: "tool.start"; payload: { tool_id: string; name?: string; context?: string } }
+  | { type: "tool.start"; payload: { tool_id: string; name?: string; context?: string; args_text?: string; todos?: unknown[] } }
   | { type: "tool.progress"; payload: { name?: string; preview?: string } }
   | { type: "tool.generating"; payload: { name?: string } }
-  | { type: "tool.complete"; payload: { tool_id: string; name?: string; summary?: string; error?: string; inline_diff?: string } }
+  | { type: "tool.complete"; payload: { tool_id: string; name?: string; summary?: string; error?: string; inline_diff?: string; duration_s?: number; result_text?: string; todos?: unknown[] } }
   | { type: "clarify.request"; payload: { request_id: string; question: string; choices: string[] | null } }
   | { type: "approval.request"; payload: { command: string; description: string; pattern_keys?: string[] } }
   | { type: "sudo.request"; payload: { request_id: string } }
@@ -36,6 +38,7 @@ export type GatewayEvent =
   | { type: "subagent.progress"; payload: SubagentPayload }
   | { type: "subagent.complete"; payload: SubagentPayload }
   | { type: "error"; payload?: { message?: string } }
+))
 
 export type SubagentPayload = {
   task_index: number
@@ -146,6 +149,12 @@ export type SessionInfo = {
   model?: string
   cwd?: string
   session_id?: string
+  /**
+   * Live tool catalog from gateway session.info. state.db is canonical for
+   * historical sessions, while legacy sessions/session_*.json snapshots are
+   * optional debug files; current tool counts should come from this wire
+   * payload when available.
+   */
   tools?: Record<string, string[]>
   skills?: Record<string, string[]>
   version?: string
@@ -195,6 +204,43 @@ export type SessionResumeResponse = {
   messages: TranscriptMessage[]
   message_count?: number
   info?: SessionInfo
+}
+
+export type LiveSessionStatus = "idle" | "starting" | "waiting" | "working"
+
+export type SessionActiveItem = {
+  id: string
+  session_key?: string
+  title?: string
+  preview?: string
+  model?: string
+  status: LiveSessionStatus
+  current?: boolean
+  message_count?: number
+  started_at?: number
+  last_active?: number
+}
+
+export type SessionActiveListResponse = {
+  sessions?: SessionActiveItem[]
+}
+
+export type SessionInflightTurn = {
+  user?: string
+  assistant?: string
+  streaming?: boolean
+}
+
+export type SessionActivateResponse = {
+  session_id: string
+  session_key?: string
+  messages: TranscriptMessage[]
+  message_count?: number
+  info?: SessionInfo
+  running?: boolean
+  status?: LiveSessionStatus
+  started_at?: number
+  inflight?: SessionInflightTurn | null
 }
 
 export type SessionListItem = {
