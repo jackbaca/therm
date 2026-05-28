@@ -27,6 +27,32 @@ const detail = (over: Partial<SessionRow> & { id: string; sessionSource: string 
 })
 
 describe("Sessions tab", () => {
+  test("lists live sessions first and activates without closing siblings", async () => {
+    const gw = new MockGateway({
+      "session.active_list": p => ({ sessions: [
+        { id: "live-a", title: "Working live", preview: "do the thing", message_count: 3, started_at: 1700000000, status: "working", current: p.current_session_id === "live-a" },
+        { id: "live-b", title: "Idle live", preview: "done", message_count: 1, started_at: 1700000100, status: "idle" },
+      ]}),
+      "session.list": () => ({ sessions: ROWS }),
+    })
+    let activated = ""
+    const t = await mountNode(
+      <Sessions focused io={NOIO} currentId="live-a" onActivateLive={sid => { activated = sid }} />,
+      { gw },
+    )
+    await until(t, () => t.frame().includes("Live Sessions (2)"))
+
+    expect(t.frame()).toContain("Working live")
+    expect(t.gw.last("session.active_list")?.params.current_session_id).toBe("live-a")
+
+    act(() => t.keys.pressEnter())
+    await t.settle()
+    expect(activated).toBe("live-a")
+    expect(t.frame()).not.toContain("Load session?")
+
+    t.destroy()
+  })
+
   test("lists from session.list RPC and switches on Enter", async () => {
     const gw = new MockGateway({ "session.list": () => ({ sessions: ROWS }) })
     let switched = ""

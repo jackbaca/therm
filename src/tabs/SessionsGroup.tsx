@@ -14,6 +14,7 @@ type Props = {
   setSub: (i: number) => void
   // Sessions
   onSwitch?: (sid: string) => void
+  onActivateLive?: (sid: string) => void
   currentId?: string
   // Context
   messages?: Message[]
@@ -43,7 +44,9 @@ export const SessionsGroup = memo((props: Props) => {
       <box flexGrow={1} minWidth={0} flexDirection="column">
         <Pane visible={props.sub === 0}>
           <Sessions focused={!!props.focused && props.sub === 0}
-                    onSwitch={props.onSwitch} currentId={props.currentId} />
+                    onSwitch={props.onSwitch}
+                    onActivateLive={props.onActivateLive}
+                    currentId={props.currentId} />
         </Pane>
         <Pane visible={props.sub === 1}>
           <Context focused={!!props.focused && props.sub === 1}

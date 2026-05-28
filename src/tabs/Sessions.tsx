@@ -7,7 +7,7 @@ import { sdb } from "../service/sessions-db"
 import type { SessionRow, SessionHit, LineageInfo, PeekMsg } from "../service/sessions-db"
 import { io as dbio } from "../io"
 import type {
-  SessionListItem, SessionListResponse,
+  SessionListItem, SessionListResponse, SessionActiveItem, SessionActiveListResponse,
 } from "../context/wire"
 import { useGateway } from "../context/gateway"
 import { useTheme } from "../theme"
@@ -36,8 +36,9 @@ import type { SessionsPrefs } from "../context/preferences"
 // gateway, separate profile), enrichment is absent and rows render
 // un-enriched; the tab keeps working at session.list fidelity.
 
-type Row = SessionListItem & { detail?: SessionRow }
+type Row = SessionListItem & { detail?: SessionRow; live?: SessionActiveItem }
 
+type View = "live" | "history"
 type Sort = NonNullable<SessionsPrefs["sort"]>
 
 /** Row comparator for the chosen sort. "active" keys on the tip's
@@ -429,7 +430,13 @@ type IO = {
   rename: typeof sdb.rename
 }
 
-type Props = { focused?: boolean; currentId?: string; onSwitch?: (sid: string) => void; io?: Partial<IO> }
+type Props = {
+  focused?: boolean
+  currentId?: string
+  onSwitch?: (sid: string) => void
+  onActivateLive?: (sid: string) => void
+  io?: Partial<IO>
+}
 
 // Module-level cache so revisiting the tab paints the previous list on
 // frame 1 while load() refreshes in place. Tests that inject `io` don't
@@ -455,6 +462,8 @@ export const Sessions = memo((props: Props) => {
   }
 
   const [rows, setRows] = useState<Row[]>(cached ? last.rows : [])
+  const [liveRows, setLiveRows] = useState<Row[]>([])
+  const [view, setView] = useState<View>("live")
   const [warn, setWarn] = useState("")
   const [pending, setPending] = useState(rows.length === 0)
   // Persisted, user-toggleable list ordering. roots() always returns
@@ -462,7 +471,9 @@ export const Sessions = memo((props: Props) => {
   // without re-hitting state.db.
   const sort: Sort = prefs.usePref("sessions")?.sort ?? "active"
   const setSort = useCallback((s: Sort) => prefs.set("sessions", { sort: s }), [])
-  const sorted = useMemo(() => [...rows].sort(cmp(sort)), [rows, sort])
+  const showingLive = view === "live" && liveRows.length > 0
+  const listed = showingLive ? liveRows : rows
+  const sorted = useMemo(() => showingLive ? liveRows : [...rows].sort(cmp(sort)), [showingLive, liveRows, rows, sort])
   // Selection is tracked by row identity so that collapsing children
   // (which changes the flat index of every row below) never lands sel
   // on the wrong row. The numeric index consumers use (handleListKey,
@@ -506,8 +517,8 @@ export const Sessions = memo((props: Props) => {
   // Latest-value refs so the stable row callbacks below don't close
   // over stale arrays (and therefore don't need to be in their deps,
   // which would defeat the memo).
-  const live = useRef({ rows, visible, anchor, results, searching, onSwitch: props.onSwitch, currentId: props.currentId })
-  live.current = { rows, visible, anchor, results, searching, onSwitch: props.onSwitch, currentId: props.currentId }
+  const live = useRef({ rows: listed, visible, anchor, results, searching, showingLive, onSwitch: props.onSwitch, onActivateLive: props.onActivateLive, currentId: props.currentId })
+  live.current = { rows: listed, visible, anchor, results, searching, showingLive, onSwitch: props.onSwitch, onActivateLive: props.onActivateLive, currentId: props.currentId }
 
   // Adapter for handleListKey, which speaks numeric sel. Translating
   // through the anchor means the target row is resolved against the
@@ -530,6 +541,16 @@ export const Sessions = memo((props: Props) => {
     source: d.sessionSource, detail: d,
   })
 
+  const toLiveRow = (s: SessionActiveItem): Row => ({
+    id: s.id,
+    title: s.title || s.preview || s.id,
+    preview: s.preview ?? "",
+    message_count: s.message_count ?? 0,
+    started_at: s.started_at ?? s.last_active ?? 0,
+    source: "live",
+    live: s,
+  })
+
   // Two-stage paint. io.list is off-thread, so the mount frame commits
   // (spinner / cached rows) before it resolves; the RPC is slower still.
   // Kids (subagents per parent) fill in after the list — the tree
@@ -537,6 +558,9 @@ export const Sessions = memo((props: Props) => {
   const load = useCallback(async () => {
     setPending(true)
     const rpc = gw.request<SessionListResponse>("session.list", { limit: LIMIT })
+      .then(r => ({ ok: true as const, v: r }))
+      .catch((e: Error) => ({ ok: false as const, e }))
+    const active = gw.request<SessionActiveListResponse>("session.active_list", { current_session_id: props.currentId })
       .then(r => ({ ok: true as const, v: r }))
       .catch((e: Error) => ({ ok: false as const, e }))
     const fs = Promise.resolve(io.list(LIMIT)).catch(() => [])
@@ -555,6 +579,13 @@ export const Sessions = memo((props: Props) => {
       if (cached) last.kids = m
     }
     void fillKids(diskRows)
+
+    const a = await active
+    if (a.ok) {
+      const live = (a.v.sessions ?? []).map(toLiveRow)
+      setLiveRows(live)
+      if (live.length === 0) setView(v => v === "live" ? "history" : v)
+    }
 
     // Stock session.list doesn't drop 0-msg stubs — every abandoned
     // connect leaves one, and they're never useful to resume. Keep
@@ -581,7 +612,7 @@ export const Sessions = memo((props: Props) => {
         ? `gateway session.list failed (${r.e.message}) — listing state.db directly; rows may not resume`
         : r.e.message
       : "")
-  }, [gw])
+  }, [gw, props.currentId])
 
   useEffect(() => { load() }, [load])
 
@@ -618,7 +649,9 @@ export const Sessions = memo((props: Props) => {
     l.searching ? setSearchSel(i) : setSel(i)
     const hit = l.searching ? l.results[i] : l.visible[i]?.row
     const id = l.searching ? (hit as SessionHit | undefined)?.session_id : (hit as Row | undefined)?.id
-    if (!id || !l.onSwitch) return
+    if (!id) return
+    if (l.showingLive && !l.searching) return l.onActivateLive?.(id)
+    if (!l.onSwitch) return
     if (id === l.currentId) return l.onSwitch(id)
     const title = (hit as { title?: string } | undefined)?.title || "Untitled"
     const n = l.searching ? undefined : (hit as Row).message_count
@@ -731,7 +764,9 @@ export const Sessions = memo((props: Props) => {
       page: Math.max(1, (vscroll.current?.viewport.height ?? 10) - 1),
       scrollTo: n => vscroll.current?.scrollChildIntoView(rowId(n)),
       onActivate: () => rowActivate(sel),
-      onToggle: () => setSort(sort === "active" ? "started" : "active"),
+      onToggle: () => liveRows.length > 0
+        ? setView(showingLive ? "history" : "live")
+        : setSort(sort === "active" ? "started" : "active"),
       onRefresh: () => { void load(); toast.show({ variant: "info", message: "Reloaded", duration: 1000 }) },
       onDelete: () => {
         const v = visible[sel]
@@ -759,7 +794,7 @@ export const Sessions = memo((props: Props) => {
     }
   })
 
-  const empty = searching ? results.length === 0 && query.length > 0 : rows.length === 0
+  const empty = searching ? results.length === 0 && query.length > 0 : listed.length === 0
   // Sidebar yields at <140 on non-Chat tabs (app.tsx), so detail can
   // stay mounted down to the shell's own floor.
   const showDetailPanel = dims.width >= 120
@@ -770,7 +805,7 @@ export const Sessions = memo((props: Props) => {
       <TabShell
         title={searching
           ? `Search Results (${results.length})`
-          : `Sessions (${rows.length}${pending ? "…" : ""})`}
+          : `${showingLive ? "Live Sessions" : "Sessions"} (${listed.length}${pending ? "…" : ""})`}
         error={warn || null}
         grow={3}
       >
@@ -797,6 +832,17 @@ export const Sessions = memo((props: Props) => {
           </box>
         ) : (
           <box key="table" flexDirection="column" flexGrow={1} minWidth={0}>
+            {!searching && liveRows.length > 0 ? (
+              <box height={1} marginBottom={1} flexDirection="row">
+                <box onMouseDown={() => setView("live")}>
+                  <text fg={showingLive ? theme.accent : theme.textMuted}>{`live ${liveRows.length}`}</text>
+                </box>
+                <text fg={theme.textMuted}>  ·  </text>
+                <box onMouseDown={() => setView("history")}>
+                  <text fg={showingLive ? theme.textMuted : theme.accent}>{`history ${rows.length}`}</text>
+                </box>
+              </box>
+            ) : null}
             {searching ? <SearchHeaderRow /> : <HeaderRow sort={sort} onSort={setSort} />}
             <box height={1} />
             <scrollbox ref={vscroll} scrollY viewportCulling flexGrow={1}
@@ -832,9 +878,9 @@ export const Sessions = memo((props: Props) => {
       : [
           ["↑↓", "navigate"],
           ["←→", "lineage"],
-          [`${keys.print("list.activate")}/click`, "switch"],
+          [`${keys.print("list.activate")}/click`, showingLive ? "activate live" : "switch"],
           [keys.print("list.search"), "search"],
-          [keys.print("list.toggle"), `sort: ${sort}`],
+          liveRows.length > 0 ? ["mouse", showingLive ? "history" : "live"] : [keys.print("list.toggle"), `sort: ${sort}`],
           [keys.print("sessions.rename"), "rename"],
           [keys.print("list.delete"), "delete"],
           [keys.print("list.refresh"), "refresh"],

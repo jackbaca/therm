@@ -8,8 +8,10 @@ import { transcriptToMessages } from "./turnReducer"
 import type { Launch } from "./launch"
 import type {
   SessionResumeResponse,
+  SessionActivateResponse,
   SessionCreateResponse,
   SessionInfo,
+  SessionInflightTurn,
   TranscriptMessage,
 } from "../context/wire"
 import type { Message, Usage } from "../types/message"
@@ -47,6 +49,7 @@ export type CompressResult = {
 }
 
 type Booted = { id: string; messages: Message[]; note?: string }
+type Activated = { id: string; messages: Message[]; info?: SessionInfo; running: boolean; status?: string; startedAt?: number }
 
 export const normalize = (sid: string): string =>
   sid.trim().replace(/\.json$/i, "").replace(/^session_(?=\d{8}_)/, "")
@@ -56,6 +59,7 @@ type SessionOps = {
   boot: (launch: Launch) => Promise<Booted>
   create: () => Promise<string>
   resume: (sid: string) => Promise<{ id: string; messages: Message[] }>
+  activate: (sid: string) => Promise<Activated>
   /** Finalize a gateway session (best-effort — swallows errors). */
   close: (sid: string) => Promise<void>
   interrupt: () => Promise<void>
@@ -66,6 +70,15 @@ type SessionOps = {
 
 export function useSession(): SessionOps {
   const gw = useGateway()
+
+  const inflightMessages = (inflight?: SessionInflightTurn | null): Message[] => {
+    const user = String(inflight?.user ?? "").trim()
+    const assistant = String(inflight?.assistant ?? "")
+    const messages: Message[] = []
+    if (user) messages.push(...transcriptToMessages([{ role: "user", text: user }]))
+    if (assistant || inflight?.streaming) messages.push(...transcriptToMessages([{ role: "assistant", text: assistant }]))
+    return messages
+  }
 
   const resume = useCallback(async (sid: string) => {
     // Normalize at the edge (argv / slash-arg can be `session_*.json`).
@@ -93,6 +106,24 @@ export function useSession(): SessionOps {
     const res = await gw.request<SessionCreateResponse>("session.create", {})
     gw.setSession(res.session_id)
     return res.session_id
+  }, [gw])
+
+  const activate = useCallback(async (sid: string): Promise<Activated> => {
+    const target = normalize(sid)
+    const res = await gw.request<SessionActivateResponse>("session.activate", { session_id: target })
+    const id = res.session_id
+    gw.setSession(id)
+    preferences.set("lastSessionId", res.session_key ?? id)
+    const history = res.messages?.length ? transcriptToMessages(res.messages) : []
+    const running = Boolean(res.running || res.status === "working" || res.status === "waiting")
+    return {
+      id,
+      info: res.info,
+      messages: [...history, ...inflightMessages(res.inflight)],
+      running,
+      startedAt: res.started_at ? res.started_at * 1000 : undefined,
+      status: res.status,
+    }
   }, [gw])
 
   // Finalize a gateway session: marks the DB row ended, tears down the
@@ -156,7 +187,7 @@ export function useSession(): SessionOps {
   }, [gw])
 
   return useMemo(
-    () => ({ boot, create, resume, close, interrupt, branch, compress, undo }),
-    [boot, create, resume, close, interrupt, branch, compress, undo],
+    () => ({ boot, create, resume, activate, close, interrupt, branch, compress, undo }),
+    [boot, create, resume, activate, close, interrupt, branch, compress, undo],
   )
 }
