@@ -10,7 +10,7 @@
 
 import { Database } from "bun:sqlite";
 import { readdir, stat } from "node:fs/promises";
-import { openSync, readSync, closeSync, readdirSync, readFileSync } from "node:fs";
+import { openSync, readSync, closeSync, readdirSync, readFileSync, existsSync } from "node:fs";
 import { homedir } from "os";
 import { parse as parseYaml } from "yaml";
 import { count as tokenCount } from "../utils/tokens";
@@ -127,7 +127,7 @@ export interface MemoryFileInfo {
 /** A row from the sessions table in state.db — see sessions-db.ts. */
 export type { SessionRow } from "./sessions-db"
 
-/** Live session entry from sessions/sessions.json */
+/** Legacy live session entry from optional sessions/sessions.json. */
 export interface LiveSession {
   session_key: string;
   session_id: string;
@@ -154,7 +154,7 @@ export interface LiveSession {
   };
 }
 
-/** A tool schema from the session JSON */
+/** A tool schema from live session.info or a legacy debug session JSON. */
 export interface ToolInfo {
   name: string;
   descriptionLength: number;
@@ -442,7 +442,7 @@ export interface SystemPromptInfo {
   tokenEstimate: number;
 }
 
-/** Tool list with its source session file */
+/** Tool list with its source. */
 export interface ToolsInfo {
   source: Source;
   tools: ToolInfo[];
@@ -530,12 +530,19 @@ export async function readMemoryFile(
   }
 }
 
-/** Read sessions/sessions.json (live session index) */
+/**
+ * Read optional legacy sessions/sessions.json.
+ *
+ * state.db is canonical for persisted sessions. This file is only present
+ * when Hermes is configured to emit debug/legacy snapshots, so absence is
+ * expected and must read as an empty map.
+ */
 export async function readLiveSessions(): Promise<
   Record<string, LiveSession>
 > {
   try {
     const file = Bun.file(hermesPath("sessions/sessions.json"));
+    if (!(await file.exists())) return {};
     const text = await file.text();
     return JSON.parse(text);
   } catch {
@@ -642,14 +649,16 @@ export async function readSoul(): Promise<SoulInfo | null> {
   }
 }
 
-/** Read tool list from the most recent session JSON */
+/** Read tool list from the most recent optional legacy session JSON. */
 export async function readToolsFromLatestSession(): Promise<ToolsInfo | null> {
   try {
+    const dir = hermesPath("sessions");
+    if (!existsSync(dir)) return null;
     const glob = new Bun.Glob("session_*.json");
     let latestPath = "";
     let latestTime = 0;
 
-    for await (const path of glob.scan({ cwd: hermesPath("sessions") })) {
+    for await (const path of glob.scan({ cwd: dir })) {
       const file = Bun.file(hermesPath(`sessions/${path}`));
       const stat = await file.stat();
       if (stat && stat.mtimeMs > latestTime) {

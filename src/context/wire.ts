@@ -149,6 +149,12 @@ export type SessionInfo = {
   model?: string
   cwd?: string
   session_id?: string
+  /**
+   * Live tool catalog from gateway session.info. state.db is canonical for
+   * historical sessions, while legacy sessions/session_*.json snapshots are
+   * optional debug files; current tool counts should come from this wire
+   * payload when available.
+   */
   tools?: Record<string, string[]>
   skills?: Record<string, string[]>
   version?: string

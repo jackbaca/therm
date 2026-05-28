@@ -50,6 +50,20 @@ describe("Context tab", () => {
     t.destroy()
   })
 
+  test("uses session.info tools without legacy session JSON snapshots", async () => {
+    const info: SessionInfo = {
+      model: "test",
+      context_max: 10_000,
+      tools: { builtin: ["terminal"], mcp: ["mcp_search"] },
+    }
+    const t = await mountNode(<Context info={info} />)
+    await t.settle()
+    const f = strip(t.frame())
+    expect(f).toContain("System Tools")
+    expect(f).toContain("MCP Tools")
+    t.destroy()
+  })
+
   // In-grid threshold marker (◼ in textMuted past threshold) + ×N badge.
   describe("threshold marker", () => {
     test("renders '×N compressed' badge when compressions > 0", async () => {
