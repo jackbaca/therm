@@ -103,6 +103,7 @@ export function useStream(c: Ctx) {
 
   const handle = useCallback((ev: GatewayEvent) => {
     const x = ctx.current
+    if (ev.session_id && x.sidRef.current && ev.session_id !== x.sidRef.current && !ev.type.startsWith("gateway.")) return
     // The agent's stream-retry loop (run_agent._call) classifies the
     // force-closed httpx socket from an interrupt as a transient drop
     // and emits "Reconnecting…" lifecycle status before the top-of-loop
