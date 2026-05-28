@@ -1,4 +1,4 @@
-import { describe, expect, test, spyOn } from "bun:test"
+import { afterEach, beforeEach, describe, expect, test, spyOn } from "bun:test"
 import { act } from "react"
 import { mount, until, MockGateway } from "./harness"
 import * as prefs from "../src/context/preferences"
@@ -7,6 +7,14 @@ import { DOUBLE_TAB_MS, QUIT_MS } from "../src/app/useAppKeys"
 import type { GatewayEvent } from "../src/context/wire"
 
 describe("app", () => {
+  const clearKeyPrefs = () => {
+    prefs.set("keys", undefined)
+    prefs.reset()
+  }
+
+  beforeEach(clearKeyPrefs)
+  afterEach(clearKeyPrefs)
+
   test("boots and renders chat tab with status bar", async () => {
     const t = await mount()
     await until(t, () => t.frame().includes("Ready"))
