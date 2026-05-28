@@ -68,6 +68,7 @@ export const stateDb = (): Database | null => {
 export const resetDb = () => {
   for (const s of stmts.values()) s.finalize()
   stmts.clear()
+  msgCols.clear()
   conn.ro?.close()
   conn.ro = null
 }
@@ -76,12 +77,25 @@ export const resetDb = () => {
 // memoises internally, but holding our own map lets stats()/perf
 // count distinct statements and makes the no-db path trivially cheap.
 const stmts = new Map<string, Statement>()
+const msgCols = new Map<string, boolean>()
 const q = (sql: string): Statement | null => {
   const db = stateDb()
   if (!db) return null
   let s = stmts.get(sql)
   if (!s) stmts.set(sql, (s = db.query(sql)))
   return s
+}
+
+const hasMsgCol = (name: string): boolean => {
+  const hit = msgCols.get(name)
+  if (hit !== undefined) return hit
+  const db = stateDb()
+  const ok = db
+    ? db.query("PRAGMA table_info(messages)").all()
+        .some(r => (r as { name?: string }).name === name)
+    : false
+  msgCols.set(name, ok)
+  return ok
 }
 
 /** A row from the sessions table enriched for the list/detail view. */
@@ -137,6 +151,12 @@ export interface PeekMsg {
   /** JSON string of tool_calls when role='assistant' and the model
    *  invoked tools instead of / as well as emitting content. */
   tool_calls: string | null
+  /** External messaging platform's original message id. Present only
+   *  on Hermes Agent state.db schema v13+. */
+  platform_message_id?: string | null
+  /** 1 for group-context messages observed but not dispatched to the
+   *  agent. Present only on Hermes Agent state.db schema v13+. */
+  observed?: number | null
   at: number
 }
 //
@@ -381,13 +401,28 @@ function tip(sid: string): string {
 export function peek(sid: string, n = 60): PeekMsg[] {
   const end = perf.mark("io:sessions.peek")
   try {
+    const ext = [
+      hasMsgCol("platform_message_id")
+        ? "platform_message_id"
+        : "NULL AS platform_message_id",
+      hasMsgCol("observed") ? "observed" : "NULL AS observed",
+    ]
     return ((q(
       `SELECT role, SUBSTR(content,1,400) AS content, tool_name,
-              SUBSTR(tool_calls,1,400) AS tool_calls, timestamp AS at
+              SUBSTR(tool_calls,1,400) AS tool_calls, timestamp AS at,
+              ${ext.join(", ")}
        FROM (SELECT * FROM messages WHERE session_id = ?
              ORDER BY id DESC LIMIT ?)
        ORDER BY id ASC`,
-    )?.all(sid, n) ?? []) as PeekMsg[])
+    )?.all(sid, n) ?? []) as PeekMsg[]).map((r) => ({
+      role: r.role,
+      content: r.content,
+      tool_name: r.tool_name,
+      tool_calls: r.tool_calls,
+      ...(r.platform_message_id !== null && { platform_message_id: r.platform_message_id }),
+      ...(r.observed !== null && { observed: r.observed }),
+      at: r.at,
+    }))
   } finally { end() }
 }
 
