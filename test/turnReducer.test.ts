@@ -131,6 +131,14 @@ describe("turnReducer", () => {
     expect(last(s).parts[0]).toMatchObject({ type: "thinking", content: "recovered from last_reasoning", streaming: false })
   })
 
+  test("reasoning.available preserves forced verbose flag", () => {
+    const s = run([
+      { kind: "message.start" },
+      { kind: "thinking", text: "trace", final: true, verbose: true },
+    ])
+    expect(last(s).parts[0]).toMatchObject({ type: "thinking", content: "trace", streaming: false, verbose: true })
+  })
+
   test("interrupt.notice dedupes consecutive identical notices", () => {
     const s = run([
       { kind: "interrupt.notice", text: "press esc" },

@@ -149,7 +149,7 @@ export function turnReducer(state: TurnState, a: Action): TurnState {
     }
 
     case "thinking":
-      return { ...state, messages: upsertThinking(state.messages, sanitize(a.text), a.final) }
+      return { ...state, messages: upsertThinking(state.messages, sanitize(a.text), a.final, a.verbose) }
 
     case "subagent":
       return { ...state, messages: renderSubagent(state.messages, a.event, a.payload) }
@@ -351,7 +351,7 @@ function updatePrompt(messages: Message[], id: string, fn: (p: PromptPart) => Pr
   })
 }
 
-function upsertThinking(messages: Message[], text: string, final: boolean): Message[] {
+function upsertThinking(messages: Message[], text: string, final: boolean, verbose?: boolean): Message[] {
   return withLastAssistant(
     messages,
     m => {
@@ -363,12 +363,12 @@ function upsertThinking(messages: Message[], text: string, final: boolean): Mess
         // have one. Matches Ink turnController.recordReasoningAvailable.
         const content = final ? prev.content.trim() || text : prev.content + text
         const parts = [...m.parts]
-        parts[idx] = { ...prev, content, streaming: !final }
+        parts[idx] = { ...prev, content, streaming: !final, verbose: prev.verbose || verbose || undefined }
         return { ...m, parts }
       }
-      return { ...m, parts: [{ type: "thinking" as const, key: pid(), content: text, streaming: !final }, ...m.parts] }
+      return { ...m, parts: [{ type: "thinking" as const, key: pid(), content: text, streaming: !final, verbose }, ...m.parts] }
     },
-    () => assistant([{ type: "thinking", key: pid(), content: text, streaming: !final }]),
+    () => assistant([{ type: "thinking", key: pid(), content: text, streaming: !final, verbose }]),
   )
 }
 

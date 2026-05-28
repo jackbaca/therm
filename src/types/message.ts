@@ -35,6 +35,7 @@ export type ThinkingPart = {
   key?: string
   content: string
   streaming: boolean
+  verbose?: boolean
 }
 
 /** Agent-originated interactive prompt. Renders inline in the
