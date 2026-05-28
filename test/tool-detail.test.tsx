@@ -69,4 +69,32 @@ describe("Tool > detail mode", () => {
     expect(r.frame().trim().length).toBeGreaterThan(0)
     r.destroy()
   })
+
+  test("expanded mode shows verbose args and result details", async () => {
+    const verbose: ToolPart = {
+      type: "tool", id: "t3", name: "patch", args: "",
+      preview: "src/z.ts", status: "done", duration: 10,
+      verboseArgs: "{\"path\":\"src/z.ts\"}",
+      verboseResult: "patched result",
+    }
+    const t = await mount(verbose, "expanded")
+    await until(t, () => t.frame().includes("Args"))
+    const f = t.frame()
+    expect(f).toContain("Result")
+    expect(f).toContain("patched result")
+    t.destroy()
+  })
+
+  test("collapsed mode keeps verbose details hidden", async () => {
+    const verbose: ToolPart = {
+      type: "tool", id: "t3", name: "patch", args: "",
+      preview: "src/z.ts", status: "done", duration: 10,
+      verboseArgs: "{\"path\":\"src/z.ts\"}",
+      verboseResult: "patched result",
+    }
+    const t = await mount(verbose, "collapsed")
+    await until(t, () => t.frame().includes("Edit src/z.ts"))
+    expect(t.frame()).not.toContain("patched result")
+    t.destroy()
+  })
 })
