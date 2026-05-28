@@ -66,12 +66,14 @@ Call `image_generate` with the subject on line 1 and the fixed suffix
 on line 2 — same suffix Studio seeds:
 
 ```
-<subject>
+<subject>, close-up portrait emphasizing the face/head, looking slightly left, stark black and white, bold silhouette, simple uncluttered shape
 high contrast, light subject on dark, black background
 ```
 
-Prefer square if the tool takes `aspect_ratio`; if it doesn't, don't
-worry — Studio crops. Show the result inline with `![base](<path>)`
+Keep this general: replace `face/head` with the subject's most readable
+feature if it is not a character or creature. Prefer square if the tool
+takes `aspect_ratio`; if it doesn't, don't worry — Studio crops. Show
+the result inline with `![base](<path>)`
 and a 48-wide terminal preview:
 
 ```bash
