@@ -13,13 +13,13 @@ export type GatewayEvent =
   | { type: "message.delta"; payload?: { text?: string; rendered?: string } }
   | { type: "message.complete"; payload?: { text?: string | null; rendered?: string; reasoning?: string; status?: "complete" | "error" | "interrupted"; usage?: Usage } }
   | { type: "thinking.delta"; payload?: { text?: string } }
-  | { type: "reasoning.delta"; payload?: { text?: string } }
-  | { type: "reasoning.available"; payload?: { text?: string } }
+  | { type: "reasoning.delta"; payload?: { text?: string; verbose?: boolean } }
+  | { type: "reasoning.available"; payload?: { text?: string; verbose?: boolean } }
   | { type: "status.update"; payload?: { text?: string; kind?: string } }
-  | { type: "tool.start"; payload: { tool_id: string; name?: string; context?: string } }
+  | { type: "tool.start"; payload: { tool_id: string; name?: string; context?: string; args_text?: string; todos?: unknown[] } }
   | { type: "tool.progress"; payload: { name?: string; preview?: string } }
   | { type: "tool.generating"; payload: { name?: string } }
-  | { type: "tool.complete"; payload: { tool_id: string; name?: string; summary?: string; error?: string; inline_diff?: string } }
+  | { type: "tool.complete"; payload: { tool_id: string; name?: string; summary?: string; error?: string; inline_diff?: string; duration_s?: number; result_text?: string; todos?: unknown[] } }
   | { type: "clarify.request"; payload: { request_id: string; question: string; choices: string[] | null } }
   | { type: "approval.request"; payload: { command: string; description: string; pattern_keys?: string[] } }
   | { type: "sudo.request"; payload: { request_id: string } }

@@ -16,6 +16,10 @@ export type ToolPart = {
   startedAt?: number
   duration?: number
   preview?: string
+  /** Redacted verbose args from gateway tool.start.args_text, when /verbose verbose is active. */
+  verboseArgs?: string
+  /** Redacted verbose result from gateway tool.complete.result_text, when /verbose verbose is active. */
+  verboseResult?: string
   result?: string
   diff?: string
   /** Subagent only — child tool calls accumulated from subagent.tool events. */

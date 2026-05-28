@@ -66,6 +66,22 @@ describe("mapEvent", () => {
       .toMatchObject({ kind: "tool.complete", id: "t1", summary: "5 lines" })
   })
 
+  test("verbose tool payload maps args/result text and duration_s", () => {
+    expect(map({
+      type: "tool.start",
+      payload: { tool_id: "t1", name: "patch", context: "f.ts", args_text: "{\"path\":\"f.ts\"}" },
+    }).action).toEqual({
+      kind: "tool.start", id: "t1", name: "patch", preview: "f.ts", args: "{\"path\":\"f.ts\"}",
+    })
+
+    expect(map({
+      type: "tool.complete",
+      payload: { tool_id: "t1", duration_s: 1.25, result_text: "patched", inline_diff: "diff" },
+    }).action).toEqual({
+      kind: "tool.complete", id: "t1", duration: 1250, result: "patched", inline_diff: "diff",
+    })
+  })
+
   test("status.update: cosmetic → null; lifecycle → system", () => {
     const a = map({ type: "status.update", payload: { kind: "status", text: "spin" } })
     expect(a.action).toBeNull()
@@ -129,6 +145,8 @@ describe("mapEvent", () => {
       .toEqual({ kind: "thinking", text: "hmm", final: false })
     expect(map({ type: "reasoning.available", payload: { text: "done" } }).action)
       .toEqual({ kind: "thinking", text: "done", final: true })
+    expect(map({ type: "reasoning.available", payload: { text: "done", verbose: true } }).action)
+      .toEqual({ kind: "thinking", text: "done", final: true, verbose: true })
   })
 
   test("request events return prompt actions (no side callback)", () => {
