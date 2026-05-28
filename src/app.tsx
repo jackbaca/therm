@@ -363,6 +363,42 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       setSwitching(false)
     }
   }, [reset, session, goToTab])
+
+  const liveStatus = (state?: string, running = false) => {
+    if (state === "waiting") return "waiting for input…"
+    if (state === "starting") return "starting agent…"
+    return running || state === "working" ? "running…" : "ready"
+  }
+
+  const activateSession = useCallback(async (target: string) => {
+    const prev = sidRef.current
+    reset()
+    summoned.current = true
+    setSplash(true)
+    setSwitching(true)
+    goToTab(CHAT_TAB)
+    try {
+      const res = await session.activate(target)
+      setSid(res.id)
+      if (res.info) {
+        setInfo(res.info)
+        setUsage(res.info.usage)
+      }
+      sessionStart.current = res.startedAt ?? Date.now()
+      dispatch({ kind: "load.live", messages: res.messages, streaming: res.running })
+      setStatus(liveStatus(res.status, res.running))
+      setReady(true)
+      setSplash(false)
+      summoned.current = false
+      if (prev && prev !== res.id) toast.show({ variant: "info", message: "switched live session" })
+    } catch (err) {
+      dispatch({ kind: "system", text: `Failed to activate: ${err instanceof Error ? err.message : String(err)}` })
+      setSplash(false)
+      summoned.current = false
+    } finally {
+      setSwitching(false)
+    }
+  }, [reset, session, goToTab, toast])
   // Rebind every HERMES_HOME reader, respawn the gateway subprocess
   // under the new env, and re-run the boot path. prefs.reload (inside
   // rehome) retints theme/eikon/keys via usePref; home.reset repaints
@@ -695,7 +731,9 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
         case SESSIONS_TAB: return <SessionsGroup focused={contentFocused}
                                                  sub={subTabs[SESSIONS_TAB] ?? 0}
                                                  setSub={sessSub}
-                                                 onSwitch={switchSession} currentId={sid}
+                                                 onSwitch={switchSession}
+                                                 onActivateLive={activateSession}
+                                                 currentId={sid}
                                                  messages={turn.messages}
                                                  sessionStart={sessionStart.current}
                                                  info={info ?? undefined} />

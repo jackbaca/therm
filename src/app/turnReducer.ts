@@ -24,6 +24,7 @@ export const initialTurn: TurnState = {
 export type Action =
   | { kind: "reset" }
   | { kind: "load"; messages: Message[] }
+  | { kind: "load.live"; messages: Message[]; streaming: boolean }
   | { kind: "push"; message: Message }
   | { kind: "user"; text: string }
   | { kind: "system"; text: string }
@@ -48,6 +49,14 @@ export function turnReducer(state: TurnState, a: Action): TurnState {
 
     case "load":
       return { ...initialTurn, messages: a.messages }
+
+    case "load.live":
+      return {
+        ...initialTurn,
+        messages: a.messages,
+        streaming: a.streaming,
+        hasContent: a.streaming && Boolean(joinText(a.messages.at(-1)?.parts ?? [])),
+      }
 
     case "push":
       return { ...state, messages: [...state.messages, a.message] }
