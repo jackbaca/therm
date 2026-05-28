@@ -34,7 +34,7 @@
 //   create-time-only.
 
 import { Database } from "bun:sqlite"
-import { existsSync, readdirSync, statSync, openSync, readSync, closeSync, readFileSync } from "node:fs"
+import { existsSync, readdirSync, statSync, openSync, readSync, closeSync, readFileSync, fstatSync } from "node:fs"
 import { hermesPath } from "./hermes-home"
 
 // Order matches the CLI's status enumeration so columns line up
@@ -274,9 +274,16 @@ const rwOf = (s: string): Database | null => {
   if (!existsSync(dbPath(s))) return null
   try {
     const db = new Database(dbPath(s))
-    // Match kanban_db.connect() pragmas. WAL is a no-op after the first
-    // time but cheap; synchronous=NORMAL matches upstream.
-    db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON")
+    const mode = db.query("PRAGMA journal_mode").get() as Record<string, unknown> | null
+    if (String(Object.values(mode ?? {})[0] ?? "").toLowerCase() !== "wal")
+      db.exec("PRAGMA journal_mode=WAL")
+    db.exec([
+      "PRAGMA synchronous=FULL",
+      "PRAGMA wal_autocheckpoint=100",
+      "PRAGMA secure_delete=ON",
+      "PRAGMA cell_size_check=ON",
+      "PRAGMA foreign_keys=ON",
+    ].join(";"))
     h.rw = db
     return db
   } catch { return null }
@@ -552,6 +559,50 @@ export function assignees(s: string = slug): string[] {
 // states only; herm doesn't have a drag affordance, so the simpler
 // "verbs for status, raw for fields" split is enough.
 
+export function kanbanWritePragmas(s: string = slug): Record<string, string | number | null> | null {
+  const conn = rwOf(s)
+  if (!conn) return null
+  const read = (sql: string): string | number | null => {
+    const row = conn.query(sql).get() as Record<string, unknown> | null
+    const val = Object.values(row ?? {})[0]
+    return typeof val === "string" || typeof val === "number" ? val : null
+  }
+  return {
+    journal_mode: read("PRAGMA journal_mode"),
+    synchronous: read("PRAGMA synchronous"),
+    wal_autocheckpoint: read("PRAGMA wal_autocheckpoint"),
+    secure_delete: read("PRAGMA secure_delete"),
+    cell_size_check: read("PRAGMA cell_size_check"),
+    foreign_keys: read("PRAGMA foreign_keys"),
+  }
+}
+
+function checkFileLength(conn: Database) {
+  try {
+    const row = conn.query("PRAGMA database_list").get() as Record<string, unknown> | null
+    const path = String(row?.file ?? row?.[2] ?? "")
+    if (!path) return
+    const pageRow = conn.query("PRAGMA page_size").get() as Record<string, unknown> | null
+    const pageSize = Number(Object.values(pageRow ?? {})[0])
+    if (!pageSize) return
+    const fd = openSync(path, "r")
+    try {
+      const buf = Buffer.alloc(4)
+      if (readSync(fd, buf, 0, 4, 28) < 4) return
+      const headerPages = buf.readUInt32BE(0)
+      if (!headerPages) return
+      const actualPages = Math.floor(fstatSync(fd).size / pageSize)
+      if (actualPages < headerPages)
+        throw new Error(
+          `torn-extend detected: page count mismatch on ${path}: ` +
+          `header claims ${headerPages} pages, file has ${actualPages} pages`,
+        )
+    } finally { closeSync(fd) }
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("torn-extend detected")) throw err
+  }
+}
+
 /** Wrap `fn` in a BEGIN IMMEDIATE txn on `conn`. Mirrors
  *  kanban_db.write_txn — IMMEDIATE takes the reserved lock up front so
  *  concurrent writers fail fast instead of racing mid-txn. */
@@ -560,6 +611,7 @@ function writeTxn<T>(conn: Database, fn: () => T): T {
   try {
     const out = fn()
     conn.exec("COMMIT")
+    checkFileLength(conn)
     return out
   } catch (err) {
     try { conn.exec("ROLLBACK") } catch {}
