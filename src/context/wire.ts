@@ -2,7 +2,9 @@
 
 import type { Usage } from "../types/message"
 
-export type GatewayEvent =
+export type GatewayEvent = ({
+  session_id?: string
+} & (
   | { type: "gateway.ready"; payload?: { skin?: GatewaySkin } }
   | { type: "gateway.stderr"; payload: { line: string } }
   | { type: "gateway.start_timeout"; payload?: { cwd?: string; python?: string } }
@@ -36,6 +38,7 @@ export type GatewayEvent =
   | { type: "subagent.progress"; payload: SubagentPayload }
   | { type: "subagent.complete"; payload: SubagentPayload }
   | { type: "error"; payload?: { message?: string } }
+))
 
 export type SubagentPayload = {
   task_index: number
