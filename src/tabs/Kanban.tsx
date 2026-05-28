@@ -2,11 +2,11 @@ import { useState, useEffect, useCallback, useMemo, useRef, memo } from "react"
 import { useKeyboard, useTerminalDimensions } from "@opentui/react"
 import type { BorderSides, ScrollBoxRenderable } from "@opentui/core"
 import {
-  boardOf, detailOf, tailLogOf, assignees, q, STATUSES,
+  boardStateOf, detailOf, tailLogOf, assignees, q, STATUSES,
   currentBoard, listBoards, resetKanban, patchTask,
   parseDiagnostics, maxSeverity, sortDiags,
   type Task, type Status, type Detail, type Board,
-  type Diag, type Severity,
+  type Diag, type Severity, type BoardError,
 } from "../service/hermes-kanban"
 import { useKeys } from "../keys"
 import { useTheme } from "../theme"
@@ -243,6 +243,28 @@ const Column = memo((p: {
   )
 })
 
+
+const ErrorBanner = memo((p: { error: BoardError; backups: string[] }) => {
+  const theme = useTheme().theme
+  return (
+    <box flexDirection="column" marginLeft={2} marginBottom={1}
+         paddingLeft={1} border borderColor={theme.error}>
+      <box height={1}>
+        <text>
+          <span fg={theme.error}><strong>Kanban DB {p.error.kind}</strong></span>
+          <span fg={theme.textMuted}>{`  ${p.error.path}`}</span>
+        </text>
+      </box>
+      <text wrapMode="word" fg={theme.textMuted}>{p.error.message}</text>
+      {p.backups.length > 0 ? (
+        <text wrapMode="word" fg={theme.warning}>
+          {`quarantine backup${p.backups.length === 1 ? "" : "s"}: ${p.backups.join(", ")}`}
+        </text>
+      ) : null}
+    </box>
+  )
+})
+
 const FilterBar = memo((p: {
   chips: Chip[]; mask: Mask; on: boolean; sel: number
   onPick: (i: number) => void
@@ -272,6 +294,7 @@ type ColSpec = { status: Status; tasks: Task[] }
 type Section = {
   board: Board; cols: ColSpec[]; chips: Chip[]
   total: number; shown: number; running: number; cap: number
+  error: BoardError | null; corruptBackups: string[]
 }
 // Fields are ordered top-to-bottom to match the layout. The
 // `editable` flag gates whether Tab/↑↓ can land on a row and whether
@@ -597,8 +620,8 @@ export const Kanban = memo((props: { focused?: boolean }) => {
   const keys = useKeys()
 
   const [boards, setBoards] = useState<Board[]>(listBoards)
-  const [data, setData] = useState<Map<string, Map<Status, Task[]>>>(
-    () => new Map(boards.map(b => [b.slug, boardOf(b.slug)])),
+  const [data, setData] = useState<Map<string, ReturnType<typeof boardStateOf>>>(
+    () => new Map(boards.map(b => [b.slug, boardStateOf(b.slug)])),
   )
   // diag[slug][taskId] = Diag[]. Shape keeps card lookup O(1) and
   // lets the SidePane pull the current task's diagnostics without a
@@ -614,8 +637,10 @@ export const Kanban = memo((props: { focused?: boolean }) => {
     // First-run fallback: current board + any non-empty board.
     const init = currentBoard()
     return new Set(listBoards()
-      .filter(b => b.slug === init
-        || [...boardOf(b.slug).values()].some(v => v.length > 0))
+      .filter(b => {
+        const state = boardStateOf(b.slug)
+        return b.slug === init || [...state.columns.values()].some(v => v.length > 0) || !!state.error
+      })
       .map(b => b.slug))
   })
   const [at, setAt] = useState<string>(currentBoard)
@@ -631,7 +656,7 @@ export const Kanban = memo((props: { focused?: boolean }) => {
   const load = useCallback(() => {
     const bs = listBoards()
     setBoards(bs)
-    setData(new Map(bs.map(b => [b.slug, boardOf(b.slug)])))
+    setData(new Map(bs.map(b => [b.slug, boardStateOf(b.slug)])))
     setPane(p => p?.kind === "detail"
       ? (d => d ? { ...p, d } : null)(detailOf(p.slug, p.d.id)) : p)
     // Diagnostics: one shell.exec per board. Compute in parallel; any
@@ -661,7 +686,8 @@ export const Kanban = memo((props: { focused?: boolean }) => {
   const maxH = Math.max(8, dims.height - 16)
   const sections = useMemo<Section[]>(() => {
     const built = boards.map(b => {
-      const d = data.get(b.slug) ?? new Map<Status, Task[]>()
+      const state = data.get(b.slug) ?? boardStateOf(b.slug)
+      const d = state.columns
       const flat = STATUSES.flatMap(s => d.get(s) ?? [])
       const total = flat.length
       const who = [...new Set(flat.map(t => t.assignee).filter((v): v is string => !!v))].sort()
@@ -682,6 +708,8 @@ export const Kanban = memo((props: { focused?: boolean }) => {
         board: b, cols, chips, total, shown,
         running: d.get("running")?.length ?? 0,
         cap: Math.min(maxH, Math.max(5, 3 + 2 * tall)),
+        error: state.error,
+        corruptBackups: state.corruptBackups,
       }
     })
     // Non-empty boards first; empties sink. Stable partition so Tab
@@ -1055,7 +1083,8 @@ export const Kanban = memo((props: { focused?: boolean }) => {
     // link_tasks (server rejects with "would cycle"), so we don't
     // need to second-guess here — just show everything usable and
     // let the linker toast the error if it fires.
-    const d = data.get(at) ?? new Map<Status, Task[]>()
+    const state = data.get(at) ?? boardStateOf(at)
+    const d = state.columns
     const all = STATUSES.flatMap(s => d.get(s) ?? [])
     const opts = all
       .filter(x => x.id !== t.id)
@@ -1255,13 +1284,21 @@ export const Kanban = memo((props: { focused?: boolean }) => {
                       <span fg={on ? theme.accent : theme.textMuted}>{secOpen ? "▾ " : "▸ "}</span>
                       <span fg={on ? theme.primary : theme.text}><strong>{s.board.name}</strong></span>
                       <span fg={theme.textMuted}>
-                        {s.total === 0 ? "  ·  empty"
+                        {s.error ? `  ·  ${s.error.kind}`
+                          : s.corruptBackups.length > 0 ? `  ·  ${s.corruptBackups.length} corrupt backup${s.corruptBackups.length === 1 ? "" : "s"}`
+                          : s.total === 0 ? "  ·  empty"
                           : `  ·  ${filt ? `${s.shown}/` : ""}${s.total} task${s.total === 1 ? "" : "s"}${s.running ? ` · ${s.running} running` : ""}`}
                       </span>
                     </text>
                   </box>
                   {secOpen ? (
-                    s.total === 0 ? (
+                    s.error ? (
+                      <ErrorBanner error={s.error} backups={s.corruptBackups} />
+                    ) : s.corruptBackups.length > 0 && s.total === 0 ? (
+                      <box height={1} marginLeft={2}>
+                        <text fg={theme.warning}>{`corrupt backup found: ${s.corruptBackups[0]}`}</text>
+                      </box>
+                    ) : s.total === 0 ? (
                       <box height={1} marginLeft={2}>
                         <text fg={theme.textMuted}>
                           no tasks — <span fg={theme.accent}>n</span> to create one here
