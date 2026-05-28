@@ -1,3 +1,19 @@
+# [1.8.0](https://github.com/liftaris/herm/compare/v1.7.2...v1.8.0) (2026-05-28)
+
+
+### Bug Fixes
+
+* close parity review gaps ([4ae87a5](https://github.com/liftaris/herm/commit/4ae87a56f8ee92c0144fb3d4cdfe94b80605193e))
+* harden kanban direct SQLite writes ([fd0453a](https://github.com/liftaris/herm/commit/fd0453a13cbff8e217d70ad380f1cc9b58b3a6b9))
+* resolve hermes-agent FHS layout for root Linux installs (fix [#83](https://github.com/liftaris/herm/issues/83)) ([de8dbc6](https://github.com/liftaris/herm/commit/de8dbc699de5be56fc42c8160b079384e73cef52))
+* **slash:** route /browser through browser.manage RPC (fix [#82](https://github.com/liftaris/herm/issues/82)) ([3d0cfb0](https://github.com/liftaris/herm/commit/3d0cfb0bcb13c884d7efbede512b02c3d927b166))
+* surface corrupt kanban db state ([139ba3c](https://github.com/liftaris/herm/commit/139ba3c414ceda55863467eba5adef72bdb9bbbd))
+
+
+### Features
+
+* support live session activation ([2d87253](https://github.com/liftaris/herm/commit/2d8725344e5ef7fe35b3461418f2b20c19736c4a))
+
 ## [1.7.2](https://github.com/liftaris/herm/compare/v1.7.1...v1.7.2) (2026-05-24)
 
 
