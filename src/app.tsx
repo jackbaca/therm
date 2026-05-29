@@ -342,10 +342,17 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     summoned.current = true
     setSplash(true)
     setSwitching(true)
+    gw.setSession("")
+    setSid("")
     goToTab(CHAT_TAB)
     try {
       const res = await session.resume(target)
       setSid(res.id)
+      if (res.info) {
+        setInfo(res.info)
+        setUsage(res.info.usage)
+      }
+      setReady(true)
       sessionStart.current = Date.now()
       if (res.messages.length) dispatch({ kind: "load", messages: res.messages })
       // Close only after resume succeeds — a failed resume leaves the
@@ -362,7 +369,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     } finally {
       setSwitching(false)
     }
-  }, [reset, session, goToTab])
+  }, [reset, session, goToTab, gw])
 
   const liveStatus = (state?: string, running = false) => {
     if (state === "waiting") return "waiting for input…"
