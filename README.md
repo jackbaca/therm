@@ -1,8 +1,5 @@
 # Herm
 
-> A fast terminal dashboard for Hermes Agent: chat, sessions, profiles, skills,
-> cron, config, memory, and kanban in one keyboard-driven shell.
-
 ![Herm startup splash screen](./assets/readme-splash.png)
 
 Chat stays on the left. The sidebar and tabs expose model/profile state,
