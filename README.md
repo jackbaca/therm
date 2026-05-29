@@ -36,6 +36,27 @@ bun run src/index.tsx
 
 Herm looks for `~/.hermes`. If yours lives elsewhere, set `HERMES_HOME`. See [`.env.example`](./.env.example) for rarely-needed overrides.
 
+## Quick Start
+
+Once herm launches you'll see a splash screen with tips at the bottom — click them to cycle through more. From there:
+
+**Change theme:** Type `/theme` in the composer to open the theme picker. Browse 40+ themes including Catppuccin, Dracula, Gruvbox, Nord, Tokyo Night, and many more. If text is hard to read (especially in tmux or with a dark terminal), pick a lighter theme like `daylight`, `mercury`, or `github`.
+
+**Get help:** Type `/help` for keyboard shortcuts, or press `Ctrl+K` to open the command palette for all available actions.
+
+**Navigate tabs:** Use `Tab` / `Shift+Tab` to move between top-level tabs (Sessions, Context, Config, etc.). Arrow keys navigate within a tab.
+
+**Key commands:** Type `/` in the composer for slash commands including:
+- `/new` — start a new session
+- `/resume <id>` — switch to an existing session
+- `/title <name>` — name the current session
+- `/model <name>` — switch models
+- `/skin <name>` — switch Hermes personality skins
+- `/keys` — view and rebind all keybindings
+- `/quit` — exit herm
+
+**Tip:** If you run herm inside tmux and text is unreadable (dark-on-dark), it's likely a color escape issue. Try `/theme daylight` or another light theme first, then check your tmux config — `set -g default-terminal "tmux-256color"` in `~/.tmux.conf` often fixes color issues on macOS.
+
 ## Development
 
 ```bash
