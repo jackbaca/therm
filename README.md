@@ -86,7 +86,6 @@ See [`.env.example`](./.env.example) for rarely-needed overrides.
 - Switch Hermes profiles from inside the TUI.
 - Inspect and manage operational surfaces: sessions, context, agents,
   analytics, skills, cron, toolsets, config, env, and memory.
-- Keep the current chat visible while moving through dashboard tabs.
 
 ### Run kanban work
 
@@ -112,9 +111,9 @@ handling.
 
 ## Status and compatibility
 
-Herm expects a current Hermes Agent install and gateway. When the gateway
-changes, Herm may need a matching update. Unsupported or stale gateway methods
-should fail visibly rather than silently falling back.
+Herm does not guarantee backward compatibility with older versions of Hermes.
+Hermes is constantly updating, and things are bound to break. Regular Hermes
+parity sweeps and updates are done to keep Herm current.
 
 Herm is the dashboard TUI for Hermes Agent. It does not replace Hermes Agent,
 implement model providers itself, or own Hermes runtime behavior.
