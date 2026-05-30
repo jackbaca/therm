@@ -27,7 +27,7 @@ const detail = (over: Partial<SessionRow> & { id: string; sessionSource: string 
 })
 
 describe("Sessions tab", () => {
-  test("lists live sessions first and activates without closing siblings", async () => {
+  test("pins active sessions above history without entering an active-only view", async () => {
     const gw = new MockGateway({
       "session.active_list": p => ({ sessions: [
         { id: "live-a", title: "Working live", preview: "do the thing", message_count: 3, started_at: 1700000000, status: "working", current: p.current_session_id === "live-a" },
@@ -40,9 +40,20 @@ describe("Sessions tab", () => {
       <Sessions focused io={NOIO} currentId="live-a" onActivateLive={sid => { activated = sid }} />,
       { gw },
     )
-    await until(t, () => t.frame().includes("Live Sessions (2)"))
+    await until(t, () => t.frame().includes("Sessions (4)"))
 
-    expect(t.frame()).toContain("Working live")
+    const lines = t.frame().split("\n")
+    const live = lines.findIndex(l => l.includes("Working live") && l.includes("Live"))
+    const div = lines.findIndex(l => l.includes("History"))
+    const hist = lines.findIndex(l => l.includes("First session") && l.includes("TUI"))
+    expect(live).toBeGreaterThanOrEqual(0)
+    expect(div).toBeGreaterThan(live)
+    expect(hist).toBeGreaterThan(div)
+    expect(t.frame()).toContain("Second session")
+    expect(t.frame()).toContain("sort: active")
+    expect(t.frame()).not.toContain("Live Sessions")
+    expect(t.frame()).not.toContain("live 2")
+    expect(t.frame()).not.toContain("history 2")
     expect(t.gw.last("session.active_list")?.params.current_session_id).toBe("live-a")
 
     act(() => t.keys.pressEnter())
@@ -175,6 +186,54 @@ describe("Sessions tab", () => {
     await until(t, () => t.frame().includes("Active ▾"))
     expect(order()).toBe("fresh-first")
     expect(prefs.get("sessions")?.sort).toBe("active")
+
+    prefs.reset()
+    t.destroy()
+  })
+
+  test("Space keeps sorting history while active sessions are pinned", async () => {
+    prefs.reset()
+    const disk = [
+      detail({ id: "older-fresh", sessionSource: "tui",
+        title: "Older Start Fresh Activity", message_count: 5,
+        started_at: 1700000000, last_active: 1700099999 }),
+      detail({ id: "newer-idle", sessionSource: "tui",
+        title: "Newer Start Idle", message_count: 3,
+        started_at: 1700050000, last_active: 1700050001 }),
+    ]
+    const gw = new MockGateway({
+      "session.active_list": () => ({ sessions: [
+        { id: "live-a", title: "Working live", preview: "do the thing", message_count: 3, started_at: 1700100000, status: "working" },
+      ]}),
+      "session.list": () => ({ sessions: [
+        { id: "older-fresh", title: "Older Start Fresh Activity", preview: "ping", message_count: 5, started_at: 1700000000, source: "tui" },
+        { id: "newer-idle", title: "Newer Start Idle", preview: "", message_count: 3, started_at: 1700050000, source: "tui" },
+      ]}),
+    })
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, list: () => disk }} />, { gw })
+    await until(t, () => t.frame().includes("Sessions (3)"))
+
+    const order = () => {
+      const lines = t.frame().split("\n")
+      const live = lines.findIndex(l => l.includes("Working live") && l.includes("Live"))
+      const a = lines.findIndex(l => l.includes("Older Start Fresh Activity") && l.includes("TUI"))
+      const b = lines.findIndex(l => l.includes("Newer Start Idle") && l.includes("TUI"))
+      expect(live).toBeGreaterThanOrEqual(0)
+      expect(a).toBeGreaterThan(live)
+      expect(b).toBeGreaterThan(live)
+      return a < b ? "fresh-first" : "idle-first"
+    }
+
+    expect(t.frame()).toContain("sort: active")
+    expect(t.frame()).toContain("Space")
+    expect(t.frame()).not.toContain("mouse")
+    expect(order()).toBe("fresh-first")
+
+    await act(async () => { await t.keys.typeText(" ") })
+    await until(t, () => t.frame().includes("Start ▾"))
+    expect(t.frame()).toContain("sort: started")
+    expect(order()).toBe("idle-first")
+    expect(prefs.get("sessions")?.sort).toBe("started")
 
     prefs.reset()
     t.destroy()
