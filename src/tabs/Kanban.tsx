@@ -24,6 +24,7 @@ import { HintBar } from "../ui/hint"
 import { KVBlock } from "../ui/kv"
 import { ago, trunc } from "../ui/fmt"
 import { load as loadPrefs, set as setPref, type KanbanPrefs } from "../context/preferences"
+import { parseDispatchResult, dispatchFailures } from "../service/kanban-dispatch"
 
 // Operator surface for every kanban board under ~/.hermes/.
 //
@@ -100,23 +101,6 @@ const recOf = (v: unknown): Record<string, unknown> | null =>
 const assignedByDefault = (d: Detail): boolean =>
   d.events.some(e => e.kind === "assigned"
     && recOf(e.payload)?.source === "kanban.default_assignee")
-
-type DispatchJson = {
-  spawned?: Array<{ task_id?: string; assignee?: string; workspace?: string }>
-  skipped_unassigned?: string[]
-  skipped_nonspawnable?: string[]
-  skipped_per_profile_capped?: Array<{ task_id?: string; assignee?: string; current?: number }>
-  auto_assigned_default?: string[]
-}
-
-const dispatchJson = (out: string): DispatchJson | null => {
-  try {
-    const raw = JSON.parse(out) as unknown
-    return recOf(raw) as DispatchJson | null
-  } catch { return null }
-}
-
-const countOf = <T,>(xs: T[] | undefined): number => Array.isArray(xs) ? xs.length : 0
 
 /** True when `v` survives the group. Absence ⇒ "off". */
 function admits<V>(g: Map<V, Tri>, v: V): boolean {
@@ -995,16 +979,20 @@ export const Kanban = memo((props: { focused?: boolean }) => {
       if (!ok) return
       void sh("dispatch --json").then(out => {
         if (out == null) return
-        const r = dispatchJson(out)
-        const spawned = countOf(r?.spawned)
-        const capped = countOf(r?.skipped_per_profile_capped)
-        const defaults = countOf(r?.auto_assigned_default)
-        const skipped = countOf(r?.skipped_unassigned) + countOf(r?.skipped_nonspawnable)
+        const r = parseDispatchResult(out)
+        const spawned = r.spawned.length
+        const capped = r.skipped_per_profile_capped.length
+        const defaults = r.auto_assigned_default.length
+        const failed = dispatchFailures(r).length
+        const skipped = r.skipped_unassigned.length + r.skipped_nonspawnable.length + failed
         const parts = [`${spawned} spawned`]
         if (defaults) parts.push(`${defaults} default-assigned`)
         if (capped) parts.push(`${capped} profile-capped`)
         if (skipped) parts.push(`${skipped} skipped`)
-        toast.show({ variant: capped || skipped ? "info" : "success", message: `Dispatch: ${parts.join(" · ")}` })
+        toast.show({
+          variant: failed && spawned === 0 ? "error" : capped || skipped ? "info" : "success",
+          message: `Dispatch: ${parts.join(" · ")}`,
+        })
       })
     })
   }, [dialog, sh, toast])

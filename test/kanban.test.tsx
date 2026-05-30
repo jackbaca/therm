@@ -9,6 +9,7 @@ import {
   currentBoard, listBoards, parseDiagnostics, maxSeverity, sortDiags,
   boardStateOf, boardErrors, corruptBackupsOf,
 } from "../src/service/hermes-kanban"
+import { parseDispatchResult, dispatchFailures } from "../src/service/kanban-dispatch"
 import { Kanban } from "../src/tabs/Kanban"
 
 const now = Math.floor(Date.now() / 1000)
@@ -757,10 +758,25 @@ describe("Kanban tab", () => {
     t.destroy()
   })
 
-  test("D → confirm → dispatch", async () => {
+  test("D → confirm → dispatch parses telemetry", async () => {
     const cmds: string[] = []
     const gw = new MockGateway({
-      "shell.exec": p => { if (!/\bdiagnostics\b/.test(p.command as string)) cmds.push(p.command as string); return { stdout: "[]", stderr: "", code: 0 } },
+      "shell.exec": p => {
+        if (!/\bdiagnostics\b/.test(p.command as string)) cmds.push(p.command as string)
+        return { stdout: JSON.stringify({
+          reclaimed: 0,
+          promoted: 1,
+          spawned: [{ task_id: "t1", assignee: "researcher", workspace: "/tmp/w" }],
+          auto_assigned_default: ["t6"],
+          skipped_per_profile_capped: [{ task_id: "t7", assignee: "researcher", current: 2 }],
+          skipped_unassigned: [],
+          skipped_nonspawnable: [],
+          crashed: [],
+          auto_blocked: [],
+          timed_out: [],
+          stale: [],
+        }), stderr: "", code: 0 }
+      },
     })
     const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
@@ -769,7 +785,34 @@ describe("Kanban tab", () => {
     await act(async () => { await t.keys.typeText("y") })
     await until(t, () => cmds.length === 1)
     expect(cmds[0]).toBe("hermes kanban --board default dispatch --json")
+    await until(t, () => t.frame().includes("Dispatch: 1 spawned · 1 default-assigned · 1 profile-"))
     t.destroy()
+  })
+
+  test("dispatch parser defaults new buckets and excludes capped tasks from failures", () => {
+    const old = parseDispatchResult(JSON.stringify({
+      reclaimed: 0,
+      promoted: 0,
+      spawned: [{ task_id: "t1", assignee: "builder", workspace: "" }],
+      skipped_unassigned: ["t2"],
+      skipped_nonspawnable: ["t3"],
+      crashed: [],
+      auto_blocked: [],
+      timed_out: [],
+      stale: [],
+    }))
+    expect(old.auto_assigned_default).toEqual([])
+    expect(old.skipped_per_profile_capped).toEqual([])
+
+    const cur = parseDispatchResult(JSON.stringify({
+      skipped_per_profile_capped: [{ task_id: "t4", assignee: "builder", current: 1 }],
+      auto_assigned_default: ["t5"],
+      crashed: ["t6"],
+    }))
+    expect(cur.skipped_per_profile_capped).toEqual([{ task_id: "t4", assignee: "builder", current: 1 }])
+    expect(cur.auto_assigned_default).toEqual(["t5"])
+    expect(dispatchFailures(cur)).toEqual(["t6"])
+    expect(() => parseDispatchResult("not json")).toThrow()
   })
 
   test("l opens log pane; Esc closes", async () => {
