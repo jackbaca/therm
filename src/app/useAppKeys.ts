@@ -61,6 +61,7 @@ type Opts = {
   onDetachLast: () => boolean
   onNotice: (text: string) => void
   onToggleSidebar: () => void
+  onSteer: () => void
   onStash: () => void
   /** Voice recording key binding + handler from useVoice hook. */
   voiceRecordKey?: VoiceKey

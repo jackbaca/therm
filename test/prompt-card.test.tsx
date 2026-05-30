@@ -26,6 +26,7 @@ describe("PromptCard.Approval", () => {
     expect(f).toContain("rm_recursive, tmp_write")
     expect(f).toContain("Allow once")
     expect(f).toContain("Deny")
+    expect(f).toContain("Steer")
 
     act(() => ref.current!.feed({ name: "2" } as never))
     await t.settle()
@@ -48,6 +49,46 @@ describe("PromptCard.Approval", () => {
     act(() => ref.current!.feed({ name: "return" } as never))
     await t.settle()
     expect(gw.last("approval.respond")?.params.choice).toBe("deny")
+  })
+
+  test("steer opens input, submits session.steer, and keeps approval pending", async () => {
+    const gw = new MockGateway({ "session.steer": p => ({ status: "queued", text: p.text }) })
+    gw.ok = true
+    const ref = createRef<PromptCardHandle>()
+    const answers: string[] = []
+    await using t = await mountNode(
+      <PromptCard ref={ref} part={approval()} onAnswer={(_, label) => answers.push(label)} />,
+      { gw },
+    )
+
+    act(() => ref.current!.feed({ name: "s" } as never))
+    await until(t, () => t.frame().includes("Enter steer"))
+    await act(async () => { await t.keys.typeText("use ls first") })
+    await until(t, () => t.frame().includes("use ls first"))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.gw.last("session.steer")?.params.text === "use ls first")
+
+    expect(gw.last("approval.respond")).toBeUndefined()
+    expect(answers).toEqual([])
+    expect(t.frame()).toContain("steer sent")
+    expect(t.frame()).toContain("Deny")
+  })
+
+  test("steer input escape returns to approval without RPC", async () => {
+    const gw = new MockGateway(); gw.ok = true
+    const ref = createRef<PromptCardHandle>()
+    await using t = await mountNode(
+      <PromptCard ref={ref} part={approval()} onAnswer={() => {}} />,
+      { gw },
+    )
+
+    act(() => ref.current!.feed({ name: "s" } as never))
+    await until(t, () => t.frame().includes("Enter steer"))
+    act(() => ref.current!.feed({ name: "escape" } as never))
+    await until(t, () => t.frame().includes("s steer"))
+
+    expect(gw.last("session.steer")).toBeUndefined()
+    expect(gw.last("approval.respond")).toBeUndefined()
   })
 
   test("answered part collapses to Outcome line", async () => {
