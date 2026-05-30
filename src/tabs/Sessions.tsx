@@ -50,10 +50,12 @@ const cmp = (s: Sort) => {
   return (a: Row, b: Row) => k(b) - k(a)
 }
 
-const badge = (src: string): string => ({
-  cli: "CLI", tui: "TUI", api_server: "API", live: "Live", discord: "Discord",
+const badge = (src: string): string => (({
+  cli: "CLI", tui: "TUI", api_server: "API", discord: "Discord",
   telegram: "Telegram", slack: "Slack", whatsapp: "WhatsApp", signal: "Signal",
-} as Record<string, string>)[src] ?? src
+} as Record<string, string>)[src] ?? src) || "—"
+
+const label = (r: Row) => r.title.trim() || (r.live ? "-" : "Untitled")
 //
 // Purpose: decide whether to load a session without replacing the
 // current chat. So: conversation only. Tool chatter is collapsed to
@@ -196,7 +198,7 @@ const Detail = memo((props: {
       <box flexDirection="column" width="100%" flexGrow={1} overflow="hidden">
         <box flexDirection="column" flexShrink={0}>
           <box minHeight={1}>
-            <text wrapMode="word"><span fg={theme.accent}><strong>{r.title || "Untitled"}</strong></span></text>
+            <text wrapMode="word"><span fg={theme.accent}><strong>{label(r)}</strong></span></text>
           </box>
           <box height={1} />
           <KVBlock rows={[
@@ -362,7 +364,7 @@ const Item = memo((props: {
       <Marquee grow active={props.selected}
                fg={props.selected ? theme.accent : (muted ?? theme.text)}
                bold={props.selected}>
-        {r.title || "Untitled"}
+        {label(r)}
       </Marquee>
       <Col w={9} fg={muted ?? theme.info}>{badge(r.source ?? "")}</Col>
       <Col w={8} fg={theme.textMuted}>{stamp(r.started_at)}</Col>
@@ -490,6 +492,7 @@ export const Sessions = memo((props: Props) => {
   const [kids, setKids] = useState<Map<string, Row[]>>(cached ? last.kids : new Map())
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null)
   const vscroll = useRef<ScrollBoxRenderable | null>(null)
+  const seen = useRef(false)
 
   // Expansion is derived from the anchor: if the anchor is a parent
   // row with subagents, that parent is expanded; if the anchor is a
@@ -543,13 +546,14 @@ export const Sessions = memo((props: Props) => {
     source: d.sessionSource, detail: d,
   })
 
-  const toLiveRow = (s: SessionActiveItem): Row => ({
+  const toLiveRow = (s: SessionActiveItem & { source?: string }, d?: SessionRow, r?: Row): Row => ({
     id: s.id,
-    title: s.title || s.preview || s.id,
+    title: s.title?.trim() || d?.title || "",
     preview: s.preview ?? "",
-    message_count: s.message_count ?? 0,
-    started_at: s.started_at ?? s.last_active ?? 0,
-    source: "live",
+    message_count: s.message_count ?? d?.message_count ?? r?.message_count ?? 0,
+    started_at: s.started_at ?? d?.started_at ?? r?.started_at ?? s.last_active ?? 0,
+    source: d?.sessionSource ?? r?.source ?? s.source ?? "",
+    detail: d,
     live: s,
   })
 
@@ -583,9 +587,9 @@ export const Sessions = memo((props: Props) => {
     void fillKids(diskRows)
 
     const a = await active
+    const live = a.ok ? (a.v.sessions ?? []) : []
     if (a.ok) {
-      const live = (a.v.sessions ?? []).map(s => ({ ...toLiveRow(s), detail: local.get(s.id) }))
-      setLiveRows(live)
+      setLiveRows(live.map(s => toLiveRow(s, local.get(s.id))))
     }
 
     // Stock session.list doesn't drop 0-msg stubs — every abandoned
@@ -605,6 +609,8 @@ export const Sessions = memo((props: Props) => {
       ]
       setRows(merged)
       if (cached) last.rows = merged
+      const found = new Map(merged.map(s => [s.id, s]))
+      if (live.length) setLiveRows(live.map(s => toLiveRow(s, local.get(s.id), found.get(s.id))))
       void fillKids(merged)
     }
     setPending(false)
@@ -620,14 +626,18 @@ export const Sessions = memo((props: Props) => {
   // Seed anchor once rows arrive. If active rows arrive after the
   // optimistic history paint, promote the untouched first row to active.
   useEffect(() => {
-    if (!listed.length) return
+    const on = active.length > 0
+    const fresh = on && !seen.current
+    if (!listed.length) { seen.current = on; return }
     if (!anchor || !visible.some(v => v.row.id === anchor.id && v.indent === anchor.indent)) {
       setAnchor({ id: listed[0].id, indent: false })
+      seen.current = on
       return
     }
-    if (active[0] && sorted[0]?.id === anchor.id && !anchor.indent) {
+    if (fresh && active[0] && sorted[0]?.id === anchor.id && !anchor.indent) {
       setAnchor({ id: active[0].id, indent: false })
     }
+    seen.current = on
   }, [listed, active, sorted, anchor])
 
   // Search is a synchronous FTS5 query on state.db, so debounce —
@@ -698,7 +708,7 @@ export const Sessions = memo((props: Props) => {
   const confirmDelete = useCallback((r: Row) => {
     openConfirm(dialog, {
       title: "Delete Session?",
-      body: trunc(r.title || "Untitled", 46),
+      body: trunc(label(r), 46),
       yes: "Delete",
       danger: true,
     }).then(async ok => {
@@ -730,17 +740,17 @@ export const Sessions = memo((props: Props) => {
     // the ✕ affordance is already hidden for them.
     if (!v || v.indent) return
     const r = v.row
-    const title = await openTextPrompt(dialog, {
-      title: `Rename: ${trunc(r.title || "Untitled", 42)}`, label: "Title", initial: r.title || "",
+    const name = await openTextPrompt(dialog, {
+      title: `Rename: ${trunc(label(r), 42)}`, label: "Title", initial: r.title || "",
     })
-    if (title === null) return
+    if (name === null) return
     Promise.resolve()
       .then(() => {
-        if (!io.rename(r.id, title)) throw new Error("not found")
+        if (!io.rename(r.id, name)) throw new Error("not found")
         home.invalidate("recentSessions")
         // Patch in place so the row updates without a full RPC reload
         // (session.list is the slow path). reload still happens next r.
-        setRows(prev => prev.map(row => row.id === r.id ? { ...row, title } : row))
+        setRows(prev => prev.map(row => row.id === r.id ? { ...row, title: name } : row))
         toast.show({ variant: "success", message: "Renamed" })
       })
       .catch((e: Error) =>
@@ -806,6 +816,8 @@ export const Sessions = memo((props: Props) => {
 
   const empty = searching ? results.length === 0 && query.length > 0 : listed.length === 0
   const action = visible[sel]?.row.live ? "activate live" : "switch"
+  const top = (i: number) => Boolean(visible[i]?.row.live && (i === 0 || !visible[i - 1]?.row.live))
+  const hist = (i: number) => Boolean(visible[i]?.row.live && visible[i + 1] && !visible[i + 1].row.live)
   // Sidebar yields at <140 on non-Chat tabs (app.tsx), so detail can
   // stay mounted down to the shell's own floor.
   const showDetailPanel = dims.width >= 120
@@ -855,11 +867,16 @@ export const Sessions = memo((props: Props) => {
                   ))
                 : visible.map((v, i) => (
                     <box key={`${v.row.id}-${v.indent ? "c" : "p"}`} flexDirection="column"
-                         height={v.row.live && visible[i + 1] && !visible[i + 1].row.live ? 2 : 1}>
+                         height={1 + (top(i) ? 1 : 0) + (hist(i) ? 1 : 0)}>
+                      {top(i) ? (
+                        <box height={1} paddingLeft={2}>
+                          <text fg={theme.textMuted}>{`── ${active.length === 1 ? "Active Session" : "Active Sessions"} ──`}</text>
+                        </box>
+                      ) : null}
                       <Item id={rowId(i)} idx={i}
                         row={v.row} selected={i === sel} indent={v.indent}
                         onActivate={rowActivate} onHover={rowHover} onDelete={rowDelete} />
-                      {v.row.live && visible[i + 1] && !visible[i + 1].row.live ? (
+                      {hist(i) ? (
                         <box height={1} paddingLeft={2}>
                           <text fg={theme.textMuted}>── History ──</text>
                         </box>
