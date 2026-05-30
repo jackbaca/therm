@@ -955,9 +955,32 @@ describe("patchTask direct writes", () => {
     expect(String(p.journal_mode).toLowerCase()).toBe("wal")
     expect(p.synchronous).toBe(2) // FULL
     expect(p.wal_autocheckpoint).toBe(100)
+    expect(p.busy_timeout).toBe(120_000)
     expect(p.secure_delete).toBe(1)
     expect(p.cell_size_check).toBe(1)
     expect(p.foreign_keys).toBe(1)
+  })
+
+  test("write handle honors valid busy_timeout override and ignores invalid values", async () => {
+    const prev = process.env.HERMES_KANBAN_BUSY_TIMEOUT_MS
+    const { kanbanWritePragmas, resetKanban } = await import("../src/service/hermes-kanban")
+    try {
+      process.env.HERMES_KANBAN_BUSY_TIMEOUT_MS = "2500"
+      resetKanban()
+      expect(kanbanWritePragmas("default")?.busy_timeout).toBe(2500)
+
+      process.env.HERMES_KANBAN_BUSY_TIMEOUT_MS = "nope"
+      resetKanban()
+      expect(kanbanWritePragmas("default")?.busy_timeout).toBe(120_000)
+
+      process.env.HERMES_KANBAN_BUSY_TIMEOUT_MS = "0"
+      resetKanban()
+      expect(kanbanWritePragmas("default")?.busy_timeout).toBe(120_000)
+    } finally {
+      if (prev === undefined) delete process.env.HERMES_KANBAN_BUSY_TIMEOUT_MS
+      else process.env.HERMES_KANBAN_BUSY_TIMEOUT_MS = prev
+      resetKanban()
+    }
   })
 
   test("title + body in one txn ⇒ single 'edited' event", async () => {
