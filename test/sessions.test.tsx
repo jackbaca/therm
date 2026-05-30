@@ -43,7 +43,7 @@ describe("Sessions tab", () => {
     await until(t, () => t.frame().includes("Sessions (4)"))
 
     const lines = t.frame().split("\n")
-    const live = lines.findIndex(l => l.includes("Working live") && l.includes("Live"))
+    const live = lines.findIndex(l => l.includes("Working live"))
     const div = lines.findIndex(l => l.includes("History"))
     const hist = lines.findIndex(l => l.includes("First session") && l.includes("TUI"))
     expect(live).toBeGreaterThanOrEqual(0)
@@ -60,6 +60,47 @@ describe("Sessions tab", () => {
     await t.settle()
     expect(activated).toBe("live-a")
     expect(t.frame()).not.toContain("Load session?")
+
+    t.destroy()
+  })
+
+  test("active section keeps real source, placeholder title, and arrow navigation", async () => {
+    const gw = new MockGateway({
+      "session.active_list": () => ({ sessions: [
+        { id: "live-a", title: "", preview: "", message_count: 3, started_at: 1700000000, status: "working" },
+      ]}),
+      "session.list": () => ({ sessions: ROWS }),
+    })
+    const disk = [
+      detail({ id: "live-a", sessionSource: "tui", message_count: 3, started_at: 1700000000 }),
+    ]
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, list: () => disk }} />, { gw, width: 110 })
+    await until(t, () => t.frame().includes("Sessions (3)"))
+
+    const pos = () => {
+      const lines = t.frame().split("\n")
+      const active = lines.findIndex(l => l.includes("TUI") && l.includes("3") && l.includes("-"))
+      const top = lines.findIndex(l => l.includes("Active Session"))
+      const div = lines.findIndex(l => l.includes("History"))
+      const hist = lines.findIndex(l => l.includes("First session") && l.includes("TUI"))
+      expect(top).toBeGreaterThanOrEqual(0)
+      expect(active).toBeGreaterThan(top)
+      expect(div).toBeGreaterThan(active)
+      expect(hist).toBeGreaterThan(div)
+      return { lines, active, hist }
+    }
+
+    const before = pos()
+    expect(before.lines[before.active]).toContain("▸ -")
+    expect(before.lines[before.active]).toContain("TUI")
+    expect(before.lines[before.active]).not.toContain("Live")
+    expect(t.frame()).not.toContain("live-a")
+
+    act(() => t.keys.pressArrow("down"))
+    await t.settle()
+    const after = pos()
+    expect(after.lines[after.active]).not.toContain("▸")
+    expect(after.lines[after.hist]).toContain("▸")
 
     t.destroy()
   })
@@ -215,7 +256,7 @@ describe("Sessions tab", () => {
 
     const order = () => {
       const lines = t.frame().split("\n")
-      const live = lines.findIndex(l => l.includes("Working live") && l.includes("Live"))
+      const live = lines.findIndex(l => l.includes("Working live"))
       const a = lines.findIndex(l => l.includes("Older Start Fresh Activity") && l.includes("TUI"))
       const b = lines.findIndex(l => l.includes("Newer Start Idle") && l.includes("TUI"))
       expect(live).toBeGreaterThanOrEqual(0)
