@@ -472,7 +472,7 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
           return
       }
     }
-    if (c.target !== "gateway" || !x.ready) return
+    if (c.target !== "gateway" || !x.sid) return
     const jump = TAB_SLASH[c.name]
     if (jump !== undefined && !arg) { x.goTo(jump.tab, jump.sub); return }
     const full = `/${c.name}${arg ? " " + arg : ""}`
