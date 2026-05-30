@@ -1,7 +1,5 @@
-// Tabbed diff frame for an assistant turn — replaces the prior stack of
-// ▸ collapsible chips with one CodeBlock-style frame whose header is a
-// wrapping row of file tabs (basenames). The active tab swaps the body.
-// Always-open: there's no per-chip toggle. Mouse-only selection.
+// Tabbed diff frame for an assistant turn. Tabs stay visible; clicking
+// a tab toggles that diff body inline.
 
 import { memo, useMemo, useState } from "react"
 import type { MouseEvent } from "@opentui/core"
@@ -92,9 +90,10 @@ function buildTabs(tools: ToolPart[]): Tab[] {
 export const DiffTabs = memo(({ tools }: { tools: ToolPart[] }) => {
   const theme = useTheme().theme
   const tabs = useMemo(() => buildTabs(tools), [tools])
-  const [active, setActive] = useState(0)
+  const [active, setActive] = useState<number | null>(null)
   if (tabs.length === 0) return null
-  const cur = tabs[Math.min(active, tabs.length - 1)]
+  const idx = active === null ? null : Math.min(active, tabs.length - 1)
+  const cur = idx === null ? null : tabs[idx]
 
   return (
     <box
@@ -107,12 +106,18 @@ export const DiffTabs = memo(({ tools }: { tools: ToolPart[] }) => {
         backgroundColor={theme.backgroundElement} paddingX={1}
       >
         {tabs.map((t, i) => {
-          const on = i === active
+          const on = i === idx
           return (
             <box
               key={t.id} height={1} flexShrink={0} marginRight={1} paddingX={1}
               backgroundColor={on ? theme.backgroundPanel : undefined}
-              onMouseDown={(e: MouseEvent) => { e.stopPropagation(); setActive(i) }}
+              onMouseDown={(e: MouseEvent) => {
+                e.stopPropagation()
+                setActive(n => {
+                  const hit = n === null ? null : Math.min(n, tabs.length - 1)
+                  return hit === i ? null : i
+                })
+              }}
             >
               <text fg={on ? theme.primary : theme.textMuted}>
                 {on ? <strong>{t.label}</strong> : t.label}
@@ -121,16 +126,18 @@ export const DiffTabs = memo(({ tools }: { tools: ToolPart[] }) => {
           )
         })}
       </box>
-      <box height={1} paddingX={1}>
-        <text>
-          <span fg={theme.success}>+{cur.add}</span>
-          <span fg={theme.textMuted}> / </span>
-          <span fg={theme.error}>-{cur.del}</span>
-        </text>
-      </box>
-      <box paddingX={1} paddingBottom={1}>
-        <DiffBlock text={cur.diff} />
-      </box>
+      {cur ? <>
+        <box height={1} paddingX={1}>
+          <text>
+            <span fg={theme.success}>+{cur.add}</span>
+            <span fg={theme.textMuted}> / </span>
+            <span fg={theme.error}>-{cur.del}</span>
+          </text>
+        </box>
+        <box paddingX={1} paddingBottom={1}>
+          <DiffBlock text={cur.diff} />
+        </box>
+      </> : null}
     </box>
   )
 })

@@ -208,6 +208,37 @@ describe("tool/file-edit", () => {
     await until(t, () => t.frame().includes("Edit") && !t.frame().includes("changed"))
     t.destroy()
   })
+
+  test("message diff tab click expands and collapses without picking message", async () => {
+    const picks: Message[] = []
+    const msgs: Message[] = [{
+      id: "a1", role: "assistant", timestamp: 0,
+      parts: [
+        { type: "text", content: "patched", streaming: false },
+        { type: "tool", id: "td", name: "patch", args: "",
+          preview: "src/foo.ts", status: "done", duration: 42, diff: UDIFF },
+      ],
+    }]
+    const t = await mountNode(
+      <box flexDirection="column" width="100%" height="100%">
+        <MessageList messages={msgs} streaming={false} onPick={m => picks.push(m)} />
+      </box>,
+      { width: 100, height: 18 },
+    )
+    await until(t, () => t.frame().includes("foo.ts"))
+    expect(t.frame()).not.toContain("+new line")
+
+    const hit = locate(t, "foo.ts")
+    await act(async () => { await t.mouse.click(hit.x, hit.y) })
+    await until(t, () => t.frame().includes("+new line"))
+    expect(picks).toHaveLength(0)
+
+    const again = locate(t, "foo.ts")
+    await act(async () => { await t.mouse.click(again.x, again.y) })
+    await until(t, () => !t.frame().includes("+new line"))
+    expect(picks).toHaveLength(0)
+    t.destroy()
+  })
 })
 
 describe("ErrorBlock", () => {
