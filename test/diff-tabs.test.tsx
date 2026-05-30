@@ -29,7 +29,7 @@ describe("DiffTabs", () => {
     t.destroy()
   })
 
-  test("single diff: tab label is basename, +1/-1 row, body present", async () => {
+  test("single diff: tab label is basename and body is collapsed", async () => {
     const t = await mountNode(
       <DiffTabs tools={[tool("a", "src/foo.ts", "thing")]} />,
       { width: 80, height: 16 },
@@ -37,16 +37,15 @@ describe("DiffTabs", () => {
     await until(t, () => t.frame().includes("foo.ts"))
     const f = t.frame()
     expect(f).toContain("foo.ts")
-    // Tab label uses basename — find the row showing "foo.ts" without the "src/" prefix.
     const tabRow = f.split("\n").find(l => /foo\.ts/.test(l) && !/src\/foo\.ts/.test(l))
     expect(tabRow).toBeDefined()
-    expect(f).toContain("+1")
-    expect(f).toContain("-1")
-    expect(f).toContain("+new thing")
+    expect(f).not.toContain("+1")
+    expect(f).not.toContain("-1")
+    expect(f).not.toContain("+new thing")
     t.destroy()
   })
 
-  test("three diffs: ribbon shows all, click swaps body", async () => {
+  test("clicking a tab toggles its body", async () => {
     const tools = [
       tool("a", "alpha.ts", "alpha"),
       tool("b", "beta.ts", "beta"),
@@ -54,17 +53,21 @@ describe("DiffTabs", () => {
     ]
     const t = await mountNode(<DiffTabs tools={tools} />, { width: 100, height: 18 })
     await until(t, () => t.frame().includes("alpha.ts") && t.frame().includes("gamma.ts"))
-    // First tab is active by default → alpha body.
-    expect(t.frame()).toContain("+new alpha")
+    expect(t.frame()).not.toContain("+new alpha")
     expect(t.frame()).not.toContain("+new beta")
 
-    // Click 'beta.ts' label.
     const rows = t.frame().split("\n")
     const y = rows.findIndex(l => l.includes("beta.ts"))
     const x = rows[y].indexOf("beta.ts")
     await act(async () => { await t.mouse.pressDown(x, y) })
     await until(t, () => t.frame().includes("+new beta"))
     expect(t.frame()).not.toContain("+new alpha")
+
+    const next = t.frame().split("\n")
+    const y2 = next.findIndex(l => l.includes("beta.ts"))
+    const x2 = next[y2].indexOf("beta.ts")
+    await act(async () => { await t.mouse.pressDown(x2, y2) })
+    await until(t, () => !t.frame().includes("+new beta"))
     t.destroy()
   })
 
@@ -102,7 +105,8 @@ describe("DiffTabs", () => {
       { width: 80, height: 12 },
     )
     // No args, no preview — pathFor falls back to the diff's `+++ b/x` header.
-    await until(t, () => t.frame().includes("+new y"))
+    await until(t, () => t.frame().includes("x"))
+    expect(t.frame()).not.toContain("+new y")
     t.destroy()
   })
 
@@ -183,6 +187,11 @@ describe("DiffTabs", () => {
       { width: 100, height: 20 },
     )
     await until(t, () => t.frame().includes("c.txt"))
+    const rows = t.frame().split("\n")
+    const y = rows.findIndex(l => l.includes("c.txt"))
+    const x = rows[y].indexOf("c.txt")
+    await act(async () => { await t.mouse.pressDown(x, y) })
+    await until(t, () => t.frame().includes("+NORTH"))
     const f = t.frame()
     // Tab label is c.txt — no `→ b/` arrow leakage into label.
     expect(f).not.toContain("review diff")
@@ -190,7 +199,6 @@ describe("DiffTabs", () => {
     // The arrow-header line itself isn't rendered as a diff row.
     const bodyRows = f.split("\n").filter(l => /→ b/.test(l))
     expect(bodyRows.length).toBe(0)
-    // Body shows real hunk lines.
     expect(f).toContain("-north")
     expect(f).toContain("+NORTH")
     expect(f).not.toContain("… more")
@@ -230,12 +238,7 @@ describe("DiffTabs", () => {
     expect(f).toContain("colors.txt")
     expect(f).toContain("c.txt")
     expect(f).toContain("d.txt")
-    // None of the previously-leaked diff-body tails should appear in the
-    // tab strip area (above the `+A / -B` line).
-    const lines = f.split("\n")
-    const countLineY = lines.findIndex(l => /\+\d+\s*\/\s*-\d+/.test(l))
-    const stripText = lines.slice(0, countLineY).join("\n")
-    expect(stripText).not.toMatch(/…@|… autumn|…\)/)
+    expect(f).not.toMatch(/…@|… autumn|…\)/)
     t.destroy()
   })
 })
