@@ -25,6 +25,7 @@ import { Splash } from "./ui/Splash"
 import { lastReal } from "./service/sessions-db"
 import { readChangelog } from "./service/hermes-home"
 import { openMessage } from "./dialogs/message"
+import { openTextPrompt } from "./dialogs/text-prompt"
 import { parseEikon, type ParsedEikon } from "./components/avatar/eikon"
 import { bundledEikonPath } from "./components/avatar/bundled"
 import { pending as pendingPrompt, type PromptCardHandle } from "./components/chat/PromptCard"
@@ -278,12 +279,31 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   // Plain text submitted while streaming (Composer routes slash-shaped
   // input to onSend instead). `interrupt` prepends so the drain effect
   // fires this text first once turn.streaming flips.
+  const steer = useCallback((text: string) => {
+    const v = text.trim()
+    if (!v) return
+    gw.request<{ status?: string }>("session.steer", { text: v })
+      .then(r => toast.show(r.status === "queued"
+        ? { variant: "success", message: "Queued — lands on next tool result" }
+        : { variant: "info", message: "No turn running; send as a normal message" }))
+      .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
+  }, [gw, toast])
+
+  const openSteer = useCallback(() => {
+    void openTextPrompt(dialog, {
+      title: "Steer active turn",
+      label: "Soft nudge for the running session",
+    }).then(v => { if (v) steer(v) })
+  }, [dialog, steer])
+
   const onEnqueue = useCallback((t: string) => {
     if (busy === "steer") {
-      gw.request<{ status: string }>("session.steer", { text: t })
+      const v = t.trim()
+      if (!v) return
+      gw.request<{ status?: string }>("session.steer", { text: v })
         .then(r => {
           if (r.status === "queued")
-            return toast.show({ variant: "success", message: "steered — lands on next tool result" })
+            return toast.show({ variant: "success", message: "Queued — lands on next tool result" })
           setQueue(q => [...q, t])
           toast.show({ variant: "info", message: "steer rejected — queued for next turn" })
         })
@@ -698,6 +718,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     },
     onNotice: (text) => dispatch({ kind: "system", text }),
     onToggleSidebar: () => setHideSidebar(v => !v),
+    onSteer: openSteer,
     onStash: () => {
       const c = composer.current
       const v = c?.value().trim() ?? ""
@@ -813,6 +834,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
                 onAttachClipboard={attachClipboard}
                 onEnqueue={onEnqueue}
                 onDequeue={dequeue}
+                onSteer={openSteer}
                 onDirty={setComposing}
                 onEmptyEnter={onEmptyEnter}
               />

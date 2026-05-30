@@ -189,6 +189,12 @@ export function useAppKeys(o: Opts) {
       }
     }
 
+    if (keys.match("session.steer", key)) {
+      o.onSteer()
+      key.stopPropagation()
+      return
+    }
+
     // Interrupt the turn so the drain effect fires the queued head now.
     // Only meaningful mid-stream with something queued; otherwise fall
     // through (leader was already consumed, so no stray "u" reaches the
