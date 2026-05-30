@@ -61,4 +61,47 @@ describe("session steer", () => {
     expect(t.frame()).toContain("◇ steer Ctrl+X S")
     t.destroy()
   })
+
+  test("busy steer preserves text when gateway does not queue it", async () => {
+    const gw = new MockGateway({
+      "config.get": p => p.key === "busy" ? { value: "steer" } : {},
+      "session.steer": () => ({ status: "rejected" }),
+    })
+    const t = await mount({ gw })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("first") })
+    act(() => t.keys.pressEnter())
+    await t.settle()
+    act(() => t.gw.push({ type: "message.start" }))
+    await until(t, () => t.frame().includes("Type to queue"))
+    await act(async () => { await t.keys.typeText("keep this") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("⏸ 1. keep this"))
+
+    expect(gw.last("session.steer")?.params.text).toBe("keep this")
+    expect(t.frame()).toContain("steer rejected — queued for next turn")
+    t.destroy()
+  })
+
+  test("busy steer preserves text when gateway call fails", async () => {
+    const gw = new MockGateway({
+      "config.get": p => p.key === "busy" ? { value: "steer" } : {},
+      "session.steer": () => { throw new Error("offline") },
+    })
+    const t = await mount({ gw })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("first") })
+    act(() => t.keys.pressEnter())
+    await t.settle()
+    act(() => t.gw.push({ type: "message.start" }))
+    await until(t, () => t.frame().includes("Type to queue"))
+    await act(async () => { await t.keys.typeText("still keep this") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("⏸ 1. still keep this"))
+
+    expect(gw.last("session.steer")?.params.text).toBe("still keep this")
+    t.destroy()
+  })
 })
