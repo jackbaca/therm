@@ -78,6 +78,22 @@ test("dotenv keys reach the child process so providers see API keys", async () =
   expect("path" in out).toBe(true)
 })
 
+test("missing fallback python degrades instead of rejecting", async () => {
+  rmSync(ROOT, { recursive: true, force: true })
+  mkdirSync(ROOT, { recursive: true })
+  const old = process.env.PATH
+  process.env.PATH = join(HH, "empty-path")
+  mkdirSync(process.env.PATH, { recursive: true })
+  try {
+    expect(await gen.probe()).toEqual({ image: false, video: false })
+    const out = await gen.generate("image", "x", {})
+    expect("err" in out).toBe(true)
+  } finally {
+    if (old === undefined) delete process.env.PATH
+    else process.env.PATH = old
+  }
+})
+
 test("probe() returns false/false when hermes-agent install absent", async () => {
   rmSync(ROOT, { recursive: true, force: true })
   const c = await gen.probe()

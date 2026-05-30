@@ -83,6 +83,9 @@ const Approval = forwardRef<PromptCardHandle, {
   const theme = useTheme().theme
   const gw = useGateway()
   const [sel, setSel] = useState(0)
+  const [steering, setSteering] = useState(false)
+  const [custom, setCustom] = useState("")
+  const [note, setNote] = useState("")
   const done = useRef(false)
 
   const send = (c: Choice) => {
@@ -92,9 +95,25 @@ const Approval = forwardRef<PromptCardHandle, {
     p.onAnswer(LABELS[c], c !== "deny")
   }
 
+  const steer = (text: string) => {
+    const body = text.trim()
+    if (!body) { setSteering(false); return }
+    setCustom("")
+    setSteering(false)
+    setNote("steer sent — approval still pending")
+    void gw.request("session.steer", { text: body }).catch(() =>
+      setNote("steer failed — approval still pending"),
+    )
+  }
+
   useImperativeHandle(ref, () => ({
-    masked: false,
+    masked: steering,
     feed: (key) => {
+      if (steering) {
+        if (key.name === "escape") { setSteering(false); return true }
+        return false
+      }
+      if (key.name === "s") { setSteering(true); setNote(""); return true }
       if (key.name === "left" || key.name === "h") {
         setSel(s => (s + CHOICES.length - 1) % CHOICES.length); return true
       }
@@ -107,7 +126,7 @@ const Approval = forwardRef<PromptCardHandle, {
       if (n !== null && n >= 1 && n <= CHOICES.length) { send(CHOICES[n - 1]); return true }
       return false
     },
-  }), [sel])
+  }), [sel, steering])
 
   return (
     <Frame tint={theme.warning}>
@@ -131,17 +150,41 @@ const Approval = forwardRef<PromptCardHandle, {
           </box>
         ) : null}
       </box>
-      <box flexDirection="row" gap={2} flexShrink={0}
-           paddingX={2} paddingY={1} backgroundColor={theme.backgroundElement}>
-        {CHOICES.map((c, i) => (
-          <Pill key={c} on={sel === i} hot={String(i + 1)} label={LABELS[c]}
-                onPick={() => send(c)} />
-        ))}
-        <box flexGrow={1} />
-        <box height={1}>
-          <text fg={theme.textMuted}>←/→ · enter · esc deny</text>
+      {steering ? (
+        <box flexDirection="column" gap={1} flexShrink={0}
+             paddingX={2} paddingY={1} backgroundColor={theme.backgroundElement}>
+          <box flexDirection="row" height={1}>
+            <text fg={theme.textMuted}>{"> "}</text>
+            <input
+              value={custom} onInput={setCustom}
+              onSubmit={(() => steer(custom)) as unknown as (e: SubmitEvent) => void}
+              focused flexGrow={1}
+              textColor={theme.text}
+              backgroundColor={theme.backgroundElement}
+              focusedBackgroundColor={theme.backgroundElement}
+            />
+          </box>
+          <text fg={theme.textMuted}>Enter steer · Esc back to approval</text>
         </box>
-      </box>
+      ) : (
+        <box flexDirection="row" gap={2} flexShrink={0}
+             paddingX={2} paddingY={1} backgroundColor={theme.backgroundElement}>
+          {CHOICES.map((c, i) => (
+            <Pill key={c} on={sel === i} hot={String(i + 1)} label={LABELS[c]}
+                  onPick={() => send(c)} />
+          ))}
+          <Pill on={false} hot="s" label="Steer" onPick={() => { setSteering(true); setNote("") }} />
+          <box flexGrow={1} />
+          <box height={1}>
+            <text fg={theme.textMuted}>←/→ · enter · s steer · esc deny</text>
+          </box>
+        </box>
+      )}
+      {note ? (
+        <box paddingLeft={2} paddingBottom={1} backgroundColor={theme.backgroundElement}>
+          <text fg={theme.textMuted}>{note}</text>
+        </box>
+      ) : null}
     </Frame>
   )
 })

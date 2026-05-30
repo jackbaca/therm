@@ -25,6 +25,7 @@ import { Splash } from "./ui/Splash"
 import { lastReal } from "./service/sessions-db"
 import { readChangelog } from "./service/hermes-home"
 import { openMessage } from "./dialogs/message"
+import { openTextPrompt } from "./dialogs/text-prompt"
 import { parseEikon, type ParsedEikon } from "./components/avatar/eikon"
 import { bundledEikonPath } from "./components/avatar/bundled"
 import { pending as pendingPrompt, type PromptCardHandle } from "./components/chat/PromptCard"
@@ -278,12 +279,31 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   // Plain text submitted while streaming (Composer routes slash-shaped
   // input to onSend instead). `interrupt` prepends so the drain effect
   // fires this text first once turn.streaming flips.
+  const steer = useCallback((text: string) => {
+    const v = text.trim()
+    if (!v) return
+    gw.request<{ status?: string }>("session.steer", { text: v })
+      .then(r => toast.show(r.status === "queued"
+        ? { variant: "success", message: "Queued — lands on next tool result" }
+        : { variant: "info", message: "No turn running; send as a normal message" }))
+      .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
+  }, [gw, toast])
+
+  const openSteer = useCallback(() => {
+    void openTextPrompt(dialog, {
+      title: "Steer active turn",
+      label: "Soft nudge for the running session",
+    }).then(v => { if (v) steer(v) })
+  }, [dialog, steer])
+
   const onEnqueue = useCallback((t: string) => {
     if (busy === "steer") {
-      gw.request<{ status: string }>("session.steer", { text: t })
+      const v = t.trim()
+      if (!v) return
+      gw.request<{ status?: string }>("session.steer", { text: v })
         .then(r => {
           if (r.status === "queued")
-            return toast.show({ variant: "success", message: "steered — lands on next tool result" })
+            return toast.show({ variant: "success", message: "Queued — lands on next tool result" })
           setQueue(q => [...q, t])
           toast.show({ variant: "info", message: "steer rejected — queued for next turn" })
         })
@@ -328,8 +348,12 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     // DB row, reaps its slash_worker subprocess, drops the AIAgent from
     // `_sessions`). Fire-and-forget — create() doesn't depend on it.
     if (prev) void session.close(prev)
-    try { setSid(await session.create()); sessionStart.current = Date.now() }
-    catch {}
+    try {
+      const r = await session.create()
+      setSid(r.id)
+      if (r.info) { setInfo(r.info); setUsage(r.info.usage) }
+      sessionStart.current = Date.now()
+    } catch {}
   }, [reset, session, gw])
 
   const switchSession = useCallback(async (target: string) => {
@@ -342,10 +366,17 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     summoned.current = true
     setSplash(true)
     setSwitching(true)
+    gw.setSession("")
+    setSid("")
     goToTab(CHAT_TAB)
     try {
       const res = await session.resume(target)
       setSid(res.id)
+      if (res.info) {
+        setInfo(res.info)
+        setUsage(res.info.usage)
+      }
+      setReady(true)
       sessionStart.current = Date.now()
       if (res.messages.length) dispatch({ kind: "load", messages: res.messages })
       // Close only after resume succeeds — a failed resume leaves the
@@ -362,7 +393,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     } finally {
       setSwitching(false)
     }
-  }, [reset, session, goToTab])
+  }, [reset, session, goToTab, gw])
 
   const liveStatus = (state?: string, running = false) => {
     if (state === "waiting") return "waiting for input…"
@@ -687,6 +718,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     },
     onNotice: (text) => dispatch({ kind: "system", text }),
     onToggleSidebar: () => setHideSidebar(v => !v),
+    onSteer: openSteer,
     onStash: () => {
       const c = composer.current
       const v = c?.value().trim() ?? ""
@@ -790,7 +822,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
               <VoiceIndicator voice={voice.state} keyLabel={voice.keyLabel} />
               <Composer
                 ref={composer}
-                focused={inputFocused} ready={ready} streaming={turn.streaming}
+                focused={inputFocused} connected={!!sid} ready={ready} streaming={turn.streaming}
                 status={status}
                 model={info?.model}
                 escHint={escHint}
@@ -802,6 +834,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
                 onAttachClipboard={attachClipboard}
                 onEnqueue={onEnqueue}
                 onDequeue={dequeue}
+                onSteer={openSteer}
                 onDirty={setComposing}
                 onEmptyEnter={onEmptyEnter}
               />

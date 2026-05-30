@@ -61,6 +61,7 @@ type Opts = {
   onDetachLast: () => boolean
   onNotice: (text: string) => void
   onToggleSidebar: () => void
+  onSteer: () => void
   onStash: () => void
   /** Voice recording key binding + handler from useVoice hook. */
   voiceRecordKey?: VoiceKey
@@ -186,6 +187,12 @@ export function useAppKeys(o: Opts) {
       if (key.name === "backspace" && !key.ctrl && !key.meta && c.caret() === 0) {
         c.setMode("normal"); key.stopPropagation(); return
       }
+    }
+
+    if (keys.match("session.steer", key)) {
+      o.onSteer()
+      key.stopPropagation()
+      return
     }
 
     // Interrupt the turn so the drain effect fires the queued head now.

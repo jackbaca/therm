@@ -49,6 +49,7 @@ export type ComposerHandle = {
 
 type Props = {
   focused: boolean
+  connected?: boolean
   ready: boolean
   streaming: boolean
   status?: string
@@ -68,6 +69,7 @@ type Props = {
   onAttachClipboard?: () => void
   onEnqueue?: (text: string) => void
   onDequeue?: (i: number) => void
+  onSteer?: () => void
   /** Enter pressed with an empty buffer. Return true to consume. */
   onEmptyEnter?: () => boolean
   /** Fires on the empty↔non-empty edge of the input buffer. */
@@ -268,7 +270,7 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     }
     const text = exp.text.trim()
     if (live.current.props.streaming) {
-      if (!text || !live.current.props.ready) return
+      if (!text || !(live.current.props.connected ?? live.current.props.ready)) return
       hist.push({ input: text, parts: exp.parts })
       write("")
       // Slash-shaped input routes through onSend so send() → slash()
@@ -281,7 +283,7 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     }
     const hasAtt = (live.current.props.attachments?.length ?? 0) > 0
     if (!text && !hasAtt) { live.current.props.onEmptyEnter?.(); return }
-    if (!live.current.props.ready) return
+    if (!(live.current.props.connected ?? live.current.props.ready)) return
     if (text) hist.push({ input: text, parts: exp.parts })
     write("")
     live.current.props.onSend(text, exp.parts)
@@ -490,6 +492,18 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
         {props.streaming && (props.queue?.length ?? 0) > 0 ? (
           <text fg={theme.textMuted}>{keys.print("queue.flush")} to send queued now  </text>
         ) : null}
+        <box
+          height={1}
+          flexDirection="row"
+          onMouseDown={() => props.onSteer?.()}
+        >
+          <text>
+            <span fg={theme.borderSubtle}>◇ </span>
+            <span fg={theme.textMuted}>steer </span>
+            <span fg={theme.accent}>{keys.print("session.steer")}</span>
+          </text>
+        </box>
+        <text fg={theme.textMuted}>  </text>
         {bg.count > 0 ? <text fg={theme.text}>▶ {bg.count}  </text> : null}
         {props.model ? <text fg={theme.textMuted}>{props.model}</text> : null}
       </box>

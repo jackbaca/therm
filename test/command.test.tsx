@@ -37,10 +37,10 @@ describe("Command palette", () => {
     const t = await mountNode(<Reg />)
     await until(t, () => t.frame().includes("reg"))
 
-    // <leader>s → status.open
+    // <leader>i → status.open
     act(() => t.keys.pressKey("x", { ctrl: true }))
     await t.settle()
-    await act(async () => { await t.keys.typeText("s") })
+    await act(async () => { await t.keys.typeText("i") })
     await t.settle()
     expect(fired).toEqual(["status"])
 

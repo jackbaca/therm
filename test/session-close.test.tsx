@@ -56,6 +56,29 @@ describe("session.close", () => {
     t.destroy()
   })
 
+  test("switchSession restores ready when pre-response session.info is filtered", async () => {
+    const gw = new MockGateway({
+      "commands.catalog": () => ({ pairs: [["/resume", "resume session"]] }),
+      "session.create": () => ({ session_id: "old" }),
+      "session.resume": p => {
+        gw.push({ type: "session.info", session_id: "new", payload: { session_id: "new", model: "m", tools: {}, skills: {} } })
+        return { session_id: "new", resumed: p.session_id, messages: [{ role: "user", text: "hello" }] }
+      },
+    })
+    const t = await mount({ gw, launch: { mode: "new", splash: false } })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("/resume past") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => gw.last("session.resume")?.params.session_id === "past")
+    await until(t, () => t.frame().includes("Ready") && t.frame().includes("hello"))
+
+    expect(t.frame()).not.toContain("Connecting")
+    expect(t.gw.last("session.close")?.params.session_id).toBe("old")
+
+    t.destroy()
+  })
+
   test("switchSession keeps prev live when resume fails", async () => {
     const gw = new MockGateway({
       "commands.catalog": () => ({ pairs: [["/resume", "resume session"]] }),

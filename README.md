@@ -1,58 +1,135 @@
-# Herm - Dashboard TUI for Hermes
-<img width="1711" height="927" alt="image" src="https://github.com/user-attachments/assets/d3b855a0-b1b2-4ea1-8eab-84f9716c8de9" />
+# Herm
 
-> **herm** /hɜːm/ _noun_ : a sculptured head of Hermes on a square stone pillar, used in ancient Greece as a boundary marker at crossroads.
+![Herm startup splash screen](./assets/readme-splash.png)
 
-Herm is a tabbed, mouse-aware TUI built with [OpenTUI](https://github.com/anomalyco/opentui) (React renderer) and [Bun](https://bun.sh/). It talks to the same gateway `hermes` cli uses.
+Chat stays on the left. The sidebar and tabs expose model/profile state,
+sessions, context, agents, analytics, skills, cron, toolsets, config, env,
+memory, and kanban without leaving the terminal.
 
-## What it does
+> **herm** /hɜːm/ _noun_ : a sculptured head of Hermes on a square stone
+> pillar, used in ancient Greece as a boundary marker at crossroads.
 
-- **Chat** with streaming, markdown, inline images (chafa), LaTeX→unicode, diff chips, tool-call expansion, and an animated ASCII avatar
-- **Tabs** for sessions, context, agents, analytics, skills, cron, toolsets, config, env, memory, kanban
-- **Profile switching** — hop between Hermes profiles without leaving the TUI
-- **Command palette** (`Ctrl+K`), **slash popover**, **@-refs** for file/diff context
-- **Fully rebindable keys** (`/keys`, opencode-compatible) and theme picker
+## Why Herm
 
-## Install
+Herm gives Hermes Agent an operator-focused TUI instead of scattering work
+across shell commands, config files, and browser windows.
 
-Herm needs a working [Hermes Agent](https://github.com/NousResearch/hermes-agent) install and [Bun](https://bun.sh).
+- **Stay in the terminal** while chatting with Hermes Agent, resuming sessions,
+  and inspecting context.
+- **Operate your Hermes home** through dashboard tabs for profiles, skills,
+  cron jobs, toolsets, config, env, and memory.
+- **Run agentic work through kanban** with boards, task detail views,
+  diagnostics, and dispatch controls.
+- **Make the shell yours** with rebindable keys, a command palette, slash
+  commands, theme picker, and profile switching.
+
+Herm is built with [OpenTUI](https://github.com/anomalyco/opentui) and
+[Bun](https://bun.sh/). It is a client for the Hermes Agent gateway, not a
+separate agent runtime.
+
+## Quickstart
+
+Herm requires:
+
+- a working [Hermes Agent](https://github.com/NousResearch/hermes-agent) install
+- [Bun](https://bun.sh/) or a Node package runner
+- a Hermes home at `~/.hermes`, or `HERMES_HOME` pointing somewhere else
+
+Try Herm without installing:
 
 ```bash
-bunx herm-tui              # try without installing
-bun add -g herm-tui        # stable
-npm i -g herm-tui          # also fine
-bun add -g herm-tui@next   # bleeding edge (every dev push)
-herm                       # fresh session
-herm -c                    # resume last session
+bunx herm-tui
 ```
 
-Or from source:
+Install it globally:
+
+```bash
+bun add -g herm-tui        # stable
+npm i -g herm-tui          # also fine
+bun add -g herm-tui@next   # bleeding edge, every dev push
+```
+
+Run it:
+
+```bash
+herm       # fresh session
+herm -c    # resume last session
+```
+
+Or run from source:
 
 ```bash
 git clone https://github.com/liftaris/herm.git
-cd herm && bun install
+cd herm
+bun install
 bun run src/index.tsx
 ```
 
-Herm looks for `~/.hermes`. If yours lives elsewhere, set `HERMES_HOME`. See [`.env.example`](./.env.example) for rarely-needed overrides.
+See [`.env.example`](./.env.example) for rarely-needed overrides.
+
+## What you can do
+
+### Chat with Hermes Agent
+
+- Stream responses with markdown rendering, LaTeX-to-unicode conversion, inline
+  images through `chafa`, diff chips, and expandable tool calls.
+- Add file and diff context with `@` references.
+- Use slash commands for session control, model switching, skins, keybindings,
+  and app actions.
+- Resume, title, and manage sessions without dropping back to another command.
+
+### Operate your Hermes home
+
+- Switch Hermes profiles from inside the TUI.
+- Inspect and manage operational surfaces: sessions, context, agents,
+  analytics, skills, cron, toolsets, config, env, and memory.
+
+### Run kanban work
+
+- Use the kanban tab as an agent work surface rather than a detached project
+  board.
+- Open board and task detail views, inspect diagnostics, and dispatch work from
+  the same shell you use for chat.
+
+### Customize the shell
+
+- Press `Ctrl+K` for the command palette.
+- Type `/` for the slash popover.
+- Type `/theme` to browse built-in themes.
+- Type `/keys` to view and rebind keybindings, including OpenCode-compatible
+  bindings.
+- Use `Tab` / `Shift+Tab` to move between top-level tabs. Arrow keys navigate
+  within a tab.
+
+If text is hard to read in tmux or a dark terminal, try a light theme such as
+`daylight`, `mercury`, or `github`. If tmux is the issue,
+`set -g default-terminal "tmux-256color"` in `~/.tmux.conf` often fixes color
+handling.
+
+## Status and compatibility
+
+Herm does not guarantee backward compatibility with older versions of Hermes.
+Hermes is constantly updating, and things are bound to break. Regular Hermes
+parity sweeps and updates are done to keep Herm current.
+
+Herm is the dashboard TUI for Hermes Agent. It does not replace Hermes Agent,
+implement model providers itself, or own Hermes runtime behavior.
 
 ## Development
 
 ```bash
-bun run dev            # watch mode
+bun run dev
 bun run typecheck
 bun test
 ```
 
-## Motivation
-Before Hermes, OpenCode was my daily driver. I built Herm because I wanted Hermes capabilities with an OpenCode style interface. Herm uses the same TUI framework OpenCode is built with, OpenTUI, and also exposes dashboard style tabs that centralizes everything I need to do in Hermes in my interface of choice--the terminal.
-
 ## Acknowledgments
 
-- [Hermes Agent](https://github.com/NousResearch/hermes-agent) — the brain
-- [OpenTUI](https://github.com/anomalyco/opentui) — the TUI framework
-- [OpenCode](https://github.com/anomalyco/opencode) — the inspiration
+- [Hermes Agent](https://github.com/NousResearch/hermes-agent) - the agent
+  runtime Herm operates
+- [OpenTUI](https://github.com/anomalyco/opentui) - the TUI framework
+- [OpenCode](https://github.com/anomalyco/opencode) - interface inspiration
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+MIT - see [LICENSE](./LICENSE).

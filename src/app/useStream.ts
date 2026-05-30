@@ -117,6 +117,7 @@ export function useStream(c: Ctx) {
       onReady: () => {
         x.session.boot(x.launchRef.current).then((r) => {
           x.setSid(r.id)
+          if (r.info) { x.setInfo(r.info); x.setUsage(r.info.usage) }
           x.sessionStart.current = Date.now()
           if (r.messages.length) x.dispatch({ kind: "load", messages: r.messages })
           if (r.note) toast.show({ variant: "info", message: r.note })
