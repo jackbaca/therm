@@ -328,8 +328,12 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     // DB row, reaps its slash_worker subprocess, drops the AIAgent from
     // `_sessions`). Fire-and-forget — create() doesn't depend on it.
     if (prev) void session.close(prev)
-    try { setSid(await session.create()); sessionStart.current = Date.now() }
-    catch {}
+    try {
+      const r = await session.create()
+      setSid(r.id)
+      if (r.info) { setInfo(r.info); setUsage(r.info.usage) }
+      sessionStart.current = Date.now()
+    } catch {}
   }, [reset, session, gw])
 
   const switchSession = useCallback(async (target: string) => {
@@ -797,7 +801,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
               <VoiceIndicator voice={voice.state} keyLabel={voice.keyLabel} />
               <Composer
                 ref={composer}
-                focused={inputFocused} ready={ready} streaming={turn.streaming}
+                focused={inputFocused} connected={!!sid} ready={ready} streaming={turn.streaming}
                 status={status}
                 model={info?.model}
                 escHint={escHint}

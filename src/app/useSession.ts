@@ -48,7 +48,7 @@ export type CompressResult = {
   }
 }
 
-type Booted = { id: string; messages: Message[]; note?: string }
+type Booted = { id: string; messages: Message[]; note?: string; info?: SessionInfo }
 type Resumed = { id: string; messages: Message[]; info?: SessionInfo }
 type Activated = { id: string; messages: Message[]; info?: SessionInfo; running: boolean; status?: string; startedAt?: number }
 
@@ -58,7 +58,7 @@ export const normalize = (sid: string): string =>
 type SessionOps = {
   /** Establish the initial session per launch intent. */
   boot: (launch: Launch) => Promise<Booted>
-  create: () => Promise<string>
+  create: () => Promise<{ id: string; info?: SessionInfo }>
   resume: (sid: string) => Promise<Resumed>
   activate: (sid: string) => Promise<Activated>
   /** Finalize a gateway session (best-effort — swallows errors). */
@@ -106,7 +106,7 @@ export function useSession(): SessionOps {
   const create = useCallback(async () => {
     const res = await gw.request<SessionCreateResponse>("session.create", {})
     gw.setSession(res.session_id)
-    return res.session_id
+    return { id: res.session_id, info: res.info }
   }, [gw])
 
   const activate = useCallback(async (sid: string): Promise<Activated> => {
@@ -143,7 +143,7 @@ export function useSession(): SessionOps {
   }, [gw])
 
   const boot = useCallback(async (launch: Launch): Promise<Booted> => {
-    const fresh = async (note?: string) => ({ id: await create(), messages: [], note })
+    const fresh = async (note?: string) => ({ ...(await create()), messages: [], note })
 
     if (launch.mode === "resume") {
       const target = launch.sid ?? sdb.lastReal()?.id
