@@ -143,7 +143,10 @@ describe("session.close", () => {
 
     await act(async () => { await t.keys.typeText("/sessions") })
     act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("Live Sessions"))
+    await until(t, () => {
+      const f = t.frame()
+      return f.includes("Sessions (") && f.includes("Live A") && !f.includes("Live Sessions")
+    })
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("partial answer"))
 
