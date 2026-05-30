@@ -1,3 +1,14 @@
+## [1.8.1](https://github.com/liftaris/herm/compare/v1.8.0...v1.8.1) (2026-05-30)
+
+
+### Bug Fixes
+
+* allow prompts during lazy session startup ([12b545f](https://github.com/liftaris/herm/commit/12b545f32a1fd6e45345cae13602804635f3ba87))
+* harden eikon generation spawning ([d1a589f](https://github.com/liftaris/herm/commit/d1a589f3007442b2060cead76338bea004c94cd3))
+* preserve busy steer fallback ([2b4c904](https://github.com/liftaris/herm/commit/2b4c9045be56eb9cb340a4d8c5b6b7e1f6af43fc))
+* restore ready state after session resume ([e042be7](https://github.com/liftaris/herm/commit/e042be78c85d489abbb9c8fa6d8fb735d2622978))
+* Windows Eikon tab crash. Fixes [#1](https://github.com/liftaris/herm/issues/1) (the issue number we just created) Adds cross-platform compatibility for Python venv paths, Windows python executable, tempdir fallback, and adds error handling to prevent unhandled rejections from killing the app. ([d08a063](https://github.com/liftaris/herm/commit/d08a063826e722c20ae072fddaa1a7f2a44b320b))
+
 # [1.8.0](https://github.com/liftaris/herm/compare/v1.7.2...v1.8.0) (2026-05-28)
 
 
