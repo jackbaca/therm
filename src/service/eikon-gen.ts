@@ -8,6 +8,8 @@
 // providers) can swap the backend without touching callers.
 
 import { existsSync, readFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { hermesPath } from "./hermes-home"
 
 export type GenerateKind = "image" | "video"
@@ -16,13 +18,18 @@ export type GenerateOut = { path: string } | { err: string }
 export type GenerateFn = (kind: GenerateKind, prompt: string, opts: GenerateOpts) => Promise<GenerateOut>
 
 const ROOT = () => hermesPath("hermes-agent")
-const isWin = process.platform === "win32"
+const WIN = process.platform === "win32"
 const PY = () => {
   for (const v of ["venv", ".venv"]) {
-    const bin = isWin ? `${ROOT()}/${v}/Scripts/python.exe` : `${ROOT()}/${v}/bin/python`
+    const bin = WIN ? `${ROOT()}/${v}/Scripts/python.exe` : `${ROOT()}/${v}/bin/python`
     if (existsSync(bin)) return bin
   }
-  return isWin ? "python" : "python3"
+  return WIN ? "python" : "python3"
+}
+
+const spawn = (args: string[]) => {
+  try { return Bun.spawn([PY(), ...args], { cwd: ROOT(), env: env(), stdout: "pipe", stderr: "pipe" }) }
+  catch (e) { return e instanceof Error ? e : new Error(String(e)) }
 }
 
 /** API keys live in ~/.hermes/.env (per AGENTS.md: env file is keys-
@@ -88,9 +95,8 @@ export async function probe(): Promise<{ image: boolean; video: boolean }> {
     "from tools.video_generation_tool import check_video_generation_requirements as cv",
     "print(json.dumps({'image': bool(ci()), 'video': bool(cv())}))",
   ].join("; ")
-  let r
-  try { r = Bun.spawn([PY(), "-c", src], { cwd: root, env: env(), stdout: "pipe", stderr: "pipe" }) }
-  catch { return { image: false, video: false } }
+  const r = spawn(["-c", src])
+  if (r instanceof Error) return { image: false, video: false }
   const out = await new Response(r.stdout).text()
   if ((await r.exited) !== 0) return { image: false, video: false }
   const last = out.trim().split("\n").pop()!
@@ -98,7 +104,7 @@ export async function probe(): Promise<{ image: boolean; video: boolean }> {
 }
 
 async function fetchTo(url: string, ext: string): Promise<string> {
-  const tmp = `${process.env.TMPDIR ?? process.env.TEMP ?? process.env.TMP ?? "/tmp"}/eikon-gen-${Date.now()}${ext}`
+  const tmp = join(tmpdir(), `eikon-gen-${Date.now()}${ext}`)
   const res = await fetch(url)
   if (!res.ok) throw new Error(`download ${res.status}`)
   await Bun.write(tmp, await res.arrayBuffer())
@@ -106,8 +112,8 @@ async function fetchTo(url: string, ext: string): Promise<string> {
 }
 
 export const generate: GenerateFn = async (kind, prompt, opts) => {
-  const r = Bun.spawn([PY(), "-c", code(kind, prompt, opts)],
-    { cwd: ROOT(), env: env(), stdout: "pipe", stderr: "pipe" })
+  const r = spawn(["-c", code(kind, prompt, opts)])
+  if (r instanceof Error) return { err: r.message }
   const [out, err, exit] = await Promise.all([
     new Response(r.stdout).text(),
     new Response(r.stderr).text(),
