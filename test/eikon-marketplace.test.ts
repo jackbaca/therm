@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+import type { Catalog, CatalogIndexEntry } from "eikon/catalog"
 import * as market from "../src/service/eikon-marketplace"
 import { eikon } from "../src/service/eikon"
 import * as prefs from "../src/context/preferences"
@@ -119,6 +120,37 @@ describe("service/eikon-marketplace", () => {
     fx.srv.stop()
   })
 
+  test("available rows are installable when no eikon is active", async () => {
+    const fx = fixture()
+    const state = await market.load({ catalog: fx.base, allowPrivate: true })
+    const row = state.rows.find(r => r.entry.name === "mono")!
+
+    expect(row.installed).toBe(false)
+    expect(row.active).toBe(false)
+    expect(row.installState).toBe("available")
+    expect(row.action).toBe("install")
+    fx.srv.stop()
+  })
+
+  test("legacy name fallback is not suppressed by unrelated keyed installs", async () => {
+    const fx = fixture()
+    eikon.ensure("ares")
+    writeFileSync(eikon.file("ares"), `${JSON.stringify({ eikon: 1, name: "ares", source_url: `${fx.base}/alt/` })}\n`)
+    eikon.ensure("mono")
+    writeFileSync(eikon.file("mono"), `${JSON.stringify({ eikon: 1, name: "mono" })}\n`)
+
+    const state = await market.load({ catalog: fx.base, allowPrivate: true })
+    const mono = state.rows.find(r => r.entry.name === "mono")!
+    const alt = state.rows.find(r => r.entry.poster === "ALT")!
+    const ares = state.rows.find(r => r.entry.poster === "ARES")!
+
+    expect(mono.installed).toBe(true)
+    expect(mono.installState).toBe("legacy-name-match")
+    expect(alt.installed).toBe(true)
+    expect(ares.installed).toBe(false)
+    fx.srv.stop()
+  })
+
   test("preview loads selected entry with cache and abort support", async () => {
     const fx = fixture()
     const state = await market.load({ catalog: fx.base, allowPrivate: true })
@@ -133,6 +165,80 @@ describe("service/eikon-marketplace", () => {
     ctl.abort()
     await expect(svc.preview(state.rows[1]!.entry.identityKey, { signal: ctl.signal })).rejects.toThrow(/aborted/i)
     fx.srv.stop()
+  })
+
+  test("preview deduplicates concurrent requests and caps cached entries", async () => {
+    const fx = fixture()
+    const state = await market.load({ catalog: fx.base, allowPrivate: true, previewCacheLimit: 1 })
+    const svc = state.service!
+    const ares = state.rows.find(r => r.entry.poster === "ARES")!
+    const mono = state.rows.find(r => r.entry.name === "mono")!
+
+    const [left, right] = await Promise.all([
+      svc.preview(ares.entry.identityKey),
+      svc.preview(ares.entry.identityKey),
+    ])
+    expect(left).toBe(body)
+    expect(right).toBe(body)
+    expect(fx.seen.filter(p => p.endsWith("ares.eikon"))).toHaveLength(1)
+
+    expect(await svc.preview(mono.entry.identityKey)).toContain("mono")
+    expect(await svc.preview(ares.entry.identityKey)).toBe(body)
+    expect(fx.seen.filter(p => p.endsWith("ares.eikon"))).toHaveLength(2)
+    fx.srv.stop()
+  })
+
+  test("preview limits concurrent network loads", async () => {
+    let active = 0
+    let peak = 0
+    const pending: (() => void)[] = []
+    const waits: (() => void)[] = []
+    const waitForFetch = () => pending.length > 0 ? Promise.resolve() : new Promise<void>(resolve => waits.push(resolve))
+    const cat: Catalog = {
+      base: "https://example.com/eikons",
+      entries: ["one", "two", "three"].map(name => ({
+        name,
+        author: "Kaio",
+        width: 48,
+        height: 24,
+        w: 48,
+        h: 24,
+        poster: name,
+        trust: {},
+        identityKey: `https://example.com/${name}/`,
+        sourceKey: `https://example.com/${name}/`,
+        raw: { name } satisfies CatalogIndexEntry,
+        installUrl: `https://example.com/${name}/manifest.json`,
+        previewUrl: `https://example.com/${name}/${name}.eikon`,
+      })),
+      load: async () => "",
+    }
+    const svc = new market.MarketplaceService(cat, {
+      concurrency: 1,
+      fetcher: async input => {
+        active += 1
+        peak = Math.max(peak, active)
+        const done = waits.shift()
+        if (done) done()
+        await new Promise<void>(resolve => pending.push(resolve))
+        active -= 1
+        return new Response(String(input))
+      },
+    })
+
+    const xs = cat.entries.map(e => svc.preview(e.identityKey))
+    await waitForFetch()
+    expect(active).toBe(1)
+    pending.shift()!()
+    await waitForFetch()
+    expect(active).toBe(1)
+    pending.shift()!()
+    await waitForFetch()
+    expect(active).toBe(1)
+    pending.shift()!()
+
+    await Promise.all(xs)
+    expect(peak).toBe(1)
   })
 
   test("marketplace install writes files, bumps revision, and does not activate", async () => {

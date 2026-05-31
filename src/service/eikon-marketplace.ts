@@ -49,8 +49,14 @@ export type MarketplaceOptions = CatalogOptions & {
   concurrency?: number
 }
 
-export type PreviewOptions = { signal?: AbortSignal; timeoutMs?: number }
+type PreviewOptions = { signal?: AbortSignal; timeoutMs?: number }
 export type MarketplaceInstall = { name: string; n: number; bytes: number }
+
+type Job<T> = {
+  run: () => Promise<T>
+  resolve: (value: T | PromiseLike<T>) => void
+  reject: (err: unknown) => void
+}
 
 const DEFAULT_TIMEOUT = 5000
 const DEFAULT_CACHE_LIMIT = 24
@@ -82,16 +88,14 @@ function match(entry: CatalogEntry, xs: InstalledMetadata[]) {
   const keys = entryKeys(entry)
   const exact = xs.find(x => x.identityKeys.some(k => keys.includes(k)))
   if (exact) return { inst: exact, legacy: false }
-  const named = xs.find(x => x.name === entry.name)
+  const named = xs.find(x => x.name === entry.name && x.identityKeys.length === 0)
   if (named) return { inst: named, legacy: true }
   return undefined
 }
 
 function row(entry: CatalogEntry, xs: InstalledMetadata[]): MarketplaceRow {
-  const keyed = xs.some(x => x.identityKeys.length > 0)
-  const hit = match(entry, xs)
-  const usable = hit && !(hit.legacy && keyed) ? hit : undefined
-  const active = prefs.get("eikon") === usable?.inst.name
+  const usable = match(entry, xs)
+  const active = usable ? prefs.get("eikon") === usable.inst.name : false
   const installed = Boolean(usable)
   const installState: EntryState = active ? "active" : !usable ? "available" : usable.legacy ? "legacy-name-match" : "installed"
   return {
@@ -114,6 +118,9 @@ export class MarketplaceService {
   private fetcher: Fetcher
   private timeoutMs: number
   private previewCacheLimit: number
+  private concurrency: number
+  private activeLoads = 0
+  private queue: Job<string>[] = []
   private cache = new Map<string, string>()
   private inFlight = new Map<string, Promise<string>>()
 
@@ -122,6 +129,7 @@ export class MarketplaceService {
     this.fetcher = opts.fetcher ?? fetch
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT
     this.previewCacheLimit = opts.previewCacheLimit ?? DEFAULT_CACHE_LIMIT
+    this.concurrency = Math.max(1, Math.floor(opts.concurrency ?? 4))
   }
 
   rows(query = ""): MarketplaceRow[] {
@@ -142,7 +150,7 @@ export class MarketplaceService {
     if (hit !== undefined) return hit
     const active = this.inFlight.get(entry.identityKey)
     if (active) return active
-    const p = this.loadPreview(entry, opts).finally(() => this.inFlight.delete(entry.identityKey))
+    const p = this.enqueue(() => this.loadPreview(entry, opts)).finally(() => this.inFlight.delete(entry.identityKey))
     this.inFlight.set(entry.identityKey, p)
     return p
   }
@@ -154,6 +162,26 @@ export class MarketplaceService {
     const out = await eikon.fetchSource(entry.installUrl, { name: entry.name })
     if (prefs.get("eikon") !== before) prefs.set("eikon", before)
     return out
+  }
+
+  private enqueue(run: () => Promise<string>) {
+    return new Promise<string>((resolve, reject) => {
+      this.queue.push({ run, resolve, reject })
+      this.pump()
+    })
+  }
+
+  private pump() {
+    if (this.activeLoads >= this.concurrency) return
+    const job = this.queue.shift()
+    if (!job) return
+    this.activeLoads += 1
+    job.run()
+      .then(job.resolve, job.reject)
+      .finally(() => {
+        this.activeLoads -= 1
+        this.pump()
+      })
   }
 
   private async loadPreview(entry: CatalogEntry, opts: PreviewOptions) {
