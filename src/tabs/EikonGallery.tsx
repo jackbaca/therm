@@ -9,7 +9,9 @@ import { HintBar } from "../ui/hint"
 import { VBAR } from "../ui/table"
 import { useKeys, handleListKey, useFollow } from "../keys"
 import { openConfirm } from "../dialogs/confirm"
+import { openEikonSubmit } from "../dialogs/eikon-submit"
 import { openNewEikon } from "../dialogs/new-eikon"
+import * as submitSvc from "../service/eikon-submit"
 import { useKeyboard } from "@opentui/react"
 import { AnimatedAvatar } from "../components/avatar/AnimatedAvatar"
 import { listEikons, parseEikon, type ParsedEikon } from "../components/avatar/eikon"
@@ -30,7 +32,7 @@ type Pane = "grid" | "detail"
 
 const NO_MARKET: MarketplaceState = { status: "empty", query: "", rows: [] }
 
-export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: string) => void }) => {
+export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: string) => void; submitReview?: submitSvc.SubmitReview }) => {
   const theme = useTheme().theme
   const dialog = useDialog()
   const toast = useToast()
@@ -54,9 +56,10 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
     })
   }, [rev])
 
+  const active = prefs.usePref("eikon")
   const [mode, setMode] = useState<Mode>("gallery")
   const [pane, setPane] = useState<Pane>("grid")
-  const [sel, setSel] = useState(0)
+  const [sel, setSel] = useState(() => Math.max(0, rows.findIndex(r => r.slug === active)))
   const [marketSel, setMarketSel] = useState(0)
   const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState("")
@@ -70,7 +73,6 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
   useEffect(() => { if (marketSel >= state.rows.length) setMarketSel(Math.max(0, state.rows.length - 1)) }, [state.rows.length, marketSel])
 
   const cur = rows[sel]
-  const active = prefs.usePref("eikon")
   const parsed = useMemo<ParsedEikon | undefined>(() => {
     if (!cur) return undefined
     try { return parseEikon(readFileSync(cur.path, "utf8")) } catch { return undefined }
@@ -136,6 +138,15 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
       .catch(e => toast.error(e instanceof Error ? e : new Error(String(e))))
   }, [dialog, toast, props])
 
+  const submitLocal = useCallback(async () => {
+    if (!cur || cur.bundled) return
+    await openEikonSubmit(dialog, {
+      name: cur.name,
+      path: submitSvc.submitPath(cur.slug),
+      submitReview: props.submitReview ?? submitSvc.submit,
+    })
+  }, [cur, dialog, props.submitReview])
+
   const del = async () => {
     if (!cur || cur.bundled) return
     const ok = await openConfirm(dialog, {
@@ -199,6 +210,7 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
       onDelete: () => void del(),
       onNew: doNew,
     })) return
+    if (key.name === "u" && cur && !cur.bundled) return void submitLocal()
     if (keys.match("eikon.marketplace", key)) return openMarket()
     if (key.name === "e" && cur && props.onEdit) props.onEdit(cur.slug)
   })
@@ -264,7 +276,7 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
       </box>
       <HintBar pairs={[
         ["↑↓", "select"], [keys.print("list.activate"), "use"], [keys.print("eikon.marketplace"), "marketplace"],
-        ["e", "edit in studio"], [keys.print("list.new"), "new / install"],
+        ["e", "edit in studio"], ...(cur && !cur.bundled ? [["u", "submit"] as const] : []), [keys.print("list.new"), "new / install"],
         ...(cur && !cur.bundled ? [[keys.print("list.delete"), "delete"] as const] : []),
       ]} />
     </box>
