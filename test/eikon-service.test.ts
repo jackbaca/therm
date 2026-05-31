@@ -138,6 +138,19 @@ describe("service/eikon: fetchSource", () => {
     srv.stop()
   })
 
+  test("fetchSource can install without source media", async () => {
+    const srv = Bun.serve({ port: 0, fetch: r => body(new URL(r.url).pathname.split("/").pop()!) })
+    const url = `http://localhost:${srv.port}/nosource/`
+    const out = await eikon.fetchSource(url, { name: "nosource", media: false })
+    expect(out.name).toBe("nosource")
+    expect(out.n).toBe(3)
+    expect(out.bytes).toBe(0)
+    expect(out.sources).toEqual({})
+    expect(eikon.readStudio("nosource")!.sources).toEqual({})
+    expect(existsSync(join(eikon.sourceDir("nosource"), "idle.mp4"))).toBe(false)
+    srv.stop()
+  })
+
   test("legacy {files:[]} manifest: role from basename", async () => {
     const srv = Bun.serve({
       port: 0,

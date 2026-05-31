@@ -260,7 +260,7 @@ export const peekSource = peek
  *  URL, local dir, http manifest base) into <profile>/eikons/<name>/.
  *  Seeds studio.json from the returned sources map and bumps the
  *  revision counter so the sidebar + Gallery reload. */
-export async function fetchSource(src: string, opts?: { name?: string;
+export async function fetchSource(src: string, opts?: { name?: string; media?: boolean;
                                    progress?: (d: number, t: number) => void }): Promise<Fetched> {
   const out: Got = await install(src, ROOT(), opts)
   const prev = readStudio(out.name)
