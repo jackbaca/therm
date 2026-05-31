@@ -280,6 +280,7 @@ describe("app", () => {
   test("marketplace preview updates sidebar without changing active preference", async () => {
     const HH = process.env.HERMES_HOME!
     const png = new Uint8Array([137, 80, 78, 71])
+    let previewHits = 0
     const srv = Bun.serve({
       port: 0,
       fetch(req) {
@@ -287,11 +288,14 @@ describe("app", () => {
         if (path === "/eikons/index.json") return Response.json([
           { name: "marketone", author: "Kaio", width: 48, height: 24, poster: "M1", source: "marketone/", preview_url: "marketone.eikon", install_url: "", description: "market one" },
         ])
-        if (path === "/eikons/marketone/marketone.eikon") return new Response([
-          JSON.stringify({ eikon: 1, name: "marketone", author: "Kaio", width: 48, height: 24 }),
-          JSON.stringify({ state: "idle", fps: 1, frame_count: 1, loop_from: 1 }),
-          JSON.stringify({ f: 0, data: "MARKET-PREVIEW-LINE" }),
-        ].join("\n") + "\n")
+        if (path === "/eikons/marketone/marketone.eikon") {
+          previewHits++
+          return new Response([
+            JSON.stringify({ eikon: 1, name: "marketone", author: "Kaio", width: 48, height: 24 }),
+            JSON.stringify({ state: "idle", fps: 1, frame_count: 1, loop_from: 1 }),
+            JSON.stringify({ f: 0, data: "MARKET-PREVIEW-LINE" }),
+          ].join("\n") + "\n")
+        }
         if (path === "/eikons/marketone/manifest.json") return Response.json({ name: "marketone", source: "source.png" })
         if (path === "/eikons/marketone/source.png") return new Response(png)
         return new Response("404", { status: 404 })
@@ -308,8 +312,12 @@ describe("app", () => {
     ].join("\n") + "\n")
     prefs.set("eikon", "activeone")
 
+    const prevTestPerf = process.env.HERM_TEST_PERF
+    process.env.HERM_TEST_PERF = "1"
+    globalThis.__hermAvatarTimerStarts = 0
     const t = await mount({ width: 180, height: 48 })
     await until(t, () => t.frame().includes("Ready") && t.frame().includes("ACTIVE-EIKON-LINE"))
+    const startsBefore = globalThis.__hermAvatarTimerStarts ?? 0
     act(() => { for (let i = 0; i < 4; i++) t.keys.pressArrow("right", { meta: true }) })
     await until(t, () => t.frame().includes("Studio"))
     act(() => t.keys.pressArrow("right", { shift: true }))
@@ -319,11 +327,16 @@ describe("app", () => {
 
     expect(prefs.get("eikon")).toBe("activeone")
     expect(t.frame()).not.toContain("ACTIVE-EIKON-LINE")
+    expect(previewHits).toBe(1)
+    expect((globalThis.__hermAvatarTimerStarts ?? 0) - startsBefore).toBeLessThanOrEqual(1)
 
     act(() => t.keys.pressEscape())
     await until(t, () => t.frame().includes("Gallery (") && t.frame().includes("ACTIVE-EIKON-LINE"))
     expect(prefs.get("eikon")).toBe("activeone")
 
+    delete globalThis.__hermAvatarTimerStarts
+    if (prevTestPerf === undefined) delete process.env.HERM_TEST_PERF
+    else process.env.HERM_TEST_PERF = prevTestPerf
     t.destroy()
     srv.stop()
     process.env.EIKON_URL = prev

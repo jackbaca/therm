@@ -786,7 +786,8 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
         case EIKON_TAB: return <EikonGroup focused={contentFocused}
                                            sub={subTabs[EIKON_TAB] ?? 0}
                                            setSub={eikSub}
-                                           sidebarPreview={tab === EIKON_TAB && (subTabs[EIKON_TAB] ?? 0) === 1 ? setSidebarPreview : undefined} />
+                                           sidebarPreview={tab === EIKON_TAB && (subTabs[EIKON_TAB] ?? 0) === 1 && sidebarVisible ? setSidebarPreview : undefined}
+                                           sidebarHidden={!sidebarVisible} />
         default: {
           const r = extra[tab - TABS.length]
           return r ? r.render() : null
@@ -805,6 +806,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   // (a card's own <input focused> would otherwise leave it blurred).
   // Keys still reach the card via onPromptKey on the global bus.
   const inputFocused = focusRegion === "input" && !prompt
+  const sidebarVisible = dims.width >= (tab === CHAT_TAB ? 120 : 140) && !hideSidebar
 
   return (
     <Profiler id="shell" onRender={perf.onRender}>
@@ -848,7 +850,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
               />
             </box>
           </box>
-          {dims.width >= (tab === CHAT_TAB ? 120 : 140) && !hideSidebar ? (
+          {sidebarVisible ? (
             <Profiler id="sidebar" onRender={perf.onRender}>
               <Sidebar agentState={agentState} info={info} usage={usage} eikon={eikon} profile={activeProfileName()}
                        title={title}

@@ -61,6 +61,27 @@ afterEach(() => {
 })
 
 describe("EikonGallery marketplace mode", () => {
+  test("poster grid does not fetch previews or start per-card avatar timers", async () => {
+    const fx = catalog()
+    process.env.EIKON_URL = fx.base
+    let sub = 1
+    const prevTestPerf = process.env.HERM_TEST_PERF
+    process.env.HERM_TEST_PERF = "1"
+    globalThis.__hermAvatarTimerStarts = 0
+    await using t = await mountNode(<EikonGroup focused sub={sub} setSub={i => { sub = i }} />, { width: 120, height: 28 })
+    await until(t, () => t.frame().includes("Gallery ("))
+    const startsBefore = globalThis.__hermAvatarTimerStarts ?? 0
+
+    await act(async () => { await t.keys.typeText("m") })
+    await until(t, () => t.frame().includes("Marketplace (6)") && t.frame().includes("ARES-POSTER"))
+
+    expect((globalThis.__hermAvatarTimerStarts ?? 0) - startsBefore).toBe(0)
+    delete globalThis.__hermAvatarTimerStarts
+    if (prevTestPerf === undefined) delete process.env.HERM_TEST_PERF
+    else process.env.HERM_TEST_PERF = prevTestPerf
+    fx.srv.stop()
+  })
+
   test("enters marketplace, searches by author, Escape exits search then marketplace", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
