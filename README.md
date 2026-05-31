@@ -91,6 +91,18 @@ See [`.env.example`](./.env.example) for rarely-needed overrides.
 - Open board and task detail views, inspect diagnostics, and dispatch work from
   the same shell you use for chat.
 
+### Share and install eikons
+
+- Press `M` from Gallery to enter the native Eikon Marketplace.
+- Search shared catalog entries, preview the selected eikon, install without
+  activating, then use it when ready.
+- Submit local non-bundled eikons for review with `u`; Herm shows the exact
+  preflight bundle before submission and blocks published marketplace installs
+  from duplicate review submission.
+
+See [`docs/eikon-marketplace.md`](./docs/eikon-marketplace.md) for the full
+Marketplace navigation, install/use, preview, and submit-for-review behavior.
+
 ### Customize the shell
 
 - Press `Ctrl+K` for the command palette.
