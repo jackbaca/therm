@@ -1,5 +1,5 @@
 import { memo, useEffect, type ReactNode } from "react"
-import type { Message } from "../types/message"
+import type { Message, Usage } from "../types/message"
 import type { SessionInfo } from "../context/wire"
 import { Sessions } from "./Sessions"
 import { Context } from "./Context"
@@ -20,6 +20,7 @@ type Props = {
   messages?: Message[]
   sessionStart: number
   info?: SessionInfo
+  usage?: Usage
 }
 
 // Consolidates the former Sessions / Context / Analytics tabs under a
@@ -50,7 +51,7 @@ export const SessionsGroup = memo((props: Props) => {
         </Pane>
         <Pane visible={props.sub === 1}>
           <Context focused={!!props.focused && props.sub === 1}
-                   messages={props.messages} sessionStart={props.sessionStart} info={props.info} />
+                   messages={props.messages} sessionStart={props.sessionStart} info={props.info} usage={props.usage} />
         </Pane>
         <Pane visible={props.sub === 2}>
           <Analytics focused={!!props.focused && props.sub === 2} />
