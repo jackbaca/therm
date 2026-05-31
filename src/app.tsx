@@ -768,7 +768,8 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
                                                  currentId={sid}
                                                  messages={turn.messages}
                                                  sessionStart={sessionStart.current}
-                                                 info={info ?? undefined} />
+                                                 info={info ?? undefined}
+                                                 usage={usage} />
         case AUTOMATION_TAB: return <Automation focused={contentFocused}
                                                 sub={subTabs[AUTOMATION_TAB] ?? 0}
                                                 setSub={autoSub}
