@@ -144,4 +144,38 @@ describe("EikonGallery marketplace mode", () => {
     expect(eikon.list().some(x => x.name === "ares")).toBe(false)
     fx.srv.stop()
   })
+
+  test("Back button exits marketplace by mouse", async () => {
+    const fx = catalog()
+    process.env.EIKON_URL = fx.base
+    let sub = 1
+    await using t = await mountNode(<EikonGroup focused sub={sub} setSub={i => { sub = i }} />, { width: 120, height: 28 })
+    await until(t, () => t.frame().includes("Gallery ("))
+
+    await act(async () => { await t.keys.typeText("m") })
+    await until(t, () => t.frame().includes("Marketplace (6)") && t.frame().includes("‹ Back"))
+
+    const y = () => t.frame().split("\n").findIndex(l => l.includes("‹ Back"))
+    await act(async () => { await t.mouse.click(3, y()) })
+    await until(t, () => t.frame().includes("Gallery (") && !t.frame().includes("Marketplace ("))
+    fx.srv.stop()
+  })
+
+  test("marketplace row click activates the clicked row without hover", async () => {
+    const fx = catalog()
+    process.env.EIKON_URL = fx.base
+    let sub = 1
+    await using t = await mountNode(<EikonGroup focused sub={sub} setSub={i => { sub = i }} />, { width: 160, height: 48 })
+    await until(t, () => t.frame().includes("Gallery ("))
+
+    await act(async () => { await t.keys.typeText("m") })
+    await until(t, () => t.frame().includes("Marketplace (6)") && /▸ .*ares/.test(t.frame()))
+
+    const y = () => t.frame().split("\n").findIndex(l => l.includes("mono") && l.includes("Nous"))
+    await act(async () => { await t.mouse.click(4, y()) })
+    await until(t, () => eikon.list().some(x => x.name === "mono"))
+    expect(eikon.list().some(x => x.name === "ares")).toBe(false)
+    expect(t.frame()).toMatch(/▸ .*mono/)
+    fx.srv.stop()
+  })
 })

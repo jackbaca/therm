@@ -147,8 +147,8 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
     toast.show({ variant: "info", message: `Deleted ${cur.name}` })
   }
 
-  const primary = useCallback(() => {
-    const row = state.rows[marketSel]
+  const primary = useCallback((idx?: number) => {
+    const row = state.rows[idx ?? marketSel]
     const svc = state.service
     if (!row || !svc || installing) return
     if (row.action === "active") return
@@ -205,19 +205,22 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
 
   if (mode === "market") return (
     <box flexDirection="column" flexGrow={1} minWidth={0}>
+      <box height={1} flexDirection="row">
+        <box width={10} onMouseDown={closeMarket}><text fg={theme.primary}>‹ Back</text></box>
+      </box>
       <box flexDirection="row" flexGrow={1}>
         <TabShell title={`Marketplace (${state.rows.length})${searching ? ` Search: ${query}` : ""}`} focus={props.focused && pane === "grid"} grow={3}>
           <MarketplaceGrid rows={state.rows} sel={marketSel} active={active} follow={marketFollow}
             loading={loading} error={state.error} onSel={setMarketSel} onUse={primary} />
         </TabShell>
         <TabShell title={selected ? `Details — ${selected.entry.name}` : "Details"} focus={props.focused && pane === "detail"} grow={2}>
-          <MarketplaceDetail row={selected} loading={loading} installing={installing} onUse={primary} />
+          <MarketplaceDetail row={selected} loading={loading} installing={installing} onUse={() => primary()} />
         </TabShell>
       </box>
       <HintBar pairs={[
         ["↑↓/Pg/Home/End", "select"], [keys.print("list.activate"), actionLabel(selected)],
         [keys.print("list.search"), searching ? "typing search" : "search"], [keys.print("list.refresh"), "reload"],
-        [keys.print("focus.cycle"), "pane"], ["Esc", searching ? "exit search" : "back"], ["M", "marketplace"],
+        [keys.print("focus.cycle"), "pane"], ["Esc", searching ? "exit search" : "back"],
       ]} />
     </box>
   )
@@ -273,7 +276,7 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
 
 const MarketplaceGrid = (props: {
   rows: MarketplaceRow[]; sel: number; active?: string; follow: ReturnType<typeof useFollow>
-  loading: boolean; error?: string; onSel: (i: number) => void; onUse: () => void
+  loading: boolean; error?: string; onSel: (i: number) => void; onUse: (i: number) => void
 }) => {
   const theme = useTheme().theme
   if (props.error) return <box key="error" padding={1}><text fg={theme.error} wrapMode="word">Marketplace unavailable: {props.error}</text></box>
@@ -286,7 +289,7 @@ const MarketplaceGrid = (props: {
         return (
           <box key={r.entry.identityKey} id={props.follow.id(i)} flexDirection="column" minHeight={4}
                backgroundColor={on ? theme.backgroundElement : undefined}
-               onMouseMove={() => props.onSel(i)} onMouseDown={props.onUse}>
+               onMouseMove={() => props.onSel(i)} onMouseDown={() => { props.onSel(i); props.onUse(i) }}>
             <box height={1} flexDirection="row">
               <box width={2}><text fg={on ? theme.primary : theme.textMuted}>{on ? "▸ " : "  "}</text></box>
               <box flexGrow={1} minWidth={0} height={1} overflow="hidden"><text fg={r.active ? theme.accent : theme.text} wrapMode="none">{r.active ? "● " : "  "}<strong>{r.entry.name}</strong>  <span fg={theme.textMuted}>{r.entry.author ?? "—"}</span></text></box>
