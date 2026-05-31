@@ -82,9 +82,9 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
   }, [cur])
 
   const selected = state.rows[marketSel]
-  const showSidebarPreview = dims.width >= 140
+  const showSidebarPreview = !!props.sidebarPreview && dims.width >= 140
   const [detailPreview, setDetailPreview] = useState<SidebarPreview | undefined>(undefined)
-  const setPreview = showSidebarPreview && props.sidebarPreview ? props.sidebarPreview : setDetailPreview
+  const setPreview = props.sidebarPreview && showSidebarPreview ? props.sidebarPreview : setDetailPreview
 
   useEffect(() => {
     if (mode !== "market" || !selected || !state.service) {

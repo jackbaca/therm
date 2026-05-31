@@ -786,7 +786,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
         case EIKON_TAB: return <EikonGroup focused={contentFocused}
                                            sub={subTabs[EIKON_TAB] ?? 0}
                                            setSub={eikSub}
-                                           sidebarPreview={tab === EIKON_TAB && (subTabs[EIKON_TAB] ?? 0) === 1 ? setSidebarPreview : undefined} />
+                                           sidebarPreview={tab === EIKON_TAB && (subTabs[EIKON_TAB] ?? 0) === 1 && !hideSidebar ? setSidebarPreview : undefined} />
         default: {
           const r = extra[tab - TABS.length]
           return r ? r.render() : null

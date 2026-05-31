@@ -2,7 +2,7 @@ import { describe, expect, test, afterEach } from "bun:test"
 import { act } from "react"
 import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { mountNode, until } from "./harness"
+import { mount, mountNode, until } from "./harness"
 import { EikonGroup } from "../src/tabs/EikonGroup"
 import { eikon } from "../src/service/eikon"
 import * as prefs from "../src/context/preferences"
@@ -249,6 +249,28 @@ describe("EikonGallery marketplace mode", () => {
     await until(t, () => t.frame().includes("Gallery ("))
     await act(async () => { await t.keys.typeText("m") })
     await until(t, () => t.frame().includes("Marketplace (6)") && t.frame().includes("ARES-IDLE"))
+    await act(async () => { await t.keys.pressKey(" ") })
+    await until(t, () => t.frame().includes("ARES-THINKING"))
+    fx.srv.stop()
+  })
+  test("wide marketplace renders detail preview when the app sidebar is hidden", async () => {
+    const fx = catalog()
+    process.env.EIKON_URL = fx.base
+    await using t = await mount({ width: 160, height: 48 })
+    await until(t, () => t.frame().includes("Ready"))
+
+    act(() => t.keys.pressKey("5", { meta: true }))
+    await until(t, () => t.frame().includes("Studio"))
+    act(() => t.keys.pressArrow("right", { shift: true }))
+    await until(t, () => t.frame().includes("Gallery ("))
+
+    await act(async () => { await t.keys.typeText("m") })
+    await until(t, () => t.frame().includes("Marketplace (6)"))
+
+    act(() => t.keys.pressKey("x", { ctrl: true }))
+    await t.settle()
+    await act(async () => { await t.keys.typeText("b") })
+    await until(t, () => t.frame().includes("ARES-IDLE"))
     await act(async () => { await t.keys.pressKey(" ") })
     await until(t, () => t.frame().includes("ARES-THINKING"))
     fx.srv.stop()
