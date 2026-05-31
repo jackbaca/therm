@@ -76,7 +76,7 @@ export const EikonGallery = memo((props: {
   const [loading, setLoading] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [previewState, setPreviewState] = useState<AvatarState>("idle")
-  const [detailPreview, setDetailPreview] = useState<ParsedEikon | undefined>(undefined)
+  const [detailPreview, setDetailPreview] = useState<SidebarPreview | undefined>(undefined)
   const previewSeq = useRef(0)
   const galleryFollow = useFollow("gal", i => rows[i]?.slug ?? i)
   const marketFollow = useFollow("market", i => state.rows[i]?.entry.identityKey ?? i)
@@ -93,8 +93,8 @@ export const EikonGallery = memo((props: {
   const selected = state.rows[marketSel]
 
   useEffect(() => {
-    setDetailPreview(undefined)
-    if (mode !== "market" || !selected || !state.service || (!props.sidebarPreview && !props.sidebarHidden)) {
+    if (mode !== "market" || !selected || !state.service) {
+      setDetailPreview(undefined)
       props.sidebarPreview?.(undefined)
       return
     }
@@ -106,8 +106,8 @@ export const EikonGallery = memo((props: {
         if (previewSeq.current !== id) return
         const e = parseEikon(text)
         const st = e.states.has(previewState) ? previewState : "idle"
-        if (props.sidebarHidden) setDetailPreview(e)
-        else props.sidebarPreview?.({ key: `${key}:${st}`, eikon: e, state: st })
+        if (props.sidebarPreview) props.sidebarPreview({ key: `${key}:${st}`, eikon: e, state: st })
+        setDetailPreview({ key: `${key}:${st}`, eikon: e, state: st })
         perf.count("market:preview:ready")
       })
       .catch(() => {
@@ -250,10 +250,10 @@ export const EikonGallery = memo((props: {
       if (key.name === "escape") return closeMarket()
       if (key.shift && key.name === "tab") { setPane(p => p === "detail" ? "grid" : "detail"); return }
       if (key.name === "tab") { setPane(p => p === "grid" ? "detail" : "grid"); return }
-      if (key.name === "left" || key.name === "right") { setPreviewState(s => s === "idle" ? "thinking" : "idle"); return }
       if (handleListKey(keys, key, {
         count: state.rows.length, setSel: setMarketSel, ...marketFollow.opts,
         onActivate: primary,
+        onToggle: () => setPreviewState(s => s === "idle" ? "thinking" : "idle"),
         onSearch: () => setSearching(true),
         onRefresh: () => loadMarket(query),
       })) return
@@ -284,13 +284,13 @@ export const EikonGallery = memo((props: {
         </TabShell>
         <TabShell title={selected ? `Details — ${selected.entry.name}` : "Details"} focus={props.focused && pane === "detail"} grow={2}>
           <MarketplaceDetail row={selected} loading={loading} installing={installing} onUse={() => primary()}
-            preview={props.sidebarHidden ? detailPreview : undefined} previewState={previewState} />
+            onState={setPreviewState} preview={!props.sidebarPreview ? detailPreview : undefined} />
         </TabShell>
       </box>
       <HintBar pairs={[
         ["↑↓/Pg/Home/End", "select"], [keys.print("list.activate"), actionLabel(selected)],
         [keys.print("list.search"), searching ? "typing search" : "search"], [keys.print("list.refresh"), "reload"],
-        [keys.print("focus.cycle"), "pane"], ["Esc", searching ? "exit search" : "back"],
+        ["Space", "preview state"], [keys.print("focus.cycle"), "pane"], ["Esc", searching ? "exit search" : "back"],
       ]} />
     </box>
   )
@@ -381,17 +381,23 @@ const MarketplaceDetail = (props: {
   loading: boolean
   installing: boolean
   onUse: () => void
-  preview?: ParsedEikon
-  previewState: AvatarState
+  onState: (state: AvatarState) => void
+  preview?: SidebarPreview
 }) => {
   const theme = useTheme().theme
   const r = props.row
   if (!r) return <box padding={1}><text fg={theme.textMuted}>{props.loading ? "Loading shared eikons…" : "No marketplace entry selected."}</text></box>
+  const previewState = props.preview?.state ?? "idle"
+  const next = previewState === "idle" ? "thinking" : "idle"
   return (
     <box flexDirection="column" padding={1} gap={1}>
       {props.preview ? (
         <box alignItems="center" justifyContent="center" height={8} overflow="hidden">
-          <AnimatedAvatar key={r.entry.identityKey} state={props.previewState} eikon={props.preview} />
+          <box flexDirection="column">
+            {props.preview.eikon.states.get(props.preview.state)?.frames[0]?.map((line, i) => (
+              <text key={i}>{line}</text>
+            ))}
+          </box>
         </box>
       ) : null}
       <text fg={r.active ? theme.accent : theme.text}><strong>{r.active ? "● " : ""}{r.entry.name}</strong></text>
@@ -401,6 +407,9 @@ const MarketplaceDetail = (props: {
       <text fg={theme.textMuted}>license: {r.entry.trust.license ?? "unknown"}</text>
       <text fg={theme.textMuted}>provenance: {r.entry.trust.provenance ?? r.entry.provenanceUrl ?? "unknown"}</text>
       <text fg={theme.textMuted}>state: {r.installed ? r.active ? "active" : "installed" : "not installed"}</text>
+      <box height={1} onMouseDown={() => props.onState(next)}>
+        <text fg={theme.primary}>Preview: {previewState}  [Space] {next}</text>
+      </box>
       <box height={1} onMouseDown={props.onUse}>
         <text fg={r.action === "active" ? theme.textMuted : theme.primary}>{props.installing ? "Installing…" : actionLabel(r)}</text>
       </box>
