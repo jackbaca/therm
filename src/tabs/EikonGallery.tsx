@@ -10,7 +10,7 @@ import { VBAR } from "../ui/table"
 import { useKeys, handleListKey, useFollow } from "../keys"
 import { openConfirm } from "../dialogs/confirm"
 import { openNewEikon } from "../dialogs/new-eikon"
-import { useKeyboard } from "@opentui/react"
+import { useKeyboard, useTerminalDimensions } from "@opentui/react"
 import { AnimatedAvatar } from "../components/avatar/AnimatedAvatar"
 import { listEikons, parseEikon, type ParsedEikon } from "../components/avatar/eikon"
 import { BUNDLED_EIKON_DIR } from "../components/avatar/bundled"
@@ -37,6 +37,7 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
   const dialog = useDialog()
   const toast = useToast()
   const keys = useKeys()
+  const dims = useTerminalDimensions()
   const rev = useSyncExternalStore(eikon.onRevision, eikon.revision)
 
   const rows = useMemo<Row[]>(() => {
@@ -81,10 +82,13 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
   }, [cur])
 
   const selected = state.rows[marketSel]
+  const showSidebarPreview = dims.width >= 140
+  const [detailPreview, setDetailPreview] = useState<SidebarPreview | undefined>(undefined)
+  const setPreview = showSidebarPreview && props.sidebarPreview ? props.sidebarPreview : setDetailPreview
 
   useEffect(() => {
-    if (mode !== "market" || !selected || !state.service || !props.sidebarPreview) {
-      props.sidebarPreview?.(undefined)
+    if (mode !== "market" || !selected || !state.service) {
+      setPreview(undefined)
       return
     }
     const id = ++previewSeq.current
@@ -94,15 +98,15 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
         if (previewSeq.current !== id) return
         const e = parseEikon(text)
         const st = e.states.has(previewState) ? previewState : "idle"
-        props.sidebarPreview?.({ key: `${key}:${st}`, eikon: e, state: st })
+        setPreview({ key: `${key}:${st}`, eikon: e, state: st })
       })
-      .catch(() => { if (previewSeq.current === id) props.sidebarPreview?.(undefined) })
-  }, [mode, selected?.entry.identityKey, state.service, previewState, props.sidebarPreview])
+      .catch(() => { if (previewSeq.current === id) setPreview(undefined) })
+  }, [mode, selected?.entry.identityKey, state.service, previewState, setPreview])
 
   useEffect(() => () => {
     previewSeq.current++
-    props.sidebarPreview?.(undefined)
-  }, [props.sidebarPreview])
+    setPreview(undefined)
+  }, [setPreview])
 
   const loadMarket = useCallback((q = query) => {
     setLoading(true)
@@ -213,10 +217,10 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
       if (key.name === "escape") return closeMarket()
       if (key.shift && key.name === "tab") { setPane(p => p === "detail" ? "grid" : "detail"); return }
       if (key.name === "tab") { setPane(p => p === "grid" ? "detail" : "grid"); return }
-      if (key.name === "left" || key.name === "right") { setPreviewState(s => s === "idle" ? "thinking" : "idle"); return }
       if (handleListKey(keys, key, {
         count: state.rows.length, setSel: setMarketSel, ...marketFollow.opts,
         onActivate: primary,
+        onToggle: () => setPreviewState(s => s === "idle" ? "thinking" : "idle"),
         onSearch: () => setSearching(true),
         onRefresh: () => loadMarket(query),
       })) return
@@ -243,13 +247,16 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
             loading={loading} error={state.error} onSel={setMarketSel} onUse={primary} />
         </TabShell>
         <TabShell title={selected ? `Details — ${selected.entry.name}` : "Details"} focus={props.focused && pane === "detail"} grow={2}>
-          <MarketplaceDetail row={selected} loading={loading} installing={installing} onUse={() => primary()} />
+          <MarketplaceDetail row={selected} loading={loading} installing={installing}
+                             preview={showSidebarPreview ? undefined : detailPreview}
+                             onUse={() => primary()}
+                             onState={setPreviewState} />
         </TabShell>
       </box>
       <HintBar pairs={[
         ["↑↓/Pg/Home/End", "select"], [keys.print("list.activate"), actionLabel(selected)],
         [keys.print("list.search"), searching ? "typing search" : "search"], [keys.print("list.refresh"), "reload"],
-        [keys.print("focus.cycle"), "pane"], ["Esc", searching ? "exit search" : "back"],
+        ["Space", "preview state"], [keys.print("focus.cycle"), "pane"], ["Esc", searching ? "exit search" : "back"],
       ]} />
     </box>
   )
@@ -334,12 +341,22 @@ const MarketplaceGrid = (props: {
   )
 }
 
-const MarketplaceDetail = (props: { row?: MarketplaceRow; loading: boolean; installing: boolean; onUse: () => void }) => {
+const MarketplaceDetail = (props: {
+  row?: MarketplaceRow; loading: boolean; installing: boolean; preview?: SidebarPreview
+  onUse: () => void; onState: (state: AvatarState) => void
+}) => {
   const theme = useTheme().theme
   const r = props.row
   if (!r) return <box padding={1}><text fg={theme.textMuted}>{props.loading ? "Loading shared eikons…" : "No marketplace entry selected."}</text></box>
+  const previewState = props.preview?.state ?? "idle"
+  const next = previewState === "idle" ? "thinking" : "idle"
   return (
     <box flexDirection="column" padding={1} gap={1}>
+      {props.preview ? (
+        <box alignItems="center" justifyContent="center" minHeight={8}>
+          <AnimatedAvatar key={props.preview.key} state={props.preview.state} eikon={props.preview.eikon} />
+        </box>
+      ) : null}
       <text fg={r.active ? theme.accent : theme.text}><strong>{r.active ? "● " : ""}{r.entry.name}</strong></text>
       <text fg={theme.textMuted}>by {r.entry.author ?? "unknown"}</text>
       <text fg={theme.text} wrapMode="word">{r.entry.description ?? "No description."}</text>
@@ -347,6 +364,9 @@ const MarketplaceDetail = (props: { row?: MarketplaceRow; loading: boolean; inst
       <text fg={theme.textMuted}>license: {r.entry.trust.license ?? "unknown"}</text>
       <text fg={theme.textMuted}>provenance: {r.entry.trust.provenance ?? r.entry.provenanceUrl ?? "unknown"}</text>
       <text fg={theme.textMuted}>state: {r.installed ? r.active ? "active" : "installed" : "not installed"}</text>
+      <box height={1} onMouseDown={() => props.onState(next)}>
+        <text fg={theme.primary}>Preview: {previewState}  [Space] {next}</text>
+      </box>
       <box height={1} onMouseDown={props.onUse}>
         <text fg={r.action === "active" ? theme.textMuted : theme.primary}>{props.installing ? "Installing…" : actionLabel(r)}</text>
       </box>
