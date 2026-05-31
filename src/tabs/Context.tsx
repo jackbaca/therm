@@ -52,9 +52,10 @@ type Props = {
 
 type Wire = { input: number; output: number; total: number; calls: number }
 
-// Conservative fallback when gateway hasn't surfaced info.context_max
-// yet (fresh session, pre-session.info). Real value comes from
-// SessionInfo.context_max on the wire.
+// Last-resort fallback when neither the gateway (info.context_max) nor
+// config (model.context_length) has surfaced a window yet. Real value
+// comes from SessionInfo.context_max on the wire; the configured
+// model.context_length is preferred over this constant.
 const DEFAULT_CTX = 128_000
 const COLS = 16
 
@@ -336,10 +337,15 @@ export const Context = memo(({ messages = NO_MESSAGES as Message[], info, focuse
 
   // Derived
   const session = recentSessions?.[0]
-  // Gateway's context_max is the authoritative runtime value. Fall back
-  // to DEFAULT_CTX only during the fresh-session window before
-  // session.info lands.
-  const ctxLen = info?.context_max ?? DEFAULT_CTX
+  // Gateway's context_max is the authoritative runtime value. Before
+  // session.info lands (fresh-session window) fall back to the user's
+  // configured model.context_length, then to DEFAULT_CTX. Using the
+  // config value avoids showing a misleading 128K bar for models whose
+  // real window the gateway hasn't surfaced yet.
+  const ctxLen = info?.context_max
+    ?? (config?.model?.context_length && config.model.context_length > 0
+        ? config.model.context_length
+        : DEFAULT_CTX)
 
   const live = session
     ? Object.values(liveSessions ?? {}).find(ls => ls.session_id === session.id)
