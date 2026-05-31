@@ -49,7 +49,7 @@ export type ComposerHandle = {
 
 type Props = {
   focused: boolean
-  connected?: boolean
+  canSubmitPrompt: boolean
   ready: boolean
   streaming: boolean
   status?: string
@@ -270,7 +270,7 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     }
     const text = exp.text.trim()
     if (live.current.props.streaming) {
-      if (!text || !(live.current.props.connected ?? live.current.props.ready)) return
+      if (!text || !live.current.props.canSubmitPrompt) return
       hist.push({ input: text, parts: exp.parts })
       write("")
       // Slash-shaped input routes through onSend so send() → slash()
@@ -283,7 +283,7 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     }
     const hasAtt = (live.current.props.attachments?.length ?? 0) > 0
     if (!text && !hasAtt) { live.current.props.onEmptyEnter?.(); return }
-    if (!(live.current.props.connected ?? live.current.props.ready)) return
+    if (!live.current.props.canSubmitPrompt) return
     if (text) hist.push({ input: text, parts: exp.parts })
     write("")
     live.current.props.onSend(text, exp.parts)

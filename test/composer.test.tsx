@@ -19,7 +19,7 @@ async function setup(gw = new MockGateway()) {
       <box flexGrow={1} />
       <Composer
         ref={ref}
-        focused ready streaming={false} cmds={LOCAL_COMMANDS}
+        focused canSubmitPrompt={true} ready streaming={false} cmds={LOCAL_COMMANDS}
         onSend={m => sent.push(m)} onSlash={c => slashed.push(c)}
       />
     </box>,
@@ -287,7 +287,7 @@ describe("composer", () => {
         <box flexDirection="column" flexGrow={1} width="100%" height="100%">
           <box flexGrow={1} />
           <Composer
-            ref={ref} focused ready streaming queue={q} cmds={[]}
+            ref={ref} focused canSubmitPrompt={true} ready streaming queue={q} cmds={[]}
             onSend={m => sent.push(m)} onSlash={() => {}}
             onEnqueue={m => setQ(v => [...v, m])}
             onDequeue={i => { dequeued.push(i); setQ(v => v.filter((_, j) => j !== i)) }}
@@ -328,7 +328,7 @@ describe("composer", () => {
       <box flexDirection="column" flexGrow={1} width="100%" height="100%">
         <box flexGrow={1} />
         <Composer
-          ref={ref} focused ready streaming queue={[]} cmds={LOCAL_COMMANDS}
+          ref={ref} focused canSubmitPrompt={true} ready streaming queue={[]} cmds={LOCAL_COMMANDS}
           onSend={() => {}} onSlash={c => slashed.push(c)}
           onEnqueue={m => queued.push(m)}
         />
@@ -404,7 +404,7 @@ describe("composer: paste → file drop detection", () => {
         <box flexGrow={1} />
         <Composer
           ref={ref}
-          focused ready streaming={false} cmds={LOCAL_COMMANDS}
+          focused canSubmitPrompt={true} ready streaming={false} cmds={LOCAL_COMMANDS}
           attachments={attached}
           onSend={() => {}} onSlash={() => {}}
           onAttach={r => attached.push(r)}
@@ -471,7 +471,7 @@ describe("composer: paste → file drop detection", () => {
     const t: Harness = await mountNode(
       <box flexDirection="column" flexGrow={1} width="100%" height="100%">
         <box flexGrow={1} />
-        <Composer ref={ref} focused ready streaming={false} cmds={LOCAL_COMMANDS}
+        <Composer ref={ref} focused canSubmitPrompt={true} ready streaming={false} cmds={LOCAL_COMMANDS}
           onSend={() => {}} onSlash={() => {}} />
       </box>,
       { gw, width: 120, height: 30 },

@@ -44,6 +44,7 @@ import type { SessionInfo, TranscriptMessage, ImageAttachResponse } from "../con
 import type { Message, Usage } from "../types/message"
 import { text as msgText } from "../types/message"
 import type { useSession } from "./useSession"
+import type { SessionCapabilities } from "./sessionCapabilities"
 
 export type SlashCtx = {
   dispatch: React.Dispatch<Action>
@@ -58,7 +59,7 @@ export type SlashCtx = {
    *  gateway session.undo hard-deletes with no unrevert. */
   undone: RefObject<Message[][]>
 
-  ready: boolean
+  capabilities: SessionCapabilities
   info: SessionInfo | null
   sid: string
   title: string
@@ -472,7 +473,7 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
           return
       }
     }
-    if (c.target !== "gateway" || !x.sid) return
+    if (c.target !== "gateway" || !x.capabilities.canDispatchGatewayCommand) return
     const jump = TAB_SLASH[c.name]
     if (jump !== undefined && !arg) { x.goTo(jump.tab, jump.sub); return }
     const full = `/${c.name}${arg ? " " + arg : ""}`
