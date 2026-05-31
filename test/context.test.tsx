@@ -112,6 +112,8 @@ describe("Context tab", () => {
   test("config-only max fallback does not fabricate live usage", async () => {
     const cfg = { model: { context_length: 64_000 } } as HermesConfig
     expect(contextMeter(undefined, undefined, cfg)).toEqual({ max: 64_000, used: undefined })
+    expect(contextMeter(undefined, undefined, { model: { context_length: 0 } } as HermesConfig)).toEqual({ max: 128_000, used: undefined })
+    expect(contextMeter(undefined, undefined, { model: { context_length: -1 } } as HermesConfig)).toEqual({ max: 128_000, used: undefined })
 
     const t = await mountNode(<Context />)
     const f = strip(t.frame())

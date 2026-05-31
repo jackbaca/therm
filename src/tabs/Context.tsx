@@ -302,8 +302,13 @@ const toolsFromInfo = (info?: SessionInfo | null): ToolsInfo | null => {
   return { source: makeSource("state.db", "session.info"), tools }
 }
 
+const configuredContextLength = (config: HermesConfig | null): number | undefined => {
+  const n = config?.model?.context_length
+  return typeof n === "number" && n > 0 ? n : undefined
+}
+
 export const contextMeter = (usage: Usage | undefined, info: SessionInfo | undefined, config: HermesConfig | null): ContextMeter => ({
-  max: usage?.context_max ?? info?.usage?.context_max ?? info?.context_max ?? config?.model?.context_length ?? DEFAULT_CTX,
+  max: usage?.context_max ?? info?.usage?.context_max ?? info?.context_max ?? configuredContextLength(config) ?? DEFAULT_CTX,
   used: usage?.context_used ?? info?.usage?.context_used ?? info?.context_used,
 })
 
