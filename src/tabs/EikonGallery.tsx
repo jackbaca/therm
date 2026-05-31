@@ -140,12 +140,18 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
 
   const submitLocal = useCallback(async () => {
     if (!cur || cur.bundled) return
+    const path = submitSvc.submitPath(cur.slug)
+    const pub = submitSvc.publishedInfo(path)
+    if (pub) {
+      toast.show({ variant: "warning", title: "Published eikon", message: "Create a local draft before submitting", duration: 6000 })
+      return
+    }
     await openEikonSubmit(dialog, {
       name: cur.name,
-      path: submitSvc.submitPath(cur.slug),
+      path,
       submitReview: props.submitReview ?? submitSvc.submit,
     })
-  }, [cur, dialog, props.submitReview])
+  }, [cur, dialog, props.submitReview, toast])
 
   const del = async () => {
     if (!cur || cur.bundled) return

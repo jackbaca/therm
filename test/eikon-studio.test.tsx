@@ -26,14 +26,32 @@ const stub: Rasterizer = {
   render: async () => ({ frames: [Array.from({ length: 24 }, () => "STUB-ROW".padEnd(48))] }),
 }
 
-function seed(name: string) {
+function seed(name: string, opts: { published?: boolean } = {}) {
   const p = eikon.ensure(name)
   writeFileSync(join(p.source, "base.png"), PX)
-  writeFileSync(eikon.file(name), JSON.stringify({ eikon: 1, name, width: 48, height: 24 }) + "\n")
+  const head = { eikon: 1, name, width: 48, height: 24, ...(opts.published ? { source_url: "https://catalog.example/eikons/" + name } : {}) }
+  writeFileSync(eikon.file(name), JSON.stringify(head) + "\n")
   eikon.writeStudio(name, { rasterizer: "stub", spatial: { zoom: 1, ox: 0.5, oy: 0.5 }, tone: { contrast: 1, invert: true, flip: "none" }, fps: 16, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
+  if (opts.published) writeFileSync(join(p.dir, "manifest.json"), JSON.stringify({ name, source: "source/base.png", origin: { source: "https://catalog.example/eikons/" + name, at: "2026-05-31T00:00:00Z" } }, null, 2) + "\n")
 }
 
 describe("EikonStudio tab", () => {
+  run("published marketplace installs cannot submit from Studio", async () => {
+    const un = eikon.register(stub)
+    seed("pub", { published: true })
+    prefs.set("eikon", "pub")
+    let sub = 0
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
+      { width: 160, height: 48 },
+    )
+    await until(t, () => t.frame().includes("rasterizer"))
+    act(() => t.keys.pressKey("u"))
+    await until(t, () => t.frame().includes("Create a local draft before submitting"))
+    expect(t.frame()).not.toContain("Submit eikon")
+    un()
+  })
+
   run("renders three panes; knob nav via handleListKey; ←→ adjusts cycle knob", async () => {
     const un = eikon.register(stub)
     seed("owl")

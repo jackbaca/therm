@@ -32,6 +32,7 @@ const Form = (props: Props) => {
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<string>("")
   const [result, setResult] = useState<SubmitResult | null>(null)
+  const [preview, setPreview] = useState<svc.SubmitPreview | null>(null)
 
   const input = { path: props.path, license, provenance }
   const submit = async () => {
@@ -39,13 +40,27 @@ const Form = (props: Props) => {
     if (!license.trim()) { setField("license"); setStatus("license required"); return }
     if (!provenance.trim()) { setField("provenance"); setStatus("provenance required"); return }
     setBusy(true)
-    setStatus("Submitting…")
-    const next = await props.submitReview(input)
-    setResult(next)
-    setBusy(false)
-    if (next.kind === "review-created") setStatus(`Submitted for review: ${next.url}`)
-    else if (next.kind === "setup-needed") setStatus(`Setup needed: ${svc.failureText(next.failures)}`)
-    else setStatus(`Submit failed: ${svc.failureText(next.failures)}`)
+    setResult(null)
+    try {
+      if (!preview || preview.license !== license || preview.provenance !== provenance) {
+        setStatus("Previewing files…")
+        const next = await svc.preview(input)
+        setPreview(next)
+        setStatus("Review included files, then Enter to submit")
+        return
+      }
+      setStatus("Submitting…")
+      const next = await props.submitReview(input)
+      setResult(next)
+      if (next.kind === "review-created") setStatus(`Submitted for review: ${next.url}`)
+      else if (next.kind === "setup-needed") setStatus(`Setup needed: ${svc.failureText(next.failures)}`)
+      else setStatus(`Submit failed: ${svc.failureText(next.failures)}`)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setStatus(`Submit failed: ${svc.redact(msg)}`)
+    } finally {
+      setBusy(false)
+    }
   }
 
   useKeyboard(key => {
@@ -79,7 +94,15 @@ const Form = (props: Props) => {
         <text><span fg={theme.text}>{provenance}</span>{field === "provenance" ? <span fg={theme.accent}>█</span> : null}</text>
       </box>
       <box height={1} />
-      <text fg={theme.textMuted}>Included files are previewed by eikon preflight; hidden, secret, escape, and symlink paths are excluded or blocked.</text>
+      {preview ? (
+        <box flexDirection="column">
+          <text fg={theme.textMuted}>Included files ({preview.files.length})</text>
+          {preview.files.slice(0, 8).map(f => (
+            <text key={f.path} fg={theme.text}>• {f.path} · {f.bytes} B</text>
+          ))}
+          {preview.files.length > 8 ? <text fg={theme.textMuted}>… {preview.files.length - 8} more</text> : null}
+        </box>
+      ) : <text fg={theme.textMuted}>Enter previews the exact review bundle before submission.</text>}
       <box height={1} />
       <text fg={status.startsWith("Submit failed") ? theme.error : status.startsWith("Setup") ? theme.warning : theme.textMuted} wrapMode="word">
         {status || "Enter submit  ·  Tab next field  ·  Esc cancel"}

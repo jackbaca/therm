@@ -890,12 +890,18 @@ export const EikonStudio = memo((props: {
   const doSubmit = useCallback(async () => {
     const cur = sRef.current
     if (!cur) return
+    const path = submitSvc.submitPath(cur.name)
+    const pub = submitSvc.publishedInfo(path)
+    if (pub) {
+      toast.show({ variant: "warning", title: "Published eikon", message: "Create a local draft before submitting", duration: 6000 })
+      return
+    }
     await openEikonSubmit(dialog, {
       name: cur.name,
-      path: submitSvc.submitPath(cur.name),
+      path,
       submitReview: submitSvc.submit,
     })
-  }, [dialog])
+  }, [dialog, toast])
 
   const doAction = async (id: string) => {
     if (!s) return
