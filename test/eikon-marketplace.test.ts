@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import type { Catalog, CatalogIndexEntry } from "eikon/catalog"
+import type { Catalog, CatalogIndexEntry } from "eikon"
 import * as market from "../src/service/eikon-marketplace"
 import { eikon } from "../src/service/eikon"
 import * as prefs from "../src/context/preferences"
