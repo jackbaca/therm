@@ -9,6 +9,12 @@ import { useGitBranch, rtrunc } from "../../utils/git"
 import { Tail } from "../chat/ThoughtCloud"
 import { ContextGauge } from "./ContextGauge"
 
+export type SidebarPreview = {
+  key: string
+  eikon: ParsedEikon
+  state: AvatarState
+}
+
 // The pillar body carries a compact identity block, the MCP operational
 // section, and a context-usage gauge at the bottom. Stats/Memory/Recent/
 // Identity wrapper and the Plugins section were removed — they duplicated
@@ -47,8 +53,8 @@ const Section = memo((props: {
   )
 })
 
-const Avatar = (props: { state: AvatarState; eikon?: ParsedEikon; onHold?: (s: AvatarState) => void }) => (
-  <AnimatedAvatar state={props.state} eikon={props.eikon} onHold={props.onHold} />
+const Avatar = (props: { state: AvatarState; eikon?: ParsedEikon; id?: string; onHold?: (s: AvatarState) => void }) => (
+  <AnimatedAvatar key={props.id} state={props.state} eikon={props.eikon} onHold={props.onHold} />
 )
 
 const Row = (props: { label: string; value: string; strong?: boolean }) => {
@@ -74,12 +80,15 @@ export const Sidebar = memo((props: {
   title?: string
   cloud?: boolean
   pulse?: boolean
+  preview?: SidebarPreview
   onAvatar?: () => void
   onAvatarHold?: (s: AvatarState) => void
 }) => {
   const theme = useTheme().theme
-  const state = props.agentState ?? "idle"
+  const state = props.preview?.state ?? props.agentState ?? "idle"
   const info = props.info
+  const eikon = props.preview?.eikon ?? props.eikon
+  const preview = !!props.preview
 
   const [mcpOpen, setMcpOpen] = useState(false)
 
@@ -90,9 +99,9 @@ export const Sidebar = memo((props: {
     <box width={WIDTH} flexDirection="column">
       {/* Avatar (bust) — also the anchor for the thought-cloud tail */}
       <box position="relative" flexDirection="column" height={24} overflow="hidden"
-           onMouseDown={props.onAvatar}>
-        <Avatar state={state} eikon={props.eikon} onHold={props.onAvatarHold} />
-        {props.cloud ? (
+           onMouseDown={preview ? undefined : props.onAvatar}>
+        <Avatar id={props.preview?.key} state={state} eikon={eikon} onHold={preview ? undefined : props.onAvatarHold} />
+        {!preview && props.cloud ? (
           <box position="absolute" left={0} top={0}>
             <Tail run={!!props.pulse} />
           </box>
