@@ -2,13 +2,24 @@ import { describe, expect, test, afterEach } from "bun:test"
 import { act } from "react"
 import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { mountNode, until } from "./harness"
+import { mount, mountNode, until } from "./harness"
 import { EikonGroup } from "../src/tabs/EikonGroup"
 import { eikon } from "../src/service/eikon"
 import * as prefs from "../src/context/preferences"
 
 const HH = process.env.HERMES_HOME!
-const body = "{\"eikon\":1,\"name\":\"ares\",\"author\":\"Kaio\",\"width\":48,\"height\":24}\n"
+const body = [
+  JSON.stringify({ eikon: 1, name: "ares", author: "Kaio", width: 48, height: 24, states: ["idle", "thinking"] }),
+  JSON.stringify({ state: "idle", fps: 1, frame_count: 1, loop_from: 1 }),
+  JSON.stringify({ f: 0, data: "ARES-IDLE" }),
+  JSON.stringify({ state: "thinking", fps: 1, frame_count: 1, loop_from: 1 }),
+  JSON.stringify({ f: 0, data: "ARES-THINKING" }),
+].join("\n") + "\n"
+const monoBody = [
+  JSON.stringify({ eikon: 1, name: "mono", author: "Nous", width: 48, height: 24, states: ["idle"] }),
+  JSON.stringify({ state: "idle", fps: 1, frame_count: 1, loop_from: 1 }),
+  JSON.stringify({ f: 0, data: "MONO-IDLE" }),
+].join("\n") + "\n"
 const png = new Uint8Array([137, 80, 78, 71])
 
 type Route = { path: string; body: BodyInit | object; status?: number; headers?: HeadersInit }
@@ -18,7 +29,7 @@ function serve(routes: Route[]) {
     port: 0,
     fetch(req) {
       const path = new URL(req.url).pathname
-      const hit = routes.find(r => r.path === path)
+      const hit = routes.findLast(r => r.path === path)
       if (!hit) return new Response("404", { status: 404 })
       if (typeof hit.body === "object" && !(hit.body instanceof Uint8Array))
         return Response.json(hit.body, { status: hit.status ?? 200, headers: hit.headers })
@@ -40,7 +51,7 @@ function catalog(extra: Route[] = []) {
     { path: "/eikons/ares/ares.eikon", body },
     { path: "/eikons/ares/manifest.json", body: { name: "ares", source: "source.png" } },
     { path: "/eikons/ares/source.png", body: png },
-    { path: "/eikons/mono/mono.eikon", body: body.replace("ares", "mono") },
+    { path: "/eikons/mono/mono.eikon", body: monoBody },
     { path: "/eikons/mono/manifest.json", body: { name: "mono", source: "source.png" } },
     { path: "/eikons/mono/source.png", body: png },
     ...extra,
@@ -131,6 +142,7 @@ describe("EikonGallery marketplace mode", () => {
     await until(t, () => t.frame().includes("Gallery ("))
     await act(async () => { await t.keys.typeText("m") })
     await until(t, () => t.frame().includes("Marketplace (6)"))
+    expect(t.frame()).toContain("[Space] preview state")
 
     act(() => t.keys.pressKey("END"))
     await until(t, () => /▸ .*gamma/.test(t.frame()))
@@ -142,6 +154,160 @@ describe("EikonGallery marketplace mode", () => {
     await act(async () => { await t.keys.pressKey(" ") })
     await t.settle()
     expect(eikon.list().some(x => x.name === "ares")).toBe(false)
+    fx.srv.stop()
+  })
+
+
+  test("sidebar preview preserves state across selections and falls back when unsupported", async () => {
+    const fx = catalog()
+    process.env.EIKON_URL = fx.base
+    const previews: string[] = []
+    let sub = 1
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} sidebarPreview={p => previews.push(p ? `${p.eikon.meta.name}:${p.state}` : "clear")} />,
+      { width: 160, height: 48 },
+    )
+    await until(t, () => t.frame().includes("Gallery ("))
+    await act(async () => { await t.keys.typeText("m") })
+    await until(t, () => previews.includes("ares:idle"))
+
+    await act(async () => { await t.keys.pressKey(" ") })
+    await until(t, () => previews.includes("ares:thinking"))
+    expect(t.frame()).toContain("[Space] preview state")
+
+    act(() => t.keys.pressArrow("down"))
+    await until(t, () => previews.includes("mono:idle"))
+    expect(previews).not.toContain("mono:thinking")
+    expect(prefs.get("eikon")).toBeUndefined()
+    fx.srv.stop()
+  })
+
+  test("sidebar preview clears on load failure", async () => {
+    const fx = catalog([{ path: "/eikons/ares/ares.eikon", body: "missing", status: 500 }])
+    process.env.EIKON_URL = fx.base
+    const previews: string[] = []
+    let sub = 1
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} sidebarPreview={p => previews.push(p ? p.eikon.meta.name : "clear")} />,
+      { width: 160, height: 48 },
+    )
+    await until(t, () => t.frame().includes("Gallery ("))
+    await act(async () => { await t.keys.typeText("m") })
+    await until(t, () => t.frame().includes("Marketplace (6)"))
+    await until(t, () => previews.includes("clear"))
+    expect(previews).not.toContain("ares")
+    fx.srv.stop()
+  })
+
+  test("late preview load does not overwrite newer selection", async () => {
+    let releaseAres!: (value: Response) => void
+    const delayedAres = new Promise<Response>(resolve => { releaseAres = resolve })
+    const fx = catalog([{ path: "/eikons/ares/ares.eikon", body: delayedAres as unknown as BodyInit }])
+    const stop = fx.srv.stop.bind(fx.srv)
+    fx.srv.stop()
+    const srv = Bun.serve({
+      port: 0,
+      async fetch(req) {
+        const path = new URL(req.url).pathname
+        if (path === "/eikons/ares/ares.eikon") return delayedAres
+        const hit = [
+          { path: "/eikons/index.json", body: [
+            { name: "ares", author: "Kaio", width: 48, height: 24, poster: "ARES-POSTER", source: "ares/", preview_url: "ares.eikon", install_url: "", description: "red warrior" },
+            { name: "mono", author: "Nous", width: 48, height: 24, poster: "MONO-POSTER", source: "mono/", preview_url: "mono.eikon", install_url: "", description: "quiet lines" },
+          ] },
+          { path: "/eikons/mono/mono.eikon", body: monoBody },
+        ].find(r => r.path === path)
+        if (!hit) return new Response("404", { status: 404 })
+        if (typeof hit.body === "object" && !(hit.body instanceof Uint8Array)) return Response.json(hit.body)
+        return new Response(hit.body as BodyInit)
+      },
+    })
+    process.env.EIKON_URL = `http://localhost:${srv.port}/eikons`
+    const previews: string[] = []
+    let sub = 1
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} sidebarPreview={p => previews.push(p ? p.eikon.meta.name : "clear")} />,
+      { width: 160, height: 48 },
+    )
+    await until(t, () => t.frame().includes("Gallery ("))
+    await act(async () => { await t.keys.typeText("m") })
+    await until(t, () => t.frame().includes("Marketplace (2)"))
+    act(() => t.keys.pressArrow("down"))
+    await until(t, () => previews.includes("mono"))
+    releaseAres(new Response(body))
+    await t.settle(); await t.settle()
+    expect(previews.at(-1)).toBe("mono")
+    srv.stop()
+    stop()
+  })
+
+  test("narrow marketplace renders selected preview in detail pane", async () => {
+    const fx = catalog()
+    process.env.EIKON_URL = fx.base
+    let sub = 1
+    await using t = await mountNode(<EikonGroup focused sub={sub} setSub={i => { sub = i }} />, { width: 100, height: 40 })
+    await until(t, () => t.frame().includes("Gallery ("))
+    await act(async () => { await t.keys.typeText("m") })
+    await until(t, () => t.frame().includes("Marketplace (6)") && t.frame().includes("ARES-IDLE"))
+    await act(async () => { await t.keys.pressKey(" ") })
+    await until(t, () => t.frame().includes("ARES-THINKING"))
+    fx.srv.stop()
+  })
+  test("wide marketplace renders detail preview when the app sidebar is hidden", async () => {
+    const fx = catalog()
+    process.env.EIKON_URL = fx.base
+    await using t = await mount({ width: 160, height: 48 })
+    await until(t, () => t.frame().includes("Ready"))
+
+    act(() => t.keys.pressKey("5", { meta: true }))
+    await until(t, () => t.frame().includes("Studio"))
+    act(() => t.keys.pressArrow("right", { shift: true }))
+    await until(t, () => t.frame().includes("Gallery ("))
+
+    await act(async () => { await t.keys.typeText("m") })
+    await until(t, () => t.frame().includes("Marketplace (6)"))
+
+    act(() => t.keys.pressKey("x", { ctrl: true }))
+    await t.settle()
+    await act(async () => { await t.keys.typeText("b") })
+    await until(t, () => t.frame().includes("ARES-IDLE"))
+    await act(async () => { await t.keys.pressKey(" ") })
+    await until(t, () => t.frame().includes("ARES-THINKING"))
+    fx.srv.stop()
+  })
+
+
+  test("Back button exits marketplace by mouse", async () => {
+    const fx = catalog()
+    process.env.EIKON_URL = fx.base
+    let sub = 1
+    await using t = await mountNode(<EikonGroup focused sub={sub} setSub={i => { sub = i }} />, { width: 120, height: 28 })
+    await until(t, () => t.frame().includes("Gallery ("))
+
+    await act(async () => { await t.keys.typeText("m") })
+    await until(t, () => t.frame().includes("Marketplace (6)") && t.frame().includes("‹ Back"))
+
+    const y = () => t.frame().split("\n").findIndex(l => l.includes("‹ Back"))
+    await act(async () => { await t.mouse.click(3, y()) })
+    await until(t, () => t.frame().includes("Gallery (") && !t.frame().includes("Marketplace ("))
+    fx.srv.stop()
+  })
+
+  test("marketplace row click activates the clicked row without hover", async () => {
+    const fx = catalog()
+    process.env.EIKON_URL = fx.base
+    let sub = 1
+    await using t = await mountNode(<EikonGroup focused sub={sub} setSub={i => { sub = i }} />, { width: 160, height: 48 })
+    await until(t, () => t.frame().includes("Gallery ("))
+
+    await act(async () => { await t.keys.typeText("m") })
+    await until(t, () => t.frame().includes("Marketplace (6)") && /▸ .*ares/.test(t.frame()))
+
+    const y = () => t.frame().split("\n").findIndex(l => l.includes("mono") && l.includes("Nous"))
+    await act(async () => { await t.mouse.click(4, y()) })
+    await until(t, () => eikon.list().some(x => x.name === "mono"))
+    expect(eikon.list().some(x => x.name === "ares")).toBe(false)
+    expect(t.frame()).toMatch(/▸ .*mono/)
     fx.srv.stop()
   })
 })

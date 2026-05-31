@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import { readFileSync } from "node:fs"
 import { basename, dirname } from "node:path"
 import { useTheme } from "../theme"
@@ -13,6 +13,7 @@ import { openEikonSubmit } from "../dialogs/eikon-submit"
 import { openNewEikon } from "../dialogs/new-eikon"
 import * as submitSvc from "../service/eikon-submit"
 import { useKeyboard } from "@opentui/react"
+import * as perf from "../utils/perf"
 import { AnimatedAvatar } from "../components/avatar/AnimatedAvatar"
 import { listEikons, parseEikon, type ParsedEikon } from "../components/avatar/eikon"
 import { BUNDLED_EIKON_DIR } from "../components/avatar/bundled"
@@ -21,6 +22,8 @@ import * as prefs from "../context/preferences"
 import { eikon } from "../service/eikon"
 import * as market from "../service/eikon-marketplace"
 import type { MarketplaceRow, MarketplaceState } from "../service/eikon-marketplace"
+import type { SidebarPreview } from "../components/sidebar/Sidebar"
+import type { AvatarState } from "../components/avatar/states"
 
 type Row = {
   path: string; name: string; slug: string; author?: string; bundled: boolean
@@ -32,7 +35,13 @@ type Pane = "grid" | "detail"
 
 const NO_MARKET: MarketplaceState = { status: "empty", query: "", rows: [] }
 
-export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: string) => void; submitReview?: submitSvc.SubmitReview }) => {
+export const EikonGallery = memo((props: {
+  focused: boolean
+  onEdit?: (name: string) => void
+  sidebarPreview?: (preview?: SidebarPreview) => void
+  submitReview?: submitSvc.SubmitReview
+  sidebarHidden?: boolean
+}) => {
   const theme = useTheme().theme
   const dialog = useDialog()
   const toast = useToast()
@@ -66,6 +75,9 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
   const [state, setState] = useState<MarketplaceState>(NO_MARKET)
   const [loading, setLoading] = useState(false)
   const [installing, setInstalling] = useState(false)
+  const [previewState, setPreviewState] = useState<AvatarState>("idle")
+  const [detailPreview, setDetailPreview] = useState<ParsedEikon | undefined>(undefined)
+  const previewSeq = useRef(0)
   const galleryFollow = useFollow("gal", i => rows[i]?.slug ?? i)
   const marketFollow = useFollow("market", i => state.rows[i]?.entry.identityKey ?? i)
 
@@ -80,14 +92,48 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
 
   const selected = state.rows[marketSel]
 
+  useEffect(() => {
+    setDetailPreview(undefined)
+    if (mode !== "market" || !selected || !state.service || (!props.sidebarPreview && !props.sidebarHidden)) {
+      props.sidebarPreview?.(undefined)
+      return
+    }
+    const id = ++previewSeq.current
+    const key = selected.entry.identityKey
+    perf.count("market:preview:load")
+    state.service.preview(key)
+      .then(text => {
+        if (previewSeq.current !== id) return
+        const e = parseEikon(text)
+        const st = e.states.has(previewState) ? previewState : "idle"
+        if (props.sidebarHidden) setDetailPreview(e)
+        else props.sidebarPreview?.({ key: `${key}:${st}`, eikon: e, state: st })
+        perf.count("market:preview:ready")
+      })
+      .catch(() => {
+        if (previewSeq.current !== id) return
+        setDetailPreview(undefined)
+        props.sidebarPreview?.(undefined)
+        perf.count("market:preview:error")
+      })
+  }, [mode, selected?.entry.identityKey, state.service, previewState, props.sidebarPreview, props.sidebarHidden])
+
+  useEffect(() => () => {
+    previewSeq.current++
+    setDetailPreview(undefined)
+    props.sidebarPreview?.(undefined)
+  }, [props.sidebarPreview])
+
   const loadMarket = useCallback((q = query) => {
     setLoading(true)
+    const end = perf.mark("market:list:load")
     void market.load({ catalog: process.env.EIKON_URL, allowPrivate: true, query: q })
       .then(next => {
+        perf.count("market:list:rows", next.rows.length)
         setState(next)
         setMarketSel(p => Math.max(0, Math.min(next.rows.length - 1, p)))
       })
-      .finally(() => setLoading(false))
+      .finally(() => { end(); setLoading(false) })
   }, [query])
 
   useEffect(() => {
@@ -110,6 +156,8 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
   }
 
   const closeMarket = () => {
+    previewSeq.current++
+    props.sidebarPreview?.(undefined)
     setMode("gallery")
     setSearching(false)
     setQuery("")
@@ -140,18 +188,12 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
 
   const submitLocal = useCallback(async () => {
     if (!cur || cur.bundled) return
-    const path = submitSvc.submitPath(cur.slug)
-    const pub = submitSvc.publishedInfo(path)
-    if (pub) {
-      toast.show({ variant: "warning", title: "Published eikon", message: "Create a local draft before submitting", duration: 6000 })
-      return
-    }
     await openEikonSubmit(dialog, {
       name: cur.name,
-      path,
+      path: submitSvc.submitPath(cur.slug),
       submitReview: props.submitReview ?? submitSvc.submit,
     })
-  }, [cur, dialog, props.submitReview, toast])
+  }, [cur, dialog, props.submitReview])
 
   const del = async () => {
     if (!cur || cur.bundled) return
@@ -164,8 +206,8 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
     toast.show({ variant: "info", message: `Deleted ${cur.name}` })
   }
 
-  const primary = useCallback(() => {
-    const row = state.rows[marketSel]
+  const primary = useCallback((idx?: number) => {
+    const row = state.rows[idx ?? marketSel]
     const svc = state.service
     if (!row || !svc || installing) return
     if (row.action === "active") return
@@ -200,8 +242,9 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
         return
       }
       if (key.name === "escape") return closeMarket()
-      if (key.name === "tab") { setPane(p => p === "grid" ? "detail" : "grid"); return }
       if (key.shift && key.name === "tab") { setPane(p => p === "detail" ? "grid" : "detail"); return }
+      if (key.name === "tab") { setPane(p => p === "grid" ? "detail" : "grid"); return }
+      if (key.name === "left" || key.name === "right") { setPreviewState(s => s === "idle" ? "thinking" : "idle"); return }
       if (handleListKey(keys, key, {
         count: state.rows.length, setSel: setMarketSel, ...marketFollow.opts,
         onActivate: primary,
@@ -221,24 +264,31 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
     if (key.name === "e" && cur && props.onEdit) props.onEdit(cur.slug)
   })
 
-  if (mode === "market") return (
+  if (mode === "market") {
+    perf.count("market:render")
+    return (
     <box flexDirection="column" flexGrow={1} minWidth={0}>
+      <box height={1} flexDirection="row">
+        <box width={10} onMouseDown={closeMarket}><text fg={theme.primary}>‹ Back</text></box>
+      </box>
       <box flexDirection="row" flexGrow={1}>
         <TabShell title={`Marketplace (${state.rows.length})${searching ? ` Search: ${query}` : ""}`} focus={props.focused && pane === "grid"} grow={3}>
           <MarketplaceGrid rows={state.rows} sel={marketSel} active={active} follow={marketFollow}
             loading={loading} error={state.error} onSel={setMarketSel} onUse={primary} />
         </TabShell>
         <TabShell title={selected ? `Details — ${selected.entry.name}` : "Details"} focus={props.focused && pane === "detail"} grow={2}>
-          <MarketplaceDetail row={selected} loading={loading} installing={installing} onUse={primary} />
+          <MarketplaceDetail row={selected} loading={loading} installing={installing} onUse={() => primary()}
+            preview={props.sidebarHidden ? detailPreview : undefined} previewState={previewState} />
         </TabShell>
       </box>
       <HintBar pairs={[
         ["↑↓/Pg/Home/End", "select"], [keys.print("list.activate"), actionLabel(selected)],
         [keys.print("list.search"), searching ? "typing search" : "search"], [keys.print("list.refresh"), "reload"],
-        [keys.print("focus.cycle"), "pane"], ["Esc", searching ? "exit search" : "back"], ["M", "marketplace"],
+        [keys.print("focus.cycle"), "pane"], ["Esc", searching ? "exit search" : "back"],
       ]} />
     </box>
   )
+  }
 
   return (
     <box flexDirection="column" flexGrow={1} minWidth={0}>
@@ -291,7 +341,7 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
 
 const MarketplaceGrid = (props: {
   rows: MarketplaceRow[]; sel: number; active?: string; follow: ReturnType<typeof useFollow>
-  loading: boolean; error?: string; onSel: (i: number) => void; onUse: () => void
+  loading: boolean; error?: string; onSel: (i: number) => void; onUse: (i: number) => void
 }) => {
   const theme = useTheme().theme
   if (props.error) return <box key="error" padding={1}><text fg={theme.error} wrapMode="word">Marketplace unavailable: {props.error}</text></box>
@@ -304,7 +354,7 @@ const MarketplaceGrid = (props: {
         return (
           <box key={r.entry.identityKey} id={props.follow.id(i)} flexDirection="column" minHeight={4}
                backgroundColor={on ? theme.backgroundElement : undefined}
-               onMouseMove={() => props.onSel(i)} onMouseDown={props.onUse}>
+               onMouseMove={() => props.onSel(i)} onMouseDown={() => { props.onSel(i); props.onUse(i) }}>
             <box height={1} flexDirection="row">
               <box width={2}><text fg={on ? theme.primary : theme.textMuted}>{on ? "▸ " : "  "}</text></box>
               <box flexGrow={1} minWidth={0} height={1} overflow="hidden"><text fg={r.active ? theme.accent : theme.text} wrapMode="none">{r.active ? "● " : "  "}<strong>{r.entry.name}</strong>  <span fg={theme.textMuted}>{r.entry.author ?? "—"}</span></text></box>
@@ -320,12 +370,24 @@ const MarketplaceGrid = (props: {
   )
 }
 
-const MarketplaceDetail = (props: { row?: MarketplaceRow; loading: boolean; installing: boolean; onUse: () => void }) => {
+const MarketplaceDetail = (props: {
+  row?: MarketplaceRow
+  loading: boolean
+  installing: boolean
+  onUse: () => void
+  preview?: ParsedEikon
+  previewState: AvatarState
+}) => {
   const theme = useTheme().theme
   const r = props.row
   if (!r) return <box padding={1}><text fg={theme.textMuted}>{props.loading ? "Loading shared eikons…" : "No marketplace entry selected."}</text></box>
   return (
     <box flexDirection="column" padding={1} gap={1}>
+      {props.preview ? (
+        <box alignItems="center" justifyContent="center" height={8} overflow="hidden">
+          <AnimatedAvatar key={r.entry.identityKey} state={props.previewState} eikon={props.preview} />
+        </box>
+      ) : null}
       <text fg={r.active ? theme.accent : theme.text}><strong>{r.active ? "● " : ""}{r.entry.name}</strong></text>
       <text fg={theme.textMuted}>by {r.entry.author ?? "unknown"}</text>
       <text fg={theme.text} wrapMode="word">{r.entry.description ?? "No description."}</text>

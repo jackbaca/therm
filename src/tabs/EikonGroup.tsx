@@ -4,11 +4,13 @@ import { SUB_TABS, EIKON_TAB } from "../app/tabs"
 import { useKeys } from "../keys"
 import { EikonStudio } from "./EikonStudio"
 import { EikonGallery } from "./EikonGallery"
+import type { SidebarPreview } from "../components/sidebar/Sidebar"
 
 type Props = {
   focused?: boolean
   sub: number
   setSub: (i: number) => void
+  sidebarPreview?: (preview?: SidebarPreview) => void
 }
 
 // Studio is the landing sub-tab; Gallery lists installed + bundled and
@@ -19,6 +21,7 @@ export const EikonGroup = memo((props: Props) => {
   const labels = SUB_TABS[EIKON_TAB]!
   const [target, setTarget] = useState<string | undefined>(undefined)
   useEffect(() => { if (props.sub >= labels.length) props.setSub(0) }, [props.sub, labels.length])
+  useEffect(() => { if (props.sub !== 1) props.sidebarPreview?.(undefined) }, [props.sub, props.sidebarPreview])
   const edit = useCallback((name: string) => { setTarget(name); props.setSub(0) }, [props])
   const hint = `${keys.print("tab.prev")}/${keys.print("tab.next")} group  ·  shift+←/→ sub`
   return (
@@ -29,7 +32,7 @@ export const EikonGroup = memo((props: Props) => {
           <EikonStudio focused={!!props.focused && props.sub === 0} name={target} />
         </Pane>
         <Pane visible={props.sub === 1}>
-          <EikonGallery focused={!!props.focused && props.sub === 1} onEdit={edit} />
+          <EikonGallery focused={!!props.focused && props.sub === 1} onEdit={edit} sidebarPreview={props.sidebarPreview} />
         </Pane>
       </box>
     </box>
