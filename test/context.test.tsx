@@ -162,6 +162,32 @@ describe("Context tab", () => {
       expect(f).toContain("◻ ◻ ◻ ◻")
       t.destroy()
     })
+
+    test("drilled groups hide full-window compression markers", async () => {
+      const info: SessionInfo = {
+        model: "claude-opus-4-7",
+        context_max: 200_000,
+        usage: {
+          input: 100,
+          output: 50,
+          total: 150,
+          context_used: 40_000,
+          context_max: 200_000,
+          compressions: 3,
+        },
+        system_prompt: "# Project Context\n" + "project context ".repeat(100) + "\nConversation started:",
+      }
+      const t = await mountNode(<Context focused info={info} />)
+      act(() => t.keys.pressArrow("down"))
+      act(() => t.keys.pressEnter())
+      await t.settle()
+
+      const f = strip(t.frame())
+      expect(f).toContain("Breakdown · System Prompt")
+      expect(f).not.toContain("×3 compressed")
+      expect(f).not.toContain("Beyond compression threshold")
+      t.destroy()
+    })
   })
 
   // Categorical palette must never assign the same RGBA to two category ids,

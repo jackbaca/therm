@@ -567,7 +567,7 @@ export const Context = memo(({ messages = NO_MESSAGES as Message[], info, usage,
         <box flexDirection="column" marginRight={2} flexShrink={0}>
           {/* Compression badge — shown inline above the grid when any
               compression events have fired this session. */}
-          {compressions > 0 ? (
+          {!drilled && compressions > 0 ? (
             <box height={1} marginBottom={1}>
               <text fg={theme.warning}>×{compressions} compressed</text>
             </box>
