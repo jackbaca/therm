@@ -399,6 +399,9 @@ const SidePane = memo((p: { pane: Pane; on: boolean; sel: number; diags: Diag[] 
   // not tasks.result, so a raw ``result`` read looks empty even when
   // real work happened.
   const resultText = d.result || d.latest_summary || ""
+  const sizeText = (n: number | null) => n === null ? "size unknown"
+    : n < 1024 ? `${n} B`
+    : n < 1 << 20 ? `${(n / 1024).toFixed(0)} KB` : `${(n / (1 << 20)).toFixed(1)} MB`
   return (
     <box flexDirection="column" padding={1} border borderColor={theme.border}
          backgroundColor={theme.backgroundPanel} width="50%">
@@ -503,6 +506,23 @@ const SidePane = memo((p: { pane: Pane; on: boolean; sel: number; diags: Diag[] 
                 </box>
               </box>
             : null}
+          {d.attachments.length > 0 ? <>
+            <box height={1} marginTop={1}>
+              <text fg={theme.textMuted}>{`Attachments (${d.attachments.length})`}</text>
+            </box>
+            {d.attachments.map(a => (
+              <box key={a.id} flexDirection="column" paddingLeft={1}>
+                <box height={1}><text>
+                  <span fg={theme.primary}>{`#${a.id} `}</span>
+                  <span fg={theme.text}>{a.name}</span>
+                  <span fg={theme.textMuted}>{`  ${sizeText(a.size)}  ${ago(a.created_at)}`}</span>
+                </text></box>
+                <text wrapMode="word" fg={a.path ? theme.textMuted : theme.error}>
+                  {a.path ?? `unsafe path omitted: ${a.stored_path}`}
+                </text>
+              </box>
+            ))}
+          </> : null}
           {d.error
             ? <box flexDirection="column" paddingLeft={1}>
                 <box height={1}><text fg={theme.error}>Error</text></box>
