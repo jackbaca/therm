@@ -11,6 +11,7 @@ type Props = {
   sub: number
   setSub: (i: number) => void
   sidebarPreview?: (preview?: SidebarPreview) => void
+  sidebarHidden?: boolean
 }
 
 // Studio is the landing sub-tab; Gallery lists installed + bundled and
@@ -32,7 +33,8 @@ export const EikonGroup = memo((props: Props) => {
           <EikonStudio focused={!!props.focused && props.sub === 0} name={target} />
         </Pane>
         <Pane visible={props.sub === 1}>
-          <EikonGallery focused={!!props.focused && props.sub === 1} onEdit={edit} sidebarPreview={props.sidebarPreview} />
+          <EikonGallery focused={!!props.focused && props.sub === 1} onEdit={edit}
+            sidebarPreview={props.sidebarPreview} sidebarHidden={props.sidebarHidden} />
         </Pane>
       </box>
     </box>
