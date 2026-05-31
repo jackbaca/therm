@@ -54,6 +54,7 @@ import { PluginProvider, usePlugins } from "./plugins/runtime"
 import { BackgroundProvider } from "./app/background"
 import { useVoice } from "./voice/useVoice"
 import { VoiceIndicator } from "./voice/Indicator"
+import { sessionCapabilities } from "./app/sessionCapabilities"
 
 type AppProps = { initialTheme?: string; gateway?: Gateway; launch?: Launch; keyOverrides?: Record<string, string> }
 
@@ -93,6 +94,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const [ready, setReady] = useState(false)
   const [sid, setSid] = useState("")
   const sidRef = useRef(sid); sidRef.current = sid
+  const capabilities = sessionCapabilities({ sid, ready, streaming: turn.streaming })
   const [tab, setTab] = useState(CHAT_TAB)
   // Sub-tab per group — Chat has none, so key 0 is unused.
   // Defensive clamp lives inside each group (SessionsGroup/Automation/
@@ -536,7 +538,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const sendRef = useRef<(raw: string) => void>(() => {})
   const slash = useSlash({
     dispatch, session, turnRef, queueRef, sendRef, composer, summoned, undone,
-    ready, info, sid, title, skin,
+    capabilities, info, sid, title, skin,
     setQueue, setFocusRegion, setSplash, setAttachments, setInfo, setUsage, setTitle,
     newSession, switchSession, rewind, goTo, attachClipboard, voiceToggle: voice.toggle,
   })
@@ -633,12 +635,12 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   // one tick. `inflight` bridges the dispatch→message.start gap.
   useEffect(() => { if (turn.streaming) inflight.current = false }, [turn.streaming])
   useEffect(() => {
-    if (turn.streaming || inflight.current || !ready || queue.length === 0) return
+    if (!capabilities.canDrainQueue || inflight.current || queue.length === 0) return
     const [head, ...rest] = queue
     inflight.current = true
     setQueue(rest)
     send(head)
-  }, [turn.streaming, ready, queue, send])
+  }, [capabilities.canDrainQueue, queue, send])
 
   const dequeue = useCallback((i: number) => {
     const item = queueRef.current[i]
@@ -823,7 +825,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
               <VoiceIndicator voice={voice.state} keyLabel={voice.keyLabel} />
               <Composer
                 ref={composer}
-                focused={inputFocused} connected={!!sid} ready={ready} streaming={turn.streaming}
+                focused={inputFocused} canSubmitPrompt={capabilities.canSubmitPrompt} ready={ready} streaming={turn.streaming}
                 status={status}
                 model={info?.model}
                 escHint={escHint}
