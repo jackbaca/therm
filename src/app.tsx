@@ -9,7 +9,7 @@ import { text as msgText } from "./types/message"
 import { CLOUD_MIN } from "./components/chat/ThoughtCloud"
 import type { AvatarState } from "./components/avatar/states"
 import { TabBar } from "./components/tabs/TabBar"
-import { Sidebar } from "./components/sidebar/Sidebar"
+import { Sidebar, type SidebarPreview } from "./components/sidebar/Sidebar"
 import { Chat } from "./tabs/Chat"
 import { SessionsGroup } from "./tabs/SessionsGroup"
 import { Automation } from "./tabs/Automation"
@@ -145,6 +145,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const [focusRegion, setFocusRegion] = useState<"input" | "content">("input")
   const goToTab = useCallback((t: number) => {
     setTab(t)
+    setSidebarPreview(undefined)
     setFocusRegion(t === CHAT_TAB ? "input" : "content")
   }, [])
   // Slash-driven deep-link: jumps to a top-level tab AND sets its
@@ -152,12 +153,14 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   // goTo overrides it (what /memory or /cron should do).
   const goTo = useCallback((t: number, sub: number) => {
     setTab(t)
+    setSidebarPreview(undefined)
     setSubTabs(prev => prev[t] === sub ? prev : { ...prev, [t]: sub })
     setFocusRegion(t === CHAT_TAB ? "input" : "content")
   }, [])
   const [status, setStatus] = useState("")
   const [escHint, setEscHint] = useState(false)
   const [eikon, setEikon] = useState<ParsedEikon | undefined>(undefined)
+  const [sidebarPreview, setSidebarPreview] = useState<SidebarPreview | undefined>(undefined)
   const [queue, setQueue] = useState<string[]>([])
   const [busy, setBusy] = useState<"queue" | "steer" | "interrupt">("queue")
   // The global useKeyboard re-renders AppInner on every key/mouse
@@ -671,6 +674,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     setSubTabs(prev => {
       const cur = prev[tab] ?? 0
       const next = (cur + dir + labels.length) % labels.length
+      if (tab === EIKON_TAB && next !== 1) setSidebarPreview(undefined)
       return next === cur ? prev : { ...prev, [tab]: next }
     })
   }, [tab])
@@ -781,7 +785,8 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
                                              setSub={cfgSub} />
         case EIKON_TAB: return <EikonGroup focused={contentFocused}
                                            sub={subTabs[EIKON_TAB] ?? 0}
-                                           setSub={eikSub} />
+                                           setSub={eikSub}
+                                           sidebarPreview={tab === EIKON_TAB && (subTabs[EIKON_TAB] ?? 0) === 1 ? setSidebarPreview : undefined} />
         default: {
           const r = extra[tab - TABS.length]
           return r ? r.render() : null
@@ -847,6 +852,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
             <Profiler id="sidebar" onRender={perf.onRender}>
               <Sidebar agentState={agentState} info={info} usage={usage} eikon={eikon} profile={activeProfileName()}
                        title={title}
+                       preview={sidebarPreview}
                        cloud={tab === 0 && cloud} pulse={turn.streaming}
                        onAvatar={onAvatar} onAvatarHold={onAvatarHold} />
             </Profiler>
