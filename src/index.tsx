@@ -17,6 +17,7 @@ import { plugins } from "./service/bundled-plugins";
 import * as control from "./app/control";
 import * as preferences from "./context/preferences";
 import { resetTerminalModes, installExitResetHooks } from "./utils/terminal-reset";
+import { clampStdoutDimensions } from "./utils/terminal-size";
 import { warmup as warmTokens } from "./utils/tokens";
 import { prime as primeTheme, DEFAULT_THEME } from "./theme";
 
@@ -48,6 +49,7 @@ const main = async () => {
   resetTerminalModes()
   // And on our own exit paths, so we don't poison the next process.
   installExitResetHooks()
+  clampStdoutDimensions()
 
   perf.mem("pre-renderer")
 
