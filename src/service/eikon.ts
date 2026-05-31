@@ -42,6 +42,17 @@ export function ensure(name: string) {
 export type Installed = {
   name: string; file: string; source: string
   hasSource: boolean; sourceUrl?: string
+  manifest?: Record<string, unknown>
+}
+
+function manifest(name: string): Record<string, unknown> | undefined {
+  const p = join(dir(name), "manifest.json")
+  if (!existsSync(p)) return undefined
+  try {
+    const raw = JSON.parse(readFileSync(p, "utf8"))
+    if (raw && typeof raw === "object") return raw as Record<string, unknown>
+  } catch {}
+  return undefined
 }
 
 /** List folder-form eikons under ~/.hermes/eikons/. Flat legacy
@@ -60,6 +71,7 @@ export function list(): Installed[] {
         name: e.name, file: join(root, e.name, `${e.name}.eikon`),
         source: src, hasSource: has,
         sourceUrl: typeof head?.source_url === "string" ? head.source_url : undefined,
+        manifest: manifest(e.name),
       }
     })
 }

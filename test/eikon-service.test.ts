@@ -129,8 +129,10 @@ describe("service/eikon: fetchSource", () => {
     expect(existsSync(join(eikon.sourceDir("remix"), "idle.mp4"))).toBe(true)
     // studio.json + manifest.json (with origin) both written.
     expect(eikon.readStudio("remix")!.sources.error).toBe("error.mp4")
+    writeFileSync(eikon.file("remix"), '{"eikon":1,"name":"remix"}\n')
     const man = JSON.parse(readFileSync(join(eikon.dir("remix"), "manifest.json"), "utf8"))
     expect(man.origin.source).toBe(url)
+    expect(eikon.list().find(x => x.name === "remix")!.manifest!.origin).toEqual(man.origin)
     // peekSource memoized — second call same Promise.
     expect(eikon.peekSource(url)).toBe(eikon.peekSource(url))
     srv.stop()
