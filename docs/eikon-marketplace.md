@@ -3,7 +3,7 @@
 Herm owns the native Eikon Marketplace loop. The eikon package owns the registry,
 catalog data, browser mirror, install resolver, and submit-for-review primitives.
 Herm imports those public package exports only; it does not reach into eikon
-internal source paths.
+internal source paths or couple to the browser mirror implementation.
 
 ## Open and leave Marketplace
 
@@ -23,6 +23,16 @@ Marketplace is a two-pane list/detail surface that follows
   action controls.
 
 The footer is the source of truth for live key hints.
+
+## Discovery mirror handoff
+
+The eikon domain is an eikon-owned static discovery mirror. It can load the
+public catalog, filter by name or author, preview `.eikon` files, copy an
+`eikon install ...` command, and open a Herm detail URL.
+
+The mirror must not publish, authenticate, install into the browser, activate an
+eikon, or submit reviews. Native install/use and submit-for-review remain Herm
+Marketplace flows; CLI install/publish remain eikon CLI flows.
 
 ## Install, use, and preview
 
@@ -58,6 +68,28 @@ entries. Create a local draft/new identity before submitting derivative work.
 Submission requires license and provenance metadata and an authenticated backend.
 If backend auth or creation fails, Herm keeps typed metadata in the dialog and
 surfaces the actionable error with token-like secrets redacted.
+
+## Launch smoke gate
+
+Before calling the v1 loop ready, verify both staging and production:
+
+1. The eikon domain resolves to the eikon-owned Vercel project and serves the
+   mirror build from the eikon repo, not the Herm repo or any website repo.
+2. `/eikons/index.json` loads with expected CORS and cache headers. Catalog JSON
+   should be revalidated; packed assets and posters can be long-cache immutable.
+3. A catalog entry appears in the browser mirror, preview loads, and available
+   actions stay limited to copy instructions and open Herm detail.
+4. The same catalog base loads in Herm Marketplace, the selected preview renders,
+   `Install` writes local state without activation, and `Use` is the only
+   activation path.
+5. Submit preflight for a local non-bundled eikon shows the bundle and blocks
+   missing license/provenance, hidden files, secret-looking paths, and symlink or
+   path escapes before backend creation.
+
+Current local verification covered the catalog-to-Herm loop with fixtures and
+confirmed production is not ready yet: `https://eikon.liftaris.dev/` and
+`/eikons/index.json` currently return Vercel `DEPLOYMENT_NOT_FOUND` 404s. Fix
+Vercel project/domain mapping before launch.
 
 ## Package handoff
 
