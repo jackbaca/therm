@@ -107,9 +107,6 @@ browser mirror, shared catalog/player exports, install resolver, and publish
 preflight. Herm imports public eikon package exports rather than browser mirror
 internals or unexported source paths.
 
-See [`docs/eikon-marketplace.md`](./docs/eikon-marketplace.md) for the full
-Marketplace navigation, install/use, preview, and submit-for-review behavior.
-
 ### Customize the shell
 
 - Press `Ctrl+K` for the command palette.
