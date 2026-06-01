@@ -105,6 +105,26 @@ describe("Sessions tab", () => {
     t.destroy()
   })
 
+  test("active resumed session_key suppresses duplicate history row", async () => {
+    const gw = new MockGateway({
+      "session.active_list": () => ({ sessions: [
+        { id: "live-past", session_key: "past", title: "Past Root", preview: "hello", message_count: 2, started_at: 1700000000, status: "idle" },
+      ]}),
+      "session.list": () => ({ sessions: [
+        { id: "past", title: "Past Root", preview: "hello", message_count: 2, started_at: 1700000000, source: "tui" },
+      ]}),
+    })
+    const disk = [detail({ id: "past", sessionSource: "tui", title: "Past Root", message_count: 2, started_at: 1700000000 })]
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, list: () => disk }} currentId="live-past" />, { gw, width: 110 })
+    await until(t, () => t.frame().includes("Sessions (1)") && t.frame().includes("Past Root"))
+
+    expect(t.frame()).toContain("Active Session")
+    expect(t.frame()).toContain("TUI")
+    expect(t.frame()).not.toContain("History")
+
+    t.destroy()
+  })
+
   test("lists from session.list RPC and switches on Enter", async () => {
     const gw = new MockGateway({ "session.list": () => ({ sessions: ROWS }) })
     let switched = ""

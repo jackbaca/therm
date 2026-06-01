@@ -87,12 +87,12 @@ export function useSession(): SessionOps {
     // pass exact ids on purpose; boot() resolves tips itself.
     const target = normalize(sid)
     const row = byId(target)
+    const model = spec(row)
+    if (model) await gw.request("config.set", { session_id: undefined, key: "model", value: model })
     const res = await gw.request<SessionResumeResponse>("session.resume", { session_id: target })
     const id = res.session_id
     gw.setSession(id)
     preferences.set("lastSessionId", res.resumed ?? target)
-    const model = spec(row)
-    if (model) await gw.request("config.set", { key: "model", value: model }).catch(() => {})
     const messages = res.messages?.length ? transcriptToMessages(res.messages) : []
     return { id, messages, info: res.info }
   }, [gw])
