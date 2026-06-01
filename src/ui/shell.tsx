@@ -21,6 +21,7 @@ import { useTheme } from "../theme"
 
 export const TabShell = (props: {
   title: string
+  titleRight?: ReactNode
   error?: string | null
   focus?: boolean
   grow?: number
@@ -31,8 +32,13 @@ export const TabShell = (props: {
     <box flexDirection="column" flexGrow={props.grow ?? 1} flexBasis={0} minWidth={0} minHeight={0}
          border borderColor={props.focus ? theme.primary : theme.border}
          backgroundColor={theme.backgroundPanel} padding={1}>
-      <box height={1} overflow="hidden">
-        <text fg={theme.primary} wrapMode="none"><strong>{props.title}</strong></text>
+      <box height={1} overflow="hidden" flexDirection="row">
+        <box flexShrink={0} overflow="hidden">
+          <text fg={theme.primary} wrapMode="none"><strong>{props.title}</strong></text>
+        </box>
+        {props.titleRight
+          ? <box flexGrow={1} minWidth={0} overflow="hidden" justifyContent="flex-end">{props.titleRight}</box>
+          : null}
       </box>
       {props.error
         ? <box height={1}><text fg={theme.error}>{`⚠ ${props.error}`}</text></box>

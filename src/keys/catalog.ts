@@ -78,6 +78,7 @@ export const DEFAULTS = {
   "config.save":       def("ctrl+s",               "Write config",                       "config"),
   "config.mode":       def("m",                    "Toggle form ↔ YAML",                 "config"),
   "eikon.save":        def("ctrl+s",               "Save eikon",                         "eikon"),
+  "eikon.marketplace": def("m",                    "Open marketplace",                    "eikon"),
 } satisfies Record<string, Def>
 
 export type ActionId = keyof typeof DEFAULTS
@@ -91,7 +92,7 @@ export function inScope(s: Scope): ActionId[] {
 // global fires everywhere; list is active on every admin tab alongside that
 // tab's own scope; dialog and composer are modal/focused surfaces that
 // displace the rest; distinct tab scopes are mutually exclusive.
-const TAB_SCOPES = new Set<Scope>(["sessions", "cron", "env", "agents", "skills", "config"])
+const TAB_SCOPES = new Set<Scope>(["sessions", "cron", "env", "agents", "skills", "config", "eikon"])
 export function scopesOverlap(a: Scope, b: Scope): boolean {
   if (a === b) return true
   if (a === "global" || b === "global") return true
