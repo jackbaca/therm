@@ -319,8 +319,6 @@ describe("app", () => {
     await until(t, () => t.frame().includes("Ready") && t.frame().includes("ACTIVE-EIKON-LINE"))
     const startsBefore = globalThis.__hermAvatarTimerStarts ?? 0
     act(() => { for (let i = 0; i < 4; i++) t.keys.pressArrow("right", { meta: true }) })
-    await until(t, () => t.frame().includes("Studio"))
-    act(() => t.keys.pressArrow("right", { shift: true }))
     await until(t, () => t.frame().includes("Gallery ("))
     await act(async () => { await t.keys.typeText("m") })
     await until(t, () => t.frame().includes("Marketplace (1)") && t.frame().includes("MARKET-PREVIEW-LINE"))

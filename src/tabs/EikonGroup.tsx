@@ -14,27 +14,27 @@ type Props = {
   sidebarHidden?: boolean
 }
 
-// Studio is the landing sub-tab; Gallery lists installed + bundled and
-// can hand a name back to Studio for editing. A third "Advanced"
+// Gallery is the landing sub-tab; it lists installed + bundled eikons and
+// can hand a name to Studio for editing. A third "Advanced"
 // sub-tab (rasterizer setup) is reserved — see tabs.ts.
 export const EikonGroup = memo((props: Props) => {
   const keys = useKeys()
   const labels = SUB_TABS[EIKON_TAB]!
   const [target, setTarget] = useState<string | undefined>(undefined)
   useEffect(() => { if (props.sub >= labels.length) props.setSub(0) }, [props.sub, labels.length])
-  useEffect(() => { if (props.sub !== 1) props.sidebarPreview?.(undefined) }, [props.sub, props.sidebarPreview])
-  const edit = useCallback((name: string) => { setTarget(name); props.setSub(0) }, [props])
+  useEffect(() => { if (props.sub !== 0) props.sidebarPreview?.(undefined) }, [props.sub, props.sidebarPreview])
+  const edit = useCallback((name: string) => { setTarget(name); props.setSub(1) }, [props])
   const hint = `${keys.print("tab.prev")}/${keys.print("tab.next")} group  ·  shift+←/→ sub`
   return (
     <box flexDirection="column" flexGrow={1} minWidth={0} minHeight={0}>
       <SubTabBar tabs={labels} active={props.sub} onChange={props.setSub} hint={hint} />
       <box flexGrow={1} minWidth={0} minHeight={0} flexDirection="column">
         <Pane visible={props.sub === 0}>
-          <EikonStudio focused={!!props.focused && props.sub === 0} name={target} />
+          <EikonGallery focused={!!props.focused && props.sub === 0} onEdit={edit}
+            sidebarPreview={props.sidebarPreview} sidebarHidden={props.sidebarHidden} />
         </Pane>
         <Pane visible={props.sub === 1}>
-          <EikonGallery focused={!!props.focused && props.sub === 1} onEdit={edit}
-            sidebarPreview={props.sidebarPreview} sidebarHidden={props.sidebarHidden} />
+          <EikonStudio focused={!!props.focused && props.sub === 1} name={target} />
         </Pane>
       </box>
     </box>

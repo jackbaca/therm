@@ -75,7 +75,7 @@ describe("EikonGallery marketplace mode", () => {
   test("poster grid does not fetch previews or start per-card avatar timers", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
-    let sub = 1
+    let sub = 0
     const prevTestPerf = process.env.HERM_TEST_PERF
     process.env.HERM_TEST_PERF = "1"
     globalThis.__hermAvatarTimerStarts = 0
@@ -96,7 +96,7 @@ describe("EikonGallery marketplace mode", () => {
   test("enters marketplace, searches by author, Escape exits search then marketplace", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
-    let sub = 1
+    let sub = 0
     await using t = await mountNode(<EikonGroup focused sub={sub} setSub={i => { sub = i }} />, { width: 160, height: 48 })
     await until(t, () => t.frame().includes("Gallery ("))
 
@@ -128,7 +128,7 @@ describe("EikonGallery marketplace mode", () => {
     mkdirSync(join(HH, "eikons"), { recursive: true })
     local("localone")
     prefs.set("eikon", "localone")
-    let sub = 1
+    let sub = 0
     await using t = await mountNode(<EikonGroup focused sub={sub} setSub={i => { sub = i }} />, { width: 160, height: 48 })
     await until(t, () => t.frame().includes("Gallery ("))
 
@@ -158,7 +158,7 @@ describe("EikonGallery marketplace mode", () => {
   test("list navigation clamps and Space does not install", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
-    let sub = 1
+    let sub = 0
     await using t = await mountNode(<EikonGroup focused sub={sub} setSub={i => { sub = i }} />, { width: 120, height: 28 })
     await until(t, () => t.frame().includes("Gallery ("))
     await act(async () => { await t.keys.typeText("m") })
@@ -183,7 +183,7 @@ describe("EikonGallery marketplace mode", () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
     const previews: string[] = []
-    let sub = 1
+    let sub = 0
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} sidebarPreview={p => previews.push(p ? `${p.eikon.meta.name}:${p.state}` : "clear")} />,
       { width: 160, height: 48 },
@@ -207,7 +207,7 @@ describe("EikonGallery marketplace mode", () => {
     const fx = catalog([{ path: "/eikons/ares/ares.eikon", body: "missing", status: 500 }])
     process.env.EIKON_URL = fx.base
     const previews: string[] = []
-    let sub = 1
+    let sub = 0
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} sidebarPreview={p => previews.push(p ? p.eikon.meta.name : "clear")} />,
       { width: 160, height: 48 },
@@ -245,7 +245,7 @@ describe("EikonGallery marketplace mode", () => {
     })
     process.env.EIKON_URL = `http://localhost:${srv.port}/eikons`
     const previews: string[] = []
-    let sub = 1
+    let sub = 0
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} sidebarPreview={p => previews.push(p ? p.eikon.meta.name : "clear")} />,
       { width: 160, height: 48 },
@@ -265,7 +265,7 @@ describe("EikonGallery marketplace mode", () => {
   test("narrow marketplace renders selected preview in detail pane", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
-    let sub = 1
+    let sub = 0
     await using t = await mountNode(<EikonGroup focused sub={sub} setSub={i => { sub = i }} />, { width: 100, height: 40 })
     await until(t, () => t.frame().includes("Gallery ("))
     await act(async () => { await t.keys.typeText("m") })
@@ -281,8 +281,6 @@ describe("EikonGallery marketplace mode", () => {
     await until(t, () => t.frame().includes("Ready"))
 
     act(() => t.keys.pressKey("5", { meta: true }))
-    await until(t, () => t.frame().includes("Studio"))
-    act(() => t.keys.pressArrow("right", { shift: true }))
     await until(t, () => t.frame().includes("Gallery ("))
 
     await act(async () => { await t.keys.typeText("m") })
@@ -301,7 +299,7 @@ describe("EikonGallery marketplace mode", () => {
   test("Back button exits marketplace by mouse", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
-    let sub = 1
+    let sub = 0
     await using t = await mountNode(<EikonGroup focused sub={sub} setSub={i => { sub = i }} />, { width: 120, height: 28 })
     await until(t, () => t.frame().includes("Gallery ("))
 
@@ -317,7 +315,7 @@ describe("EikonGallery marketplace mode", () => {
   test("marketplace row click activates the clicked row without hover", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
-    let sub = 1
+    let sub = 0
     await using t = await mountNode(<EikonGroup focused sub={sub} setSub={i => { sub = i }} />, { width: 160, height: 48 })
     await until(t, () => t.frame().includes("Gallery ("))
 

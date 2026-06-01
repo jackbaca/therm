@@ -35,13 +35,15 @@ type Pane = "grid" | "detail"
 
 const NO_MARKET: MarketplaceState = { status: "empty", query: "", rows: [] }
 
-export const EikonGallery = memo((props: {
+type Props = {
   focused: boolean
   onEdit?: (name: string) => void
   sidebarPreview?: (preview?: SidebarPreview) => void
   submitReview?: submitSvc.SubmitReview
   sidebarHidden?: boolean
-}) => {
+}
+
+export const EikonGallery = memo((props: Props) => {
   const theme = useTheme().theme
   const dialog = useDialog()
   const toast = useToast()
@@ -68,7 +70,7 @@ export const EikonGallery = memo((props: {
   const active = prefs.usePref("eikon")
   const [mode, setMode] = useState<Mode>("gallery")
   const [pane, setPane] = useState<Pane>("grid")
-  const [sel, setSel] = useState(() => Math.max(0, rows.findIndex(r => r.slug === active)))
+  const [sel, setSel] = useState(0)
   const [marketSel, setMarketSel] = useState(0)
   const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState("")
@@ -81,10 +83,11 @@ export const EikonGallery = memo((props: {
   const galleryFollow = useFollow("gal", i => rows[i]?.slug ?? i)
   const marketFollow = useFollow("market", i => state.rows[i]?.entry.identityKey ?? i)
 
-  useEffect(() => { if (sel >= rows.length) setSel(Math.max(0, rows.length - 1)) }, [rows.length, sel])
+  useEffect(() => { if (sel > rows.length) setSel(rows.length) }, [rows.length, sel])
   useEffect(() => { if (marketSel >= state.rows.length) setMarketSel(Math.max(0, state.rows.length - 1)) }, [state.rows.length, marketSel])
 
-  const cur = rows[sel]
+  const rowSel = sel - 1
+  const cur = rows[rowSel]
   const parsed = useMemo<ParsedEikon | undefined>(() => {
     if (!cur) return undefined
     try { return parseEikon(readFileSync(cur.path, "utf8")) } catch { return undefined }
@@ -141,10 +144,10 @@ export const EikonGallery = memo((props: {
     loadMarket(query)
   }, [mode, query, rev, loadMarket])
 
-  const activate = () => {
-    if (!cur) return
-    prefs.set("eikon", cur.slug)
-    toast.show({ variant: "success", message: `Avatar → ${cur.name}` })
+  const activate = (row = cur) => {
+    if (!row) return
+    prefs.set("eikon", row.slug)
+    toast.show({ variant: "success", message: `Avatar → ${row.name}` })
   }
 
   const openMarket = () => {
@@ -260,8 +263,11 @@ export const EikonGallery = memo((props: {
       return
     }
     if (handleListKey(keys, key, {
-      count: rows.length, setSel, ...galleryFollow.opts,
-      onActivate: activate,
+      count: rows.length + 1,
+      setSel,
+      page: galleryFollow.opts.page,
+      scrollTo: n => { if (n > 0) galleryFollow.ref.current?.scrollChildIntoView(galleryFollow.id(n - 1)) },
+      onActivate: () => sel === 0 ? openMarket() : activate(),
       onDelete: () => void del(),
       onNew: doNew,
     })) return
@@ -299,17 +305,25 @@ export const EikonGallery = memo((props: {
   return (
     <box flexDirection="column" flexGrow={1} minWidth={0}>
       <box flexDirection="row" flexGrow={1}>
-        <TabShell title={`Gallery (${rows.length})`} focus={props.focused} grow={2}>
+        <TabShell title={`Gallery (${rows.length})`} focus={props.focused} grow={3} titleRight={
+          <box height={1} paddingX={1}
+               backgroundColor={theme.backgroundElement}
+               onMouseMove={() => setSel(0)} onMouseDown={() => { setSel(0); openMarket() }}>
+            <text fg={sel === 0 ? theme.primary : theme.text} wrapMode="none">
+              <strong>{sel === 0 ? "▸ [ Marketplace ]" : "  [ Marketplace ]"}</strong>
+            </text>
+          </box>
+        }>
           <scrollbox ref={galleryFollow.ref} scrollY flexGrow={1} verticalScrollbarOptions={VBAR}>
             {rows.length === 0
               ? <text fg={theme.textMuted}>No eikons found.</text>
               : rows.map((r, i) => {
-                  const on = i === sel
+                  const on = i === rowSel
                   const here = r.slug === active
                   return (
                     <box key={r.path} id={galleryFollow.id(i)} flexDirection="row" height={2}
                          backgroundColor={on ? theme.backgroundElement : undefined}
-                         onMouseMove={() => setSel(i)} onMouseDown={activate}>
+                         onMouseMove={() => setSel(i + 1)} onMouseDown={() => { setSel(i + 1); activate(r) }}>
                       <box width={2}><text fg={on ? theme.primary : theme.textMuted}>{on ? "▸ " : "  "}</text></box>
                       <box flexDirection="column" flexGrow={1} minWidth={0}>
                         <box height={1}><text fg={here ? theme.accent : theme.text}>
@@ -337,8 +351,9 @@ export const EikonGallery = memo((props: {
         </TabShell>
       </box>
       <HintBar pairs={[
-        ["↑↓", "select"], [keys.print("list.activate"), "use"], [keys.print("eikon.marketplace"), "marketplace"],
-        ["e", "edit in studio"], ...(cur && !cur.bundled ? [["u", "submit"] as const] : []), [keys.print("list.new"), "new / install"],
+        ["↑↓", "select"], [keys.print("list.activate"), sel === 0 ? "marketplace" : "use"], [keys.print("eikon.marketplace"), "marketplace"],
+        ...(cur && props.onEdit ? [["e", "edit in studio"] as const] : []),
+        ...(cur && !cur.bundled ? [["u", "submit"] as const] : []), [keys.print("list.new"), "new / install"],
         ...(cur && !cur.bundled ? [[keys.print("list.delete"), "delete"] as const] : []),
       ]} />
     </box>

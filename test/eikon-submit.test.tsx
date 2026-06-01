@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from "bun:test"
 import { act } from "react"
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { mountNode, until } from "./harness"
+import { mountNode, until, type Harness } from "./harness"
 import { EikonGallery } from "../src/tabs/EikonGallery"
 import { eikon } from "../src/service/eikon"
 import * as submit from "../src/service/eikon-submit"
@@ -25,12 +25,22 @@ function seed(name: string, opts: { published?: boolean } = {}) {
   })
 }
 
+async function selectDraft(t: Harness) {
+  await until(t, () => t.frame().includes("draft"))
+  for (let i = 0; i < 20; i++) {
+    if (t.frame().split("\n").some(l => l.includes("▸") && l.includes("draft"))) return
+    act(() => t.keys.pressArrow("down"))
+    await t.settle()
+  }
+  throw new Error(`draft row not selectable\n${t.frame()}`)
+}
+
 describe("Eikon submit dialog", () => {
   test("missing license focuses the missing field before backend invocation", async () => {
     await seed("draft")
     const fn = mock(async () => ({ kind: "review-created" as const, url: "https://github.com/liftaris/eikon/pull/1", request: {} as never }))
     await using t = await mountNode(<EikonGallery focused submitReview={fn} />, { width: 160, height: 48 })
-    await until(t, () => t.frame().includes("draft"))
+    await selectDraft(t)
     act(() => t.keys.pressKey("u"))
     await until(t, () => t.frame().includes("Submit eikon"))
     act(() => t.keys.pressEnter())
@@ -43,7 +53,7 @@ describe("Eikon submit dialog", () => {
     await seed("draft")
     const fn = mock(async () => ({ kind: "review-created" as const, url: "https://github.com/liftaris/eikon/pull/1", request: {} as never }))
     await using t = await mountNode(<EikonGallery focused submitReview={fn} />, { width: 160, height: 48 })
-    await until(t, () => t.frame().includes("draft"))
+    await selectDraft(t)
     act(() => t.keys.pressKey("u"))
     await until(t, () => t.frame().includes("Submit eikon"))
     await act(async () => { await t.keys.typeText("MIT") })
@@ -58,7 +68,7 @@ describe("Eikon submit dialog", () => {
     await seed("draft", { published: true })
     const fn = mock(async () => ({ kind: "review-created" as const, url: "https://github.com/liftaris/eikon/pull/1", request: {} as never }))
     await using t = await mountNode(<EikonGallery focused submitReview={fn} />, { width: 160, height: 48 })
-    await until(t, () => t.frame().includes("draft"))
+    await selectDraft(t)
     act(() => t.keys.pressKey("u"))
     await until(t, () => t.frame().includes("Create a local draft before submitting"))
     expect(t.frame()).not.toContain("Submit eikon")
@@ -80,7 +90,7 @@ describe("Eikon submit dialog", () => {
     expect(paths).not.toContain("source/escape.txt")
     const fn = mock(async () => ({ kind: "review-created" as const, url: "https://github.com/liftaris/eikon/pull/7", request: {} as never }))
     await using t = await mountNode(<EikonGallery focused submitReview={fn} />, { width: 180, height: 60 })
-    await until(t, () => t.frame().includes("draft"))
+    await selectDraft(t)
     act(() => t.keys.pressKey("u"))
     await until(t, () => t.frame().includes("Submit eikon"))
     await act(async () => { await t.keys.typeText("MIT") })
@@ -100,7 +110,7 @@ describe("Eikon submit dialog", () => {
     await seed("draft")
     const fn = mock(async () => ({ kind: "setup-needed" as const, failures: [{ code: "missing-auth" as const, message: "Run gh auth login" }] }))
     await using t = await mountNode(<EikonGallery focused submitReview={fn} />, { width: 160, height: 48 })
-    await until(t, () => t.frame().includes("draft"))
+    await selectDraft(t)
     act(() => t.keys.pressKey("u"))
     await until(t, () => t.frame().includes("Submit eikon"))
     await act(async () => { await t.keys.typeText("MIT") })
@@ -119,7 +129,7 @@ describe("Eikon submit dialog", () => {
     await seed("draft")
     const fn = mock(async () => ({ kind: "review-created" as const, url: "https://github.com/liftaris/eikon/pull/7", request: {} as never }))
     await using t = await mountNode(<EikonGallery focused submitReview={fn} />, { width: 160, height: 48 })
-    await until(t, () => t.frame().includes("draft"))
+    await selectDraft(t)
     act(() => t.keys.pressKey("u"))
     await until(t, () => t.frame().includes("Submit eikon"))
     await act(async () => { await t.keys.typeText("MIT") })
@@ -136,7 +146,7 @@ describe("Eikon submit dialog", () => {
     await seed("draft")
     const fn = mock(async () => ({ kind: "backend-failed" as const, failures: [{ code: "backend-failed" as const, message: "gh failed token ghp_ABC123secret" }] }))
     await using t = await mountNode(<EikonGallery focused submitReview={fn} />, { width: 160, height: 48 })
-    await until(t, () => t.frame().includes("draft"))
+    await selectDraft(t)
     act(() => t.keys.pressKey("u"))
     await until(t, () => t.frame().includes("Submit eikon"))
     await act(async () => { await t.keys.typeText("MIT") })
@@ -157,7 +167,7 @@ describe("Eikon submit dialog", () => {
     let release: ((value: submit.SubmitResult) => void) | undefined
     const fn = mock(() => new Promise<submit.SubmitResult>(res => { release = res }))
     await using t = await mountNode(<EikonGallery focused submitReview={fn} />, { width: 160, height: 48 })
-    await until(t, () => t.frame().includes("draft"))
+    await selectDraft(t)
     act(() => t.keys.pressKey("u"))
     await until(t, () => t.frame().includes("Submit eikon"))
     await act(async () => { await t.keys.typeText("MIT") })
@@ -178,7 +188,7 @@ describe("Eikon submit dialog", () => {
     let calls = 0
     const fn = mock(async () => { calls++; throw new Error("gh failed Bearer abc.def") })
     await using t = await mountNode(<EikonGallery focused submitReview={fn} />, { width: 160, height: 48 })
-    await until(t, () => t.frame().includes("draft"))
+    await selectDraft(t)
     act(() => t.keys.pressKey("u"))
     await until(t, () => t.frame().includes("Submit eikon"))
     await act(async () => { await t.keys.typeText("MIT") })
