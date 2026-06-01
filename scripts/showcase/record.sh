@@ -21,7 +21,7 @@ cd "$(dirname "$0")/../.."
 
 command -v asciinema >/dev/null || { echo "asciinema not found — brew install asciinema"; exit 1; }
 
-OUT="${1:-docs/showcase-$(date +%Y%m%d-%H%M%S).cast}"
+OUT="${1:-.ignore/showcase-$(date +%Y%m%d-%H%M%S).cast}"
 COLS="${COLS:-160}"
 ROWS="${ROWS:-42}"
 PORT="${CONTROL_PORT:-7777}"

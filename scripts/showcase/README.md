@@ -18,4 +18,4 @@ Post: `asciinema play out.cast` · `agg out.cast out.gif` · upload to asciinema
 Retiming: `.cast` is NDJSON `[t,"o",bytes]` after a header line — trivially
 post-processable to cap idle gaps without re-recording.
 
-See `docs/showcase-plan.md` for the why.
+See `.ignore/showcase-plan.md` for the why.
