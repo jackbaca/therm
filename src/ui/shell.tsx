@@ -6,10 +6,8 @@ import { useTheme } from "../theme"
 // flexGrow column with minWidth=0 so children can truncate instead of
 // forcing the panel wider than the terminal.
 //
-// Keybind hints do NOT live here — each tab owns a single <HintBar>
-// footer rendered below all its panes (docs/nav_and_ui_standards.md §
-// Hint Line). Multi-pane tabs otherwise rendered two competing header
-// hints with no room for either.
+// Keybind hints do NOT live here — each tab owns one <HintBar>
+// footer below its panes. Header hints compete for space.
 //
 // `focus` switches the border to theme.primary — used when a tab
 // hosts multiple panels and wants to show which has keyboard focus.

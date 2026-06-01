@@ -331,7 +331,7 @@ export const EikonGallery = memo((props: Props) => {
                           <span fg={theme.textMuted}>{r.bundled ? "  (bundled)" : ""}</span>
                         </text></box>
                         <box height={1}><text fg={theme.textMuted}>
-                          {`  ${r.author ?? "—"} · ${r.w}×${r.h} · `}
+                          {`  ${r.author ?? "—"} · `}
                           <span fg={r.hasSource ? theme.success : r.url ? theme.textMuted : theme.border}>
                             {r.hasSource ? "● source" : r.url ? "○ source available" : "— no source"}
                           </span>
