@@ -256,6 +256,16 @@ export type Fetched = { name: string; sources: Sources; n: number; bytes: number
 
 export const peekSource = peek
 
+function stripManifestTrust(name: string) {
+  const p = join(dir(name), "manifest.json")
+  if (!existsSync(p)) return
+  const man = JSON.parse(readFileSync(p, "utf8")) as Record<string, unknown>
+  if (!("license" in man) && !("provenance" in man)) return
+  delete man.license
+  delete man.provenance
+  writeFileSync(p, JSON.stringify(man, null, 2) + "\n", "utf8")
+}
+
 /** Install an eikon from any resolvable source (catalog name, git
  *  URL, local dir, http manifest base) into <profile>/eikons/<name>/.
  *  Seeds studio.json from the returned sources map and bumps the
@@ -263,6 +273,7 @@ export const peekSource = peek
 export async function fetchSource(src: string, opts?: { name?: string; media?: boolean;
                                    progress?: (d: number, t: number) => void }): Promise<Fetched> {
   const out: Got = await install(src, ROOT(), opts)
+  stripManifestTrust(out.name)
   const prev = readStudio(out.name)
   writeStudio(out.name, { ...(prev ?? toStudio(fresh(out.name, pick()))),
                           sources: { ...prev?.sources, ...out.sources } })

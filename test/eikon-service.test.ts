@@ -110,6 +110,7 @@ describe("service/eikon: fetchSource", () => {
   const body = (name: string) => {
     if (name === "manifest.json") return Response.json({
       name: "remix", source: "source.png",
+      license: "MIT", provenance: "made by Kaio",
       states: { idle: { file: "states/idle.mp4" }, error: { file: "states/error.mp4" } },
     })
     if (name === "source.png") return new Response(png)
@@ -133,6 +134,8 @@ describe("service/eikon: fetchSource", () => {
     const man = JSON.parse(readFileSync(join(eikon.dir("remix"), "manifest.json"), "utf8"))
     expect(man.origin.source).toBe(url)
     expect(eikon.list().find(x => x.name === "remix")!.manifest!.origin).toEqual(man.origin)
+    expect(man.license).toBeUndefined()
+    expect(man.provenance).toBeUndefined()
     // peekSource memoized — second call same Promise.
     expect(eikon.peekSource(url)).toBe(eikon.peekSource(url))
     srv.stop()
