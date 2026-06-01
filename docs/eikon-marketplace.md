@@ -50,10 +50,6 @@ visible. If the app sidebar is hidden or too narrow, the detail pane renders the
 single selected preview instead. Leaving Marketplace clears the transient preview
 and restores the normal active-eikon sidebar.
 
-The marketplace grid is poster-first. It does not start one animation driver per
-card. See `docs/performance/eikon-marketplace.md` for the baseline and PERF
-counter policy.
-
 ## Submit for review
 
 Local non-bundled eikons expose `u` in Gallery and Studio to submit for review.
