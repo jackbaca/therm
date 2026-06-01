@@ -360,7 +360,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
 
   const switchSession = useCallback(async (target: string) => {
     const prev = sidRef.current
-    reset()
     // Keep splash visible while the resume RPC lands so the user sees
     // the ornate frame instead of the empty-transcript welcome. summoned
     // suppresses the continue-prompt (we've already chosen a session);
@@ -373,6 +372,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     goToTab(CHAT_TAB)
     try {
       const res = await session.resume(target)
+      reset()
       setSid(res.id)
       if (res.info) {
         setInfo(res.info)
@@ -389,6 +389,11 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       setSplash(false)
       summoned.current = false
     } catch (err) {
+      if (prev) {
+        gw.setSession(prev)
+        setSid(prev)
+        setReady(true)
+      }
       dispatch({ kind: "system", text: `Failed to resume: ${err instanceof Error ? err.message : String(err)}` })
       setSplash(false)
       summoned.current = false
@@ -405,13 +410,15 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
 
   const activateSession = useCallback(async (target: string) => {
     const prev = sidRef.current
-    reset()
     summoned.current = true
     setSplash(true)
     setSwitching(true)
+    gw.setSession("")
+    setSid("")
     goToTab(CHAT_TAB)
     try {
       const res = await session.activate(target)
+      reset()
       setSid(res.id)
       if (res.info) {
         setInfo(res.info)
@@ -425,13 +432,18 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       summoned.current = false
       if (prev && prev !== res.id) toast.show({ variant: "info", message: "switched live session" })
     } catch (err) {
+      if (prev) {
+        gw.setSession(prev)
+        setSid(prev)
+        setReady(true)
+      }
       dispatch({ kind: "system", text: `Failed to activate: ${err instanceof Error ? err.message : String(err)}` })
       setSplash(false)
       summoned.current = false
     } finally {
       setSwitching(false)
     }
-  }, [reset, session, goToTab, toast])
+  }, [reset, session, goToTab, toast, gw])
   // Rebind every HERMES_HOME reader, respawn the gateway subprocess
   // under the new env, and re-run the boot path. prefs.reload (inside
   // rehome) retints theme/eikon/keys via usePref; home.reset repaints
