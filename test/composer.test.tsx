@@ -29,6 +29,37 @@ async function setup(gw = new MockGateway()) {
   return { t, ref, sent, slashed }
 }
 
+function cmd(name: string, category = "Command"): SlashCommand {
+  return {
+    name,
+    category,
+    description: `${name} command`,
+    aliases: [],
+    argsHint: "",
+    subcommands: [],
+    source: "command",
+    target: "gateway",
+  }
+}
+
+async function withCommands(cmds: ReadonlyArray<SlashCommand>) {
+  const ref = createRef<ComposerHandle>()
+  const slashed: SlashCommand[] = []
+  const t: Harness = await mountNode(
+    <box flexDirection="column" flexGrow={1} width="100%" height="100%">
+      <box flexGrow={1} />
+      <Composer
+        ref={ref}
+        focused canSubmitPrompt={true} ready streaming={false} cmds={cmds}
+        onSend={() => {}} onSlash={c => slashed.push(c)}
+      />
+    </box>,
+    { width: 120, height: 30 },
+  )
+  await until(t, () => t.frame().includes("Ready"))
+  return { t, ref, slashed }
+}
+
 describe("composer", () => {
   test("type + Enter sends and clears", async () => {
     const { t, ref, sent } = await setup()
@@ -187,6 +218,42 @@ describe("composer", () => {
     await t.settle()
     expect(slashed.map(c => c.name)).toEqual(["help"])
     expect(ref.current?.value()).toBe("")
+    t.destroy()
+  })
+
+  test("slash popover selection accepts the top rendered candidate", async () => {
+    const { t, slashed } = await withCommands([
+      cmd("zulu", "Zed"),
+      cmd("alpha", "Client"),
+    ])
+    await act(async () => { await t.keys.typeText("/") })
+    await until(t, () => t.frame().includes("/zulu") && t.frame().includes("/alpha"))
+
+    const line = t.frame().split("\n").find(l => /\/(zulu|alpha)\b/.test(l)) ?? ""
+    const top = line.match(/\/(zulu|alpha)\b/)?.[1]
+    expect(top).toBeDefined()
+    act(() => t.keys.pressEnter())
+    await t.settle()
+
+    expect(slashed.map(c => c.name)).toEqual([top!])
+    t.destroy()
+  })
+
+  test("slash popover key-repeat keeps one section label inside a bounded viewport", async () => {
+    const cmds = Array.from({ length: 32 }, (_, i) => cmd(`skill-${String(i).padStart(2, "0")}`, `Cat ${String(i).padStart(2, "0")}`))
+    const { t, ref } = await withCommands(cmds)
+    await act(async () => { await t.keys.typeText("/") })
+    await until(t, () => t.frame().includes("/skill-00"))
+
+    for (let n = 0; n < 80; n++) act(() => ref.current?.popNav(1))
+    await t.settle()
+
+    const lines = t.frame().split("\n")
+    const cats = lines.filter(l => /Cat \d\d/.test(l))
+    const items = lines.filter(l => /\/skill-\d\d\b/.test(l))
+    expect(cats.length).toBe(1)
+    expect(items.length).toBeLessThanOrEqual(10)
+    expect(t.frame()).toContain("/skill-31")
     t.destroy()
   })
 
