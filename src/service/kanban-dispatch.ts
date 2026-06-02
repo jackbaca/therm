@@ -75,6 +75,47 @@ export const dispatchFailures = (r: DispatchResult): string[] => [
   ...r.auto_blocked,
   ...r.timed_out,
   ...r.stale,
-  ...r.skipped_unassigned,
-  ...r.respawn_guarded.map(x => x.task_id),
 ]
+
+export const dispatchGuarded = (r: DispatchResult): string[] =>
+  r.respawn_guarded.map(x => x.task_id)
+
+export const dispatchVariant = (r: DispatchResult): "info" | "error" | "warning" | "success" => {
+  const failed = dispatchFailures(r).length
+  const guarded = dispatchGuarded(r).length
+  const unassigned = r.skipped_unassigned.length
+  const benign = r.skipped_per_profile_capped.length + r.skipped_nonspawnable.length
+  if (r.spawned.length === 0 && (failed > 0 || unassigned > 0)) return "error"
+  if (failed > 0 || guarded > 0 || unassigned > 0) return "warning"
+  if (benign > 0) return "info"
+  return "success"
+}
+
+const line = (label: string, xs: string[]): string[] =>
+  xs.length ? [`${label}: ${xs.join(", ")}`] : []
+
+const caps = (r: DispatchResult): string[] => {
+  const map = r.skipped_per_profile_capped.reduce((m, x) => {
+    const key = x.assignee || "unassigned"
+    m.set(key, [...(m.get(key) ?? []), x])
+    return m
+  }, new Map<string, DispatchCapped[]>())
+  if (map.size === 0) return []
+  return [
+    "Deferred at per-profile cap:",
+    ...[...map.entries()].map(([k, xs]) =>
+      `  ${k} (${Math.max(...xs.map(x => x.current))} running): ${xs.map(x => x.task_id).join(", ")}`),
+  ]
+}
+
+export const dispatchDetails = (r: DispatchResult): string => [
+  ...line("Defaulted to kanban.default_assignee", r.auto_assigned_default),
+  ...caps(r),
+  ...line("Unassigned", r.skipped_unassigned),
+  ...line("Non-spawnable lanes", r.skipped_nonspawnable),
+  ...line("Failed/reclaimed · crashed", r.crashed),
+  ...line("Failed/reclaimed · auto-blocked", r.auto_blocked),
+  ...line("Failed/reclaimed · timed out", r.timed_out),
+  ...line("Failed/reclaimed · stale", r.stale),
+  ...line("Respawn guarded", r.respawn_guarded.map(x => `${x.task_id}${x.reason ? ` (${x.reason})` : ""}`)),
+].join("\n")
