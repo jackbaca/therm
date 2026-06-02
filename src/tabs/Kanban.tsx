@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef, memo } from "react"
 import { useKeyboard, useTerminalDimensions } from "@opentui/react"
-import type { BorderSides, ScrollBoxRenderable } from "@opentui/core"
+import type { BorderSides, MouseEvent, ScrollBoxRenderable } from "@opentui/core"
 import {
   boardStateOf, detailOf, tailLogOf, assignees, q, STATUSES,
   currentBoard, listBoards, resetKanban, patchTask,
@@ -252,7 +252,8 @@ const Column = memo((p: {
           <span fg={theme.textMuted}>{`  ${p.tasks.length}`}</span>
         </text>
       </box>
-      <scrollbox ref={box} scrollY flexGrow={1} verticalScrollbarOptions={NOBAR}>
+      <scrollbox id={`kb-col-${p.slug}-${p.status}`} ref={box} scrollY flexGrow={1} verticalScrollbarOptions={NOBAR}
+                 onMouseScroll={(e: MouseEvent) => e.stopPropagation()}>
         <box flexDirection="column" width="100%">
           {p.tasks.map((t, i) => (
             <Card key={t.id} id={id(i)} t={t} on={p.on && i === p.sel}
@@ -1308,7 +1309,7 @@ export const Kanban = memo((props: { focused?: boolean }) => {
       <TabShell
         title={`Kanban · ${sections.length} board${sections.length === 1 ? "" : "s"} · ${grand} task${grand === 1 ? "" : "s"}${running ? ` · ${running} running` : ""}`}
       >
-        <scrollbox ref={outer} scrollY flexGrow={1} verticalScrollbarOptions={NOBAR}>
+        <scrollbox id="kb-board-scroll" ref={outer} scrollY flexGrow={1} verticalScrollbarOptions={NOBAR}>
           <box flexDirection="column" width="100%">
             {sections.map(s => {
               const on = s.board.slug === at

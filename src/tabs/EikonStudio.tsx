@@ -1148,7 +1148,8 @@ export const EikonStudio = memo((props: {
             <text fg={theme.textMuted}>No eikon open. Enter to create or pick one.</text>
           </box>
         : <>
-            <scrollbox ref={ksb} scrollY flexGrow={1} contentOptions={COL}>
+            <scrollbox id="studio-knob-scroll" ref={ksb} scrollY flexGrow={1} contentOptions={COL}
+                       onMouseScroll={(e: MouseEvent) => e.stopPropagation()}>
               {rows.map((row, i) => {
                 const ni = navRows.findIndex(x => x.i === i)
                 const on = pane === "knobs" && ni === sel
