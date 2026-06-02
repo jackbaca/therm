@@ -34,4 +34,14 @@ describe("composer completion request", () => {
     expect(acceptCompletion("read src/app", { text: "src/app.tsx", display: "app.tsx", meta: "file" }, 5))
       .toBe("read src/app.tsx ")
   })
+
+  test("acceptance avoids duplicating slash command prefixes", () => {
+    expect(acceptCompletion("/det", { text: "/details", display: "/details", meta: "command" }, 1))
+      .toBe("/details ")
+  })
+
+  test("acceptance preserves prompt toolkit slash command items", () => {
+    expect(acceptCompletion("/go", { text: "goal", display: "goal", meta: "command" }, 1))
+      .toBe("/goal ")
+  })
 })
