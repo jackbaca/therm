@@ -984,7 +984,7 @@ export const Kanban = memo((props: { focused?: boolean }) => {
         const capped = r.skipped_per_profile_capped.length
         const defaults = r.auto_assigned_default.length
         const failed = dispatchFailures(r).length
-        const skipped = r.skipped_unassigned.length + r.skipped_nonspawnable.length + failed
+        const skipped = r.skipped_nonspawnable.length + failed
         const parts = [`${spawned} spawned`]
         if (defaults) parts.push(`${defaults} default-assigned`)
         if (capped) parts.push(`${capped} profile-capped`)
@@ -993,7 +993,7 @@ export const Kanban = memo((props: { focused?: boolean }) => {
           variant: failed && spawned === 0 ? "error" : capped || skipped ? "info" : "success",
           message: `Dispatch: ${parts.join(" · ")}`,
         })
-      })
+      }).catch((e: Error) => void toast.show({ variant: "error", message: trunc(e.message, 120) }))
     })
   }, [dialog, sh, toast])
 

@@ -789,6 +789,47 @@ describe("Kanban tab", () => {
     t.destroy()
   })
 
+  test("D → confirm → dispatch counts skipped_unassigned once", async () => {
+    const gw = new MockGateway({
+      "shell.exec": p => /\bdiagnostics\b/.test(p.command as string)
+        ? { stdout: "[]", stderr: "", code: 0 }
+        : { stdout: JSON.stringify({
+          spawned: [],
+          skipped_unassigned: ["t8"],
+          skipped_nonspawnable: [],
+          skipped_per_profile_capped: [],
+          auto_assigned_default: [],
+          crashed: [],
+          auto_blocked: [],
+          timed_out: [],
+          stale: [],
+        }), stderr: "", code: 0 },
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    await act(async () => { await t.keys.typeText("D") })
+    await until(t, () => t.frame().includes("Dispatch · default"))
+    await act(async () => { await t.keys.typeText("y") })
+    await until(t, () => t.frame().includes("Dispatch: 0 spawned · 1 skipped"))
+    expect(t.frame()).not.toContain("2 skipped")
+    t.destroy()
+  })
+
+  test("D → confirm → malformed dispatch json surfaces error toast", async () => {
+    const gw = new MockGateway({
+      "shell.exec": p => /\bdiagnostics\b/.test(p.command as string)
+        ? { stdout: "[]", stderr: "", code: 0 }
+        : { stdout: "not json", stderr: "", code: 0 },
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    await act(async () => { await t.keys.typeText("D") })
+    await until(t, () => t.frame().includes("Dispatch · default"))
+    await act(async () => { await t.keys.typeText("y") })
+    await until(t, () => t.frame().includes("JSON Parse error"))
+    t.destroy()
+  })
+
   test("dispatch parser defaults new buckets and excludes capped tasks from failures", () => {
     const old = parseDispatchResult(JSON.stringify({
       reclaimed: 0,
