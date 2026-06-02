@@ -6,7 +6,6 @@ import { Context } from "./Context"
 import { Analytics } from "./Analytics"
 import { SubTabBar } from "../components/tabs/SubTabBar"
 import { SUB_TABS, SESSIONS_TAB } from "../app/tabs"
-import { useKeys } from "../keys"
 
 type Props = {
   focused?: boolean
@@ -31,14 +30,13 @@ type Props = {
 // mounting would duplicate traffic without a visible payoff (state is
 // cheap to rebuild from ~/.hermes on next switch).
 export const SessionsGroup = memo((props: Props) => {
-  const keys = useKeys()
   const labels = SUB_TABS[SESSIONS_TAB]
   // Clamp defensively — if the sub-tab list shrinks later, drifted
   // indices would render nothing.
   useEffect(() => {
     if (props.sub >= labels.length) props.setSub(0)
   }, [props.sub, labels.length])
-  const hint = `${keys.print("tab.prev")}/${keys.print("tab.next")} group  ·  shift+←/→ sub`
+  const hint = "shift+←/→ sub"
   return (
     <box flexDirection="column" flexGrow={1} minWidth={0}>
       <SubTabBar tabs={labels} active={props.sub} onChange={props.setSub} hint={hint} />

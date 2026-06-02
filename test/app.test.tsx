@@ -53,6 +53,21 @@ describe("app", () => {
     t.destroy()
   })
 
+  test("sub-tab hint omits duplicate group navigation", async () => {
+    const t = await mount()
+    await until(t, () => t.frame().includes("Ready"))
+
+    act(() => t.keys.pressArrow("right", { meta: true }))
+    await until(t, () => t.frame().includes("Sessions ("))
+
+    const f = t.frame()
+    expect(f).toContain("Alt+←/Alt+→ or Ctrl+X N")
+    expect(f).toContain("shift+←/→ sub")
+    expect(f).not.toContain("Alt+←/Alt+→ group")
+
+    t.destroy()
+  })
+
   test("<leader> <digit> jumps directly to tab N", async () => {
     const t = await mount()
     await until(t, () => t.frame().includes("Ready"))
