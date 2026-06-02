@@ -166,6 +166,9 @@ export function useStream(c: Ctx) {
         })
       },
       onStatus: (text) => x.setStatus(text),
+      onApprovalRemembered: () => {
+        void gw.request("approval.respond", { choice: "always" }).catch(() => {})
+      },
       onProcessNotification: (text) => {
         const n = procs.current
         n.texts.push(text)

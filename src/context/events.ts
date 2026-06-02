@@ -2,6 +2,7 @@
 
 import * as perf from "../utils/perf"
 import * as spawnHistory from "../app/spawnHistory"
+import { shouldRemember } from "./approval-memory"
 import type { GatewayEvent, GatewaySkin, SessionInfo } from "../context/wire"
 import type { Action } from "../app/turnReducer"
 import { pid, type Usage } from "../types/message"
@@ -15,6 +16,7 @@ export type Side = {
   onBtw?: (text: string) => void
   onStatus?: (text: string) => void
   onSkin?: (skin: GatewaySkin | null | undefined) => void
+  onApprovalRemembered?: () => void
   /** voice.status event — gateway VAD loop state change (listening/transcribing/idle). */
   onVoiceStatus?: (state: string) => void
   /** voice.transcript event — transcribed text from a completed voice capture. */
@@ -141,6 +143,10 @@ export function mapEvent(ev: GatewayEvent, side: Side): Action | null {
                req: { variant: "clarify", ...ev.payload } }
 
     case "approval.request":
+      if (shouldRemember({ variant: "approval", ...ev.payload })) {
+        side.onApprovalRemembered?.()
+        return null
+      }
       // Approval has no request_id upstream — the gateway's approval
       // responder is a single pending slot. Mint a unique part id so
       // multiple approvals in one turn don't alias each other when
