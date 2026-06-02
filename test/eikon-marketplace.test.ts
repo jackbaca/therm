@@ -13,6 +13,42 @@ const body = "{\"eikon\":1,\"name\":\"ares\",\"author\":\"Kaio\",\"width\":48,\"
 const png = new Uint8Array([137, 80, 78, 71])
 
 type Route = { path: string; body: BodyInit | object; status?: number; headers?: HeadersInit }
+type CatalogEntrySeed = {
+  name: string
+  author?: string
+  poster?: string
+  source?: string
+  preview_url?: string
+  install_url?: string
+}
+
+function entry(seed: CatalogEntrySeed): Catalog["entries"][number] {
+  const raw = { name: seed.name, ...(seed.author ? { author: seed.author } : {}) } satisfies CatalogIndexEntry
+  const dir = `https://example.com/${seed.source ?? seed.name}/`
+  const preview = `${dir}${seed.preview_url ?? `${seed.name}.eikon`}`
+  const install = `${dir}${seed.install_url ?? "manifest.json"}`
+  return {
+    kind: "eikon.catalog.entry",
+    schemaVersion: "1",
+    id: seed.name,
+    sourceKey: dir,
+    name: seed.name,
+    ...(seed.author ? { author: seed.author } : {}),
+    w: 48,
+    h: 24,
+    width: 48,
+    height: 24,
+    poster: seed.poster ?? seed.name,
+    previewUrl: preview,
+    preview,
+    packageUrl: install,
+    installUrl: install,
+    compatibility: { eikon: ">=1 <3", available: true },
+    trust: {},
+    identityKey: dir,
+    raw,
+  }
+}
 
 function serve(routes: Route[], seen: string[] = []) {
   return Bun.serve({
@@ -196,21 +232,7 @@ describe("service/eikon-marketplace", () => {
     const waitForFetch = () => pending.length > 0 ? Promise.resolve() : new Promise<void>(resolve => waits.push(resolve))
     const cat: Catalog = {
       base: "https://example.com/eikons",
-      entries: ["one", "two", "three"].map(name => ({
-        name,
-        author: "Kaio",
-        width: 48,
-        height: 24,
-        w: 48,
-        h: 24,
-        poster: name,
-        trust: {},
-        identityKey: `https://example.com/${name}/`,
-        sourceKey: `https://example.com/${name}/`,
-        raw: { name } satisfies CatalogIndexEntry,
-        installUrl: `https://example.com/${name}/manifest.json`,
-        previewUrl: `https://example.com/${name}/${name}.eikon`,
-      })),
+      entries: ["one", "two", "three"].map(name => entry({ name })),
       load: async () => "",
     }
     const svc = new market.MarketplaceService(cat, {
