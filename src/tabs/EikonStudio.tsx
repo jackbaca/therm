@@ -816,7 +816,7 @@ export const EikonStudio = memo((props: {
       return switchTo(res.name)
     }
     toast.show({ variant: "info", message: `Installing '${res.name}' from ${res.src}…` })
-    await eikon.fetchSource(res.src, { name: res.name })
+    await eikon.installPackage(res.src, { name: res.name })
       .then(out => {
         toast.show({ variant: "success", message: `Installed '${out.name}' (${out.n} files)` })
         void switchTo(out.name)
@@ -858,7 +858,7 @@ export const EikonStudio = memo((props: {
     })
     if (!src) return
     toast.show({ variant: "info", message: `Installing from ${src}…` })
-    await eikon.fetchSource(src)
+    await eikon.installPackage(src)
       .then(out => {
         toast.show({ variant: "success", message: `Installed '${out.name}' (${out.n} files)` })
         void switchTo(out.name)

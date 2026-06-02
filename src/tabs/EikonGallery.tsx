@@ -64,7 +64,8 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
 
   const activate = () => {
     if (!cur) return
-    prefs.set("eikon", cur.slug)
+    if (!cur.bundled || eikon.baked(cur.slug)) eikon.useInstalled(cur.slug)
+    else prefs.set("eikon", cur.slug)
     toast.show({ variant: "success", message: `Avatar → ${cur.name}` })
   }
 
@@ -82,10 +83,9 @@ export const EikonGallery = memo((props: { focused: boolean; onEdit?: (name: str
       return props.onEdit?.(res.name)
     }
     toast.show({ variant: "info", message: `Installing '${res.name}' from ${res.src}…` })
-    await eikon.fetchSource(res.src, { name: res.name })
+    await eikon.installPackage(res.src, { name: res.name })
       .then(out => {
         toast.show({ variant: "success", message: `Installed '${out.name}' (${out.n} files)` })
-        prefs.set("eikon", out.name)
       })
       .catch(e => toast.error(e instanceof Error ? e : new Error(String(e))))
   }, [dialog, toast, props])
