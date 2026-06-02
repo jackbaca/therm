@@ -19,6 +19,7 @@
 import { existsSync, mkdirSync, readdirSync, copyFileSync, readFileSync, writeFileSync, rmSync } from "node:fs"
 import { join, extname, basename } from "node:path"
 import { install, peek, header as peekHeader, type Installed as Got } from "eikon"
+import { DEFAULT_PUBLIC_CATALOG } from "eikon/catalog"
 import { hermesPath } from "./hermes-home"
 import * as prefs from "../context/preferences"
 import { parseEikon } from "../components/avatar/eikon"
@@ -403,6 +404,9 @@ function normalize(input: unknown, base?: string): CatalogPackage {
   return {
     kind: "eikon.catalog.entry", schemaVersion: "1.0", id: name,
     sourceKey: packageUrl, name, author: typeof input.author === "string" ? input.author : undefined,
+    title: typeof input.title === "string" ? input.title : undefined,
+    description: typeof input.description === "string" ? input.description : undefined,
+    tags: Array.isArray(input.tags) ? input.tags.filter((x): x is string => typeof x === "string") : undefined,
     glyph: typeof input.glyph === "string" ? input.glyph : undefined,
     poster: typeof input.poster === "string" ? input.poster : undefined,
     packageUrl: manifest, compatibility: { eikon: ">=1 <3", available: true },
@@ -421,7 +425,7 @@ async function loadJson(url: string, fetcher: typeof fetch = fetch): Promise<unk
   return JSON.parse(await loadText(url, fetcher))
 }
 
-export async function loadCatalog(index: string, fetcher: typeof fetch = fetch): Promise<CatalogPackage[]> {
+export async function loadCatalog(index = process.env.HERM_EIKON_MARKETPLACE || DEFAULT_PUBLIC_CATALOG, fetcher: typeof fetch = fetch): Promise<CatalogPackage[]> {
   const url = index.endsWith("index.json") ? index : `${index.replace(/\/$/, "")}/index.json`
   const raw = await loadJson(url, fetcher)
   if (!Array.isArray(raw)) throw pkgErr("catalog", "index array required")

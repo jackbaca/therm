@@ -3,6 +3,7 @@ import { Profiler, useState, useEffect, useRef, useCallback, useMemo, useReducer
 import * as perf from "./utils/perf"
 import { hasInterp, interpolate } from "./utils/interpolate"
 import { GatewayProvider, useGateway, useGatewayRestart, type Gateway } from "./context/gateway"
+import { EikonPreviewProvider, useEikonPreview } from "./context/eikon-preview"
 import type { SessionInfo, TranscriptMessage, ImageAttachResponse } from "./context/wire"
 import type { Message, Usage } from "./types/message"
 import { text as msgText } from "./types/message"
@@ -67,7 +68,9 @@ export const App = (props: AppProps) => (
             <CommandProvider>
               <PluginProvider>
                 <BackgroundProvider>
-                  <AppInner launch={props.launch ?? { mode: "new" }} />
+                  <EikonPreviewProvider>
+                    <AppInner launch={props.launch ?? { mode: "new" }} />
+                  </EikonPreviewProvider>
                 </BackgroundProvider>
               </PluginProvider>
             </CommandProvider>
@@ -475,6 +478,14 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     if (p) loadEikon(p); else setEikon(undefined)
   }, [eikonName, eikonRev, skin.skin?.name, loadEikon])
 
+  const eikonPreview = useEikonPreview()
+  useEffect(() => {
+    if (!eikonPreview.preview) return
+    const p = (eikonName && eikonSvc.baked(eikonName)) || bundledEikonPath(skin.skin?.name)
+    if (p) loadEikon(p)
+    else setEikon(undefined)
+  }, [eikonPreview.preview, eikonName, skin.skin?.name, loadEikon])
+
   // turnsFrom counts user turns at-or-after m — each session.undo pops
   // one user+assistant pair server-side. Reads turnRef (not turn) so
   // rewind/fork/msgMenu stay identity-stable across streaming deltas;
@@ -845,8 +856,8 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
           </box>
           {dims.width >= (tab === CHAT_TAB ? 120 : 140) && !hideSidebar ? (
             <Profiler id="sidebar" onRender={perf.onRender}>
-              <Sidebar agentState={agentState} info={info} usage={usage} eikon={eikon} profile={activeProfileName()}
-                       title={title}
+              <Sidebar agentState={agentState} info={info} usage={usage} eikon={eikonPreview.preview?.eikon ?? eikon} profile={activeProfileName()}
+                       title={eikonPreview.preview ? `Preview: ${eikonPreview.preview.title}` : title}
                        cloud={tab === 0 && cloud} pulse={turn.streaming}
                        onAvatar={onAvatar} onAvatarHold={onAvatarHold} />
             </Profiler>
