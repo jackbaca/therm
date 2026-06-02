@@ -1,4 +1,4 @@
-import { loadCatalog, searchCatalog, publicCatalogUrl, type Catalog, type CatalogEntry, type CatalogOptions } from "eikon"
+import { loadCatalog, searchCatalog, publicCatalogUrl, type Catalog, type PublicCatalogEntry as CatalogEntry, type CatalogOptions } from "eikon"
 import { eikon } from "./eikon"
 import * as prefs from "../context/preferences"
 
