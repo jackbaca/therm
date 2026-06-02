@@ -405,6 +405,8 @@ describe("Kanban tab", () => {
     act(() => t.keys.pressEnter())
     await until(t, () => /Assignee\s+researcher/.test(t.frame()))
     expect(t.frame()).toMatch(/Children\s+t3/)
+    expect(t.frame()).toContain("spec.pdf")
+    expect(t.frame()).not.toContain(hermesPath("kanban/attachments/t1/spec.pdf"))
     expect(t.frame()).toContain("AWS reserved")
     expect(t.frame()).toMatch(/a assign\s+c comment\s+u unblock/)
     act(() => t.keys.pressEscape())
