@@ -219,6 +219,60 @@ describe("composer", () => {
     expect(atWordAt("line1\nx @f", 10)).toEqual({ word: "@f", start: 8 })
   })
 
+  test("trailing path token opens completion popover and Enter inserts", async () => {
+    const gw = new MockGateway({
+      "complete.path": p => p.word === "src/app" ? { items: [
+        { text: "src/app.tsx", display: "src/app.tsx", meta: "file" },
+      ] } : { items: [] },
+    })
+    const { t, ref } = await setup(gw)
+
+    await act(async () => { await t.keys.typeText("read src/app") })
+    await until(t, () => t.frame().includes("src/app.tsx"))
+    expect(t.gw.last("complete.path")?.params.word).toBe("src/app")
+    expect(ref.current?.popOpen()).toBe(true)
+
+    act(() => t.keys.pressEnter())
+    await t.settle()
+    expect(ref.current?.value()).toBe("read src/app.tsx ")
+    t.destroy()
+  })
+
+  test("slash RPC completion opens popover and Enter inserts replacement", async () => {
+    const gw = new MockGateway({
+      "complete.slash": p => p.text === "/zz" ? {
+        replace_from: 1,
+        items: [{ text: "zeta", display: "/zeta", meta: "remote" }],
+      } : { items: [] },
+    })
+    const { t, ref } = await setup(gw)
+
+    await act(async () => { await t.keys.typeText("/zz") })
+    await until(t, () => t.frame().includes("/zeta"))
+    expect(t.gw.last("complete.slash")?.params.text).toBe("/zz")
+    expect(ref.current?.popOpen()).toBe(true)
+
+    act(() => t.keys.pressEnter())
+    await t.settle()
+    expect(ref.current?.value()).toBe("/zeta ")
+    t.destroy()
+  })
+
+  test("completion RPC error shows unavailable row and does not submit", async () => {
+    const gw = new MockGateway({
+      "complete.path": () => { throw new Error("offline") },
+    })
+    const { t, ref, sent } = await setup(gw)
+
+    await act(async () => { await t.keys.typeText("see ./bad") })
+    await until(t, () => t.frame().includes("completion unavailable"))
+    act(() => t.keys.pressEnter())
+    await t.settle()
+    expect(sent).toEqual([])
+    expect(ref.current?.value()).toBe("see ./bad")
+    t.destroy()
+  })
+
   test("@ opens atref popover; Tab inserts; Esc dismisses without clearing", async () => {
     const gw = new MockGateway({
       "complete.path": p => {
