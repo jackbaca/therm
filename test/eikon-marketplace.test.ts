@@ -10,6 +10,11 @@ const HH = process.env.HERMES_HOME!
 if (!HH || HH.includes("/.hermes")) throw new Error("sandbox not applied")
 
 const body = "{\"eikon\":1,\"name\":\"ares\",\"author\":\"Kaio\",\"width\":48,\"height\":24}\n"
+const launch = [
+  JSON.stringify({ type: "header", asset: { version: "2.0", width: 4, height: 2 }, name: "pkg" }),
+  JSON.stringify({ type: "clip", name: "idle", fps: 12, frameCount: 1 }),
+  JSON.stringify({ type: "frame", clip: "idle", index: 0, rows: ["abcd", "efgh"] }),
+].join("\n") + "\n"
 const png = new Uint8Array([137, 80, 78, 71])
 
 type Route = { path: string; body: BodyInit | object; status?: number; headers?: HeadersInit }
@@ -278,6 +283,44 @@ describe("service/eikon-marketplace", () => {
     const man = JSON.parse(readFileSync(join(eikon.dir("ares"), "manifest.json"), "utf8"))
     expect(man.origin.source).toBe(`${fx.base}/ares/`)
     fx.srv.stop()
+  })
+
+  test("marketplace installs launch package catalog entries from explicit manifest URLs", async () => {
+    const srv = serve([
+      { path: "/eikons/index.json", body: [{
+        manifest: {
+          kind: "eikon.package",
+          schemaVersion: "1.0",
+          id: "liftaris/pkg",
+          name: "pkg",
+          compatibility: { eikon: ">=2 <3" },
+          entrypoints: { default: "streams/pkg.eikonl" },
+          source: { base: "source/base.png", states: { idle: { file: "source/idle.mp4" } } },
+        },
+        packageUrl: "packages/pkg/manifest.json",
+      }] },
+      { path: "/eikons/packages/pkg/manifest.json", body: {
+        kind: "eikon.package",
+        schemaVersion: "1.0",
+        id: "liftaris/pkg",
+        name: "pkg",
+        compatibility: { eikon: ">=2 <3" },
+        entrypoints: { default: "streams/pkg.eikonl" },
+        source: { base: "source/base.png", states: { idle: { file: "source/idle.mp4" } } },
+      } },
+      { path: "/eikons/packages/pkg/streams/pkg.eikonl", body: launch },
+      { path: "/eikons/packages/pkg/source/base.png", body: png },
+      { path: "/eikons/packages/pkg/source/idle.mp4", body: new Uint8Array(8) },
+    ])
+    const state = await market.load({ catalog: `http://localhost:${srv.port}/eikons`, allowPrivate: true })
+    const out = await state.service!.install(state.rows[0]!.entry.identityKey)
+
+    expect(out.name).toBe("pkg")
+    expect(existsSync(join(eikon.dir("pkg"), "pkg.eikonl"))).toBe(true)
+    expect(existsSync(eikon.file("pkg"))).toBe(true)
+    expect(existsSync(join(eikon.sourceDir("pkg"), "idle.mp4"))).toBe(true)
+    expect(JSON.parse(readFileSync(eikon.file("pkg"), "utf8").split("\n", 1)[0]!).eikon).toBe(1)
+    srv.stop()
   })
 
   test("failed marketplace install is retryable and does not activate or mark installed", async () => {

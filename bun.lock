@@ -7,7 +7,7 @@
       "dependencies": {
         "@opentui/core": "0.2.2",
         "@opentui/react": "0.2.2",
-        "eikon": "github:liftaris/eikon#fc00021b3adaff11effb799f1cb011c98f578f7a",
+        "eikon": "github:liftaris/eikon#79553f61ac106bb7e02e6c07ea5b2b1aec525a7d",
         "gpt-tokenizer": "^3.4.0",
         "open": "^11.0.0",
         "react": "^19.2.5",
@@ -295,7 +295,7 @@
 
     "duplexer2": ["duplexer2@0.1.4", "", { "dependencies": { "readable-stream": "^2.0.2" } }, "sha512-asLFVfWWtJ90ZyOUHMqk7/S2w2guQKxUI2itj3d92ADHhxUSbCMGi1f1cBcJ7xM1To+pE/Khbwo1yuNbMEPKeA=="],
 
-    "eikon": ["eikon@github:liftaris/eikon#fc00021", { "dependencies": { "@opentui/core": "^0.1.99", "@opentui/react": "^0.1.99", "react": "^19.2.4", "react-dom": "^19.2.4", "ssh2": "^1.16.0" }, "bin": { "eikon": "./src/cli.tsx" } }, "liftaris-eikon-fc00021", "sha512-UeSaii6nfNCfbN3OWVS1tQL+aNKfkcMywAI8liyCI39dPxVj0H07pXaycchwn3muZxUWkgpthFb45Dv7ZzG0KQ=="],
+    "eikon": ["eikon@github:liftaris/eikon#79553f6", { "dependencies": { "@opentui/core": "^0.1.99", "@opentui/react": "^0.1.99", "react": "^19.2.4", "react-dom": "^19.2.4", "ssh2": "^1.16.0" }, "bin": { "eikon": "./src/cli.tsx" } }, "liftaris-eikon-79553f6", "sha512-/rmrmBvHexHkDKPxEhKWkKr+/DxsRO+OP3TE/+r88t//eAMEVouRrHO/Hk5UOddlNOxFGGnEAT4PePu1QB5mzg=="],
 
     "emoji-regex": ["emoji-regex@10.6.0", "", {}, "sha512-toUI84YS5YmxW219erniWD0CIVOo46xGKColeNQRgOzDorgBi1v4D71/OFzgD9GO2UGKIv1C3Sp8DAn0+j5w7A=="],
 
