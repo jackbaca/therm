@@ -12,10 +12,12 @@ const HH = process.env.HERMES_HOME!
 
 function seed(name: string, opts: { published?: boolean } = {}) {
   const p = eikon.ensure(name)
-  const src = Bun.file(join(import.meta.dir, "../src/components/avatar/default.eikon")).text()
+  const src = Bun.file(join(import.meta.dir, "../assets/eikons/default/default.eikon")).text()
   return src.then(raw => {
     const lines = raw.trimEnd().split("\n")
-    const head = { ...JSON.parse(lines[0]!), name, glyph: "◆", ...(opts.published ? { source_url: "https://catalog.example/eikons/draft" } : {}) }
+    const baseHead = JSON.parse(lines[0]!)
+    delete baseHead.source_url
+    const head = { ...baseHead, name, glyph: "◆", ...(opts.published ? { source_url: "https://catalog.example/eikons/draft" } : {}) }
     writeFileSync(eikon.file(name), JSON.stringify(head) + "\n" + lines.slice(1).join("\n") + "\n")
     mkdirSync(join(p.dir, "source"), { recursive: true })
     writeFileSync(join(p.dir, "source", "base.png"), "png")

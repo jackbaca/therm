@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test"
-import { mkdtempSync, writeFileSync } from "fs"
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
-import { join } from "path"
+import { dirname, join } from "path"
 import { parseEikon, listEikons } from "../src/components/avatar/eikon"
+import { bundledEikonPath } from "../src/components/avatar/bundled"
 
 const FIXTURE = [
   JSON.stringify({ eikon: 1, name: "tiny", width: 4, height: 2, author: "t", states: ["idle", "error"] }),
@@ -79,6 +80,14 @@ describe("parseEikon", () => {
     // loop:false wins over loop_from (deprecated alias, but unambiguous intent)
     expect(parseEikon(mk({ loop: false, loop_from: 1 })).states.get("s")!.loopFrom).toBe(3)
   })
+
+  test("parses launch-format streams", () => {
+    const p = bundledEikonPath("default")
+    expect(p).toEndWith("default.eikonl")
+    const e = parseEikon(readFileSync(p!, "utf8"))
+    expect(e.meta.width).toBe(48)
+    expect(e.states.has("idle")).toBe(true)
+  })
 })
 
 describe("listEikons", () => {
@@ -91,5 +100,14 @@ describe("listEikons", () => {
     expect(found[0].meta.name).toBe("tiny")
     expect(found[0].meta.states).toEqual(["idle", "error"])
     expect(found[0].path).toContain("a.eikon")
+  })
+
+  test("bundled eikons ship as launch packages and list once", () => {
+    const p = bundledEikonPath("default")!
+    expect(p).toEndWith("default.eikonl")
+    expect(existsSync(join(dirname(p), "manifest.json"))).toBe(true)
+    const found = listEikons([join(import.meta.dir, "../assets/eikons")])
+    expect(found.filter(e => e.meta.name.toLowerCase() === "nous")).toHaveLength(1)
+    expect(found.every(e => e.path.endsWith(".eikonl"))).toBe(true)
   })
 })

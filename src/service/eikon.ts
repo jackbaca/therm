@@ -132,16 +132,31 @@ export function header(path: string): Record<string, unknown> | undefined {
   return peekHeader(path) ?? undefined
 }
 
-/** Locate the packed `.eikon` for a name — installed folder-form
- *  first, then the bundled flat dir. Studio falls back to this for
+/** Locate the packed eikon for a name — installed folder-form first,
+ *  then bundled launch packages. Studio falls back to this for
  *  baked-frame preview + header `source_url` when `source/` is empty. */
 export function baked(name: string): string | undefined {
+  const launch = join(dir(name), `${name}.eikonl`)
+  if (existsSync(launch)) return launch
   const local = file(name)
   if (existsSync(local)) return local
-  for (const f of [`${name}.eikon`, "default.eikon"]) {
-    const p = join(BUNDLED_EIKON_DIR, f)
-    const head = header(p)
-    if (head && String(head.name).toLowerCase() === name.toLowerCase()) return p
+
+  const target = name.toLowerCase()
+  for (const p of [
+    join(BUNDLED_EIKON_DIR, name, `${name}.eikonl`),
+    join(BUNDLED_EIKON_DIR, name, `${name}.eikon`),
+    join(BUNDLED_EIKON_DIR, `${name}.eikonl`),
+    join(BUNDLED_EIKON_DIR, `${name}.eikon`),
+    join(BUNDLED_EIKON_DIR, "default", "default.eikonl"),
+    join(BUNDLED_EIKON_DIR, "default", "default.eikon"),
+    join(BUNDLED_EIKON_DIR, "default.eikonl"),
+    join(BUNDLED_EIKON_DIR, "default.eikon"),
+  ]) {
+    if (!existsSync(p)) continue
+    if (basename(p, extname(p)).toLowerCase() === target) return p
+    try {
+      if (parseEikon(readFileSync(p, "utf8")).meta.name.toLowerCase() === target) return p
+    } catch {}
   }
   return undefined
 }

@@ -1,7 +1,7 @@
-// Bundled .eikon avatars shipped with herm (assets/eikons/). One file
-// per Hermes built-in skin; the active gateway skin picks its match
-// when the user hasn't set an explicit avatar. User-dropped files in
-// $HERMES_HOME/eikons are listed alongside these in the picker.
+// Bundled eikon packages shipped with herm (assets/eikons/<name>/).
+// The active gateway skin picks its matching launch stream when the
+// user hasn't set an explicit avatar. User-installed eikons are listed
+// alongside these in the picker.
 
 import { existsSync } from "fs"
 import { join, dirname } from "path"
@@ -33,6 +33,11 @@ export const BUNDLED_EIKON_DIR = locate()
 /** Path to the bundled eikon for a skin name, if one ships with herm. */
 export function bundledEikonPath(name: string | undefined): string | undefined {
   if (!name) return undefined
-  const p = join(BUNDLED_EIKON_DIR, `${name}.eikon`)
-  return existsSync(p) ? p : undefined
+  for (const p of [
+    join(BUNDLED_EIKON_DIR, name, `${name}.eikonl`),
+    join(BUNDLED_EIKON_DIR, name, `${name}.eikon`),
+    join(BUNDLED_EIKON_DIR, `${name}.eikonl`),
+    join(BUNDLED_EIKON_DIR, `${name}.eikon`),
+  ]) if (existsSync(p)) return p
+  return undefined
 }
