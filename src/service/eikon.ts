@@ -43,6 +43,17 @@ export function ensure(name: string) {
 export type Installed = {
   name: string; file: string; source: string
   hasSource: boolean; sourceUrl?: string
+  manifest?: Record<string, unknown>
+}
+
+function manifest(name: string): Record<string, unknown> | undefined {
+  const p = join(dir(name), "manifest.json")
+  if (!existsSync(p)) return undefined
+  try {
+    const raw = JSON.parse(readFileSync(p, "utf8"))
+    if (raw && typeof raw === "object") return raw as Record<string, unknown>
+  } catch {}
+  return undefined
 }
 
 /** List folder-form eikons under ~/.hermes/eikons/. Flat legacy
@@ -61,6 +72,7 @@ export function list(): Installed[] {
         name: e.name, file: join(root, e.name, `${e.name}.eikon`),
         source: src, hasSource: has,
         sourceUrl: typeof head?.source_url === "string" ? head.source_url : undefined,
+        manifest: manifest(e.name),
       }
     })
 }
@@ -294,13 +306,24 @@ export type AdaptedPackage = {
 
 export const peekSource = peek
 
+function stripManifestTrust(name: string) {
+  const p = join(dir(name), "manifest.json")
+  if (!existsSync(p)) return
+  const man = JSON.parse(readFileSync(p, "utf8")) as Record<string, unknown>
+  if (!("license" in man) && !("provenance" in man)) return
+  delete man.license
+  delete man.provenance
+  writeFileSync(p, JSON.stringify(man, null, 2) + "\n", "utf8")
+}
+
 /** Install an eikon from any resolvable source (catalog name, git
  *  URL, local dir, http manifest base) into <profile>/eikons/<name>/.
  *  Seeds studio.json from the returned sources map and bumps the
  *  revision counter so the sidebar + Gallery reload. */
-export async function fetchSource(src: string, opts?: { name?: string;
+export async function fetchSource(src: string, opts?: { name?: string; media?: boolean;
                                    progress?: (d: number, t: number) => void }): Promise<Fetched> {
   const out: Got = await install(src, ROOT(), opts)
+  stripManifestTrust(out.name)
   const prev = readStudio(out.name)
   writeStudio(out.name, { ...(prev ?? toStudio(fresh(out.name, pick()))),
                           sources: { ...prev?.sources, ...out.sources } })

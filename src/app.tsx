@@ -3,14 +3,13 @@ import { Profiler, useState, useEffect, useRef, useCallback, useMemo, useReducer
 import * as perf from "./utils/perf"
 import { hasInterp, interpolate } from "./utils/interpolate"
 import { GatewayProvider, useGateway, useGatewayRestart, type Gateway } from "./context/gateway"
-import { EikonPreviewProvider, useEikonPreview } from "./context/eikon-preview"
 import type { SessionInfo, TranscriptMessage, ImageAttachResponse } from "./context/wire"
 import type { Message, Usage } from "./types/message"
 import { text as msgText } from "./types/message"
 import { CLOUD_MIN } from "./components/chat/ThoughtCloud"
 import type { AvatarState } from "./components/avatar/states"
 import { TabBar } from "./components/tabs/TabBar"
-import { Sidebar } from "./components/sidebar/Sidebar"
+import { Sidebar, type SidebarPreview } from "./components/sidebar/Sidebar"
 import { Chat } from "./tabs/Chat"
 import { SessionsGroup } from "./tabs/SessionsGroup"
 import { Automation } from "./tabs/Automation"
@@ -68,9 +67,7 @@ export const App = (props: AppProps) => (
             <CommandProvider>
               <PluginProvider>
                 <BackgroundProvider>
-                  <EikonPreviewProvider>
-                    <AppInner launch={props.launch ?? { mode: "new" }} />
-                  </EikonPreviewProvider>
+                  <AppInner launch={props.launch ?? { mode: "new" }} />
                 </BackgroundProvider>
               </PluginProvider>
             </CommandProvider>
@@ -148,6 +145,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const [focusRegion, setFocusRegion] = useState<"input" | "content">("input")
   const goToTab = useCallback((t: number) => {
     setTab(t)
+    setSidebarPreview(undefined)
     setFocusRegion(t === CHAT_TAB ? "input" : "content")
   }, [])
   // Slash-driven deep-link: jumps to a top-level tab AND sets its
@@ -155,12 +153,14 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   // goTo overrides it (what /memory or /cron should do).
   const goTo = useCallback((t: number, sub: number) => {
     setTab(t)
+    setSidebarPreview(undefined)
     setSubTabs(prev => prev[t] === sub ? prev : { ...prev, [t]: sub })
     setFocusRegion(t === CHAT_TAB ? "input" : "content")
   }, [])
   const [status, setStatus] = useState("")
   const [escHint, setEscHint] = useState(false)
   const [eikon, setEikon] = useState<ParsedEikon | undefined>(undefined)
+  const [sidebarPreview, setSidebarPreview] = useState<SidebarPreview | undefined>(undefined)
   const [queue, setQueue] = useState<string[]>([])
   const [busy, setBusy] = useState<"queue" | "steer" | "interrupt">("queue")
   // The global useKeyboard re-renders AppInner on every key/mouse
@@ -363,7 +363,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
 
   const switchSession = useCallback(async (target: string) => {
     const prev = sidRef.current
-    reset()
     // Keep splash visible while the resume RPC lands so the user sees
     // the ornate frame instead of the empty-transcript welcome. summoned
     // suppresses the continue-prompt (we've already chosen a session);
@@ -376,6 +375,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     goToTab(CHAT_TAB)
     try {
       const res = await session.resume(target)
+      reset()
       setSid(res.id)
       if (res.info) {
         setInfo(res.info)
@@ -392,6 +392,11 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       setSplash(false)
       summoned.current = false
     } catch (err) {
+      if (prev) {
+        gw.setSession(prev)
+        setSid(prev)
+        setReady(true)
+      }
       dispatch({ kind: "system", text: `Failed to resume: ${err instanceof Error ? err.message : String(err)}` })
       setSplash(false)
       summoned.current = false
@@ -408,13 +413,15 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
 
   const activateSession = useCallback(async (target: string) => {
     const prev = sidRef.current
-    reset()
     summoned.current = true
     setSplash(true)
     setSwitching(true)
+    gw.setSession("")
+    setSid("")
     goToTab(CHAT_TAB)
     try {
       const res = await session.activate(target)
+      reset()
       setSid(res.id)
       if (res.info) {
         setInfo(res.info)
@@ -428,13 +435,18 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       summoned.current = false
       if (prev && prev !== res.id) toast.show({ variant: "info", message: "switched live session" })
     } catch (err) {
+      if (prev) {
+        gw.setSession(prev)
+        setSid(prev)
+        setReady(true)
+      }
       dispatch({ kind: "system", text: `Failed to activate: ${err instanceof Error ? err.message : String(err)}` })
       setSplash(false)
       summoned.current = false
     } finally {
       setSwitching(false)
     }
-  }, [reset, session, goToTab, toast])
+  }, [reset, session, goToTab, toast, gw])
   // Rebind every HERMES_HOME reader, respawn the gateway subprocess
   // under the new env, and re-run the boot path. prefs.reload (inside
   // rehome) retints theme/eikon/keys via usePref; home.reset repaints
@@ -477,14 +489,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     const p = (eikonName && eikonSvc.baked(eikonName)) || bundledEikonPath(skin.skin?.name)
     if (p) loadEikon(p); else setEikon(undefined)
   }, [eikonName, eikonRev, skin.skin?.name, loadEikon])
-
-  const eikonPreview = useEikonPreview()
-  useEffect(() => {
-    if (!eikonPreview.preview) return
-    const p = (eikonName && eikonSvc.baked(eikonName)) || bundledEikonPath(skin.skin?.name)
-    if (p) loadEikon(p)
-    else setEikon(undefined)
-  }, [eikonPreview.preview, eikonName, skin.skin?.name, loadEikon])
 
   // turnsFrom counts user turns at-or-after m — each session.undo pops
   // one user+assistant pair server-side. Reads turnRef (not turn) so
@@ -682,6 +686,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     setSubTabs(prev => {
       const cur = prev[tab] ?? 0
       const next = (cur + dir + labels.length) % labels.length
+      if (tab === EIKON_TAB && next !== 2) setSidebarPreview(undefined)
       return next === cur ? prev : { ...prev, [tab]: next }
     })
   }, [tab])
@@ -792,7 +797,9 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
                                              setSub={cfgSub} />
         case EIKON_TAB: return <EikonGroup focused={contentFocused}
                                            sub={subTabs[EIKON_TAB] ?? 0}
-                                           setSub={eikSub} />
+                                           setSub={eikSub}
+                                           sidebarPreview={tab === EIKON_TAB && (subTabs[EIKON_TAB] ?? 0) === 2 && sidebarVisible ? setSidebarPreview : undefined}
+                                           sidebarHidden={!sidebarVisible} />
         default: {
           const r = extra[tab - TABS.length]
           return r ? r.render() : null
@@ -811,6 +818,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   // (a card's own <input focused> would otherwise leave it blurred).
   // Keys still reach the card via onPromptKey on the global bus.
   const inputFocused = focusRegion === "input" && !prompt
+  const sidebarVisible = dims.width >= (tab === CHAT_TAB ? 120 : 140) && !hideSidebar
 
   return (
     <Profiler id="shell" onRender={perf.onRender}>
@@ -854,10 +862,11 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
               />
             </box>
           </box>
-          {dims.width >= (tab === CHAT_TAB ? 120 : 140) && !hideSidebar ? (
+          {sidebarVisible ? (
             <Profiler id="sidebar" onRender={perf.onRender}>
-              <Sidebar agentState={agentState} info={info} usage={usage} eikon={eikonPreview.preview?.eikon ?? eikon} profile={activeProfileName()}
-                       title={eikonPreview.preview ? `Preview: ${eikonPreview.preview.title}` : title}
+              <Sidebar agentState={agentState} info={info} usage={usage} eikon={eikon} profile={activeProfileName()}
+                       title={title}
+                       preview={sidebarPreview}
                        cloud={tab === 0 && cloud} pulse={turn.streaming}
                        onAvatar={onAvatar} onAvatarHold={onAvatarHold} />
             </Profiler>

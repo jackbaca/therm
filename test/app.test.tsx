@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, spyOn } from "bun:test"
 import { act } from "react"
+import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { mount as mountApp, until, MockGateway } from "./harness"
 import * as prefs from "../src/context/preferences"
 import * as exit from "../src/app/exit"
@@ -47,6 +49,21 @@ describe("app", () => {
     // file is running under Bun's concurrent test scheduler. Assert the tab
     // transition itself, not a globally-empty Sessions fixture.
     await until(t, () => t.frame().includes("Sessions ("))
+
+    t.destroy()
+  })
+
+  test("sub-tab hint omits duplicate group navigation", async () => {
+    const t = await mount()
+    await until(t, () => t.frame().includes("Ready"))
+
+    act(() => t.keys.pressArrow("right", { meta: true }))
+    await until(t, () => t.frame().includes("Sessions ("))
+
+    const f = t.frame()
+    expect(f).toContain("Alt+←/Alt+→ or Ctrl+X N")
+    expect(f).toContain("shift+←/→ sub")
+    expect(f).not.toContain("Alt+←/Alt+→ group")
 
     t.destroy()
   })
@@ -272,6 +289,73 @@ describe("app", () => {
     expect(t.gw.last("prompt.submit")?.params.text).toBe("hey")
 
     t.destroy()
+  })
+
+
+  test("marketplace preview updates sidebar without changing active preference", async () => {
+    const HH = process.env.HERMES_HOME!
+    const png = new Uint8Array([137, 80, 78, 71])
+    let previewHits = 0
+    const srv = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const path = new URL(req.url).pathname
+        if (path === "/eikons/index.json") return Response.json([
+          { name: "marketone", author: "Kaio", width: 48, height: 24, poster: "M1", source: "marketone/", preview_url: "marketone.eikon", install_url: "", description: "market one" },
+        ])
+        if (path === "/eikons/marketone/marketone.eikon") {
+          previewHits++
+          return new Response([
+            JSON.stringify({ eikon: 1, name: "marketone", author: "Kaio", width: 48, height: 24 }),
+            JSON.stringify({ state: "idle", fps: 1, frame_count: 1, loop_from: 1 }),
+            JSON.stringify({ f: 0, data: "MARKET-PREVIEW-LINE" }),
+          ].join("\n") + "\n")
+        }
+        if (path === "/eikons/marketone/manifest.json") return Response.json({ name: "marketone", source: "source.png" })
+        if (path === "/eikons/marketone/source.png") return new Response(png)
+        return new Response("404", { status: 404 })
+      },
+    })
+    const prev = process.env.EIKON_URL
+    process.env.EIKON_URL = `http://localhost:${srv.port}/eikons`
+    rmSync(join(HH, "eikons"), { recursive: true, force: true })
+    mkdirSync(join(HH, "eikons", "activeone", "source"), { recursive: true })
+    writeFileSync(join(HH, "eikons", "activeone", "activeone.eikon"), [
+      JSON.stringify({ eikon: 1, name: "activeone", author: "Local", width: 48, height: 24 }),
+      JSON.stringify({ state: "idle", fps: 1, frame_count: 1, loop_from: 1 }),
+      JSON.stringify({ f: 0, data: "ACTIVE-EIKON-LINE" }),
+    ].join("\n") + "\n")
+    prefs.set("eikon", "activeone")
+
+    const prevTestPerf = process.env.HERM_TEST_PERF
+    process.env.HERM_TEST_PERF = "1"
+    globalThis.__hermAvatarTimerStarts = 0
+    const t = await mount({ width: 180, height: 48 })
+    await until(t, () => t.frame().includes("Ready") && t.frame().includes("ACTIVE-EIKON-LINE"))
+    const startsBefore = globalThis.__hermAvatarTimerStarts ?? 0
+    act(() => { for (let i = 0; i < 4; i++) t.keys.pressArrow("right", { meta: true }) })
+    await until(t, () => t.frame().includes("Gallery ("))
+    act(() => t.keys.pressArrow("right", { shift: true }))
+    act(() => t.keys.pressArrow("right", { shift: true }))
+    await until(t, () => t.frame().includes("Marketplace (1)") && t.frame().includes("MARKET-PREVIEW-LINE"))
+
+    expect(prefs.get("eikon")).toBe("activeone")
+    expect(t.frame()).not.toContain("ACTIVE-EIKON-LINE")
+    expect(previewHits).toBe(1)
+    expect((globalThis.__hermAvatarTimerStarts ?? 0) - startsBefore).toBeLessThanOrEqual(1)
+
+    act(() => t.keys.pressEscape())
+    await until(t, () => t.frame().includes("Marketplace (") && t.frame().includes("ACTIVE-EIKON-LINE"))
+    expect(prefs.get("eikon")).toBe("activeone")
+
+    delete globalThis.__hermAvatarTimerStarts
+    if (prevTestPerf === undefined) delete process.env.HERM_TEST_PERF
+    else process.env.HERM_TEST_PERF = prevTestPerf
+    t.destroy()
+    srv.stop()
+    process.env.EIKON_URL = prev
+    prefs.set("eikon", undefined)
+    rmSync(join(HH, "eikons"), { recursive: true, force: true })
   })
 
   test("sidebar hides below 120 cols", async () => {

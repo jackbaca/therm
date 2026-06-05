@@ -223,6 +223,52 @@ describe("hermes-kanban readers", () => {
 })
 
 describe("Kanban tab", () => {
+  test("column wheel scroll does not move outer board scroll", async () => {
+    const db = new Database(hermesPath("kanban.db"), { create: true })
+    const ins = db.prepare(
+      "INSERT INTO tasks (id, title, status, priority, created_at) VALUES (?, ?, 'ready', 1, ?)",
+    )
+    for (let i = 0; i < 30; i++)
+      ins.run(`long${i}`, `long ready ${i.toString().padStart(2, "0")}`, now - i)
+    db.close()
+    resetKanban()
+
+    const t = await mountNode(<Kanban focused />, { width: 180, height: 24 })
+    try {
+      await until(t, () => t.frame().includes("long ready 00"))
+      type Node = {
+        id?: string; x: number; y: number; scrollTop: number; scrollHeight: number
+        viewport: { height: number }; getChildren?: () => unknown[]
+      }
+      const root = (t.renderer as unknown as { root: unknown }).root
+      const find = (node: unknown, id: string): Partial<Node> | null => {
+        const n = node as Partial<Node>
+        if (n.id === id) return n
+        for (const c of n.getChildren?.() ?? []) {
+          const r = find(c, id)
+          if (r) return r
+        }
+        return null
+      }
+      const outer = find(root, "kb-board-scroll") as Node | null
+      const col = find(root, "kb-col-default-ready") as Node | null
+      if (!outer || !col) throw new Error("scrollbox probe missing")
+      expect(col.scrollHeight).toBeGreaterThan(col.viewport.height)
+      expect(outer.scrollHeight).toBeGreaterThan(outer.viewport.height)
+      const top = outer.scrollTop
+      await act(async () => { await t.mouse.scroll(col.x + 1, col.y + 1, "down") })
+      await t.settle()
+      expect(col.scrollTop).toBeGreaterThan(0)
+      expect(outer.scrollTop).toBe(top)
+    } finally {
+      t.destroy()
+      const db = new Database(hermesPath("kanban.db"))
+      db.run("DELETE FROM tasks WHERE id LIKE 'long%'")
+      db.close()
+      resetKanban()
+    }
+  })
+
   test("stacks boards, empty last, chips + one-line rows", async () => {
     const t = await mountNode(<Kanban focused />, { width: 180, height: 44 })
     await until(t, () => t.frame().includes("Kanban · 3 boards · 7 tasks"))

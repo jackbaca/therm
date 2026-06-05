@@ -475,7 +475,8 @@ export const Sessions = memo((props: Props) => {
   const active = useMemo(() => [...liveRows].sort((a, b) =>
     Number(Boolean(b.live?.current)) - Number(Boolean(a.live?.current)) ||
     ((b.live?.last_active ?? b.started_at) - (a.live?.last_active ?? a.started_at))), [liveRows])
-  const ids = useMemo(() => new Set(active.map(r => r.id)), [active])
+  const ids = useMemo(() => new Set(active.flatMap(r =>
+    [r.id, r.live?.session_key].filter((x): x is string => Boolean(x)))), [active])
   const sorted = useMemo(() => rows.filter(r => !ids.has(r.id)).sort(cmp(sort)), [rows, ids, sort])
   const listed = useMemo(() => [...active, ...sorted], [active, sorted])
   // Selection is tracked by row identity so that collapsing children
@@ -557,6 +558,9 @@ export const Sessions = memo((props: Props) => {
     live: s,
   })
 
+  const pick = <T,>(m: Map<string, T>, s: SessionActiveItem) =>
+    m.get(s.id) ?? m.get(s.session_key ?? "")
+
   // Two-stage paint. io.list is off-thread, so the mount frame commits
   // (spinner / cached rows) before it resolves; the RPC is slower still.
   // Kids (subagents per parent) fill in after the list — the tree
@@ -589,7 +593,7 @@ export const Sessions = memo((props: Props) => {
     const a = await active
     const live = a.ok ? (a.v.sessions ?? []) : []
     if (a.ok) {
-      setLiveRows(live.map(s => toLiveRow(s, local.get(s.id))))
+      setLiveRows(live.map(s => toLiveRow(s, pick(local, s))))
     }
 
     // Stock session.list doesn't drop 0-msg stubs — every abandoned
@@ -610,7 +614,7 @@ export const Sessions = memo((props: Props) => {
       setRows(merged)
       if (cached) last.rows = merged
       const found = new Map(merged.map(s => [s.id, s]))
-      if (live.length) setLiveRows(live.map(s => toLiveRow(s, local.get(s.id), found.get(s.id))))
+      if (live.length) setLiveRows(live.map(s => toLiveRow(s, pick(local, s), pick(found, s))))
       void fillKids(merged)
     }
     setPending(false)

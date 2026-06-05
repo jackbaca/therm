@@ -1,185 +1,260 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
+import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
 import { useKeyboard } from "@opentui/react"
-import type { ParsedEikon } from "../components/avatar/eikon"
-import { AnimatedAvatar } from "../components/avatar/AnimatedAvatar"
-import { useEikonPreview } from "../context/eikon-preview"
-import { useKeys, handleListKey, useFollow } from "../keys"
-import { eikon, type CatalogPackage, type PackageState } from "../service/eikon"
 import { useTheme } from "../theme"
-import { HintBar } from "../ui/hint"
-import { Spinner } from "../ui/spinner"
+import { useToast } from "../ui/toast"
 import { TabShell } from "../ui/shell"
+import { HintBar } from "../ui/hint"
 import { VBAR } from "../ui/table"
-import { trunc } from "../ui/fmt"
+import { useKeys, handleListKey, useFollow } from "../keys"
+import * as perf from "../utils/perf"
+import { parseEikon } from "../components/avatar/eikon"
+import { eikon } from "../service/eikon"
+import * as market from "../service/eikon-marketplace"
+import type { MarketplaceRow, MarketplaceState } from "../service/eikon-marketplace"
+import * as prefs from "../context/preferences"
+import type { SidebarPreview } from "../components/sidebar/Sidebar"
+import type { AvatarState } from "../components/avatar/states"
 
-const stateLabel: Record<PackageState, string> = {
-  available: "available",
-  invalid: "invalid",
-  installed: "installed",
-  active: "active",
-  "update-available": "update",
-  incompatible: "incompatible",
-}
+type Pane = "grid" | "detail"
 
-type Phase = "loading" | "ready" | "error"
-type Preview = { id: string; parsed?: ParsedEikon; loading: boolean; error?: string }
-type Busy = { id: string; op: "install" | "use" } | undefined
+const NO_MARKET: MarketplaceState = { status: "empty", query: "", rows: [] }
 
-const msg = (err: unknown) => err instanceof Error ? err.message : String(err)
-const title = (p: CatalogPackage) => p.title ?? p.name
-const badge = (p: CatalogPackage) => stateLabel[p.state]
-
-export const EikonMarketplace = memo((props: { focused: boolean }) => {
+export const EikonMarketplace = memo((props: {
+  focused: boolean
+  sidebarPreview?: (preview?: SidebarPreview) => void
+  sidebarHidden?: boolean
+}) => {
   const theme = useTheme().theme
+  const toast = useToast()
   const keys = useKeys()
-  const follow = useFollow("market")
-  const sidebar = useEikonPreview()
   const rev = useSyncExternalStore(eikon.onRevision, eikon.revision)
-  const seq = useRef(0)
-  const [phase, setPhase] = useState<Phase>("loading")
-  const [err, setErr] = useState("")
-  const [rows, setRows] = useState<CatalogPackage[]>([])
+  const active = prefs.usePref("eikon")
+  const [pane, setPane] = useState<Pane>("grid")
   const [sel, setSel] = useState(0)
-  const [preview, setPreview] = useState<Preview | undefined>(undefined)
-  const [busy, setBusy] = useState<Busy>(undefined)
+  const [searching, setSearching] = useState(false)
+  const [query, setQuery] = useState("")
+  const [state, setState] = useState<MarketplaceState>(NO_MARKET)
+  const [loading, setLoading] = useState(false)
+  const [installing, setInstalling] = useState(false)
+  const [previewState, setPreviewState] = useState<AvatarState>("idle")
+  const [detailPreview, setDetailPreview] = useState<SidebarPreview | undefined>(undefined)
+  const previewSeq = useRef(0)
+  const follow = useFollow("market", i => state.rows[i]?.entry.identityKey ?? i)
 
-  const load = useCallback(() => {
-    const id = ++seq.current
-    setPhase("loading")
-    setErr("")
-    eikon.loadCatalog()
-      .then(out => {
-        if (seq.current !== id) return
-        setRows(out)
-        setPhase("ready")
-      })
-      .catch(e => {
-        if (seq.current !== id) return
-        setRows([])
-        setErr(msg(e))
-        setPhase("error")
-      })
-  }, [])
+  useEffect(() => { if (sel >= state.rows.length) setSel(Math.max(0, state.rows.length - 1)) }, [state.rows.length, sel])
 
-  useEffect(load, [load, rev])
-  useEffect(() => { if (sel >= rows.length) setSel(Math.max(0, rows.length - 1)) }, [rows.length, sel])
+  const selected = state.rows[sel]
 
-  const cur = rows[sel]
   useEffect(() => {
-    if (!cur) {
-      sidebar.clearPreview()
-      setPreview(undefined)
+    if (!selected || !state.service) {
+      setDetailPreview(undefined)
+      props.sidebarPreview?.(undefined)
       return
     }
-    const id = cur.id || cur.packageUrl
-    let live = true
-    setPreview({ id, loading: true })
-    sidebar.clearPreview()
-    eikon.previewPackage(cur)
+    const id = ++previewSeq.current
+    const key = selected.entry.identityKey
+    perf.count("market:preview:load")
+    state.service.preview(key)
+      .then(text => {
+        if (previewSeq.current !== id) return
+        const e = parseEikon(text)
+        const st = e.states.has(previewState) ? previewState : "idle"
+        const preview = { key: `${key}:${st}`, eikon: e, state: st }
+        if (props.sidebarPreview) props.sidebarPreview(preview)
+        setDetailPreview(preview)
+        perf.count("market:preview:ready")
+      })
+      .catch(() => {
+        if (previewSeq.current !== id) return
+        setDetailPreview(undefined)
+        props.sidebarPreview?.(undefined)
+        perf.count("market:preview:error")
+      })
+  }, [selected?.entry.identityKey, state.service, previewState, props.sidebarPreview, props.sidebarHidden])
+
+  useEffect(() => () => {
+    previewSeq.current++
+    setDetailPreview(undefined)
+    props.sidebarPreview?.(undefined)
+  }, [props.sidebarPreview])
+
+  const loadMarket = useCallback((q = query) => {
+    setLoading(true)
+    const end = perf.mark("market:list:load")
+    void market.load({ catalog: process.env.EIKON_URL, allowPrivate: true, query: q })
+      .then(next => {
+        perf.count("market:list:rows", next.rows.length)
+        setState(next)
+        setSel(p => Math.max(0, Math.min(next.rows.length - 1, p)))
+      })
+      .finally(() => { end(); setLoading(false) })
+  }, [query])
+
+  useEffect(() => { loadMarket(query) }, [query, rev, loadMarket])
+
+  const clearPreview = useCallback(() => {
+    previewSeq.current++
+    props.sidebarPreview?.(undefined)
+    setDetailPreview(undefined)
+  }, [props.sidebarPreview])
+
+  const primary = useCallback((idx?: number) => {
+    const row = state.rows[idx ?? sel]
+    const svc = state.service
+    if (!row || !svc || installing) return
+    if (row.action === "active") return
+    if (row.action === "use") {
+      const name = row.installedManifest?.name ?? row.entry.name
+      prefs.set("eikon", name)
+      toast.show({ variant: "success", message: `Avatar → ${name}` })
+      loadMarket(query)
+      return
+    }
+    setInstalling(true)
+    void svc.install(row.entry.identityKey)
       .then(out => {
-        if (!live) return
-        setPreview({ id, parsed: out.eikon, loading: false })
-        sidebar.setPreview({ id, title: title(cur), source: cur.packageUrl, eikon: out.eikon })
+        toast.show({ variant: "success", message: `Installed '${out.name}' (${out.n} files)` })
+        loadMarket(query)
       })
-      .catch(e => {
-        if (!live) return
-        setPreview({ id, loading: false, error: msg(e) })
-        sidebar.clearPreview(id)
+      .catch(err => {
+        const e = err instanceof Error ? err : new Error(String(err))
+        toast.show({ variant: "error", title: "Install failed", message: e.message, duration: 6000 })
+        loadMarket(query)
       })
-    return () => {
-      live = false
-      sidebar.clearPreview(id)
-    }
-  }, [cur?.id, cur?.packageUrl])
-
-  const install = useCallback(async () => {
-    if (!cur || cur.state === "active" || cur.state === "incompatible") return
-    setBusy({ id: cur.id, op: "install" })
-    try { await eikon.installPackage(cur) }
-    catch (e) { setErr(`install: ${msg(e)}`); setPhase("error") }
-    finally { setBusy(undefined); load() }
-  }, [cur, load])
-
-  const use = useCallback(async () => {
-    if (!cur || cur.state === "incompatible") return
-    setBusy({ id: cur.id, op: "use" })
-    try {
-      if (cur.state === "available" || cur.state === "update-available") await eikon.installPackage(cur)
-      eikon.useInstalled(cur.name)
-    } catch (e) {
-      setErr(`use: ${msg(e)}`)
-      setPhase("error")
-    } finally {
-      setBusy(undefined)
-      load()
-    }
-  }, [cur, load])
+      .finally(() => setInstalling(false))
+  }, [state.rows, state.service, sel, installing, toast, loadMarket, query])
 
   useKeyboard(key => {
     if (!props.focused) return
-    if (handleListKey(keys, key, { count: rows.length, setSel, ...follow.opts, onRefresh: load, onActivate: use })) return
-    if (key.name === "i") void install()
-    if (key.name === "u") void use()
-    if (key.name === "escape") sidebar.clearPreview()
+    if (searching) {
+      if (key.name === "escape") { setSearching(false); return }
+      if (key.name === "backspace") { setQuery(q => q.slice(0, -1)); setSel(0); return }
+      if (key.raw && key.raw.length === 1 && key.raw >= " ") { setQuery(q => q + key.raw); setSel(0); return }
+      return
+    }
+    if (key.name === "escape") return clearPreview()
+    if (key.shift && key.name === "tab") { setPane(p => p === "detail" ? "grid" : "detail"); return }
+    if (key.name === "tab") { setPane(p => p === "grid" ? "detail" : "grid"); return }
+    if (handleListKey(keys, key, {
+      count: state.rows.length, setSel, ...follow.opts,
+      onActivate: primary,
+      onToggle: () => setPreviewState(s => s === "idle" ? "thinking" : "idle"),
+      onSearch: () => setSearching(true),
+      onRefresh: () => loadMarket(query),
+    })) return
   })
 
-  const detail = useMemo(() => cur ? [
-    ["Name", cur.name],
-    ["Author", cur.author ?? "—"],
-    ["State", badge(cur)],
-    ["Compat", cur.compatibility.available === false ? cur.compatibility.reason ?? "incompatible" : cur.compatibility.eikon],
-    ["Package", cur.packageUrl],
-  ] as const : [], [cur])
-
-  const busyCur = busy && cur && busy.id === cur.id ? busy.op : undefined
+  perf.count("market:render")
   return (
     <box flexDirection="column" flexGrow={1} minWidth={0}>
-      <box flexDirection="row" flexGrow={1} minHeight={0}>
-        <TabShell title={`Marketplace (${rows.length})`} focus={props.focused} grow={2}>
-          {phase === "loading" ? <Spinner label="Loading public Eikons…" />
-          : phase === "error" ? <box padding={1}><text fg={theme.error} wrapMode="word">{err || "Marketplace load failed"}</text></box>
-          : <scrollbox ref={follow.ref} scrollY flexGrow={1} verticalScrollbarOptions={VBAR}>
-              {rows.length === 0 ? <box padding={1}><text fg={theme.textMuted}>No marketplace Eikons.</text></box> : rows.map((r, i) => {
-                const on = i === sel
-                const active = r.state === "active"
-                const unavailable = r.state === "invalid" || r.state === "incompatible"
-                return (
-                  <box key={r.id || r.packageUrl} id={follow.id(i)} flexDirection="column" minHeight={3}
-                       backgroundColor={on ? theme.backgroundElement : undefined}
-                       onMouseMove={() => setSel(i)} onMouseDown={() => { setSel(i); void use() }}>
-                    <box flexDirection="row" height={1}>
-                      <box width={2}><text fg={on ? theme.primary : theme.textMuted}>{on ? "▸ " : "  "}</text></box>
-                      <box flexGrow={1} minWidth={0} height={1} overflow="hidden"><text fg={active ? theme.accent : unavailable ? theme.warning : theme.text} wrapMode="none"><strong>{title(r)}</strong></text></box>
-                      <box width={14} height={1} overflow="hidden"><text fg={active ? theme.accent : unavailable ? theme.warning : theme.textMuted}>{badge(r)}</text></box>
-                    </box>
-                    <box height={1}><text fg={theme.textMuted} wrapMode="none">{`  ${trunc(r.author ?? "unknown", 18)} · ${trunc(r.description ?? r.packageUrl, 64)}`}</text></box>
-                    <box height={1}><text fg={theme.textMuted} wrapMode="none">{`  ${r.tags?.slice(0, 4).join(" ") ?? ""}`}</text></box>
-                  </box>
-                )
-              })}
-            </scrollbox>}
+      <box flexDirection="row" flexGrow={1}>
+        <TabShell title={`Marketplace (${state.rows.length})${searching ? ` Search: ${query}` : ""}`} focus={props.focused && pane === "grid"} grow={3}>
+          <MarketplaceGrid rows={state.rows} sel={sel} active={active} follow={follow}
+            loading={loading} error={state.error} onSel={setSel} onUse={primary} />
         </TabShell>
-        <TabShell title={cur ? `Remote preview — ${title(cur)}` : "Remote preview"} grow={3}>
-          <box flexDirection="column" flexGrow={1} padding={1} minWidth={0}>
-            {cur ? <>
-              <box height={1}><text fg={theme.text}>{title(cur)} <span fg={theme.textMuted}>{`(${cur.name})`}</span></text></box>
-              <box height={1}><text fg={theme.textMuted}>Sidebar preview is temporary; Install does not activate; Use activates.</text></box>
-              <box height={1} />
-              <box flexGrow={1} alignItems="center" justifyContent="center">
-                {preview?.loading ? <Spinner label="Loading preview…" />
-                : preview?.error ? <text fg={theme.error} wrapMode="word">{preview.error}</text>
-                : preview?.parsed ? <AnimatedAvatar key={preview.id} state="idle" eikon={preview.parsed} />
-                : <text fg={theme.textMuted}>No preview.</text>}
-              </box>
-              <box flexDirection="column" flexShrink={0}>
-                {detail.map(([k, v]) => <box key={k} height={1}><text><span fg={theme.textMuted}>{`${k.padEnd(8)} `}</span><span fg={theme.text}>{trunc(v, 72)}</span></text></box>)}
-                <box height={1}><text fg={theme.textMuted}>{busyCur ? `${busyCur}…` : cur.state === "active" ? "Active" : cur.state === "installed" ? "Installed — press Use to activate" : "Press Install to save, Use to install+activate"}</text></box>
-              </box>
-            </> : <text fg={theme.textMuted}>Select a marketplace Eikon.</text>}
-          </box>
+        <TabShell title={selected ? `Details — ${selected.entry.name}` : "Details"} focus={props.focused && pane === "detail"} grow={2}>
+          <MarketplaceDetail row={selected} loading={loading} installing={installing} onUse={() => primary()}
+            onState={setPreviewState} preview={!props.sidebarPreview ? detailPreview : undefined} />
         </TabShell>
       </box>
-      <HintBar pairs={[["↑↓", "select"], [keys.print("list.activate"), "use"], ["i", "install only"], ["u", "use"], [keys.print("list.refresh"), "reload"], ["Esc", "restore sidebar"]]} />
+      <HintBar pairs={[
+        ["↑↓/Pg/Home/End", "select"], [keys.print("list.activate"), actionLabel(selected)],
+        [keys.print("list.search"), searching ? "typing search" : "search"], [keys.print("list.refresh"), "reload"],
+        ["Space", "preview state"], [keys.print("focus.cycle"), "pane"], ["Esc", searching ? "exit search" : "restore sidebar"],
+      ]} />
     </box>
   )
 })
+
+const MarketplaceGrid = (props: {
+  rows: MarketplaceRow[]; sel: number; active?: string; follow: ReturnType<typeof useFollow>
+  loading: boolean; error?: string; onSel: (i: number) => void; onUse: (i: number) => void
+}) => {
+  const theme = useTheme().theme
+  if (props.error) return <box key="error" padding={1}><text fg={theme.error} wrapMode="word">Marketplace unavailable: {props.error}</text></box>
+  if (props.loading && props.rows.length === 0) return <box key="loading" padding={1}><text fg={theme.textMuted}>Loading shared eikons…</text></box>
+  if (props.rows.length === 0) return <box key="empty" padding={1}><text fg={theme.textMuted}>No shared eikons match. Press / to change search.</text></box>
+  return (
+    <scrollbox key="rows" ref={props.follow.ref} scrollY flexGrow={1} verticalScrollbarOptions={VBAR}>
+      {props.rows.map((r, i) => {
+        const on = i === props.sel
+        return (
+          <box key={r.entry.identityKey} id={props.follow.id(i)} flexDirection="column" minHeight={4}
+               backgroundColor={on ? theme.backgroundElement : undefined}
+               onMouseMove={() => props.onSel(i)} onMouseDown={() => { props.onSel(i); props.onUse(i) }}>
+            <box height={1} flexDirection="row">
+              <box width={2}><text fg={on ? theme.primary : theme.textMuted}>{on ? "▸ " : "  "}</text></box>
+              <box flexGrow={1} minWidth={0} height={1} overflow="hidden"><text fg={r.active ? theme.accent : theme.text} wrapMode="none">{r.active ? "● " : "  "}<strong>{r.entry.name}</strong>  <span fg={theme.textMuted}>{r.entry.author ?? "—"}</span></text></box>
+              <box width={10}><text fg={actionColor(r, theme)}>{actionLabel(r)}</text></box>
+            </box>
+            <box height={1} paddingLeft={2} overflow="hidden"><text fg={theme.textMuted} wrapMode="none">{r.entry.poster || "(no poster)"}</text></box>
+            <box height={1} paddingLeft={2} overflow="hidden"><text fg={theme.textMuted} wrapMode="none">{r.entry.description ?? "No description."}</text></box>
+            <box height={1} paddingLeft={2} overflow="hidden"><text fg={theme.textMuted} wrapMode="none">{trust(r)} · {r.installed ? r.active ? "active" : "installed" : "not installed"}</text></box>
+          </box>
+        )
+      })}
+    </scrollbox>
+  )
+}
+
+const MarketplaceDetail = (props: {
+  row?: MarketplaceRow
+  loading: boolean
+  installing: boolean
+  onUse: () => void
+  onState: (state: AvatarState) => void
+  preview?: SidebarPreview
+}) => {
+  const theme = useTheme().theme
+  const r = props.row
+  if (!r) return <box padding={1}><text fg={theme.textMuted}>{props.loading ? "Loading shared eikons…" : "No marketplace entry selected."}</text></box>
+  const previewState = props.preview?.state ?? "idle"
+  const next = previewState === "idle" ? "thinking" : "idle"
+  return (
+    <box flexDirection="column" padding={1} gap={1}>
+      {props.preview ? (
+        <box alignItems="center" justifyContent="center" height={8} overflow="hidden">
+          <box flexDirection="column">
+            {props.preview.eikon.states.get(props.preview.state)?.frames[0]?.map((line, i) => (
+              <text key={i}>{line}</text>
+            ))}
+          </box>
+        </box>
+      ) : null}
+      <text fg={r.active ? theme.accent : theme.text}><strong>{r.active ? "● " : ""}{r.entry.name}</strong></text>
+      <text fg={theme.textMuted}>by {r.entry.author ?? "unknown"}</text>
+      <text fg={theme.text} wrapMode="word">{r.entry.description ?? "No description."}</text>
+      <text fg={theme.textMuted}>review: {r.entry.trust.reviewStatus ?? "unreviewed"}</text>
+      <text fg={theme.textMuted}>license: {r.entry.trust.license ?? "unknown"}</text>
+      <text fg={theme.textMuted}>provenance: {r.entry.trust.provenance ?? r.entry.provenanceUrl ?? "unknown"}</text>
+      <text fg={theme.textMuted}>state: {r.installed ? r.active ? "active" : "installed" : "not installed"}</text>
+      <box height={1} onMouseDown={() => props.onState(next)}>
+        <text fg={theme.primary}>Preview: {previewState}  [Space] {next}</text>
+      </box>
+      <box height={1} onMouseDown={props.onUse}>
+        <text fg={r.action === "active" ? theme.textMuted : theme.primary}>{props.installing ? "Installing…" : actionLabel(r)}</text>
+      </box>
+    </box>
+  )
+}
+
+const actionLabel = (row?: MarketplaceRow) => {
+  if (!row) return "action"
+  if (row.action === "install") return "Install"
+  if (row.action === "use") return "Use"
+  if (row.action === "retry") return "Retry"
+  return "Active"
+}
+
+const trust = (row: MarketplaceRow) => {
+  const r = row.entry.trust.reviewStatus ?? "unreviewed"
+  const l = row.entry.trust.license ?? "unknown license"
+  const p = row.entry.trust.provenance ?? "unknown provenance"
+  return `${r} · ${l} · ${p}`
+}
+
+const actionColor = (row: MarketplaceRow, theme: ReturnType<typeof useTheme>["theme"]) => {
+  if (row.action === "active") return theme.textMuted
+  if (row.action === "use") return theme.success
+  return theme.primary
+}

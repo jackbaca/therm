@@ -110,6 +110,7 @@ describe("service/eikon: fetchSource", () => {
   const body = (name: string) => {
     if (name === "manifest.json") return Response.json({
       name: "remix", source: "source.png",
+      license: "MIT", provenance: "made by Kaio",
       states: { idle: { file: "states/idle.mp4" }, error: { file: "states/error.mp4" } },
     })
     if (name === "source.png") return new Response(png)
@@ -129,10 +130,27 @@ describe("service/eikon: fetchSource", () => {
     expect(existsSync(join(eikon.sourceDir("remix"), "idle.mp4"))).toBe(true)
     // studio.json + manifest.json (with origin) both written.
     expect(eikon.readStudio("remix")!.sources.error).toBe("error.mp4")
+    writeFileSync(eikon.file("remix"), '{"eikon":1,"name":"remix"}\n')
     const man = JSON.parse(readFileSync(join(eikon.dir("remix"), "manifest.json"), "utf8"))
     expect(man.origin.source).toBe(url)
+    expect(eikon.list().find(x => x.name === "remix")!.manifest!.origin).toEqual(man.origin)
+    expect(man.license).toBeUndefined()
+    expect(man.provenance).toBeUndefined()
     // peekSource memoized — second call same Promise.
     expect(eikon.peekSource(url)).toBe(eikon.peekSource(url))
+    srv.stop()
+  })
+
+  test("fetchSource can install without source media", async () => {
+    const srv = Bun.serve({ port: 0, fetch: r => body(new URL(r.url).pathname.split("/").pop()!) })
+    const url = `http://localhost:${srv.port}/nosource/`
+    const out = await eikon.fetchSource(url, { name: "nosource", media: false })
+    expect(out.name).toBe("nosource")
+    expect(out.n).toBe(3)
+    expect(out.bytes).toBe(0)
+    expect(out.sources).toEqual({})
+    expect(eikon.readStudio("nosource")!.sources).toEqual({})
+    expect(existsSync(join(eikon.sourceDir("nosource"), "idle.mp4"))).toBe(false)
     srv.stop()
   })
 
