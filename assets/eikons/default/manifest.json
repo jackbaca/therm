@@ -8,54 +8,21 @@
     "author": "kaio"
   },
   "compatibility": {
-    "eikon": ">=2 <3"
+    "eikon": ">=1 <2"
   },
   "entrypoints": {
-    "default": "default.eikonl"
+    "default": "default.eikon"
   },
   "files": [
     {
-      "path": "default.eikonl",
+      "path": "default.eikon",
       "mediaType": "application/vnd.eikon.stream+jsonl",
-      "role": "stream"
+      "role": "runtime"
     }
   ],
-  "signals": {
-    "state.idle": {
-      "clip": "idle",
-      "fallback": "state.idle"
-    },
-    "state.listening": {
-      "clip": "listening",
-      "fallback": "state.idle"
-    },
-    "state.thinking": {
-      "clip": "thinking",
-      "fallback": "state.idle"
-    },
-    "state.speaking": {
-      "clip": "speaking",
-      "fallback": "state.idle"
-    },
-    "state.working": {
-      "clip": "working",
-      "fallback": "state.idle"
-    },
-    "state.error": {
-      "clip": "error",
-      "fallback": "state.idle"
-    }
-  },
   "extensions": {
     "used": [
       "eikon.signals.v1"
-    ]
-  },
-  "legacy": {
-    "sourceFormat": ".eikon",
-    "migration": "converted",
-    "notes": [
-      "moved legacy metadata: author, created, source_url"
     ]
   }
 }

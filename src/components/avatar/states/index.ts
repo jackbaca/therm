@@ -1,4 +1,4 @@
-import defaultEikonText from "../default.eikonl" with { type: "text" };
+import defaultEikonText from "../default.eikon" with { type: "text" };
 import { parseEikon, type EikonState } from "../eikon";
 
 export type AvatarState =

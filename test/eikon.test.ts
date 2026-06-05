@@ -127,9 +127,9 @@ describe("listEikons", () => {
     expect(found[0].path).toContain("a.eikon")
   })
 
-  test("prefers launch package entrypoint over sibling compatibility file", () => {
+  test("prefers package manifest entrypoint over sibling non-entrypoint streams", () => {
     const dir = mkdtempSync(join(tmpdir(), "eikon-"))
-    writeFileSync(join(dir, "legacy.eikon"), FIXTURE)
+    writeFileSync(join(dir, "standalone.eikon"), FIXTURE)
     const pkg = join(dir, "pkg")
     mkdirSync(pkg)
     writeFileSync(join(pkg, "manifest.json"), JSON.stringify({
@@ -138,29 +138,31 @@ describe("listEikons", () => {
       id: "test/pkg",
       name: "pkg",
       compatibility: { eikon: ">=1 <2" },
-      entrypoints: { default: "pkg.eikonl" },
+      entrypoints: { default: "streams/pkg.eikon" },
+      files: [{ path: "streams/pkg.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl" }],
     }))
-    writeFileSync(join(pkg, "pkg.eikonl"), LAUNCH_FIXTURE)
+    mkdirSync(join(pkg, "streams"))
+    writeFileSync(join(pkg, "streams", "pkg.eikon"), LAUNCH_FIXTURE)
     writeFileSync(join(pkg, "pkg.eikon"), FIXTURE)
-    writeFileSync(join(pkg, "extra.eikonl"), LAUNCH_FIXTURE)
+    writeFileSync(join(pkg, "extra.eikon"), LAUNCH_FIXTURE)
 
     const found = listEikons([dir])
     const paths = found.map(e => e.path)
-    expect(paths.some(p => p.endsWith("legacy.eikon"))).toBe(true)
-    expect(paths.some(p => p.endsWith("pkg.eikonl"))).toBe(true)
-    expect(paths.some(p => p.endsWith("pkg.eikon"))).toBe(false)
-    expect(paths.some(p => p.endsWith("extra.eikonl"))).toBe(false)
+    expect(paths.some(p => p.endsWith("standalone.eikon"))).toBe(true)
+    expect(paths.some(p => p.endsWith("streams/pkg.eikon"))).toBe(true)
+    expect(paths.some(p => p.endsWith("pkg/pkg.eikon"))).toBe(false)
+    expect(paths.some(p => p.endsWith("extra.eikon"))).toBe(false)
   })
 
-  test("bundled eikons ship as launch packages and list once", () => {
+  test("bundled eikons ship as package runtime streams and list once", () => {
     const p = bundledEikonPath("default")!
-    expect(p).toEndWith("default.eikonl")
+    expect(p).toEndWith("default.eikon")
     expect(existsSync(join(dirname(p), "manifest.json"))).toBe(true)
     const e = parseEikon(readFileSync(p, "utf8"))
     expect(e.meta.width).toBe(48)
     expect(e.states.has("idle")).toBe(true)
     const found = listEikons([join(import.meta.dir, "../assets/eikons")])
     expect(found.filter(e => e.meta.name.toLowerCase() === "nous")).toHaveLength(1)
-    expect(found.every(e => e.path.endsWith(".eikonl"))).toBe(true)
+    expect(found.every(e => e.path.endsWith(".eikon"))).toBe(true)
   })
 })

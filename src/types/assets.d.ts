@@ -4,8 +4,3 @@ declare module "*.eikon" {
   const text: string;
   export default text;
 }
-
-declare module "*.eikonl" {
-  const text: string;
-  export default text;
-}

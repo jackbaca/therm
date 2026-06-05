@@ -3,7 +3,7 @@
 // user hasn't set an explicit avatar. User-installed eikons are listed
 // alongside these in the picker.
 
-import { existsSync } from "fs"
+import { existsSync, readFileSync } from "fs"
 import { join, dirname } from "path"
 
 // In dev, import.meta.dir is src/components/avatar/ and assets/ sits
@@ -30,13 +30,30 @@ const locate = () => {
 /** Shipped avatar directory — resolved for both dev and built layouts. */
 export const BUNDLED_EIKON_DIR = locate()
 
+const packageEntrypoint = (dir: string): string | undefined => {
+  const manifest = join(dir, "manifest.json")
+  if (!existsSync(manifest)) return undefined
+  try {
+    const raw = JSON.parse(readFileSync(manifest, "utf8")) as Record<string, unknown>
+    const entrypoints = raw.entrypoints
+    const value = entrypoints && typeof entrypoints === "object" && !Array.isArray(entrypoints)
+      ? (entrypoints as Record<string, unknown>).default
+      : undefined
+    const path = typeof value === "string" ? join(dir, value) : undefined
+    return path && existsSync(path) ? path : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** Path to the bundled eikon for a skin name, if one ships with herm. */
 export function bundledEikonPath(name: string | undefined): string | undefined {
   if (!name) return undefined
+  const packageDir = join(BUNDLED_EIKON_DIR, name)
+  const entry = packageEntrypoint(packageDir)
+  if (entry) return entry
   for (const p of [
-    join(BUNDLED_EIKON_DIR, name, `${name}.eikonl`),
-    join(BUNDLED_EIKON_DIR, name, `${name}.eikon`),
-    join(BUNDLED_EIKON_DIR, `${name}.eikonl`),
+    join(packageDir, `${name}.eikon`),
     join(BUNDLED_EIKON_DIR, `${name}.eikon`),
   ]) if (existsSync(p)) return p
   return undefined

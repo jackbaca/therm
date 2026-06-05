@@ -16,8 +16,7 @@ function seed(name: string, opts: { published?: boolean } = {}) {
   return src.then(raw => {
     const lines = raw.trimEnd().split("\n")
     const baseHead = JSON.parse(lines[0]!)
-    delete baseHead.source_url
-    const head = { ...baseHead, name, glyph: "◆", ...(opts.published ? { source_url: "https://catalog.example/eikons/draft" } : {}) }
+    const head = { ...baseHead, id: `liftaris/${name}`, title: name, author: { name: "kaio" } }
     writeFileSync(eikon.file(name), JSON.stringify(head) + "\n" + lines.slice(1).join("\n") + "\n")
     mkdirSync(join(p.dir, "source"), { recursive: true })
     writeFileSync(join(p.dir, "source", "base.png"), "png")

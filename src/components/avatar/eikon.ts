@@ -12,9 +12,7 @@ export type ParsedEikon = { meta: EikonMeta; states: Map<string, EikonState> }
 
 type ListedEikon = { path: string; meta: EikonMeta }
 
-const STREAM_EXT = /\.eikonl?$/
-
-const stem = (path: string) => path.replace(/\.eikonl?$/, "")
+const STREAM_EXT = /\.eikon$/
 
 function readManifestEntrypoint(path: string): string | undefined {
   try {
@@ -22,7 +20,7 @@ function readManifestEntrypoint(path: string): string | undefined {
     const entrypoints = raw.entrypoints
     if (!entrypoints || typeof entrypoints !== "object" || Array.isArray(entrypoints)) return undefined
     const value = (entrypoints as Record<string, unknown>).default
-    return typeof value === "string" ? value : undefined
+    return typeof value === "string" && STREAM_EXT.test(value) ? value : undefined
   } catch {
     return undefined
   }
@@ -41,23 +39,20 @@ export function listEikons(dirs: string[]): ListedEikon[] {
 
     const paths = ents.map(e => join(dir, e))
     const streamFiles = paths.filter(path => STREAM_EXT.test(path))
-    const launchStems = new Set(streamFiles.filter(path => path.endsWith(".eikonl")).map(stem))
 
-    // Launch packages keep a compatibility <name>.eikon beside manifest.json
-    // for older installs. List the manifest entrypoint once and suppress those
-    // compatibility files; legacy flat .eikon files still appear when no launch
-    // sibling/package exists.
-    const launchPackageRoots = new Map<string, string>()
+    // Package roots list exactly the manifest entrypoint. Sibling runtime
+    // streams under the same package root are ignored unless referenced.
+    const packageEntrypoints = new Map<string, string>()
     for (const manifest of paths.filter(path => path.endsWith("manifest.json"))) {
       const entrypoint = readManifestEntrypoint(manifest)
-      if (entrypoint?.endsWith(".eikonl")) {
+      if (entrypoint) {
         const root = dirname(manifest)
-        launchPackageRoots.set(root, join(root, entrypoint))
+        packageEntrypoints.set(root, join(root, entrypoint))
       }
     }
 
     const packageRootFor = (path: string): string | undefined => {
-      for (const root of launchPackageRoots.keys()) {
+      for (const root of packageEntrypoints.keys()) {
         const rel = relative(root, path)
         if (rel && !rel.startsWith("..") && !isAbsolute(rel)) return root
       }
@@ -65,20 +60,10 @@ export function listEikons(dirs: string[]): ListedEikon[] {
     }
 
     return streamFiles
-      .sort((a, b) => {
-        const ae = a.endsWith(".eikonl") ? 0 : 1
-        const be = b.endsWith(".eikonl") ? 0 : 1
-        return ae - be || a.localeCompare(b)
-      })
+      .sort((a, b) => a.localeCompare(b))
       .filter(path => {
         const packageRoot = packageRootFor(path)
-        if (packageRoot) {
-          if (path.endsWith(".eikonl")) return path === launchPackageRoots.get(packageRoot)
-          if (path.endsWith(".eikon")) return false
-        }
-        if (!path.endsWith(".eikon")) return true
-        if (launchStems.has(stem(path))) return false
-        return true
+        return packageRoot ? path === packageEntrypoints.get(packageRoot) : true
       })
       .map(path => ({ path, meta: peek(resolve(path)) }))
       .filter((x): x is ListedEikon => x.meta !== null)
