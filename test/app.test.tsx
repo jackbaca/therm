@@ -296,20 +296,30 @@ describe("app", () => {
     const HH = process.env.HERMES_HOME!
     const png = new Uint8Array([137, 80, 78, 71])
     let previewHits = 0
+    const launch = (name: string, author: string, line: string) => [
+      JSON.stringify({
+        type: "header", eikon: 1, id: `liftaris/${name}`, version: "1.0", title: name,
+        author: { name: author }, size: { cols: 48, rows: 24 }, defaultSignal: "state.idle",
+        signals: { "state.idle": { clip: "idle" } },
+      }),
+      JSON.stringify({ type: "clip", name: "idle", fps: 1, frameCount: 1, loopFrom: 0 }),
+      JSON.stringify({
+        type: "frame", clip: "idle", index: 0,
+        rows: Array.from({ length: 24 }, (_, i) => (i === 0 ? line : "").padEnd(48)),
+      }),
+    ].join("\n") + "\n"
+    const marketPreview = launch("marketone", "Kaio", "MARKET-PREVIEW-LINE")
+    const activePreview = launch("activeone", "Local", "ACTIVE-EIKON-LINE")
     const srv = Bun.serve({
       port: 0,
       fetch(req) {
         const path = new URL(req.url).pathname
         if (path === "/eikons/index.json") return Response.json([
-          { name: "marketone", author: "Kaio", width: 48, height: 24, poster: "M1", source: "marketone/", preview_url: "marketone.eikon", install_url: "", description: "market one" },
+          { name: "marketone", author: "Kaio", width: 48, height: 24, poster: "M1", source: "marketone/", description: "market one" },
         ])
         if (path === "/eikons/marketone/marketone.eikon") {
           previewHits++
-          return new Response([
-            JSON.stringify({ eikon: 1, name: "marketone", author: "Kaio", width: 48, height: 24 }),
-            JSON.stringify({ state: "idle", fps: 1, frame_count: 1, loop_from: 1 }),
-            JSON.stringify({ f: 0, data: "MARKET-PREVIEW-LINE" }),
-          ].join("\n") + "\n")
+          return new Response(marketPreview)
         }
         if (path === "/eikons/marketone/manifest.json") return Response.json({ name: "marketone", source: "source.png" })
         if (path === "/eikons/marketone/source.png") return new Response(png)
@@ -320,11 +330,7 @@ describe("app", () => {
     process.env.EIKON_URL = `http://localhost:${srv.port}/eikons`
     rmSync(join(HH, "eikons"), { recursive: true, force: true })
     mkdirSync(join(HH, "eikons", "activeone", "source"), { recursive: true })
-    writeFileSync(join(HH, "eikons", "activeone", "activeone.eikon"), [
-      JSON.stringify({ eikon: 1, name: "activeone", author: "Local", width: 48, height: 24 }),
-      JSON.stringify({ state: "idle", fps: 1, frame_count: 1, loop_from: 1 }),
-      JSON.stringify({ f: 0, data: "ACTIVE-EIKON-LINE" }),
-    ].join("\n") + "\n")
+    writeFileSync(join(HH, "eikons", "activeone", "activeone.eikon"), activePreview)
     prefs.set("eikon", "activeone")
 
     const prevTestPerf = process.env.HERM_TEST_PERF

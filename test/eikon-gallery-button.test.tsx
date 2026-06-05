@@ -7,9 +7,16 @@ import { EIKON_TAB, SUB_TABS, TAB_SLASH } from "../src/app/tabs"
 let server: ReturnType<typeof Bun.serve> | undefined
 
 const eikonBody = [
-  JSON.stringify({ eikon: 1, name: "ares", author: "Kaio", width: 48, height: 24, states: ["idle"] }),
-  JSON.stringify({ state: "idle", fps: 1, frame_count: 1, loop_from: 1 }),
-  JSON.stringify({ f: 0, data: "ARES-IDLE" }),
+  JSON.stringify({
+    type: "header", eikon: 1, id: "liftaris/ares", version: "1.0", title: "ares",
+    author: { name: "Kaio" }, size: { cols: 48, rows: 24 }, defaultSignal: "state.idle",
+    signals: { "state.idle": { clip: "idle" } },
+  }),
+  JSON.stringify({ type: "clip", name: "idle", fps: 1, frameCount: 1, loopFrom: 0 }),
+  JSON.stringify({
+    type: "frame", clip: "idle", index: 0,
+    rows: Array.from({ length: 24 }, (_, i) => (i === 0 ? "ARES-IDLE" : "").padEnd(48)),
+  }),
 ].join("\n") + "\n"
 
 function useCatalog() {
@@ -18,7 +25,7 @@ function useCatalog() {
     fetch(req) {
       const path = new URL(req.url).pathname
       if (path === "/eikons/index.json") return Response.json([
-        { name: "ares", author: "Kaio", width: 48, height: 24, poster: "ARES-POSTER", source: "ares/", preview_url: "ares.eikon", install_url: "", description: "red warrior" },
+        { name: "ares", author: "Kaio", width: 48, height: 24, poster: "ARES-POSTER", source: "ares/", description: "red warrior" },
       ])
       if (path === "/eikons/ares/ares.eikon") return new Response(eikonBody)
       return new Response("404", { status: 404 })

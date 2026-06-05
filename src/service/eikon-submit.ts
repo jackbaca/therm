@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { previewReviewBundle, submitForReview, type ReviewBundle, type ReviewFailure, type SubmitResult } from "eikon"
+import { previewReviewBundle, submitForReview, type ReviewFailure, type SubmitResult } from "eikon"
 export type { SubmitResult } from "eikon"
 import { file, header } from "./eikon"
 
@@ -8,15 +8,11 @@ const TOKEN = /(gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|Bearer\s+[A-Za-
 
 export type SubmitInput = {
   path: string
-  license: string
-  provenance: string
 }
 
 export type SubmitPreview = {
   name: string
   files: { path: string; bytes: number }[]
-  license: string
-  provenance: string
 }
 
 export type SubmitReview = (input: SubmitInput) => Promise<SubmitResult>
@@ -50,12 +46,10 @@ export function failureText(xs: ReviewFailure[]) {
 }
 
 export async function preview(input: SubmitInput): Promise<SubmitPreview> {
-  const b = await previewReviewBundle(input) as ReviewBundle
+  const b = await previewReviewBundle(input)
   return {
     name: b.meta.name,
-    files: b.files.map((f: { path: string; bytes: number }) => ({ path: f.path, bytes: f.bytes })),
-    license: b.license,
-    provenance: b.provenance,
+    files: b.files.map(f => ({ path: f.path, bytes: f.bytes })),
   }
 }
 

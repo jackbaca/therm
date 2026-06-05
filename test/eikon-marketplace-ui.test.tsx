@@ -8,18 +8,25 @@ import { eikon } from "../src/service/eikon"
 import * as prefs from "../src/context/preferences"
 
 const HH = process.env.HERMES_HOME!
-const body = [
-  JSON.stringify({ eikon: 1, name: "ares", author: "Kaio", width: 48, height: 24, states: ["idle", "thinking"] }),
-  JSON.stringify({ state: "idle", fps: 1, frame_count: 1, loop_from: 1 }),
-  JSON.stringify({ f: 0, data: "ARES-IDLE" }),
-  JSON.stringify({ state: "thinking", fps: 1, frame_count: 1, loop_from: 1 }),
-  JSON.stringify({ f: 0, data: "ARES-THINKING" }),
-].join("\n") + "\n"
-const monoBody = [
-  JSON.stringify({ eikon: 1, name: "mono", author: "Nous", width: 48, height: 24, states: ["idle"] }),
-  JSON.stringify({ state: "idle", fps: 1, frame_count: 1, loop_from: 1 }),
-  JSON.stringify({ f: 0, data: "MONO-IDLE" }),
-].join("\n") + "\n"
+const launchBody = (name: string, author: string, frames: Record<string, string>) => {
+  const rows = (line: string) => Array.from({ length: 24 }, (_, i) => (i === 0 ? line : "").padEnd(48))
+  return [
+    JSON.stringify({
+      type: "header", eikon: 1, id: `liftaris/${name}`, version: "1.0", title: name,
+      author: { name: author }, size: { cols: 48, rows: 24 }, defaultSignal: "state.idle",
+      signals: Object.fromEntries(Object.keys(frames).map(state => [
+        `state.${state}`,
+        state === "idle" ? { clip: state } : { clip: state, fallback: "state.idle" },
+      ])),
+    }),
+    ...Object.entries(frames).flatMap(([state, frame]) => [
+      JSON.stringify({ type: "clip", name: state, fps: 1, frameCount: 1, loopFrom: 0 }),
+      JSON.stringify({ type: "frame", clip: state, index: 0, rows: rows(frame) }),
+    ]),
+  ].join("\n") + "\n"
+}
+const body = launchBody("ares", "Kaio", { idle: "ARES-IDLE", thinking: "ARES-THINKING" })
+const monoBody = launchBody("mono", "Nous", { idle: "MONO-IDLE" })
 const png = new Uint8Array([137, 80, 78, 71])
 
 type Route = { path: string; body: BodyInit | object; status?: number; headers?: HeadersInit }
@@ -41,12 +48,12 @@ function serve(routes: Route[]) {
 function catalog(extra: Route[] = []) {
   const srv = serve([
     { path: "/eikons/index.json", body: [
-      { name: "ares", author: "Kaio", width: 48, height: 24, poster: "ARES-POSTER", source: "ares/", preview_url: "ares.eikon", install_url: "", description: "red warrior", license: "MIT", provenance: "registry", review_status: "reviewed" },
-      { name: "mono", author: "Nous", width: 48, height: 24, poster: "MONO-POSTER", source: "mono/", preview_url: "mono.eikon", install_url: "", description: "quiet lines", license: "CC0", provenance: "mirror", review_status: "pending" },
-      { name: "delta", author: "Other", width: 48, height: 24, poster: "DELTA-POSTER", source: "delta/", preview_url: "delta.eikon", install_url: "", description: "triangle field", reviewed: false },
-      { name: "echo", author: "Echo", width: 48, height: 24, poster: "ECHO-POSTER", source: "echo/", preview_url: "echo.eikon", install_url: "", description: "sound wall" },
-      { name: "foxtrot", author: "Fox", width: 48, height: 24, poster: "FOX-POSTER", source: "foxtrot/", preview_url: "foxtrot.eikon", install_url: "", description: "fox field" },
-      { name: "gamma", author: "Gamma", width: 48, height: 24, poster: "GAMMA-POSTER", source: "gamma/", preview_url: "gamma.eikon", install_url: "", description: "green field" },
+      { name: "ares", author: "Kaio", width: 48, height: 24, poster: "ARES-POSTER", source: "ares/", description: "red warrior", review_status: "reviewed" },
+      { name: "mono", author: "Nous", width: 48, height: 24, poster: "MONO-POSTER", source: "mono/", description: "quiet lines", review_status: "pending" },
+      { name: "delta", author: "Other", width: 48, height: 24, poster: "DELTA-POSTER", source: "delta/", description: "triangle field", reviewed: false },
+      { name: "echo", author: "Echo", width: 48, height: 24, poster: "ECHO-POSTER", source: "echo/", description: "sound wall" },
+      { name: "foxtrot", author: "Fox", width: 48, height: 24, poster: "FOX-POSTER", source: "foxtrot/", description: "fox field" },
+      { name: "gamma", author: "Gamma", width: 48, height: 24, poster: "GAMMA-POSTER", source: "gamma/", description: "green field" },
     ] },
     { path: "/eikons/ares/ares.eikon", body },
     { path: "/eikons/ares/manifest.json", body: { name: "ares", source: "source.png" } },
@@ -104,8 +111,8 @@ describe("EikonGallery marketplace mode", () => {
     await until(t, () => t.frame().includes("Marketplace (6)") && t.frame().includes("ARES-POSTER"))
     expect(t.frame()).toContain("red warrior")
     expect(t.frame()).toContain("reviewed")
-    expect(t.frame()).toContain("MIT")
-    expect(t.frame()).toContain("registry")
+    expect(t.frame()).toContain("reviewer: unknown")
+    expect(t.frame()).toContain("digest: unknown")
     expect(t.frame()).toContain("Install")
     expect(t.frame()).toContain("[Esc] back")
 
@@ -233,8 +240,8 @@ describe("EikonGallery marketplace mode", () => {
         if (path === "/eikons/ares/ares.eikon") return delayedAres
         const hit = [
           { path: "/eikons/index.json", body: [
-            { name: "ares", author: "Kaio", width: 48, height: 24, poster: "ARES-POSTER", source: "ares/", preview_url: "ares.eikon", install_url: "", description: "red warrior" },
-            { name: "mono", author: "Nous", width: 48, height: 24, poster: "MONO-POSTER", source: "mono/", preview_url: "mono.eikon", install_url: "", description: "quiet lines" },
+            { name: "ares", author: "Kaio", width: 48, height: 24, poster: "ARES-POSTER", source: "ares/", description: "red warrior" },
+            { name: "mono", author: "Nous", width: 48, height: 24, poster: "MONO-POSTER", source: "mono/", description: "quiet lines" },
           ] },
           { path: "/eikons/mono/mono.eikon", body: monoBody },
         ].find(r => r.path === path)

@@ -9,8 +9,9 @@ type LoadStatus = "ready" | "empty" | "error"
 
 export type InstalledManifest = {
   name?: string
-  license?: string
-  provenance?: string
+  kind?: string
+  id?: string
+  version?: string
   origin?: { source?: string; at?: string; sha?: string }
   [key: string]: unknown
 }
@@ -61,12 +62,37 @@ type Job<T> = {
 const DEFAULT_TIMEOUT = 5000
 const DEFAULT_CACHE_LIMIT = 24
 
-function keyUrl(s: string) {
-  return s.replace(/\/?$/, "/")
+function keyIdentity(s: string) {
+  try {
+    const u = new URL(s)
+    if (u.protocol === "http:" || u.protocol === "https:" || u.protocol === "file:") return u.href.replace(/\/?$/, "/")
+  } catch {}
+  return s
+}
+
+function manifestBaseKey(s: string) {
+  try {
+    const u = new URL(s)
+    if ((u.protocol === "http:" || u.protocol === "https:" || u.protocol === "file:") && u.pathname.endsWith("/manifest.json")) {
+      return new URL(".", u).href
+    }
+  } catch {}
+  return undefined
+}
+
+function registryKey(man: InstalledManifest | undefined, source: string | undefined) {
+  if (man?.kind !== "eikon.package" || typeof man.id !== "string") return undefined
+  try {
+    const host = source ? new URL(source).host : undefined
+    if (!host) return undefined
+    return `registry:${host}:${man.id}${typeof man.version === "string" && man.version ? `@${man.version}` : ""}`
+  } catch {
+    return undefined
+  }
 }
 
 function entryKeys(entry: CatalogEntry) {
-  return [keyUrl(entry.identityKey), keyUrl(entry.sourceKey)]
+  return [...new Set([entry.identityKey, entry.sourceKey].filter(Boolean).map(keyIdentity))]
 }
 
 function keysFor(inst: eikon.Installed): string[] {
@@ -75,9 +101,27 @@ function keysFor(inst: eikon.Installed): string[] {
   const origin = typeof man?.origin?.source === "string" ? man.origin.source : undefined
   const head = eikon.header(inst.file)
   const src = typeof head?.source_url === "string" ? head.source_url : inst.sourceUrl
-  if (origin) keys.add(keyUrl(origin))
-  if (src) keys.add(keyUrl(src))
+  const registry = registryKey(man, origin)
+  if (registry) keys.add(registry)
+  if (origin) {
+    keys.add(keyIdentity(origin))
+    const base = manifestBaseKey(origin)
+    if (base) keys.add(keyIdentity(base))
+  }
+  if (src) {
+    keys.add(keyIdentity(src))
+    const base = manifestBaseKey(src)
+    if (base) keys.add(keyIdentity(base))
+  }
   return [...keys]
+}
+
+function cacheKey(entry: CatalogEntry) {
+  return entry.identityKey || entry.sourceKey || entry.id
+}
+
+function previewTarget(entry: CatalogEntry) {
+  return entry.preview || entry.runtimeUrl
 }
 
 export function installed(): InstalledMetadata[] {
@@ -139,19 +183,21 @@ export class MarketplaceService {
   }
 
   entry(id: string): CatalogEntry | undefined {
-    return this.catalog.entries.find(e => e.identityKey === id || e.sourceKey === id || e.name === id)
+    const key = keyIdentity(id)
+    return this.catalog.entries.find(e => keyIdentity(e.identityKey) === key || keyIdentity(e.sourceKey) === key || e.id === id || e.name === id)
   }
 
   async preview(id: string, opts: PreviewOptions = {}): Promise<string> {
     if (opts.signal?.aborted) throw abortErr()
     const entry = this.entry(id)
     if (!entry) throw new Error(`marketplace: unknown eikon "${id}"`)
-    const hit = this.cache.get(entry.identityKey)
+    const key = cacheKey(entry)
+    const hit = this.cache.get(key)
     if (hit !== undefined) return hit
-    const active = this.inFlight.get(entry.identityKey)
+    const active = this.inFlight.get(key)
     if (active) return active
-    const p = this.enqueue(() => this.loadPreview(entry, opts)).finally(() => this.inFlight.delete(entry.identityKey))
-    this.inFlight.set(entry.identityKey, p)
+    const p = this.enqueue(() => this.loadPreview(entry, opts)).finally(() => this.inFlight.delete(key))
+    this.inFlight.set(key, p)
     return p
   }
 
@@ -159,7 +205,7 @@ export class MarketplaceService {
     const entry = this.entry(id)
     if (!entry) throw new Error(`marketplace: unknown eikon "${id}"`)
     const before = prefs.get("eikon")
-    const out = await eikon.fetchSource(entry.installUrl, { name: entry.name })
+    const out = await eikon.fetchSource(entry.packageUrl, { name: entry.name })
     if (prefs.get("eikon") !== before) prefs.set("eikon", before)
     return out
   }
@@ -190,10 +236,10 @@ export class MarketplaceService {
     const off = () => ctl.abort()
     opts.signal?.addEventListener("abort", off, { once: true })
     try {
-      const res = await this.fetcher(entry.previewUrl, { signal: ctl.signal })
+      const res = await this.fetcher(previewTarget(entry), { signal: ctl.signal })
       if (!res.ok) throw new Error(`catalog: HTTP ${res.status}`)
       const text = await res.text()
-      this.cache.set(entry.identityKey, text)
+      this.cache.set(cacheKey(entry), text)
       while (this.cache.size > this.previewCacheLimit) this.cache.delete(this.cache.keys().next().value!)
       return text
     } finally {

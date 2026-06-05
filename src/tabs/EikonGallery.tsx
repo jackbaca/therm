@@ -419,8 +419,8 @@ const MarketplaceDetail = (props: {
       <text fg={theme.textMuted}>by {r.entry.author ?? "unknown"}</text>
       <text fg={theme.text} wrapMode="word">{r.entry.description ?? "No description."}</text>
       <text fg={theme.textMuted}>review: {r.entry.trust.reviewStatus ?? "unreviewed"}</text>
-      <text fg={theme.textMuted}>license: {r.entry.trust.license ?? "unknown"}</text>
-      <text fg={theme.textMuted}>provenance: {r.entry.trust.provenance ?? r.entry.provenanceUrl ?? "unknown"}</text>
+      <text fg={theme.textMuted}>reviewer: {r.entry.trust.reviewer ?? "unknown"}</text>
+      <text fg={theme.textMuted}>digest: {trustDigest(r) ?? "unknown"}</text>
       <text fg={theme.textMuted}>state: {r.installed ? r.active ? "active" : "installed" : "not installed"}</text>
       <box height={1} onMouseDown={() => props.onState(next)}>
         <text fg={theme.primary}>Preview: {previewState}  [Space] {next}</text>
@@ -440,11 +440,23 @@ const actionLabel = (row?: MarketplaceRow) => {
   return "Active"
 }
 
+const shortDigest = (value?: string) => {
+  if (!value) return undefined
+  const [algo, hash] = value.includes(":") ? value.split(":", 2) : [undefined, value]
+  if (!hash || hash.length <= 16) return value
+  return algo ? `${algo}:${hash.slice(0, 12)}…` : `${hash.slice(0, 12)}…`
+}
+
+const trustDigest = (row: MarketplaceRow) =>
+  shortDigest(row.entry.trust.manifestDigest ?? row.entry.trust.runtimeDigest ?? row.entry.trust.digest)
+
 const trust = (row: MarketplaceRow) => {
-  const r = row.entry.trust.reviewStatus ?? "unreviewed"
-  const l = row.entry.trust.license ?? "unknown license"
-  const p = row.entry.trust.provenance ?? "unknown provenance"
-  return `${r} · ${l} · ${p}`
+  const parts = [
+    row.entry.trust.reviewStatus ?? "unreviewed",
+    row.entry.trust.reviewer ? `by ${row.entry.trust.reviewer}` : undefined,
+    trustDigest(row),
+  ].filter(Boolean)
+  return parts.join(" · ")
 }
 
 const actionColor = (row: MarketplaceRow, theme: ReturnType<typeof useTheme>["theme"]) => {

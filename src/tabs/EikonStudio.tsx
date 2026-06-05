@@ -108,7 +108,7 @@ const HELP: Readonly<Record<string, string>> = {
   fetch:      "Download this eikon's published source media so you can re-tune it locally.",
   knobsfor:   "←→ toggles whether the settings below apply to every state or just the one selected in the strip.",
   reset:      "Restore every setting below to this rasterizer's defaults and drop per-state overrides.",
-  submit:     "Submit this local eikon for registry review. License and provenance are collected transiently before backend preflight.",
+  submit:     "Submit this local eikon for registry review after backend preflight.",
   revert:     "Throw away unsaved edits and reload this eikon from disk.",
 }
 

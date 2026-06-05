@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { dirname, join } from "path"
 import { parseEikon, listEikons } from "../src/components/avatar/eikon"
@@ -13,6 +13,28 @@ const FIXTURE = [
   JSON.stringify({ state: "error", frame_count: 2 }),
   JSON.stringify({ f: 0, data: " x \n/|\\", duration_ms: 100 }),
   JSON.stringify({ f: 1, data: " X \n/|\\", duration_ms: 50 }),
+].join("\n")
+
+const LAUNCH_FIXTURE = [
+  JSON.stringify({
+    type: "header",
+    eikon: 1,
+    id: "test/tiny-launch",
+    version: "1.0.0",
+    title: "tiny launch",
+    author: { name: "t" },
+    size: { cols: 3, rows: 2 },
+    defaultSignal: "state.idle",
+    signals: {
+      "state.idle": { clip: "idle" },
+      "state.error": { clip: "error", fallback: "state.idle" },
+    },
+  }),
+  JSON.stringify({ type: "clip", name: "idle", fps: 8, frameCount: 2, loopFrom: 0 }),
+  JSON.stringify({ type: "frame", clip: "idle", index: 0, rows: [" o ", "/|\\"] }),
+  JSON.stringify({ type: "frame", clip: "idle", index: 1, rows: [" O ", "/|\\"] }),
+  JSON.stringify({ type: "clip", name: "error", fps: 4, frameCount: 1, loopFrom: 1 }),
+  JSON.stringify({ type: "frame", clip: "error", index: 0, rows: [" x ", "/|\\"] }),
 ].join("\n")
 
 describe("parseEikon", () => {
@@ -82,11 +104,14 @@ describe("parseEikon", () => {
   })
 
   test("parses launch-format streams", () => {
-    const p = bundledEikonPath("default")
-    expect(p).toEndWith("default.eikonl")
-    const e = parseEikon(readFileSync(p!, "utf8"))
-    expect(e.meta.width).toBe(48)
+    const e = parseEikon(LAUNCH_FIXTURE)
+    expect(e.meta.name).toBe("tiny launch")
+    expect(e.meta.version).toBe(1)
+    expect(e.meta.width).toBe(3)
+    expect(e.meta.height).toBe(2)
     expect(e.states.has("idle")).toBe(true)
+    expect(e.states.get("idle")!.frames[0]).toEqual([" o ", "/|\\"])
+    expect(e.states.get("error")!.loopFrom).toBe(1)
   })
 })
 
@@ -102,10 +127,38 @@ describe("listEikons", () => {
     expect(found[0].path).toContain("a.eikon")
   })
 
+  test("prefers launch package entrypoint over sibling compatibility file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "eikon-"))
+    writeFileSync(join(dir, "legacy.eikon"), FIXTURE)
+    const pkg = join(dir, "pkg")
+    mkdirSync(pkg)
+    writeFileSync(join(pkg, "manifest.json"), JSON.stringify({
+      kind: "eikon.package",
+      schemaVersion: "1.0",
+      id: "test/pkg",
+      name: "pkg",
+      compatibility: { eikon: ">=1 <2" },
+      entrypoints: { default: "pkg.eikonl" },
+    }))
+    writeFileSync(join(pkg, "pkg.eikonl"), LAUNCH_FIXTURE)
+    writeFileSync(join(pkg, "pkg.eikon"), FIXTURE)
+    writeFileSync(join(pkg, "extra.eikonl"), LAUNCH_FIXTURE)
+
+    const found = listEikons([dir])
+    const paths = found.map(e => e.path)
+    expect(paths.some(p => p.endsWith("legacy.eikon"))).toBe(true)
+    expect(paths.some(p => p.endsWith("pkg.eikonl"))).toBe(true)
+    expect(paths.some(p => p.endsWith("pkg.eikon"))).toBe(false)
+    expect(paths.some(p => p.endsWith("extra.eikonl"))).toBe(false)
+  })
+
   test("bundled eikons ship as launch packages and list once", () => {
     const p = bundledEikonPath("default")!
     expect(p).toEndWith("default.eikonl")
     expect(existsSync(join(dirname(p), "manifest.json"))).toBe(true)
+    const e = parseEikon(readFileSync(p, "utf8"))
+    expect(e.meta.width).toBe(48)
+    expect(e.states.has("idle")).toBe(true)
     const found = listEikons([join(import.meta.dir, "../assets/eikons")])
     expect(found.filter(e => e.meta.name.toLowerCase() === "nous")).toHaveLength(1)
     expect(found.every(e => e.path.endsWith(".eikonl"))).toBe(true)
