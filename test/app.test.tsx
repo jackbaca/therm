@@ -341,7 +341,8 @@ describe("app", () => {
     const startsBefore = globalThis.__hermAvatarTimerStarts ?? 0
     act(() => { for (let i = 0; i < 4; i++) t.keys.pressArrow("right", { meta: true }) })
     await until(t, () => t.frame().includes("Gallery ("))
-    await act(async () => { await t.keys.typeText("m") })
+    act(() => t.keys.pressArrow("right", { shift: true }))
+    act(() => t.keys.pressArrow("right", { shift: true }))
     await until(t, () => t.frame().includes("Marketplace (1)") && t.frame().includes("MARKET-PREVIEW-LINE"))
 
     expect(prefs.get("eikon")).toBe("activeone")
@@ -350,7 +351,7 @@ describe("app", () => {
     expect((globalThis.__hermAvatarTimerStarts ?? 0) - startsBefore).toBeLessThanOrEqual(1)
 
     act(() => t.keys.pressEscape())
-    await until(t, () => t.frame().includes("Gallery (") && t.frame().includes("ACTIVE-EIKON-LINE"))
+    await until(t, () => t.frame().includes("Marketplace (") && t.frame().includes("ACTIVE-EIKON-LINE"))
     expect(prefs.get("eikon")).toBe("activeone")
 
     delete globalThis.__hermAvatarTimerStarts
