@@ -6,6 +6,7 @@ import { mount, mountNode, until } from "./harness"
 import { EikonGroup } from "../src/tabs/EikonGroup"
 import { eikon } from "../src/service/eikon"
 import * as prefs from "../src/context/preferences"
+import type { SidebarPreview } from "../src/components/sidebar/Sidebar"
 
 const HH = process.env.HERMES_HOME!
 const body = [
@@ -65,25 +66,44 @@ function local(name: string) {
   writeFileSync(eikon.file(name), JSON.stringify({ eikon: 1, name, author: "Local", width: 48, height: 24 }) + "\n")
 }
 
+function group(props: { sub?: number; sidebarPreview?: (p?: SidebarPreview) => void } = {}) {
+  let sub = props.sub ?? 2
+  return <EikonGroup focused sub={sub} setSub={i => { sub = i }} sidebarPreview={props.sidebarPreview} />
+}
+
+async function openMarketplaceTab(t: Awaited<ReturnType<typeof mount>>) {
+  act(() => t.keys.pressKey("5", { meta: true }))
+  await until(t, () => t.frame().includes("Gallery ("))
+  act(() => t.keys.pressArrow("right", { shift: true }))
+  act(() => t.keys.pressArrow("right", { shift: true }))
+  await until(t, () => t.frame().includes("Marketplace ("))
+}
+
 afterEach(() => {
   delete process.env.EIKON_URL
   prefs.set("eikon", undefined)
   rmSync(join(HH, "eikons"), { recursive: true, force: true })
 })
 
-describe("EikonGallery marketplace mode", () => {
+describe("EikonMarketplace tab", () => {
+  test("Gallery is separate from Marketplace tab", async () => {
+    const fx = catalog()
+    process.env.EIKON_URL = fx.base
+    await using t = await mountNode(group({ sub: 0 }), { width: 120, height: 28 })
+    await until(t, () => t.frame().includes("Gallery ("))
+    expect(t.frame()).not.toContain("[ Marketplace ]")
+    expect(t.frame()).not.toContain("ARES-POSTER")
+    fx.srv.stop()
+  })
+
   test("poster grid does not fetch previews or start per-card avatar timers", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
-    let sub = 0
     const prevTestPerf = process.env.HERM_TEST_PERF
     process.env.HERM_TEST_PERF = "1"
     globalThis.__hermAvatarTimerStarts = 0
-    await using t = await mountNode(<EikonGroup focused sub={sub} setSub={i => { sub = i }} />, { width: 120, height: 28 })
-    await until(t, () => t.frame().includes("Gallery ("))
     const startsBefore = globalThis.__hermAvatarTimerStarts ?? 0
-
-    await act(async () => { await t.keys.typeText("m") })
+    await using t = await mountNode(group(), { width: 120, height: 28 })
     await until(t, () => t.frame().includes("Marketplace (6)") && t.frame().includes("ARES-POSTER"))
 
     expect((globalThis.__hermAvatarTimerStarts ?? 0) - startsBefore).toBe(0)
@@ -93,21 +113,16 @@ describe("EikonGallery marketplace mode", () => {
     fx.srv.stop()
   })
 
-  test("enters marketplace, searches by author, Escape exits search then marketplace", async () => {
+  test("searches by author and Escape exits search without leaving the tab", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
-    let sub = 0
-    await using t = await mountNode(<EikonGroup focused sub={sub} setSub={i => { sub = i }} />, { width: 160, height: 48 })
-    await until(t, () => t.frame().includes("Gallery ("))
-
-    await act(async () => { await t.keys.typeText("m") })
+    await using t = await mountNode(group(), { width: 160, height: 48 })
     await until(t, () => t.frame().includes("Marketplace (6)") && t.frame().includes("ARES-POSTER"))
     expect(t.frame()).toContain("red warrior")
     expect(t.frame()).toContain("reviewed")
     expect(t.frame()).toContain("MIT")
     expect(t.frame()).toContain("registry")
     expect(t.frame()).toContain("Install")
-    expect(t.frame()).toContain("[Esc] back")
 
     await act(async () => { await t.keys.typeText("/") })
     await until(t, () => t.frame().includes("Search:"))
@@ -117,23 +132,18 @@ describe("EikonGallery marketplace mode", () => {
 
     act(() => t.keys.pressEscape())
     await until(t, () => t.frame().includes("Marketplace (1)") && !t.frame().includes("Search:"))
-    act(() => t.keys.pressEscape())
-    await until(t, () => t.frame().includes("Gallery (") && !t.frame().includes("Marketplace ("))
     fx.srv.stop()
   })
 
-  test("Enter installs, stays selected, then Enter uses; local gallery can restore prior active", async () => {
+  test("Enter installs, stays selected, then Enter uses", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
     mkdirSync(join(HH, "eikons"), { recursive: true })
     local("localone")
     prefs.set("eikon", "localone")
-    let sub = 0
-    await using t = await mountNode(<EikonGroup focused sub={sub} setSub={i => { sub = i }} />, { width: 160, height: 48 })
-    await until(t, () => t.frame().includes("Gallery ("))
-
-    await act(async () => { await t.keys.typeText("m") })
+    await using t = await mountNode(group(), { width: 160, height: 48 })
     await until(t, () => t.frame().includes("Marketplace (6)") && t.frame().includes("Install"))
+
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Use") && prefs.get("eikon") === "localone")
     expect(t.frame()).toContain("installed")
@@ -142,26 +152,13 @@ describe("EikonGallery marketplace mode", () => {
     act(() => t.keys.pressEnter())
     await until(t, () => prefs.get("eikon") === "ares" && t.frame().includes("Active"))
     expect(t.frame()).toContain("▸ ● ares")
-
-    act(() => t.keys.pressEscape())
-    await until(t, () => t.frame().includes("Gallery ("))
-    for (let i = 0; i < 20; i++) {
-      if (t.frame().split("\n").some(l => l.includes("▸") && l.includes("localone"))) break
-      act(() => t.keys.pressArrow("down"))
-      await t.settle()
-    }
-    act(() => t.keys.pressEnter())
-    await until(t, () => prefs.get("eikon") === "localone")
     fx.srv.stop()
   })
 
   test("list navigation clamps and Space does not install", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
-    let sub = 0
-    await using t = await mountNode(<EikonGroup focused sub={sub} setSub={i => { sub = i }} />, { width: 120, height: 28 })
-    await until(t, () => t.frame().includes("Gallery ("))
-    await act(async () => { await t.keys.typeText("m") })
+    await using t = await mountNode(group(), { width: 120, height: 28 })
     await until(t, () => t.frame().includes("Marketplace (6)"))
     expect(t.frame()).toContain("[Space] preview state")
 
@@ -178,18 +175,14 @@ describe("EikonGallery marketplace mode", () => {
     fx.srv.stop()
   })
 
-
   test("sidebar preview preserves state across selections and falls back when unsupported", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
     const previews: string[] = []
-    let sub = 0
     await using t = await mountNode(
-      <EikonGroup focused sub={sub} setSub={i => { sub = i }} sidebarPreview={p => previews.push(p ? `${p.eikon.meta.name}:${p.state}` : "clear")} />,
+      group({ sidebarPreview: p => previews.push(p ? `${p.eikon.meta.name}:${p.state}` : "clear") }),
       { width: 160, height: 48 },
     )
-    await until(t, () => t.frame().includes("Gallery ("))
-    await act(async () => { await t.keys.typeText("m") })
     await until(t, () => previews.includes("ares:idle"))
 
     await act(async () => { await t.keys.pressKey(" ") })
@@ -207,13 +200,10 @@ describe("EikonGallery marketplace mode", () => {
     const fx = catalog([{ path: "/eikons/ares/ares.eikon", body: "missing", status: 500 }])
     process.env.EIKON_URL = fx.base
     const previews: string[] = []
-    let sub = 0
     await using t = await mountNode(
-      <EikonGroup focused sub={sub} setSub={i => { sub = i }} sidebarPreview={p => previews.push(p ? p.eikon.meta.name : "clear")} />,
+      group({ sidebarPreview: p => previews.push(p ? p.eikon.meta.name : "clear") }),
       { width: 160, height: 48 },
     )
-    await until(t, () => t.frame().includes("Gallery ("))
-    await act(async () => { await t.keys.typeText("m") })
     await until(t, () => t.frame().includes("Marketplace (6)"))
     await until(t, () => previews.includes("clear"))
     expect(previews).not.toContain("ares")
@@ -245,13 +235,10 @@ describe("EikonGallery marketplace mode", () => {
     })
     process.env.EIKON_URL = `http://localhost:${srv.port}/eikons`
     const previews: string[] = []
-    let sub = 0
     await using t = await mountNode(
-      <EikonGroup focused sub={sub} setSub={i => { sub = i }} sidebarPreview={p => previews.push(p ? p.eikon.meta.name : "clear")} />,
+      group({ sidebarPreview: p => previews.push(p ? p.eikon.meta.name : "clear") }),
       { width: 160, height: 48 },
     )
-    await until(t, () => t.frame().includes("Gallery ("))
-    await act(async () => { await t.keys.typeText("m") })
     await until(t, () => t.frame().includes("Marketplace (2)"))
     act(() => t.keys.pressArrow("down"))
     await until(t, () => previews.includes("mono"))
@@ -265,26 +252,19 @@ describe("EikonGallery marketplace mode", () => {
   test("narrow marketplace renders selected preview in detail pane", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
-    let sub = 0
-    await using t = await mountNode(<EikonGroup focused sub={sub} setSub={i => { sub = i }} />, { width: 100, height: 40 })
-    await until(t, () => t.frame().includes("Gallery ("))
-    await act(async () => { await t.keys.typeText("m") })
+    await using t = await mountNode(group(), { width: 100, height: 40 })
     await until(t, () => t.frame().includes("Marketplace (6)") && t.frame().includes("ARES-IDLE"))
     await act(async () => { await t.keys.pressKey(" ") })
     await until(t, () => t.frame().includes("ARES-THINKING"))
     fx.srv.stop()
   })
+
   test("wide marketplace renders detail preview when the app sidebar is hidden", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
     await using t = await mount({ width: 160, height: 48 })
     await until(t, () => t.frame().includes("Ready"))
-
-    act(() => t.keys.pressKey("5", { meta: true }))
-    await until(t, () => t.frame().includes("Gallery ("))
-
-    await act(async () => { await t.keys.typeText("m") })
-    await until(t, () => t.frame().includes("Marketplace (6)"))
+    await openMarketplaceTab(t)
 
     act(() => t.keys.pressKey("x", { ctrl: true }))
     await t.settle()
@@ -295,31 +275,10 @@ describe("EikonGallery marketplace mode", () => {
     fx.srv.stop()
   })
 
-
-  test("Back button exits marketplace by mouse", async () => {
-    const fx = catalog()
-    process.env.EIKON_URL = fx.base
-    let sub = 0
-    await using t = await mountNode(<EikonGroup focused sub={sub} setSub={i => { sub = i }} />, { width: 120, height: 28 })
-    await until(t, () => t.frame().includes("Gallery ("))
-
-    await act(async () => { await t.keys.typeText("m") })
-    await until(t, () => t.frame().includes("Marketplace (6)") && t.frame().includes("‹ Back"))
-
-    const y = () => t.frame().split("\n").findIndex(l => l.includes("‹ Back"))
-    await act(async () => { await t.mouse.click(3, y()) })
-    await until(t, () => t.frame().includes("Gallery (") && !t.frame().includes("Marketplace ("))
-    fx.srv.stop()
-  })
-
   test("marketplace row click activates the clicked row without hover", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
-    let sub = 0
-    await using t = await mountNode(<EikonGroup focused sub={sub} setSub={i => { sub = i }} />, { width: 160, height: 48 })
-    await until(t, () => t.frame().includes("Gallery ("))
-
-    await act(async () => { await t.keys.typeText("m") })
+    await using t = await mountNode(group(), { width: 160, height: 48 })
     await until(t, () => t.frame().includes("Marketplace (6)") && /▸ .*ares/.test(t.frame()))
 
     const y = () => t.frame().split("\n").findIndex(l => l.includes("mono") && l.includes("Nous"))
