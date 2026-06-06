@@ -8,7 +8,7 @@ import { EikonStudio } from "../src/tabs/EikonStudio"
 import { eikon } from "../src/service/eikon"
 import * as prefs from "../src/context/preferences"
 import { submitForReview, type ReviewBackend, type ReviewRequest } from "eikon"
-import type { Rasterizer } from "../src/utils/eikon-render"
+import { caps, type Rasterizer } from "../src/utils/eikon-render"
 
 const HH = process.env.HERMES_HOME!
 if (!HH || HH.includes("/.hermes")) throw new Error("sandbox not applied")
@@ -105,7 +105,8 @@ test("Eikon visual E2E: duplicate Nous draft, studio preview, submit review, del
     expect(frames.gallery).toContain("Preview")
 
     await using studio = await mountNode(<EikonStudio focused name={name} />, { width: 180, height: 60 })
-    await until(studio, () => studio.frame().includes(`Settings — ${name}`) && studio.frame().includes("E2E-PREVIEW"))
+    const previewReady = caps.ffmpeg ? "E2E-PREVIEW" : "ffmpeg not installed"
+    await until(studio, () => studio.frame().includes(`Settings — ${name}`) && studio.frame().includes(previewReady))
     snap("studio", studio, frames)
     expect(frames.studio).toContain("base.png")
     expect(frames.studio).toContain("States")
