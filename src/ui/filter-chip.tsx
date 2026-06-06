@@ -21,6 +21,7 @@ export type Tri = "off" | "in" | "ex"
 export const cycle = (t: Tri): Tri => t === "off" ? "in" : t === "in" ? "ex" : "off"
 
 export const FilterChip = memo((p: {
+  id?: string
   label: string
   state: Tri
   /** Keyboard cursor is on this chip. */
@@ -43,7 +44,7 @@ export const FilterChip = memo((p: {
     : p.state === "ex" ? (p.selected ? color : theme.borderSubtle)
     : p.selected ? color : text
   return (
-    <box height={1} flexShrink={0} marginLeft={p.gap ?? 1}
+    <box id={p.id} height={1} flexShrink={0} marginLeft={p.gap ?? 1}
          paddingLeft={1} paddingRight={1}
          backgroundColor={bg} onMouseDown={p.onMouseDown}>
       <text fg={fg}
