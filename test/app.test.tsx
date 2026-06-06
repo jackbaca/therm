@@ -348,7 +348,6 @@ describe("app", () => {
     expect(t.frame()).toMatch(/Author\s+Kaio/)
     expect(t.frame()).toContain("market one")
     expect(t.frame()).toMatch(/Action\s+Install/)
-    expect(t.frame()).toMatch(/Review\s+unreviewed/)
     expect(t.frame()).toMatch(/Digest\s+unknown/)
     expect(t.frame()).not.toMatch(/Profile\s+default/)
 

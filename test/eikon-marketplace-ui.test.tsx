@@ -54,9 +54,9 @@ function serve(routes: Route[]) {
 function catalog(extra: Route[] = []) {
   const srv = serve([
     { path: "/eikons/index.json", body: [
-      { name: "ares", author: "Kaio", width: 48, height: 24, poster: "ARES-POSTER", source: "ares/", description: "red warrior", review_status: "reviewed" },
-      { name: "mono", author: "Nous", width: 48, height: 24, poster: "MONO-POSTER", source: "mono/", description: "quiet lines", review_status: "pending" },
-      { name: "delta", author: "Other", width: 48, height: 24, poster: "DELTA-POSTER", source: "delta/", description: "triangle field", reviewed: false },
+      { name: "ares", author: "Kaio", width: 48, height: 24, poster: "ARES-POSTER", source: "ares/", description: "red warrior" },
+      { name: "mono", author: "Nous", width: 48, height: 24, poster: "MONO-POSTER", source: "mono/", description: "quiet lines" },
+      { name: "delta", author: "Other", width: 48, height: 24, poster: "DELTA-POSTER", source: "delta/", description: "triangle field" },
       { name: "echo", author: "Echo", width: 48, height: 24, poster: "ECHO-POSTER", source: "echo/", description: "sound wall" },
       { name: "foxtrot", author: "Fox", width: 48, height: 24, poster: "FOX-POSTER", source: "foxtrot/", description: "fox field" },
       { name: "gamma", author: "Gamma", width: 48, height: 24, poster: "GAMMA-POSTER", source: "gamma/", description: "green field" },
@@ -136,7 +136,7 @@ describe("EikonMarketplace tab", () => {
   test("poster cards reserve the full ASCII thumbnail height", async () => {
     const poster = Array.from({ length: 24 }, (_, i) => `ARES-${String(i).padStart(2, "0")}`).join("\n")
     const fx = catalog([{ path: "/eikons/index.json", body: [
-      { name: "ares", author: "Kaio", width: 48, height: 24, poster, source: "ares/", description: "red warrior", review_status: "reviewed" },
+      { name: "ares", author: "Kaio", width: 48, height: 24, poster, source: "ares/", description: "red warrior" },
     ] }])
     process.env.EIKON_URL = fx.base
     await using t = await mountNode(group({ sidebarPreview: () => {} }), { width: 120, height: 36 })
@@ -151,9 +151,7 @@ describe("EikonMarketplace tab", () => {
     await using t = await mountNode(group(), { width: 160, height: 48 })
     await until(t, () => t.frame().includes("Marketplace (6)") && t.frame().includes("ARES-POSTER"))
     expect(t.frame()).toContain("red warrior")
-    expect(t.frame()).toContain("reviewed")
-    expect(t.frame()).toContain("reviewer: unknown")
-    expect(t.frame()).toContain("digest: unknown")
+    expect(t.frame()).toContain("digest unknown")
     expect(t.frame()).toContain("Install")
 
     await act(async () => { await t.keys.typeText("/") })

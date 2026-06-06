@@ -65,9 +65,7 @@ export const EikonMarketplace = memo((props: {
             { label: "Action", value: actionLabel(selected), strong: selected.action !== "active" },
             { label: "Status", value: selected.installed ? selected.active ? "active" : "installed" : "not installed" },
             { label: "State", value: st },
-            { label: "Review", value: selected.entry.trust.reviewStatus ?? "unreviewed" },
-            { label: "Reviewer", value: selected.entry.trust.reviewer ?? "unknown" },
-            { label: "Digest", value: trustDigest(selected) ?? "unknown" },
+            { label: "Digest", value: digest(selected) ?? "unknown" },
           ],
         }
         if (props.sidebarPreview) props.sidebarPreview(preview)
@@ -221,7 +219,7 @@ const MarketplaceGrid = (props: {
                   </box>
                   <box height={1} paddingLeft={2} overflow="hidden"><text fg={theme.textMuted} wrapMode="none">by {r.entry.author ?? "unknown"}</text></box>
                   <box height={1} paddingLeft={2} overflow="hidden"><text fg={theme.textMuted} wrapMode="none">{r.entry.description ?? "No description."}</text></box>
-                  <box height={1} paddingLeft={2} overflow="hidden"><text fg={theme.textMuted} wrapMode="none">{trust(r)} · {r.installed ? r.active ? "active" : "installed" : "not installed"}</text></box>
+                  <box height={1} paddingLeft={2} overflow="hidden"><text fg={theme.textMuted} wrapMode="none">{meta(r)} · {r.installed ? r.active ? "active" : "installed" : "not installed"}</text></box>
                 </box>
               )
             })}
@@ -272,9 +270,7 @@ const MarketplaceDetail = (props: {
       <text fg={r.active ? theme.accent : theme.text}><strong>{r.active ? "● " : ""}{r.entry.name}</strong></text>
       <text fg={theme.textMuted}>by {r.entry.author ?? "unknown"}</text>
       <text fg={theme.text} wrapMode="word">{r.entry.description ?? "No description."}</text>
-      <text fg={theme.textMuted}>review: {r.entry.trust.reviewStatus ?? "unreviewed"}</text>
-      <text fg={theme.textMuted}>reviewer: {r.entry.trust.reviewer ?? "unknown"}</text>
-      <text fg={theme.textMuted}>digest: {trustDigest(r) ?? "unknown"}</text>
+      <text fg={theme.textMuted}>digest: {digest(r) ?? "unknown"}</text>
       <text fg={theme.textMuted}>state: {r.installed ? r.active ? "active" : "installed" : "not installed"}</text>
       <box height={1} onMouseDown={() => props.onState(next)}>
         <text fg={theme.primary}>Preview: {previewState}  [Space] {next}</text>
@@ -301,16 +297,12 @@ const shortDigest = (value?: string) => {
   return algo ? `${algo}:${hash.slice(0, 12)}…` : `${hash.slice(0, 12)}…`
 }
 
-const trustDigest = (row: MarketplaceRow) =>
+const digest = (row: MarketplaceRow) =>
   shortDigest(row.entry.trust.manifestDigest ?? row.entry.trust.runtimeDigest ?? row.entry.trust.digest)
 
-const trust = (row: MarketplaceRow) => {
-  const parts = [
-    row.entry.trust.reviewStatus ?? "unreviewed",
-    row.entry.trust.reviewer ? `by ${row.entry.trust.reviewer}` : undefined,
-    trustDigest(row),
-  ].filter(Boolean)
-  return parts.join(" · ")
+const meta = (row: MarketplaceRow) => {
+  const hash = digest(row)
+  return hash ? `digest ${hash}` : "digest unknown"
 }
 
 const actionColor = (row: MarketplaceRow, theme: ReturnType<typeof useTheme>["theme"]) => {

@@ -98,9 +98,9 @@ See [`.env.example`](./.env.example) for rarely-needed overrides.
   activating, then use it when ready.
 - Use `eikon.liftaris.dev` as a discovery mirror only; it previews catalog
   entries and points back to Herm for native install/use.
-- Submit local non-bundled eikons for review with `u`; Herm shows the exact
+- Submit local non-bundled eikons with `u`; Herm shows the exact
   preflight bundle before submission and blocks published marketplace installs
-  from duplicate review submission.
+  from duplicate submission.
 
 Herm owns native Marketplace behavior. The eikon repo owns the registry,
 browser mirror, shared catalog/player exports, install resolver, and publish

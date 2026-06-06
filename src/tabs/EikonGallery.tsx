@@ -28,7 +28,7 @@ type Row = {
 type Props = {
   focused: boolean
   onEdit?: (name: string) => void
-  submitReview?: submitSvc.SubmitReview
+  submit?: submitSvc.Submit
 }
 
 export const EikonGallery = memo((props: Props) => {
@@ -105,9 +105,9 @@ export const EikonGallery = memo((props: Props) => {
     await openEikonSubmit(dialog, {
       name: cur.name,
       path,
-      submitReview: props.submitReview ?? submitSvc.submit,
+      submit: props.submit ?? submitSvc.submit,
     })
-  }, [cur, dialog, props.submitReview, toast])
+  }, [cur, dialog, props.submit, toast])
 
   const del = async () => {
     if (!cur || cur.bundled) return

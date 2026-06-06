@@ -7,7 +7,7 @@ import { EikonGallery } from "../src/tabs/EikonGallery"
 import { EikonStudio } from "../src/tabs/EikonStudio"
 import { eikon } from "../src/service/eikon"
 import * as prefs from "../src/context/preferences"
-import { submitForReview, type ReviewBackend, type ReviewRequest } from "eikon"
+import { submit as eikonSubmit, type SubmitBackend, type SubmitRequest } from "eikon"
 import { caps, type Rasterizer } from "../src/utils/eikon-render"
 
 const HH = process.env.HERMES_HOME!
@@ -80,23 +80,23 @@ afterEach(() => {
   rmSync(join(HH, "eikons"), { recursive: true, force: true })
 })
 
-test("Eikon visual E2E: duplicate Nous draft, studio preview, submit review, delete reload", async () => {
+test("Eikon visual E2E: duplicate Nous draft, studio preview, submit, delete reload", async () => {
   const name = "nous-e2e"
   const seeded = seedNousDraft(name)
   const un = eikon.register(stub)
-  const requests: ReviewRequest[] = []
-  const backend: ReviewBackend = {
+  const requests: SubmitRequest[] = []
+  const backend: SubmitBackend = {
     async check() { return { ok: true as const } },
     async create(req) {
       requests.push(req)
-      return { kind: "review-created" as const, url: "https://example.test/review/nous-e2e", request: req }
+      return { kind: "submitted" as const, url: "https://example.test/submissions/nous-e2e", request: req }
     },
   }
-  const submitReview = (input: { path: string }) => submitForReview({ path: input.path, backend })
+  const submit = (input: { path: string }) => eikonSubmit({ path: input.path, backend })
   const frames: Record<string, string> = {}
 
   try {
-    await using gallery = await mountNode(<EikonGallery focused onEdit={() => {}} submitReview={submitReview} />, { width: 180, height: 54 })
+    await using gallery = await mountNode(<EikonGallery focused onEdit={() => {}} submit={submit} />, { width: 180, height: 54 })
     await selectRow(gallery, name)
     await until(gallery, () => gallery.frame().includes(`Preview — ${name}`))
     snap("gallery", gallery, frames)
@@ -124,7 +124,7 @@ test("Eikon visual E2E: duplicate Nous draft, studio preview, submit review, del
     expect(requests).toHaveLength(0)
 
     act(() => gallery.keys.pressEnter())
-    await until(gallery, () => gallery.frame().includes("Submitted for review") && gallery.frame().includes("nous-e2e"))
+    await until(gallery, () => gallery.frame().includes("Submitted") && gallery.frame().includes("nous-e2e"))
     snap("submitted", gallery, frames)
     expect(requests).toHaveLength(1)
     expect(requests[0]!.bundle.files.map(f => f.path).sort()).toEqual(["manifest.json", `${name}.eikon`, "source/base.png"])

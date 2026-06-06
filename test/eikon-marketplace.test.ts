@@ -31,7 +31,6 @@ type CatalogEntrySeed = {
   preview?: string
   runtimeUrl?: string
   packageUrl?: string
-  reviewStatus?: string
 }
 
 function url(raw: string, base: string) {
@@ -57,7 +56,7 @@ function catalogRow(seed: CatalogEntrySeed, base: string) {
     runtimeUrl,
     packageUrl,
     compatibility: { eikon: ">=1 <2", available: true },
-    trust: seed.reviewStatus ? { reviewStatus: seed.reviewStatus } : {},
+    trust: {},
   }
 }
 
@@ -97,7 +96,7 @@ function fixture() {
     { path: "/eikons/index.json", body: req => {
       const base = `${new URL(req.url).origin}/eikons/`
       return [
-        catalogRow({ name: "ares", author: "Kaio", poster: "ARES", source: "ares/", reviewStatus: "reviewed" }, base),
+        catalogRow({ name: "ares", author: "Kaio", poster: "ARES", source: "ares/" }, base),
         catalogRow({ name: "mono", author: "Nous", poster: "MONO", source: "mono/" }, base),
         catalogRow({ name: "ares", author: "Other", poster: "ALT", source: "alt/" }, base),
       ]

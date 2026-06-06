@@ -50,8 +50,8 @@ async function stage(t: Harness) {
 describe("Eikon submit dialog", () => {
   test("Enter previews included files before backend invocation", async () => {
     await seed("draft")
-    const fn = mock(async () => ({ kind: "review-created" as const, url: "https://github.com/liftaris/eikon/pull/1", request: {} as never }))
-    await using t = await mountNode(<EikonGallery focused submitReview={fn} />, { width: 160, height: 48 })
+    const fn = mock(async () => ({ kind: "submitted" as const, url: "https://github.com/liftaris/eikon/pull/1", request: {} as never }))
+    await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 160, height: 48 })
     await open(t)
     await stage(t)
     expect(t.frame()).toContain("source/base.png")
@@ -59,10 +59,10 @@ describe("Eikon submit dialog", () => {
     expect(fn).not.toHaveBeenCalled()
   })
 
-  test("published marketplace installs are blocked from duplicate review", async () => {
+  test("published marketplace installs are blocked from duplicate submission", async () => {
     await seed("draft", { published: true })
-    const fn = mock(async () => ({ kind: "review-created" as const, url: "https://github.com/liftaris/eikon/pull/1", request: {} as never }))
-    await using t = await mountNode(<EikonGallery focused submitReview={fn} />, { width: 160, height: 48 })
+    const fn = mock(async () => ({ kind: "submitted" as const, url: "https://github.com/liftaris/eikon/pull/1", request: {} as never }))
+    await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 160, height: 48 })
     await selectDraft(t)
     act(() => t.keys.pressKey("u"))
     await until(t, () => t.frame().includes("Create a local draft before submitting"))
@@ -83,8 +83,8 @@ describe("Eikon submit dialog", () => {
     expect(paths).toContain("manifest.json")
     expect(paths).not.toContain(".env")
     expect(paths).not.toContain("source/escape.txt")
-    const fn = mock(async () => ({ kind: "review-created" as const, url: "https://github.com/liftaris/eikon/pull/7", request: {} as never }))
-    await using t = await mountNode(<EikonGallery focused submitReview={fn} />, { width: 180, height: 60 })
+    const fn = mock(async () => ({ kind: "submitted" as const, url: "https://github.com/liftaris/eikon/pull/7", request: {} as never }))
+    await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 180, height: 60 })
     await open(t)
     await stage(t)
     expect(t.frame()).toContain("manifest.json")
@@ -92,14 +92,14 @@ describe("Eikon submit dialog", () => {
     expect(t.frame()).not.toContain("escape.txt")
     expect(fn).not.toHaveBeenCalled()
     act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("Submitted for review") && t.frame().includes("pull/7"))
+    await until(t, () => t.frame().includes("Submitted") && t.frame().includes("pull/7"))
     expect(fn).toHaveBeenCalledWith({ path: eikon.file("draft") })
   })
 
   test("preflight setup guidance does not submit", async () => {
     await seed("draft")
     const fn = mock(async () => ({ kind: "setup-needed" as const, failures: [{ code: "missing-auth" as const, message: "Run gh auth login" }] }))
-    await using t = await mountNode(<EikonGallery focused submitReview={fn} />, { width: 160, height: 48 })
+    await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 160, height: 48 })
     await open(t)
     await stage(t)
     act(() => t.keys.pressEnter())
@@ -108,21 +108,21 @@ describe("Eikon submit dialog", () => {
     expect(fn).toHaveBeenCalledWith({ path: eikon.file("draft") })
   })
 
-  test("happy path displays the returned review URL", async () => {
+  test("happy path displays the returned submission URL", async () => {
     await seed("draft")
-    const fn = mock(async () => ({ kind: "review-created" as const, url: "https://github.com/liftaris/eikon/pull/7", request: {} as never }))
-    await using t = await mountNode(<EikonGallery focused submitReview={fn} />, { width: 160, height: 48 })
+    const fn = mock(async () => ({ kind: "submitted" as const, url: "https://github.com/liftaris/eikon/pull/7", request: {} as never }))
+    await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 160, height: 48 })
     await open(t)
     await stage(t)
     act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("Submitted for review") && t.frame().includes("pull/7"))
+    await until(t, () => t.frame().includes("Submitted") && t.frame().includes("pull/7"))
     expect(fn).toHaveBeenCalledWith({ path: eikon.file("draft") })
   })
 
   test("failure redacts displayed auth tokens", async () => {
     await seed("draft")
     const fn = mock(async () => ({ kind: "backend-failed" as const, failures: [{ code: "backend-failed" as const, message: "gh failed token ***" }] }))
-    await using t = await mountNode(<EikonGallery focused submitReview={fn} />, { width: 160, height: 48 })
+    await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 160, height: 48 })
     await open(t)
     await stage(t)
     act(() => t.keys.pressEnter())
@@ -136,14 +136,14 @@ describe("Eikon submit dialog", () => {
     await seed("draft")
     let release: ((value: submit.SubmitResult) => void) | undefined
     const fn = mock(() => new Promise<submit.SubmitResult>(res => { release = res }))
-    await using t = await mountNode(<EikonGallery focused submitReview={fn} />, { width: 160, height: 48 })
+    await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 160, height: 48 })
     await open(t)
     await stage(t)
     act(() => t.keys.pressEnter())
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Submitting…"))
     expect(fn).toHaveBeenCalledTimes(1)
-    release!({ kind: "review-created", url: "https://github.com/liftaris/eikon/pull/9", request: {} as never })
+    release!({ kind: "submitted", url: "https://github.com/liftaris/eikon/pull/9", request: {} as never })
     await until(t, () => t.frame().includes("pull/9"))
   })
 
@@ -151,7 +151,7 @@ describe("Eikon submit dialog", () => {
     await seed("draft")
     let calls = 0
     const fn = mock(async () => { calls++; throw new Error("gh failed Bearer abc.def") })
-    await using t = await mountNode(<EikonGallery focused submitReview={fn} />, { width: 160, height: 48 })
+    await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 160, height: 48 })
     await open(t)
     await stage(t)
     act(() => t.keys.pressEnter())
@@ -162,8 +162,8 @@ describe("Eikon submit dialog", () => {
 
   test("Submit entry is hidden for bundled eikons", async () => {
     prefs.set("eikon", "default")
-    const fn = mock(async () => ({ kind: "review-created" as const, url: "https://github.com/liftaris/eikon/pull/1", request: {} as never }))
-    await using t = await mountNode(<EikonGallery focused submitReview={fn} />, { width: 160, height: 48 })
+    const fn = mock(async () => ({ kind: "submitted" as const, url: "https://github.com/liftaris/eikon/pull/1", request: {} as never }))
+    await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 160, height: 48 })
     await until(t, () => t.frame().includes("(bundled)"))
     expect(t.frame()).not.toContain("submit")
     act(() => t.keys.pressKey("u"))
