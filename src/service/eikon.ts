@@ -17,13 +17,13 @@
 // live on every open of the rasterizer picker.
 
 import { existsSync, mkdirSync, readdirSync, copyFileSync, readFileSync, writeFileSync, rmSync } from "node:fs"
-import { join, extname, basename } from "node:path"
+import { join, extname, basename, dirname } from "node:path"
 import { install, peek, header as peekHeader, type Installed as Got } from "eikon"
 import { DEFAULT_PUBLIC_CATALOG } from "eikon/catalog"
 import { hermesPath } from "./hermes-home"
 import * as prefs from "../context/preferences"
-import { parseEikon } from "../components/avatar/eikon"
-import { BUNDLED_EIKON_DIR } from "../components/avatar/bundled"
+import { parseEikon, listEikons } from "../components/avatar/eikon"
+import { BUNDLED_EIKON_DIR, bundledEikonPath } from "../components/avatar/bundled"
 import type { AvatarState } from "../components/avatar/states"
 import { BUILTIN, cached, probe, W, H, type Rasterizer, type Frame } from "../utils/eikon-render"
 import { STATES, eff, toStudio, fresh, type Session, type Studio } from "../utils/eikon-knobs"
@@ -133,18 +133,19 @@ export function header(path: string): Record<string, unknown> | undefined {
   return peekHeader(path) ?? undefined
 }
 
-/** Locate the packed `.eikon` for a name — installed folder-form
- *  first, then the bundled flat dir. Studio falls back to this for
+/** Locate the packed eikon for a name — installed folder-form first,
+ *  then bundled launch packages. Studio falls back to this for
  *  baked-frame preview + header `source_url` when `source/` is empty. */
 export function baked(name: string): string | undefined {
   const local = file(name)
   if (existsSync(local)) return local
-  for (const f of [`${name}.eikon`, "default.eikon"]) {
-    const p = join(BUNDLED_EIKON_DIR, f)
-    const head = header(p)
-    if (head && String(head.name).toLowerCase() === name.toLowerCase()) return p
+
+  const target = name.toLowerCase()
+  for (const e of listEikons([BUNDLED_EIKON_DIR])) {
+    const slug = basename(dirname(e.path)).toLowerCase()
+    if (slug === target || e.meta.name.toLowerCase() === target) return e.path
   }
-  return undefined
+  return bundledEikonPath("default")
 }
 
 // ── Rasterizer registry ──────────────────────────────────────────────

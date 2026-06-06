@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import type { Catalog, CatalogIndexEntry } from "eikon"
+import type { Catalog } from "eikon"
 import * as market from "../src/service/eikon-marketplace"
 import { eikon } from "../src/service/eikon"
 import * as prefs from "../src/context/preferences"
@@ -10,9 +10,69 @@ const HH = process.env.HERMES_HOME!
 if (!HH || HH.includes("/.hermes")) throw new Error("sandbox not applied")
 
 const body = "{\"eikon\":1,\"name\":\"ares\",\"author\":\"Kaio\",\"width\":48,\"height\":24}\n"
+const launch = [
+  JSON.stringify({ type: "header", eikon: 1, size: { cols: 4, rows: 2 }, defaultSignal: "state.idle", signals: { "state.idle": { clip: "idle" } } }),
+  JSON.stringify({ type: "clip", name: "idle", fps: 12, frameCount: 1 }),
+  JSON.stringify({ type: "frame", clip: "idle", index: 0, rows: ["abcd", "efgh"] }),
+].join("\n") + "\n"
 const png = new Uint8Array([137, 80, 78, 71])
 
-type Route = { path: string; body: BodyInit | object; status?: number; headers?: HeadersInit }
+type RouteBody = BodyInit | object | ((req: Request) => BodyInit | object)
+type Route = { path: string; body: RouteBody; status?: number; headers?: HeadersInit }
+type CatalogEntrySeed = {
+  name: string
+  id?: string
+  version?: string
+  author?: string
+  description?: string
+  poster?: string
+  source?: string
+  sourceKey?: string
+  preview?: string
+  runtimeUrl?: string
+  packageUrl?: string
+}
+
+function url(raw: string, base: string) {
+  return new URL(raw, base.endsWith("/") ? base : `${base}/`).toString()
+}
+
+function catalogRow(seed: CatalogEntrySeed, base: string) {
+  const dir = url(seed.source ?? `${seed.name}/`, base)
+  const runtimeUrl = seed.runtimeUrl ? url(seed.runtimeUrl, dir) : url(`${seed.name}.eikon`, dir)
+  const packageUrl = seed.packageUrl ? url(seed.packageUrl, dir) : url("manifest.json", dir)
+  return {
+    kind: "eikon.catalog.entry",
+    schemaVersion: "1.0",
+    id: seed.id ?? seed.name,
+    version: seed.version ?? "1.0.0",
+    sourceKey: seed.sourceKey ?? dir,
+    name: seed.name,
+    title: seed.name,
+    ...(seed.author ? { author: seed.author } : {}),
+    ...(seed.description ? { description: seed.description } : {}),
+    poster: seed.poster ?? seed.name,
+    preview: seed.preview ? url(seed.preview, dir) : runtimeUrl,
+    runtimeUrl,
+    packageUrl,
+    compatibility: { eikon: ">=1 <2", available: true },
+    trust: {},
+  }
+}
+
+function entry(seed: CatalogEntrySeed): Catalog["entries"][number] {
+  const raw = catalogRow(seed, "https://example.com/eikons/")
+  return {
+    ...raw,
+    w: 48,
+    h: 24,
+    width: 48,
+    height: 24,
+    trust: raw.trust,
+    identityKey: raw.sourceKey,
+    raw,
+  } as Catalog["entries"][number]
+}
 
 function serve(routes: Route[], seen: string[] = []) {
   return Bun.serve({
@@ -22,9 +82,10 @@ function serve(routes: Route[], seen: string[] = []) {
       seen.push(path)
       const hit = routes.find(r => r.path === path)
       if (!hit) return new Response("404", { status: 404 })
-      if (typeof hit.body === "object" && !(hit.body instanceof Uint8Array))
-        return Response.json(hit.body, { status: hit.status ?? 200, headers: hit.headers })
-      return new Response(hit.body as BodyInit, { status: hit.status ?? 200, headers: hit.headers })
+      const body = typeof hit.body === "function" ? hit.body(req) : hit.body
+      if (typeof body === "object" && !(body instanceof Uint8Array))
+        return Response.json(body, { status: hit.status ?? 200, headers: hit.headers })
+      return new Response(body as BodyInit, { status: hit.status ?? 200, headers: hit.headers })
     },
   })
 }
@@ -32,11 +93,14 @@ function serve(routes: Route[], seen: string[] = []) {
 function fixture() {
   const seen: string[] = []
   const srv = serve([
-    { path: "/eikons/index.json", body: [
-      { name: "ares", author: "Kaio", width: 48, height: 24, poster: "ARES", source: "ares/", preview_url: "ares.eikon", install_url: "", license: "MIT", provenance: "repo", reviewed: true },
-      { name: "mono", author: "Nous", width: 48, height: 24, poster: "MONO", source: "mono/", preview_url: "mono.eikon", install_url: "" },
-      { name: "ares", author: "Other", width: 48, height: 24, poster: "ALT", source: "alt/", preview_url: "ares.eikon", install_url: "" },
-    ] },
+    { path: "/eikons/index.json", body: req => {
+      const base = `${new URL(req.url).origin}/eikons/`
+      return [
+        catalogRow({ name: "ares", author: "Kaio", poster: "ARES", source: "ares/" }, base),
+        catalogRow({ name: "mono", author: "Nous", poster: "MONO", source: "mono/" }, base),
+        catalogRow({ name: "ares", author: "Other", poster: "ALT", source: "alt/" }, base),
+      ]
+    } },
     { path: "/eikons/ares/ares.eikon", body },
     { path: "/eikons/ares/manifest.json", body: { name: "ares", source: "source.png" } },
     { path: "/eikons/ares/source.png", body: png },
@@ -84,8 +148,6 @@ describe("service/eikon-marketplace", () => {
     writeFileSync(join(eikon.dir("ares"), "manifest.json"), JSON.stringify({
       name: "ares",
       origin: { source: `${fx.base}/alt/`, at: "2026-05-31T00:00:00.000Z" },
-      license: "Apache-2.0",
-      provenance: "fixture",
     }, null, 2))
     prefs.set("eikon", "ares")
 
@@ -94,7 +156,7 @@ describe("service/eikon-marketplace", () => {
     expect(byPoster.get("ALT")!.installed).toBe(true)
     expect(byPoster.get("ALT")!.active).toBe(true)
     expect(byPoster.get("ARES")!.installed).toBe(false)
-    expect(byPoster.get("ALT")!.installedManifest?.license).toBe("Apache-2.0")
+    expect(byPoster.get("ALT")!.installedManifest?.origin?.source).toBe(`${fx.base}/alt/`)
     fx.srv.stop()
   })
 
@@ -196,21 +258,7 @@ describe("service/eikon-marketplace", () => {
     const waitForFetch = () => pending.length > 0 ? Promise.resolve() : new Promise<void>(resolve => waits.push(resolve))
     const cat: Catalog = {
       base: "https://example.com/eikons",
-      entries: ["one", "two", "three"].map(name => ({
-        name,
-        author: "Kaio",
-        width: 48,
-        height: 24,
-        w: 48,
-        h: 24,
-        poster: name,
-        trust: {},
-        identityKey: `https://example.com/${name}/`,
-        sourceKey: `https://example.com/${name}/`,
-        raw: { name } satisfies CatalogIndexEntry,
-        installUrl: `https://example.com/${name}/manifest.json`,
-        previewUrl: `https://example.com/${name}/${name}.eikon`,
-      })),
+      entries: ["one", "two", "three"].map(name => entry({ name })),
       load: async () => "",
     }
     const svc = new market.MarketplaceService(cat, {
@@ -254,13 +302,59 @@ describe("service/eikon-marketplace", () => {
     expect(prefs.get("eikon")).toBe("old")
     expect(eikon.revision()).toBe(before + 1)
     const man = JSON.parse(readFileSync(join(eikon.dir("ares"), "manifest.json"), "utf8"))
-    expect(man.origin.source).toBe(`${fx.base}/ares/`)
+    expect(man.origin.source).toBe(`${fx.base}/ares/manifest.json`)
     fx.srv.stop()
+  })
+
+  test("marketplace installs launch package catalog entries from explicit manifest URLs", async () => {
+    const pkgManifest = {
+      kind: "eikon.package",
+      schemaVersion: "1.0",
+      id: "liftaris/pkg",
+      version: "1.0.0",
+      name: "pkg",
+      compatibility: { eikon: ">=1 <2" },
+      entrypoints: { default: "streams/pkg.eikon" },
+      files: [
+        { path: "streams/pkg.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl" },
+        { path: "source/base.png", role: "source.base", mediaType: "image/png" },
+        { path: "source/idle.mp4", role: "source.clip", mediaType: "video/mp4" },
+      ],
+      source: { base: "source/base.png", states: { idle: { file: "source/idle.mp4" } } },
+    }
+    const srv = serve([
+      { path: "/eikons/index.json", body: req => {
+        const u = new URL(req.url)
+        return [catalogRow({
+          id: "liftaris/pkg",
+          version: "1.0.0",
+          name: "pkg",
+          source: "packages/pkg/",
+          sourceKey: `registry:${u.host}:liftaris/pkg@1.0.0`,
+          runtimeUrl: "streams/pkg.eikon",
+          packageUrl: "manifest.json",
+        }, `${u.origin}/eikons/`)]
+      } },
+      { path: "/eikons/packages/pkg/manifest.json", body: pkgManifest },
+      { path: "/eikons/packages/pkg/streams/pkg.eikon", body: launch },
+      { path: "/eikons/packages/pkg/source/base.png", body: png },
+      { path: "/eikons/packages/pkg/source/idle.mp4", body: new Uint8Array(8) },
+    ])
+    const state = await market.load({ catalog: `http://localhost:${srv.port}/eikons`, allowPrivate: true })
+    expect(state.status).toBe("ready")
+    const out = await state.service!.install(state.rows[0]!.entry.identityKey)
+
+    expect(out.name).toBe("pkg")
+    expect(existsSync(eikon.file("pkg"))).toBe(true)
+    expect(existsSync(join(eikon.sourceDir("pkg"), "base.png"))).toBe(true)
+    expect(existsSync(join(eikon.sourceDir("pkg"), "idle.mp4"))).toBe(true)
+    expect(JSON.parse(readFileSync(eikon.file("pkg"), "utf8").split("\n", 1)[0]!).type).toBe("header")
+    srv.stop()
   })
 
   test("failed marketplace install is retryable and does not activate or mark installed", async () => {
     const srv = serve([
-      { path: "/eikons/index.json", body: [{ name: "bad", poster: "B", source: "bad/", install_url: "", preview_url: "bad.eikon" }] },
+      { path: "/eikons/index.json", body: req => [catalogRow({ name: "bad", poster: "B", source: "bad/" }, `${new URL(req.url).origin}/eikons/`)] },
       { path: "/eikons/bad/manifest.json", body: "missing", status: 404 },
     ])
     const state = await market.load({ catalog: `http://localhost:${srv.port}/eikons`, allowPrivate: true })
