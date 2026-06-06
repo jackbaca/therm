@@ -1092,6 +1092,9 @@ describe("Sessions tab — source filters", () => {
     expect(t.frame()).toContain("Conversations 1")
     expect(t.frame()).toContain("Cron 1")
     expect(t.frame()).toContain("[←→] filter")
+    expect(t.frame()).not.toContain("●")
+    expect(t.frame()).not.toContain("○")
+    expect(t.frame()).not.toContain("── Conversations")
 
     act(() => t.keys.pressArrow("right"))
     await until(t, () => t.frame().includes("Nightly cron"))
@@ -1118,6 +1121,8 @@ describe("Sessions tab — source filters", () => {
     let lines = t.frame().split("\n")
     expect(lines.findIndex(l => l.includes("Live work")))
       .toBeLessThan(lines.findIndex(l => l.includes("Conversations")))
+    expect(t.frame()).toContain("Active Session")
+    expect(t.frame()).not.toContain("── Active Session")
     expect(t.frame()).toContain("No conversations found")
 
     act(() => t.keys.pressArrow("right"))

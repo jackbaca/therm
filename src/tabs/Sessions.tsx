@@ -72,22 +72,19 @@ const FilterRow = memo((props: {
   const theme = useTheme().theme
   return (
     <box height={1} flexDirection="row" paddingLeft={2}>
-      <text fg={theme.textMuted}>{"── "}</text>
       {VIEWS.map((v, i) => {
         const on = props.view === v
+        const fg = on ? theme.primary : theme.textMuted
         return (
-          <box key={v} height={1} paddingLeft={i === 0 ? 0 : 1} paddingRight={1}
-               backgroundColor={on ? theme.backgroundElement : undefined}
-               onMouseDown={() => props.setView(v)}>
+          <box key={v} height={1} paddingLeft={i === 0 ? 0 : 2}
+               paddingRight={1} onMouseDown={() => props.setView(v)}>
             <text>
-              <span fg={on ? theme.accent : theme.textMuted}>{on ? "● " : "○ "}</span>
-              <span fg={on ? theme.primary : theme.text}>{on ? <strong>{tab(v)}</strong> : tab(v)}</span>
-              <span fg={theme.textMuted}>{` ${props.counts[v]}`}</span>
+              <span fg={fg}>{tab(v)}</span>
+              <span fg={fg}>{` ${props.counts[v]}`}</span>
             </text>
           </box>
         )
       })}
-      <text fg={theme.textMuted}>{"──"}</text>
     </box>
   )
 })
@@ -907,7 +904,7 @@ export const Sessions = memo((props: Props) => {
                          height={1 + (top(i) ? 1 : 0) + (tabs(i) ? 1 : 0)}>
                       {top(i) ? (
                         <box height={1} paddingLeft={2}>
-                          <text fg={theme.textMuted}>{`── ${active.length === 1 ? "Active Session" : "Active Sessions"} ──`}</text>
+                          <text fg={theme.primary}>{active.length === 1 ? "Active Session" : "Active Sessions"}</text>
                         </box>
                       ) : null}
                       {tabs(i) ? <FilterRow view={view} setView={setView} counts={counts} /> : null}
