@@ -891,13 +891,16 @@ export const Sessions = memo((props: Props) => {
                   ))
                 : visible.map((v, i) => (
                     <box key={`${v.row.id}-${v.indent ? "c" : "p"}`} flexDirection="column"
-                         height={1 + (top(i) ? 1 : 0) + (tabs(i) ? 1 : 0)}>
+                         height={1 + (top(i) ? 1 : 0) + (tabs(i) ? 2 : 0)}>
                       {top(i) ? (
                         <box height={1} paddingLeft={2}>
                           <text fg={theme.primary}>{active.length === 1 ? "Active Session" : "Active Sessions"}</text>
                         </box>
                       ) : null}
-                      {tabs(i) ? <FilterRow view={view} setView={setView} counts={counts} /> : null}
+                      {tabs(i) ? <>
+                        <FilterRow view={view} setView={setView} counts={counts} />
+                        <box height={1} />
+                      </> : null}
                       <Item id={rowId(i)} idx={i}
                         row={v.row} selected={i === sel} indent={v.indent}
                         onActivate={rowActivate} onHover={rowHover} onDelete={rowDelete} />
