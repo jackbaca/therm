@@ -77,7 +77,8 @@ const FilterRow = memo((props: {
       {VIEWS.map((v, i) => (
         <FilterChip key={v} label={`${tab(v)} ${props.counts[v]}`}
           state={props.view === v ? "in" : "off"} gap={i === 0 ? 0 : 1}
-          color={theme.primary} onMouseDown={() => props.setView(v)} />
+          color={theme.primary} textColor={theme.primary}
+          onMouseDown={() => props.setView(v)} />
       ))}
     </box>
   )

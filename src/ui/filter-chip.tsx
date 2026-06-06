@@ -29,16 +29,19 @@ export const FilterChip = memo((p: {
   gap?: number
   /** Include/selected color. Defaults to theme accent. */
   color?: ColorInput
+  /** Off-state text color. Defaults to theme text. */
+  textColor?: ColorInput
   onMouseDown?: () => void
 }) => {
   const theme = useTheme().theme
   const color = p.color ?? theme.accent
+  const text = p.textColor ?? theme.text
   const bg = p.state === "in" ? color
     : p.state === "ex" ? undefined
     : theme.backgroundElement
   const fg = p.state === "in" ? theme.background
     : p.state === "ex" ? (p.selected ? color : theme.borderSubtle)
-    : p.selected ? color : theme.text
+    : p.selected ? color : text
   return (
     <box height={1} flexShrink={0} marginLeft={p.gap ?? 1}
          paddingLeft={1} paddingRight={1}
