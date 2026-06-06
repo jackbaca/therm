@@ -19,6 +19,7 @@ import { KVBlock } from "../ui/kv"
 import { Col, Hdr, Marquee, VBAR } from "../ui/table"
 import { Spinner } from "../ui/spinner"
 import { Ticker, inline } from "../ui/ticker"
+import { FilterChip } from "../ui/filter-chip"
 import { openConfirm } from "../dialogs/confirm"
 import { openTextPrompt } from "../dialogs/text-prompt"
 import { fmt, cost, trunc, ago, when, span, stamp } from "../ui/fmt"
@@ -68,26 +69,15 @@ const FilterRow = memo((props: {
   view: View
   setView: (v: View) => void
   counts: Record<View, number>
-}) => {
-  const theme = useTheme().theme
-  return (
-    <box height={1} flexDirection="row" paddingLeft={2}>
-      {VIEWS.map((v, i) => {
-        const on = props.view === v
-        const fg = on ? theme.primary : theme.textMuted
-        return (
-          <box key={v} height={1} paddingLeft={i === 0 ? 0 : 2}
-               paddingRight={1} onMouseDown={() => props.setView(v)}>
-            <text>
-              <span fg={fg}>{tab(v)}</span>
-              <span fg={fg}>{` ${props.counts[v]}`}</span>
-            </text>
-          </box>
-        )
-      })}
-    </box>
-  )
-})
+}) => (
+  <box height={1} flexDirection="row" paddingLeft={2}>
+    {VIEWS.map((v, i) => (
+      <FilterChip key={v} label={`${tab(v)} ${props.counts[v]}`}
+        state={props.view === v ? "in" : "off"} gap={i === 0 ? 0 : 1}
+        onMouseDown={() => props.setView(v)} />
+    ))}
+  </box>
+))
 //
 // Purpose: decide whether to load a session without replacing the
 // current chat. So: conversation only. Tool chatter is collapsed to
