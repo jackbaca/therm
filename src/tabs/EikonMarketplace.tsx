@@ -54,7 +54,22 @@ export const EikonMarketplace = memo((props: {
         if (previewSeq.current !== id) return
         const e = parseEikon(text)
         const st = e.states.has(previewState) ? previewState : "idle"
-        const preview = { key: `${key}:${st}`, eikon: e, state: st }
+        const preview: SidebarPreview = {
+          key: `${key}:${st}`,
+          eikon: e,
+          state: st,
+          title: selected.entry.name,
+          subtitle: selected.entry.author ?? "unknown",
+          body: selected.entry.description ?? "No description.",
+          rows: [
+            { label: "Action", value: actionLabel(selected), strong: selected.action !== "active" },
+            { label: "Status", value: selected.installed ? selected.active ? "active" : "installed" : "not installed" },
+            { label: "State", value: st },
+            { label: "Review", value: selected.entry.trust.reviewStatus ?? "unreviewed" },
+            { label: "Reviewer", value: selected.entry.trust.reviewer ?? "unknown" },
+            { label: "Digest", value: trustDigest(selected) ?? "unknown" },
+          ],
+        }
         if (props.sidebarPreview) props.sidebarPreview(preview)
         setDetailPreview(preview)
         perf.count("market:preview:ready")

@@ -128,12 +128,14 @@ describe("Sidebar", () => {
   test("preview override replaces avatar and suppresses chat cloud", async () => {
     const gw = new MockGateway({ "plugins.list": () => ({ plugins: [] }) })
     const t = await mountNode(
-      <Sidebar agentState="thinking" info={INFO} cloud pulse preview={{ key: "market", eikon: PREVIEW, state: "idle" }} />,
+      <Sidebar agentState="thinking" info={INFO} cloud pulse preview={{ key: "market", eikon: PREVIEW, state: "idle", subtitle: "Test" }} />,
       { gw, width: 160, height: 48 },
     )
     await until(t, () => t.frame().includes("SIDEBAR-PREVIEW-IDLE"))
     const f = t.frame()
-    expect(f).toContain("Profile")
+    expect(f).toMatch(/Eikon\s+preview/)
+    expect(f).toMatch(/Author\s+Test/)
+    expect(f).not.toContain("Profile")
     expect(f).not.toContain("╭")
     t.destroy()
   })

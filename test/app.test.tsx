@@ -344,6 +344,13 @@ describe("app", () => {
     act(() => t.keys.pressArrow("right", { shift: true }))
     act(() => t.keys.pressArrow("right", { shift: true }))
     await until(t, () => t.frame().includes("Marketplace (1)") && t.frame().includes("MARKET-PREVIEW-LINE"))
+    expect(t.frame()).toMatch(/Eikon\s+marketone/)
+    expect(t.frame()).toMatch(/Author\s+Kaio/)
+    expect(t.frame()).toContain("market one")
+    expect(t.frame()).toMatch(/Action\s+Install/)
+    expect(t.frame()).toMatch(/Review\s+unreviewed/)
+    expect(t.frame()).toMatch(/Digest\s+unknown/)
+    expect(t.frame()).not.toMatch(/Profile\s+default/)
 
     expect(prefs.get("eikon")).toBe("activeone")
     expect(t.frame()).not.toContain("ACTIVE-EIKON-LINE")
