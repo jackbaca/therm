@@ -188,11 +188,11 @@ export function mapEvent(ev: GatewayEvent, side: Side): Action | null {
       // Error-ish stderr lines (tracebacks, HTTP 4xx/5xx, auth failures)
       // surface inline; benign chatter stays in gw.tail() only (/logs).
       // The full untruncated line is always in gw.logs via GatewayClient.log();
-      // the transcript row carries the line verbatim so no traceback context
-      // is lost to a slice here.
+      // stderr is a diagnostic side channel, not the turn lifecycle source
+      // of truth, so it must not end an active stream.
       const line = ev.payload.line
       if (/error|fail|traceback|exception|\b[45]\d\d\b|refused|denied|unauthori/i.test(line))
-        return { kind: "error", text: line }
+        return { kind: "error", text: line, fatal: false }
       return null
     }
 

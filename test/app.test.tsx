@@ -1084,6 +1084,33 @@ describe("app", () => {
     t.destroy()
   })
 
+  test("preflight compression stderr does not end the active turn", async () => {
+    const t = await mount()
+    await until(t, () => t.frame().includes("Ready"))
+
+    act(() => {
+      t.gw.push({ type: "message.start" })
+      t.gw.push({ type: "status.update", payload: { kind: "lifecycle", text: "📦 Preflight compression: ~230,802 tokens >= 217,600 threshold. This may take a moment." } })
+      t.gw.push({ type: "gateway.stderr", payload: { line: "⚠ Compression summary failed: timeout. Inserted a fallback context marker." } })
+      t.gw.push({ type: "status.update", payload: { kind: "warn", text: "⚠ Compression summary failed: timeout. Inserted a fallback context marker." } })
+      t.gw.push({ type: "reasoning.delta", payload: { text: "I need to inspect files." } })
+      t.gw.push({ type: "tool.start", payload: { tool_id: "t1", name: "read_file", context: "src/app.tsx" } })
+    })
+    await until(t, () => {
+      const f = t.frame()
+      return f.includes("Type to queue") && f.includes("I need to inspect files") && f.includes("tools 1")
+    })
+
+    act(() => t.gw.push({ type: "message.complete", payload: { text: "done", usage: { input: 1, output: 1, total: 2 } } }))
+    await t.settle()
+    const n = (t.frame().match(/Connected —/g) ?? []).length
+    act(() => t.gw.push({ type: "session.info", payload: { model: "test-model", session_id: "test-sid", tools: {}, skills: {} } }))
+    await t.settle()
+    expect(t.frame().match(/Connected —/g) ?? []).toHaveLength(n)
+
+    t.destroy()
+  })
+
   test("send() expands {!cmd} via shell.exec before prompt.submit", async () => {
     const t = await mount({ handlers: {
       "shell.exec": p => ({ stdout: `OUT<${p.command}>`, stderr: "", code: 0 }),
