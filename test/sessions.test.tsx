@@ -120,7 +120,8 @@ describe("Sessions tab", () => {
 
     expect(t.frame()).toContain("Active Session")
     expect(t.frame()).toContain("TUI")
-    expect(t.frame()).toContain("Conversations")
+    expect(t.frame()).not.toContain("Conversations")
+    expect(t.frame()).not.toContain("[←→] filter")
     expect(t.frame()).not.toContain("History")
 
     t.destroy()
@@ -1082,6 +1083,52 @@ describe("Sessions tab — source filters", () => {
       message_count: 5, started_at: 1700000200 }),
   ]
 
+  test("builds exact source tabs from loaded history", async () => {
+    const rows = [
+      detail({ id: "tui", sessionSource: "tui", title: "TUI chat",
+        message_count: 2, started_at: 1700000100 }),
+      detail({ id: "discord", sessionSource: "discord", title: "Discord chat",
+        message_count: 3, started_at: 1700000200 }),
+      detail({ id: "bridge", sessionSource: "custom_bridge", title: "Bridge chat",
+        message_count: 4, started_at: 1700000300 }),
+      detail({ id: "cron", sessionSource: "cron", title: "Cron job",
+        message_count: 5, started_at: 1700000400 }),
+    ]
+    const gw = new MockGateway({ "session.list": () => ({ sessions: [] }) })
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, list: () => rows }} />, { gw, width: 130 })
+    await until(t, () => t.frame().includes("Custom Bridge 1"))
+
+    const f = t.frame()
+    expect(f).toContain("Conversations 3")
+    expect(f).toContain("TUI 1")
+    expect(f).toContain("Discord 1")
+    expect(f).toContain("Custom Bridge 1")
+    expect(f).toContain("Cron 1")
+    expect(f).not.toContain("Slack")
+    expect(f).not.toContain("Telegram")
+    expect(f).toContain("TUI chat")
+    expect(f).toContain("Discord chat")
+    expect(f).toContain("Bridge chat")
+    expect(f).not.toContain("Cron job")
+    t.destroy()
+  })
+
+  test("scrolls an overflowing source filter row to the selected chip", async () => {
+    const rows = Array.from({ length: 10 }, (_, i) => detail({
+      id: `source-${i}`, sessionSource: `source_${i.toString().padStart(2, "0")}`,
+      title: `Source ${i.toString().padStart(2, "0")} row`, message_count: 1,
+      started_at: 1700001000 - i,
+    }))
+    const gw = new MockGateway({ "session.list": () => ({ sessions: [] }) })
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, list: () => rows }} />, { gw, width: 70, height: 24 })
+    await until(t, () => t.frame().includes("Source 00 1"))
+
+    for (let i = 0; i < 10; i++) act(() => t.keys.pressArrow("right"))
+    await until(t, () => t.frame().includes("Source 09 1"))
+    expect(t.frame()).toContain("Source 09 row")
+    t.destroy()
+  })
+
   test("defaults to Conversations and ←/→ switches to Cron", async () => {
     const gw = new MockGateway({ "session.list": () => ({ sessions: [] }) })
     const t = await mountNode(<Sessions focused io={{ ...NOIO, list: () => disk }} />, { gw, width: 110 })
@@ -1107,7 +1154,7 @@ describe("Sessions tab — source filters", () => {
     t.destroy()
   })
 
-  test("active sessions stay above the source filter", async () => {
+  test("active sessions stay above a source-only filter", async () => {
     const gw = new MockGateway({
       "session.active_list": () => ({ sessions: [
         { id: "live", title: "Live work", preview: "", message_count: 1,
@@ -1116,20 +1163,19 @@ describe("Sessions tab — source filters", () => {
       "session.list": () => ({ sessions: [] }),
     })
     const t = await mountNode(<Sessions focused io={{ ...NOIO, list: () => disk.slice(1) }} />, { gw, width: 110 })
-    await until(t, () => t.frame().includes("Live work") && t.frame().includes("Conversations"))
+    await until(t, () => t.frame().includes("Live work") && t.frame().includes("Cron 1"))
 
     let lines = t.frame().split("\n")
     expect(lines.findIndex(l => l.includes("Live work")))
-      .toBeLessThan(lines.findIndex(l => l.includes("Conversations")))
+      .toBeLessThan(lines.findIndex(l => l.includes("Cron 1")))
     expect(t.frame()).toContain("Active Session")
     expect(t.frame()).not.toContain("── Active Session")
-    expect(t.frame()).toContain("No conversations found")
+    expect(t.frame()).not.toContain("Conversations")
+    expect(t.frame()).not.toContain("No conversations found")
 
-    act(() => t.keys.pressArrow("right"))
-    await until(t, () => t.frame().includes("Nightly cron"))
     lines = t.frame().split("\n")
     const live = lines.findIndex(l => l.includes("Live work"))
-    const tabs = lines.findIndex(l => l.includes("Conversations"))
+    const tabs = lines.findIndex(l => l.includes("Cron 1"))
     const cron = lines.findIndex(l => l.includes("Nightly cron"))
     expect(live).toBeGreaterThanOrEqual(0)
     expect(tabs).toBeGreaterThan(live)

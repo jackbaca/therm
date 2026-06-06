@@ -19,6 +19,7 @@ import { KVBlock } from "../ui/kv"
 import { Col, Hdr, Marquee, VBAR } from "../ui/table"
 import { Spinner } from "../ui/spinner"
 import { Ticker, inline } from "../ui/ticker"
+import { FilterChip } from "../ui/filter-chip"
 import { openConfirm } from "../dialogs/confirm"
 import { openTextPrompt } from "../dialogs/text-prompt"
 import { fmt, cost, trunc, ago, when, span, stamp } from "../ui/fmt"
@@ -50,42 +51,63 @@ const cmp = (s: Sort) => {
   return (a: Row, b: Row) => k(b) - k(a)
 }
 
-const badge = (src: string): string => (({
-  cli: "CLI", tui: "TUI", api_server: "API", discord: "Discord",
-  telegram: "Telegram", slack: "Slack", whatsapp: "WhatsApp", signal: "Signal",
-  cron: "Cron",
-} as Record<string, string>)[src] ?? src) || "—"
+const WORD = { api: "API", cli: "CLI", tui: "TUI", whatsapp: "WhatsApp" } as Record<string, string>
+const badge = (s: string): string => s
+  .split(/[_-]+/).filter(Boolean)
+  .map(w => WORD[w.toLowerCase()] ?? (w[0]?.toUpperCase() ?? "") + w.slice(1))
+  .join(" ") || "—"
 
 const label = (r: Row) => r.title.trim() || (r.live ? "-" : "Untitled")
+const src = (r: Row): string => r.detail?.sessionSource || r.source || ""
 
-type View = "conversations" | "cron"
+type View = {
+  id: string
+  label: string
+  count: number
+  source?: string
+  aggregate?: "conversations"
+}
 
-const VIEWS: View[] = ["conversations", "cron"]
-const cron = (r: Row): boolean => r.source === "cron" || r.detail?.sessionSource === "cron"
-const tab = (v: View): string => v === "cron" ? "Cron" : "Conversations"
+const HOME = "conversations"
+const HBAR = { visible: false } as const
+const ROW = { flexDirection: "row" } as const
+const sid = (s: string): string => `source:${s}`
+const chip = (id: string): string => `sessions-source-${id.replace(/[^a-z0-9_-]/gi, "_")}`
+const tick = (r: Row): number => r.detail?.last_active ?? r.started_at
 
-const FilterRow = memo((props: {
-  view: View
-  setView: (v: View) => void
-  counts: Record<View, number>
+const FilterRow = memo((p: {
+  views: View[]
+  view: string
+  setView: (v: string) => void
 }) => {
   const theme = useTheme().theme
+  const ref = useRef<ScrollBoxRenderable | null>(null)
+  useEffect(() => {
+    const move = () => {
+      const node = ref.current
+      const idx = p.views.findIndex(v => v.id === p.view)
+      if (!node || idx < 0) return
+      const left = p.views.slice(0, idx).reduce((n, v, i) =>
+        n + (i === 0 ? 0 : 1) + `${v.label} ${v.count}`.length + 2, 0)
+      const w = `${p.views[idx].label} ${p.views[idx].count}`.length + 2
+      const port = Math.max(1, node.viewport.width - 4)
+      const pos = node.scrollLeft
+      node.scrollLeft = Math.max(0, left < pos ? left : left + w > pos + port ? left + w - port : pos)
+    }
+    move()
+    const id = setTimeout(move, 0)
+    return () => clearTimeout(id)
+  }, [p.view, p.views])
   return (
-    <box height={1} flexDirection="row" paddingLeft={2}>
-      {VIEWS.map((v, i) => {
-        const on = props.view === v
-        const fg = on ? theme.primary : theme.textMuted
-        return (
-          <box key={v} height={1} paddingLeft={i === 0 ? 0 : 2}
-               paddingRight={1} onMouseDown={() => props.setView(v)}>
-            <text>
-              <span fg={fg}>{tab(v)}</span>
-              <span fg={fg}>{` ${props.counts[v]}`}</span>
-            </text>
-          </box>
-        )
-      })}
-    </box>
+    <scrollbox ref={ref} scrollX height={1} paddingLeft={2}
+               horizontalScrollbarOptions={HBAR} contentOptions={ROW}>
+      {p.views.map((v, i) => (
+        <FilterChip key={v.id} id={chip(v.id)} label={`${v.label} ${v.count}`}
+          state={p.view === v.id ? "in" : "off"} gap={i === 0 ? 0 : 1}
+          color={theme.primary} textColor={theme.primary}
+          onMouseDown={() => p.setView(v.id)} />
+      ))}
+    </scrollbox>
   )
 })
 //
@@ -235,7 +257,7 @@ const Detail = memo((props: {
           <box height={1} />
           <KVBlock rows={[
             ["ID", r.id],
-            ["Source", badge(r.source ?? "")],
+            ["Source", badge(src(r))],
             ["Model", d?.model ?? "—"],
             ["Started", when(r.started_at)],
             ["Last active", lastActive ? `${when(lastActive)}  (${ago(lastActive)})` : "—"],
@@ -398,7 +420,7 @@ const Item = memo((props: {
                bold={props.selected}>
         {label(r)}
       </Marquee>
-      <Col w={9} fg={muted ?? theme.info}>{badge(r.source ?? "")}</Col>
+      <Col w={9} fg={muted ?? theme.info}>{badge(src(r))}</Col>
       <Col w={8} fg={theme.textMuted}>{stamp(r.started_at)}</Col>
       <Col w={10} fg={theme.textMuted} right>{active ? ago(active) : "—"}</Col>
       <Col w={7} fg={theme.textMuted} right>{String(r.message_count)}</Col>
@@ -504,19 +526,40 @@ export const Sessions = memo((props: Props) => {
   // without re-hitting state.db.
   const sort: Sort = prefs.usePref("sessions")?.sort ?? "active"
   const setSort = useCallback((s: Sort) => prefs.set("sessions", { sort: s }), [])
-  const [view, setView] = useState<View>("conversations")
+  const [view, setView] = useState<string>(HOME)
   const active = useMemo(() => [...liveRows].sort((a, b) =>
     Number(Boolean(b.live?.current)) - Number(Boolean(a.live?.current)) ||
     ((b.live?.last_active ?? b.started_at) - (a.live?.last_active ?? a.started_at))), [liveRows])
   const ids = useMemo(() => new Set(active.flatMap(r =>
     [r.id, r.live?.session_key].filter((x): x is string => Boolean(x)))), [active])
   const sorted = useMemo(() => rows.filter(r => !ids.has(r.id)).sort(cmp(sort)), [rows, ids, sort])
-  const counts = useMemo(() => ({
-    conversations: sorted.filter(r => !cron(r)).length,
-    cron: sorted.filter(cron).length,
-  }), [sorted])
-  const hist = useMemo(() => sorted.filter(r => view === "cron" ? cron(r) : !cron(r)), [sorted, view])
+  const views = useMemo<View[]>(() => {
+    const stats = sorted.reduce((m, r) => {
+      const s = src(r)
+      if (!s) return m
+      const prev = m.get(s)
+      m.set(s, { count: (prev?.count ?? 0) + 1, last: Math.max(prev?.last ?? 0, tick(r)) })
+      return m
+    }, new Map<string, { count: number; last: number }>())
+    const conv = sorted.filter(r => src(r) !== "cron").length
+    return [
+      ...(conv > 0 ? [{ id: HOME, label: "Conversations", count: conv, aggregate: "conversations" as const }] : []),
+      ...[...stats.entries()]
+        .sort((a, b) => b[1].last - a[1].last || badge(a[0]).localeCompare(badge(b[0])))
+        .map(([source, stat]) => ({ id: sid(source), label: badge(source), count: stat.count, source })),
+    ]
+  }, [sorted])
+  const cur = views.find(v => v.id === view) ?? views[0]
+  const chosen = cur?.id ?? view
+  const hist = useMemo(() => {
+    if (!cur) return []
+    if (cur.aggregate === HOME) return sorted.filter(r => src(r) !== "cron")
+    return sorted.filter(r => src(r) === cur.source)
+  }, [sorted, cur])
   const listed = useMemo(() => [...active, ...hist], [active, hist])
+  useEffect(() => {
+    if (views.length > 0 && !views.some(v => v.id === view)) setView(views[0].id)
+  }, [views, view])
   // Selection is tracked by row identity so that collapsing children
   // (which changes the flat index of every row below) never lands sel
   // on the wrong row. The numeric index consumers use (handleListKey,
@@ -841,8 +884,13 @@ export const Sessions = memo((props: Props) => {
     const prev = keys.match("sessions.prev", key)
     const next = keys.match("sessions.next", key)
     if (prev || next) {
+      if (views.length < 2) return
       const dir = prev ? -1 : 1
-      setView(v => VIEWS[(VIEWS.indexOf(v) + dir + VIEWS.length) % VIEWS.length])
+      setView(v => {
+        const list = views.map(x => x.id)
+        const i = list.indexOf(v)
+        return list[((i < 0 ? 0 : i) + dir + list.length) % list.length]
+      })
       return
     }
   })
@@ -850,11 +898,14 @@ export const Sessions = memo((props: Props) => {
   const empty = searching ? results.length === 0 && query.length > 0 : active.length === 0 && sorted.length === 0
   const action = visible[sel]?.row.live ? "activate live" : "switch"
   const top = (i: number) => Boolean(visible[i]?.row.live && (i === 0 || !visible[i - 1]?.row.live))
-  const tabs = (i: number) => Boolean(hist[0] && !visible[i]?.indent && visible[i]?.row.id === hist[0].id)
-  const blank = view === "cron" ? "No cron sessions found" : "No conversations found"
+  const tabs = (i: number) => Boolean(views.length > 0 && hist[0] && !visible[i]?.indent && visible[i]?.row.id === hist[0].id)
+  const gap = (i: number) => active.length > 0 && tabs(i)
+  const blank = cur?.aggregate === HOME ? "No conversations found"
+    : cur ? `No ${cur.label} sessions found` : "No sessions found"
   // Sidebar yields at <140 on non-Chat tabs (app.tsx), so detail can
   // stay mounted down to the shell's own floor.
   const showDetailPanel = dims.width >= 120
+  const nav = views.length > 1 ? [["←→", "filter"] as [string, string]] : []
 
   return (
     <box flexDirection="column" flexGrow={1} minWidth={0}>
@@ -901,21 +952,27 @@ export const Sessions = memo((props: Props) => {
                   ))
                 : visible.map((v, i) => (
                     <box key={`${v.row.id}-${v.indent ? "c" : "p"}`} flexDirection="column"
-                         height={1 + (top(i) ? 1 : 0) + (tabs(i) ? 1 : 0)}>
+                         height={1 + (top(i) ? 1 : 0) + (tabs(i) ? 2 : 0) + (gap(i) ? 1 : 0)}>
                       {top(i) ? (
                         <box height={1} paddingLeft={2}>
                           <text fg={theme.primary}>{active.length === 1 ? "Active Session" : "Active Sessions"}</text>
                         </box>
                       ) : null}
-                      {tabs(i) ? <FilterRow view={view} setView={setView} counts={counts} /> : null}
+                      {gap(i) ? <box height={1} /> : null}
+                      {tabs(i) ? <>
+                        <FilterRow views={views} view={chosen} setView={setView} />
+                        <box height={1} />
+                      </> : null}
                       <Item id={rowId(i)} idx={i}
                         row={v.row} selected={i === sel} indent={v.indent}
                         onActivate={rowActivate} onHover={rowHover} onDelete={rowDelete} />
                     </box>
                   ))}
-              {!searching && hist.length === 0 ? (
-                <box key="sessions-empty-filter" flexDirection="column" height={2}>
-                  <FilterRow view={view} setView={setView} counts={counts} />
+              {!searching && views.length > 0 && hist.length === 0 ? (
+                <box key="sessions-empty-filter" flexDirection="column" height={3 + (active.length > 0 ? 1 : 0)}>
+                  {active.length > 0 ? <box height={1} /> : null}
+                  <FilterRow views={views} view={chosen} setView={setView} />
+                  <box height={1} />
                   <box height={1} paddingLeft={2}>
                     <text fg={theme.textMuted}>{blank}</text>
                   </box>
@@ -940,7 +997,7 @@ export const Sessions = memo((props: Props) => {
         ]
       : [
           ["↑↓", "navigate"],
-          ["←→", "filter"],
+          ...nav,
           [`${keys.print("list.activate")}/click`, action],
           [keys.print("list.search"), "search"],
           [keys.print("list.toggle"), `sort: ${sort}`],
