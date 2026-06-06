@@ -29,11 +29,14 @@ const launchBody = (name: string, author: string, frames: Record<string, string>
 const body = launchBody("ares", "Kaio", { idle: "ARES-IDLE", thinking: "ARES-THINKING" })
 const monoBody = launchBody("mono", "Nous", { idle: "MONO-IDLE" })
 const png = new Uint8Array([137, 80, 78, 71])
+const servers = new Set<ReturnType<typeof Bun.serve>>()
+const baseTestPerf = process.env.HERM_TEST_PERF
+const baseAvatarTimerStarts = globalThis.__hermAvatarTimerStarts
 
 type Route = { path: string; body: BodyInit | object; status?: number; headers?: HeadersInit }
 
 function serve(routes: Route[]) {
-  return Bun.serve({
+  const srv = Bun.serve({
     port: 0,
     fetch(req) {
       const path = new URL(req.url).pathname
@@ -44,6 +47,8 @@ function serve(routes: Route[]) {
       return new Response(hit.body as BodyInit, { status: hit.status ?? 200, headers: hit.headers })
     },
   })
+  servers.add(srv)
+  return srv
 }
 
 function catalog(extra: Route[] = []) {
@@ -87,6 +92,14 @@ async function openMarketplaceTab(t: Awaited<ReturnType<typeof mount>>) {
 }
 
 afterEach(() => {
+  for (const srv of servers) {
+    try { srv.stop() } catch {}
+  }
+  servers.clear()
+  if (baseTestPerf === undefined) delete process.env.HERM_TEST_PERF
+  else process.env.HERM_TEST_PERF = baseTestPerf
+  if (baseAvatarTimerStarts === undefined) delete globalThis.__hermAvatarTimerStarts
+  else globalThis.__hermAvatarTimerStarts = baseAvatarTimerStarts
   delete process.env.EIKON_URL
   prefs.set("eikon", undefined)
   rmSync(join(HH, "eikons"), { recursive: true, force: true })
@@ -117,6 +130,18 @@ describe("EikonMarketplace tab", () => {
     delete globalThis.__hermAvatarTimerStarts
     if (prevTestPerf === undefined) delete process.env.HERM_TEST_PERF
     else process.env.HERM_TEST_PERF = prevTestPerf
+    fx.srv.stop()
+  })
+
+  test("poster cards reserve the full ASCII thumbnail height", async () => {
+    const poster = Array.from({ length: 24 }, (_, i) => `ARES-${String(i).padStart(2, "0")}`).join("\n")
+    const fx = catalog([{ path: "/eikons/index.json", body: [
+      { name: "ares", author: "Kaio", width: 48, height: 24, poster, source: "ares/", description: "red warrior", review_status: "reviewed" },
+    ] }])
+    process.env.EIKON_URL = fx.base
+    await using t = await mountNode(group({ sidebarPreview: () => {} }), { width: 120, height: 36 })
+    await until(t, () => t.frame().includes("Marketplace (1)") && t.frame().includes("ARES-23"))
+    expect(t.frame()).toContain("by Kaio")
     fx.srv.stop()
   })
 
@@ -162,12 +187,21 @@ describe("EikonMarketplace tab", () => {
     fx.srv.stop()
   })
 
-  test("list navigation clamps and Space does not install", async () => {
+  test("grid navigation clamps and Space does not install", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
     await using t = await mountNode(group(), { width: 120, height: 28 })
-    await until(t, () => t.frame().includes("Marketplace (6)"))
+    await until(t, () => t.frame().includes("Marketplace (6)") && /▸ .*ares/.test(t.frame()))
     expect(t.frame()).toContain("[Space] preview state")
+
+    act(() => t.keys.pressArrow("right"))
+    await until(t, () => /▸ .*mono/.test(t.frame()))
+    act(() => t.keys.pressArrow("down"))
+    await until(t, () => /▸ .*echo/.test(t.frame()))
+    act(() => t.keys.pressArrow("left"))
+    await until(t, () => /▸ .*delta/.test(t.frame()))
+    act(() => t.keys.pressArrow("up"))
+    await until(t, () => /▸ .*ares/.test(t.frame()))
 
     act(() => t.keys.pressKey("END"))
     await until(t, () => /▸ .*gamma/.test(t.frame()))
@@ -196,7 +230,7 @@ describe("EikonMarketplace tab", () => {
     await until(t, () => previews.includes("ares:thinking"))
     expect(t.frame()).toContain("[Space] preview state")
 
-    act(() => t.keys.pressArrow("down"))
+    act(() => t.keys.pressArrow("right"))
     await until(t, () => previews.includes("mono:idle"))
     expect(previews).not.toContain("mono:thinking")
     expect(prefs.get("eikon")).toBeUndefined()
@@ -240,6 +274,7 @@ describe("EikonMarketplace tab", () => {
         return new Response(hit.body as BodyInit)
       },
     })
+    servers.add(srv)
     process.env.EIKON_URL = `http://localhost:${srv.port}/eikons`
     const previews: string[] = []
     await using t = await mountNode(
@@ -247,7 +282,7 @@ describe("EikonMarketplace tab", () => {
       { width: 160, height: 48 },
     )
     await until(t, () => t.frame().includes("Marketplace (2)"))
-    act(() => t.keys.pressArrow("down"))
+    act(() => t.keys.pressArrow("right"))
     await until(t, () => previews.includes("mono"))
     releaseAres(new Response(body))
     await t.settle(); await t.settle()
@@ -282,14 +317,14 @@ describe("EikonMarketplace tab", () => {
     fx.srv.stop()
   })
 
-  test("marketplace row click activates the clicked row without hover", async () => {
+  test("marketplace row click activates the clicked card without hover", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
     await using t = await mountNode(group(), { width: 160, height: 48 })
     await until(t, () => t.frame().includes("Marketplace (6)") && /▸ .*ares/.test(t.frame()))
 
-    const y = () => t.frame().split("\n").findIndex(l => l.includes("mono") && l.includes("Nous"))
-    await act(async () => { await t.mouse.click(4, y()) })
+    const y = () => t.frame().split("\n").findIndex(l => l.includes("mono") && l.includes("Install"))
+    await act(async () => { await t.mouse.click(52, y()) })
     await until(t, () => eikon.list().some(x => x.name === "mono"))
     expect(eikon.list().some(x => x.name === "ares")).toBe(false)
     expect(t.frame()).toMatch(/▸ .*mono/)
