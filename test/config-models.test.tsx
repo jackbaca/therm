@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test"
 import { act } from "react"
 import { mountNode, until, MockGateway } from "./harness"
 import { Config } from "../src/tabs/Config"
-import { readSlots, assign, resetAux, AUX_TASKS } from "../src/config/models"
+import { readSlots, assign, resetAux, AUX_TASKS, staleAuxForMain } from "../src/config/models"
 
 describe("config/models — slot projection + write lanes", () => {
   test("readSlots: main from model.*, aux from auxiliary.<task>.*", () => {
@@ -22,6 +22,19 @@ describe("config/models — slot projection + write lanes", () => {
     expect(c.auto).toBe(true)
     // Unconfigured slot → auto.
     expect(s.find(x => x.key === "curator")!.auto).toBe(true)
+  })
+
+  test("staleAuxForMain returns explicit aux slots pinned to another provider", () => {
+    const raw = {
+      model: { provider: "anthropic", default: "claude" },
+      auxiliary: {
+        vision: { provider: "google", model: "gemini" },
+        compression: { provider: "anthropic", model: "claude-haiku" },
+        session_search: { provider: "auto", model: "" },
+      },
+    }
+    const stale = staleAuxForMain(readSlots(raw), "anthropic")
+    expect(stale.map(s => s.key)).toEqual(["vision"])
   })
 
   test("assign(main) → rpc config.set key=model --global; assign(aux) → 2× cli.exec", async () => {
@@ -116,12 +129,16 @@ describe("Config → models category", () => {
     t.destroy()
   })
 
-  test("Enter on main slot opens picker; apply → rpc config.set --global", async () => {
-    const sets: unknown[] = []
+  test("main switch warns about stale aux pins and can reset them to auto", async () => {
+    const cli: string[][] = []
     const gw = new MockGateway({
       "config.get": () => ({ config: cfg }),
-      "model.options": () => opts,
-      "config.set": (p) => { sets.push(p); return { value: p.value } },
+      "model.options": () => ({
+        providers: [{ slug: "anthropic", name: "Anthropic", models: ["claude-opus-4.7"], total_models: 1 }],
+        provider: "openrouter", model: "anthropic/claude-opus-4.7",
+      }),
+      "config.set": () => ({}),
+      "cli.exec": (p) => { cli.push(p.argv as string[]); return { code: 0, output: "" } },
     })
     const t = await mountNode(<Config focused />, { gw, width: 160, height: 40 })
     await until(t, () => t.frame().includes("models (13)"))
@@ -129,14 +146,16 @@ describe("Config → models category", () => {
     act(() => t.keys.pressTab())
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Set main model"))
-    expect(t.frame()).not.toContain("Scope:")   // scope toggle hidden when onApply set
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("claude-opus-4.7"))
     act(() => t.keys.pressEnter())
-    await until(t, () => sets.length === 1)
-    expect(sets[0]).toMatchObject({
-      key: "model", value: "claude-opus-4.7 --provider anthropic --global",
-    })
+    await until(t, () => t.frame().includes("Auxiliary models still pinned to another provider"))
+    expect(t.frame()).toContain("Vision")
+
+    act(() => t.keys.pressEnter())
+    await until(t, () => cli.length === 2)
+    expect(cli[0]).toEqual(["config", "set", "auxiliary.vision.provider", "auto"])
+    expect(cli[1]).toEqual(["config", "set", "auxiliary.vision.model", ""])
     t.destroy()
   })
 })
