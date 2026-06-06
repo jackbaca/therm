@@ -58,26 +58,30 @@ const badge = (src: string): string => (({
 } as Record<string, string>)[src] ?? src) || "—"
 
 const label = (r: Row) => r.title.trim() || (r.live ? "-" : "Untitled")
+const src = (r: Row): string => r.detail?.sessionSource || r.source || ""
 
 type View = "conversations" | "cron"
 
 const VIEWS: View[] = ["conversations", "cron"]
-const cron = (r: Row): boolean => r.source === "cron" || r.detail?.sessionSource === "cron"
+const kind = (r: Row): View => src(r) === "cron" ? "cron" : "conversations"
 const tab = (v: View): string => v === "cron" ? "Cron" : "Conversations"
 
 const FilterRow = memo((props: {
   view: View
   setView: (v: View) => void
   counts: Record<View, number>
-}) => (
-  <box height={1} flexDirection="row" paddingLeft={2}>
-    {VIEWS.map((v, i) => (
-      <FilterChip key={v} label={`${tab(v)} ${props.counts[v]}`}
-        state={props.view === v ? "in" : "off"} gap={i === 0 ? 0 : 1}
-        onMouseDown={() => props.setView(v)} />
-    ))}
-  </box>
-))
+}) => {
+  const theme = useTheme().theme
+  return (
+    <box height={1} flexDirection="row" paddingLeft={2}>
+      {VIEWS.map((v, i) => (
+        <FilterChip key={v} label={`${tab(v)} ${props.counts[v]}`}
+          state={props.view === v ? "in" : "off"} gap={i === 0 ? 0 : 1}
+          color={theme.primary} onMouseDown={() => props.setView(v)} />
+      ))}
+    </box>
+  )
+})
 //
 // Purpose: decide whether to load a session without replacing the
 // current chat. So: conversation only. Tool chatter is collapsed to
@@ -225,7 +229,7 @@ const Detail = memo((props: {
           <box height={1} />
           <KVBlock rows={[
             ["ID", r.id],
-            ["Source", badge(r.source ?? "")],
+            ["Source", badge(src(r))],
             ["Model", d?.model ?? "—"],
             ["Started", when(r.started_at)],
             ["Last active", lastActive ? `${when(lastActive)}  (${ago(lastActive)})` : "—"],
@@ -388,7 +392,7 @@ const Item = memo((props: {
                bold={props.selected}>
         {label(r)}
       </Marquee>
-      <Col w={9} fg={muted ?? theme.info}>{badge(r.source ?? "")}</Col>
+      <Col w={9} fg={muted ?? theme.info}>{badge(src(r))}</Col>
       <Col w={8} fg={theme.textMuted}>{stamp(r.started_at)}</Col>
       <Col w={10} fg={theme.textMuted} right>{active ? ago(active) : "—"}</Col>
       <Col w={7} fg={theme.textMuted} right>{String(r.message_count)}</Col>
@@ -501,11 +505,14 @@ export const Sessions = memo((props: Props) => {
   const ids = useMemo(() => new Set(active.flatMap(r =>
     [r.id, r.live?.session_key].filter((x): x is string => Boolean(x)))), [active])
   const sorted = useMemo(() => rows.filter(r => !ids.has(r.id)).sort(cmp(sort)), [rows, ids, sort])
-  const counts = useMemo(() => ({
-    conversations: sorted.filter(r => !cron(r)).length,
-    cron: sorted.filter(cron).length,
-  }), [sorted])
-  const hist = useMemo(() => sorted.filter(r => view === "cron" ? cron(r) : !cron(r)), [sorted, view])
+  const split = useMemo(() => sorted.reduce((a, r) => {
+    const v = kind(r)
+    a.counts[v] += 1
+    if (v === view) a.hist.push(r)
+    return a
+  }, { counts: { conversations: 0, cron: 0 }, hist: [] as Row[] }), [sorted, view])
+  const counts = split.counts
+  const hist = split.hist
   const listed = useMemo(() => [...active, ...hist], [active, hist])
   // Selection is tracked by row identity so that collapsing children
   // (which changes the flat index of every row below) never lands sel
@@ -841,6 +848,7 @@ export const Sessions = memo((props: Props) => {
   const action = visible[sel]?.row.live ? "activate live" : "switch"
   const top = (i: number) => Boolean(visible[i]?.row.live && (i === 0 || !visible[i - 1]?.row.live))
   const tabs = (i: number) => Boolean(hist[0] && !visible[i]?.indent && visible[i]?.row.id === hist[0].id)
+  const gap = (i: number) => active.length > 0 && tabs(i)
   const blank = view === "cron" ? "No cron sessions found" : "No conversations found"
   // Sidebar yields at <140 on non-Chat tabs (app.tsx), so detail can
   // stay mounted down to the shell's own floor.
@@ -891,12 +899,13 @@ export const Sessions = memo((props: Props) => {
                   ))
                 : visible.map((v, i) => (
                     <box key={`${v.row.id}-${v.indent ? "c" : "p"}`} flexDirection="column"
-                         height={1 + (top(i) ? 1 : 0) + (tabs(i) ? 2 : 0)}>
+                         height={1 + (top(i) ? 1 : 0) + (tabs(i) ? 2 : 0) + (gap(i) ? 1 : 0)}>
                       {top(i) ? (
                         <box height={1} paddingLeft={2}>
                           <text fg={theme.primary}>{active.length === 1 ? "Active Session" : "Active Sessions"}</text>
                         </box>
                       ) : null}
+                      {gap(i) ? <box height={1} /> : null}
                       {tabs(i) ? <>
                         <FilterRow view={view} setView={setView} counts={counts} />
                         <box height={1} />
@@ -907,8 +916,10 @@ export const Sessions = memo((props: Props) => {
                     </box>
                   ))}
               {!searching && hist.length === 0 ? (
-                <box key="sessions-empty-filter" flexDirection="column" height={2}>
+                <box key="sessions-empty-filter" flexDirection="column" height={3 + (active.length > 0 ? 1 : 0)}>
+                  {active.length > 0 ? <box height={1} /> : null}
                   <FilterRow view={view} setView={setView} counts={counts} />
+                  <box height={1} />
                   <box height={1} paddingLeft={2}>
                     <text fg={theme.textMuted}>{blank}</text>
                   </box>
