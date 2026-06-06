@@ -976,6 +976,8 @@ describe("app", () => {
         model: "test-model", calls: 7, input: 1234, output: 567, total: 1801,
         cache_read: 0, cache_write: 0, cost_usd: 0.0412, cost_status: "estimated",
         context_used: 4200, context_max: 200_000, context_percent: 2,
+        credits_lines: ["Credits: 42 remaining", "Account: active"],
+        dev_credits_spent_micros: 123,
       }),
     })
     const t = await mount({ gw })
@@ -992,10 +994,33 @@ describe("app", () => {
     expect(f).toContain("$0.04")      // cost
     expect(f).toContain("2%")         // context percent
     expect(f).toContain("estimated")  // cost_status note
+    expect(f).toContain("Credits: 42 remaining")
+    expect(f).toContain("Account: active")
+    expect(f.indexOf("Credits: 42 remaining")).toBeLessThan(f.indexOf("Account: active"))
+    expect(f).not.toContain("123")
     expect(t.gw.last("slash.exec")).toBeUndefined() // intercepted locally
 
     act(() => t.keys.pressEscape())
     await until(t, () => !t.frame().includes("API calls"))
+    t.destroy()
+  })
+
+  test("/usage handles zero-call sessions without credits", async () => {
+    const gw = new MockGateway({
+      "session.usage": () => ({ calls: 0, credits_lines: [] }),
+    })
+    const t = await mount({ gw })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("/usage") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("API calls"))
+
+    const f = t.frame()
+    expect(f).toContain("Usage")
+    expect(f).toContain("API calls")
+    expect(f).toContain("0")
+    expect(f).toContain("Total")
     t.destroy()
   })
 

@@ -259,6 +259,8 @@ export type SessionListResponse = {
 export type SessionUsageResponse = {
   model?: string
   calls?: number
+  credits_lines?: string[]
+  dev_credits_spent_micros?: number
   input?: number
   output?: number
   total?: number
