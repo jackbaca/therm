@@ -53,9 +53,41 @@ const cmp = (s: Sort) => {
 const badge = (src: string): string => (({
   cli: "CLI", tui: "TUI", api_server: "API", discord: "Discord",
   telegram: "Telegram", slack: "Slack", whatsapp: "WhatsApp", signal: "Signal",
+  cron: "Cron",
 } as Record<string, string>)[src] ?? src) || "—"
 
 const label = (r: Row) => r.title.trim() || (r.live ? "-" : "Untitled")
+
+type View = "conversations" | "cron"
+
+const VIEWS: View[] = ["conversations", "cron"]
+const cron = (r: Row): boolean => r.source === "cron" || r.detail?.sessionSource === "cron"
+const tab = (v: View): string => v === "cron" ? "Cron" : "Conversations"
+
+const FilterRow = memo((props: {
+  view: View
+  setView: (v: View) => void
+  counts: Record<View, number>
+}) => {
+  const theme = useTheme().theme
+  return (
+    <box height={1} flexDirection="row" paddingLeft={2}>
+      {VIEWS.map((v, i) => {
+        const on = props.view === v
+        const fg = on ? theme.primary : theme.textMuted
+        return (
+          <box key={v} height={1} paddingLeft={i === 0 ? 0 : 2}
+               paddingRight={1} onMouseDown={() => props.setView(v)}>
+            <text>
+              <span fg={fg}>{tab(v)}</span>
+              <span fg={fg}>{` ${props.counts[v]}`}</span>
+            </text>
+          </box>
+        )
+      })}
+    </box>
+  )
+})
 //
 // Purpose: decide whether to load a session without replacing the
 // current chat. So: conversation only. Tool chatter is collapsed to
@@ -472,13 +504,19 @@ export const Sessions = memo((props: Props) => {
   // without re-hitting state.db.
   const sort: Sort = prefs.usePref("sessions")?.sort ?? "active"
   const setSort = useCallback((s: Sort) => prefs.set("sessions", { sort: s }), [])
+  const [view, setView] = useState<View>("conversations")
   const active = useMemo(() => [...liveRows].sort((a, b) =>
     Number(Boolean(b.live?.current)) - Number(Boolean(a.live?.current)) ||
     ((b.live?.last_active ?? b.started_at) - (a.live?.last_active ?? a.started_at))), [liveRows])
   const ids = useMemo(() => new Set(active.flatMap(r =>
     [r.id, r.live?.session_key].filter((x): x is string => Boolean(x)))), [active])
   const sorted = useMemo(() => rows.filter(r => !ids.has(r.id)).sort(cmp(sort)), [rows, ids, sort])
-  const listed = useMemo(() => [...active, ...sorted], [active, sorted])
+  const counts = useMemo(() => ({
+    conversations: sorted.filter(r => !cron(r)).length,
+    cron: sorted.filter(cron).length,
+  }), [sorted])
+  const hist = useMemo(() => sorted.filter(r => view === "cron" ? cron(r) : !cron(r)), [sorted, view])
+  const listed = useMemo(() => [...active, ...hist], [active, hist])
   // Selection is tracked by row identity so that collapsing children
   // (which changes the flat index of every row below) never lands sel
   // on the wrong row. The numeric index consumers use (handleListKey,
@@ -638,11 +676,11 @@ export const Sessions = memo((props: Props) => {
       seen.current = on
       return
     }
-    if (fresh && active[0] && sorted[0]?.id === anchor.id && !anchor.indent) {
+    if (fresh && active[0] && hist[0]?.id === anchor.id && !anchor.indent) {
       setAnchor({ id: active[0].id, indent: false })
     }
     seen.current = on
-  }, [listed, active, sorted, anchor])
+  }, [listed, active, hist, anchor])
 
   // Search is a synchronous FTS5 query on state.db, so debounce —
   // running it on every keystroke blocks the render thread. The
@@ -800,28 +838,20 @@ export const Sessions = memo((props: Props) => {
     })
     if (matched) return
     if (keys.match("sessions.rename", key)) return void rename()
-    if (keys.match("sessions.prev", key) || keys.match("sessions.next", key)) {
-      // Walk the compression chain. continuesFrom is the ancestor
-      // (older session this was resumed from), compressedTo is the
-      // descendant (newer session this compressed into). Look up
-      // lineage on demand — query is in-process and sub-ms, no
-      // reason to cache across the small number of ←/→ presses.
-      const v = visible[sel]
-      if (!v) return
-      void Promise.resolve(io.lineage(v.row.id)).then(ln => {
-        const target = keys.match("sessions.prev", key)
-          ? ln.continuesFrom?.id
-          : ln.compressedTo?.id
-        if (target) lineageSwitch(target)
-      })
+    const prev = keys.match("sessions.prev", key)
+    const next = keys.match("sessions.next", key)
+    if (prev || next) {
+      const dir = prev ? -1 : 1
+      setView(v => VIEWS[(VIEWS.indexOf(v) + dir + VIEWS.length) % VIEWS.length])
       return
     }
   })
 
-  const empty = searching ? results.length === 0 && query.length > 0 : listed.length === 0
+  const empty = searching ? results.length === 0 && query.length > 0 : active.length === 0 && sorted.length === 0
   const action = visible[sel]?.row.live ? "activate live" : "switch"
   const top = (i: number) => Boolean(visible[i]?.row.live && (i === 0 || !visible[i - 1]?.row.live))
-  const hist = (i: number) => Boolean(visible[i]?.row.live && visible[i + 1] && !visible[i + 1].row.live)
+  const tabs = (i: number) => Boolean(hist[0] && !visible[i]?.indent && visible[i]?.row.id === hist[0].id)
+  const blank = view === "cron" ? "No cron sessions found" : "No conversations found"
   // Sidebar yields at <140 on non-Chat tabs (app.tsx), so detail can
   // stay mounted down to the shell's own floor.
   const showDetailPanel = dims.width >= 120
@@ -871,22 +901,26 @@ export const Sessions = memo((props: Props) => {
                   ))
                 : visible.map((v, i) => (
                     <box key={`${v.row.id}-${v.indent ? "c" : "p"}`} flexDirection="column"
-                         height={1 + (top(i) ? 1 : 0) + (hist(i) ? 1 : 0)}>
+                         height={1 + (top(i) ? 1 : 0) + (tabs(i) ? 1 : 0)}>
                       {top(i) ? (
                         <box height={1} paddingLeft={2}>
-                          <text fg={theme.textMuted}>{`── ${active.length === 1 ? "Active Session" : "Active Sessions"} ──`}</text>
+                          <text fg={theme.primary}>{active.length === 1 ? "Active Session" : "Active Sessions"}</text>
                         </box>
                       ) : null}
+                      {tabs(i) ? <FilterRow view={view} setView={setView} counts={counts} /> : null}
                       <Item id={rowId(i)} idx={i}
                         row={v.row} selected={i === sel} indent={v.indent}
                         onActivate={rowActivate} onHover={rowHover} onDelete={rowDelete} />
-                      {hist(i) ? (
-                        <box height={1} paddingLeft={2}>
-                          <text fg={theme.textMuted}>── History ──</text>
-                        </box>
-                      ) : null}
                     </box>
                   ))}
+              {!searching && hist.length === 0 ? (
+                <box key="sessions-empty-filter" flexDirection="column" height={2}>
+                  <FilterRow view={view} setView={setView} counts={counts} />
+                  <box height={1} paddingLeft={2}>
+                    <text fg={theme.textMuted}>{blank}</text>
+                  </box>
+                </box>
+              ) : null}
             </scrollbox>
           </box>
         )}
@@ -906,7 +940,7 @@ export const Sessions = memo((props: Props) => {
         ]
       : [
           ["↑↓", "navigate"],
-          ["←→", "lineage"],
+          ["←→", "filter"],
           [`${keys.print("list.activate")}/click`, action],
           [keys.print("list.search"), "search"],
           [keys.print("list.toggle"), `sort: ${sort}`],
