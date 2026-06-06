@@ -22,14 +22,8 @@ const spec = (row: ReturnType<typeof byId>) => {
   return `${row.model} --provider ${row.billing_provider}`
 }
 
-/** session.compress response shape — see upstream fc7f55f49.
- *
- *  `messages` + `info` carry the post-compaction transcript and fresh
- *  session metadata; the gateway rewrites history in place and rotates
- *  session_id (agent._compress_context ends the old DB session and opens
- *  a continuation). Callers MUST re-hydrate local transcript state from
- *  `messages` — otherwise the TUI keeps the pre-compaction list and the
- *  next resume snaps it to the compacted history, looking like data loss. */
+/** session.compress response shape. `messages` is compacted server context;
+ *  the live chat transcript intentionally stays visually unchanged. */
 export type CompressResult = {
   status?: "compressed" | "skipped"
   removed?: number
