@@ -60,6 +60,7 @@ export type EikonCliDeps = {
   remove: typeof svc.remove
   list: typeof svc.list
   baked: typeof svc.baked
+  has: (name: string) => boolean
   setActive: (name: string) => void
   getActive: () => string | undefined
 }
@@ -132,6 +133,7 @@ const defaultDeps = (): EikonCliDeps => ({
   remove: svc.remove,
   list: svc.list,
   baked: svc.baked,
+  has: name => svc.list().some(e => e.name === name),
   setActive: name => prefs.set("eikon", name),
   getActive: () => prefs.get("eikon"),
 })
@@ -259,6 +261,7 @@ export async function handleEikonCli(
     if (cmd === "remove") {
       const name = p.values[0]
       if (!name) return emitError(io, "usage: herm eikon remove <name>", p.json)
+      if (!deps.has(name)) return emitError(io, `No installed eikon named '${name}'`, p.json)
       const wasActive = deps.getActive() === name
       const result = deps.remove(name, { confirmActive: p.activeOk })
       if (result?.type === "active-consequence") return emitError(io, activeMessage(result), p.json, { consequence: "active", action: result.action, name: result.name })

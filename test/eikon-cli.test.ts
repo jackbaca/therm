@@ -76,6 +76,7 @@ function deps(overrides: Partial<EikonCliDeps> = {}): EikonCliDeps {
     remove: () => undefined,
     list: () => [item()],
     baked: name => name === "ares" ? "/tmp/ares/ares.eikon" : undefined,
+    has: name => name === "ares",
     setActive: name => { active = name },
     getActive: () => active,
     ...overrides,
@@ -251,6 +252,18 @@ describe("eikon headless CLI", () => {
       action: "update",
       name: "ares",
     })
+  })
+
+  test("remove missing returns a stable json error without mutation", async () => {
+    const removed: string[] = []
+    const c = capture()
+
+    expect(await handleEikonCli(["eikon", "remove", "missing", "--json"], deps({
+      remove: name => { removed.push(name); return undefined },
+    }), c.io)).toBe(1)
+
+    expect(removed).toEqual([])
+    expect(JSON.parse(c.stderr())).toEqual({ ok: false, error: "No installed eikon named 'missing'" })
   })
 
   test("remove and update mutate only with active acknowledgement flag", async () => {
