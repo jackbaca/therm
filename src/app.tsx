@@ -350,10 +350,11 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     // explicitly, so it isn't affected by the clear.
     gw.setSession("")
     setSid("")
-    // Close the outgoing session so the gateway finalizes it (ends the
-    // DB row, reaps its slash_worker subprocess, drops the AIAgent from
-    // `_sessions`). Fire-and-forget — create() doesn't depend on it.
-    if (prev) void session.close(prev)
+    // Close the outgoing session unless it owns a durable background process.
+    // Older gateways kill terminal(background=true) children as part of
+    // session.close; preserving the live session is safer than SIGTERM'ing a
+    // watcher while /new creates the next conversation.
+    if (prev) void session.close(prev, { preserveBackground: true })
     try {
       const r = await session.create()
       setSid(r.id)
@@ -389,7 +390,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       // user in the outgoing session, which must stay live. Skip when
       // resuming self (prev === res.id), e.g. the boot path reusing an
       // empty stub.
-      if (prev && prev !== res.id) void session.close(prev)
+      if (prev && prev !== res.id) void session.close(prev, { preserveBackground: true })
       setSplash(false)
       summoned.current = false
     } catch (err) {
