@@ -1090,12 +1090,18 @@ describe("Kanban detail pane", () => {
     t.destroy()
   })
 
-  test("Enter on priority row in pane → DialogSelect → direct write", async () => {
-    // Re-seed t1's priority so we have a known starting value.
+  test("priority row arrows navigate; Enter opens select and writes", async () => {
     const db = new Database(hermesPath("kanban.db"))
     db.run("UPDATE tasks SET priority = 3 WHERE id = 't1'")
     db.close()
     resetKanban()
+    const prio = () => {
+      const check = new Database(hermesPath("kanban.db"), { readonly: true })
+      const row = check.query("SELECT priority FROM tasks WHERE id = 't1'")
+        .get() as { priority: number }
+      check.close()
+      return row.priority
+    }
     const t = await mountNode(<Kanban focused />, { width: 180, height: 48 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
     act(() => t.keys.pressArrow("right")); await t.settle()
@@ -1103,22 +1109,21 @@ describe("Kanban detail pane", () => {
     act(() => t.keys.pressArrow("right")); await t.settle()
     act(() => t.keys.pressEnter())
     await until(t, () => /Assignee\s+researcher/.test(t.frame()))
-    // Tab in, then Tab twice more (title → body → assignee → priority).
     act(() => t.keys.pressTab()); await t.settle()
     act(() => t.keys.pressTab()); await t.settle()
     act(() => t.keys.pressTab()); await t.settle()
     act(() => t.keys.pressTab()); await t.settle()
-    // Priority row shows its hint when focused.
-    await until(t, () => t.frame().includes("↑↓ / Enter"))
-    // ↑ bumps priority directly (patchTask path, no dialog).
+    await until(t, () => t.frame().includes("Enter select"))
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    expect(prio()).toBe(3)
+    await until(t, () => t.frame().includes("Enter change"))
     act(() => t.keys.pressArrow("up")); await t.settle()
-    // Read back via a fresh RO handle — herm's internal cache is RW/RO
-    // split and the write went through the RW handle.
-    const check = new Database(hermesPath("kanban.db"), { readonly: true })
-    const row = check.query("SELECT priority FROM tasks WHERE id = 't1'")
-      .get() as { priority: number }
-    check.close()
-    expect(row.priority).toBe(4)
+    await until(t, () => t.frame().includes("Enter select"))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Priority for t1"))
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    act(() => t.keys.pressEnter())
+    await until(t, () => prio() === 4)
     t.destroy()
   })
 })

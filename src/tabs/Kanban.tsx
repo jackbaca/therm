@@ -439,7 +439,7 @@ const SidePane = memo((p: { pane: Pane; on: boolean; sel: number; diags: Diag[] 
               : "—",
             p.on && cur === "assignee" ? "Enter pick" : undefined)}
           {srow("priority", "Priority", d.priority ? `P${d.priority}` : "—",
-            p.on && cur === "priority" ? "↑↓ / Enter" : undefined)}
+            p.on && cur === "priority" ? "Enter select" : undefined)}
           {srow("status", "Status", d.status,
             p.on && cur === "status" ? "Enter change" : undefined)}
           {srow("parents", "Parents", d.parents.length ? d.parents.join(", ") : "—",
@@ -1158,14 +1158,6 @@ export const Kanban = memo((props: { focused?: boolean }) => {
     if (f === "comment") return void comment(t)
   }, [editTitle, editBody, assign, editPriority, editStatus, editParents, editResult, comment])
 
-  // Bump priority with ↑↓ while the priority row is focused — no
-  // modal. Mirrors the new-task form affordance.
-  const bumpPriority = useCallback((t: Task, d: 1 | -1) => {
-    const next = Math.max(0, Math.min(9, t.priority + d))
-    if (next === t.priority) return
-    patchDirect(t.id, { priority: next }, `${t.id} → P${next}`)
-  }, [patchDirect])
-
   type Act = { key: string; title: string; when: (t?: Task) => boolean; run: (t?: Task) => void }
   const ACTS = useMemo<Act[]>(() => [
     { key: "n", title: "New task",      when: () => true,            run: () => void create() },
@@ -1214,13 +1206,11 @@ export const Kanban = memo((props: { focused?: boolean }) => {
       if (!t || !paneOpen) return
       const f = paneFields[Math.min(paneSel, paneFields.length - 1)]
       if (key.name === "up") {
-        if (f === "priority") return bumpPriority(t, 1)
         const n = paneFields.length
         if (n === 0) return
         return setPaneSel(s => (s - 1 + n) % n)
       }
       if (key.name === "down") {
-        if (f === "priority") return bumpPriority(t, -1)
         const n = paneFields.length
         if (n === 0) return
         return setPaneSel(s => (s + 1) % n)

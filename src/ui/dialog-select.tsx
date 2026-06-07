@@ -2,10 +2,10 @@
  * Filterable select dialog — reusable pick-list for dialogs.
  *
  * Keyboard: list.* (↑↓/PgUp/PgDn/Home/End navigate, Enter selects), typing
- * filters. With `filterable: false`, Space also selects (the scrollbox has
- * focus so the filter input never sees it).
- * Mouse: hover highlights, click selects.
- * Grouped by category with headers.
+ * filters. With `filterable: false`, a native OpenTUI select owns ↑↓ and
+ * Space/Enter selects.
+ * Mouse: filterable lists support hover highlights and click selection.
+ * Grouped by category with headers when filterable.
  */
 
 import { useState, useMemo, useEffect, useRef } from "react"
@@ -57,6 +57,17 @@ export const DialogSelect = (props: Props) => {
   const moved = useRef(false)
   const sb = useRef<ScrollBoxRenderable | null>(null)
   const theme = useTheme().theme
+  const opts = useMemo(() => props.options.map(o => ({
+    name: `${props.current == null ? "" : o.value === props.current ? "● " : "  "}${o.title}`,
+    description: o.hint
+      ? [o.description, o.hint].filter(Boolean).join(" — ")
+      : o.description ?? "",
+    value: o.value,
+  })), [props.current, props.options])
+  const sel = props.current == null
+    ? 0
+    : Math.max(0, props.options.findIndex(o => o.value === props.current))
+  const desc = props.options.some(o => !!o.description || !!o.hint)
 
   const filtered = useMemo(() => {
     const lower = filter.toLowerCase()
@@ -106,19 +117,13 @@ export const DialogSelect = (props: Props) => {
   const keys = useKeys()
 
   useKeyboard((key) => {
-    // Space only selects in non-filterable mode (otherwise it's a literal
-    // space for the filter input). Drive through list.toggle so a rebind
-    // of space takes effect here too.
-    const onToggle = !filterable
-      ? () => { const item = filtered[cursor]; if (item) props.onSelect(item) }
-      : undefined
+    if (!filterable) return
     const consumed = handleListKey(keys, key, {
       count: filtered.length,
       setSel: (fn) => { mode.current = "kb"; moved.current = true; setCursor(fn) },
       scrollTo,
       page: Math.max(1, (sb.current?.viewport.height ?? 10) - 1),
       onActivate: () => { const item = filtered[cursor]; if (item) props.onSelect(item) },
-      onToggle,
     })
     if (consumed) return
     if (props.onKey?.(key)) return
@@ -127,6 +132,50 @@ export const DialogSelect = (props: Props) => {
   // Build flat list with index tracking
   let idx = 0
   const entries = Array.from(groups.entries())
+
+  if (!filterable) return (
+    <box flexDirection="column" width={60}>
+      <text fg={theme.text}>
+        <strong>{props.title}</strong>
+      </text>
+      <box height={1} />
+      <select
+        focused={true}
+        width={58}
+        height={Math.min(16, Math.max(1, props.options.length * (desc ? 2 : 1)))}
+        options={opts}
+        selectedIndex={sel}
+        showDescription={desc}
+        showScrollIndicator={props.options.length > 8}
+        backgroundColor={theme.backgroundPanel}
+        focusedBackgroundColor={theme.backgroundPanel}
+        textColor={theme.textMuted}
+        focusedTextColor={theme.text}
+        selectedBackgroundColor={theme.backgroundElement}
+        selectedTextColor={theme.text}
+        descriptionColor={theme.textMuted}
+        selectedDescriptionColor={theme.textMuted}
+        fastScrollStep={Math.max(1, props.options.length)}
+        keyBindings={[
+          { name: "home", action: "move-up-fast" },
+          { name: "end", action: "move-down-fast" },
+          { name: "pageup", action: "move-up-fast" },
+          { name: "pagedown", action: "move-down-fast" },
+          { name: "space", action: "select-current" },
+          { name: " ", action: "select-current" },
+        ]}
+        onChange={(i) => {
+          const item = props.options[i]
+          if (item && props.onMove) props.onMove(item)
+        }}
+        onSelect={(i) => {
+          const item = props.options[i]
+          if (item) props.onSelect(item)
+        }}
+      />
+      {props.footer != null ? <box paddingTop={1}>{props.footer}</box> : null}
+    </box>
+  )
 
   return (
     <box flexDirection="column" width={60}>
