@@ -33,9 +33,23 @@ describe("Config tab", () => {
     await navTo(t, {}, "compression.threshold")
     expect(t.frame()).toMatch(/threshold\s+0\.5/)
     // Doc line under selected row.
-    const lines = t.frame().split("\n")
-    const i = lines.findIndex(l => l.includes("▸") && l.includes("threshold"))
+    let lines = t.frame().split("\n")
+    let i = lines.findIndex(l => l.includes("▸") && l.includes("threshold"))
     expect(lines[i + 1]).toMatch(/compress when/i)
+
+    t.destroy()
+  })
+
+  test("onboarding profile build renders as a selectable general field", async () => {
+    const gw = new MockGateway({ "config.get": () => ({ config: {} }) })
+    const t = await mountNode(<Config focused />, { gw, width: 160, height: 48 })
+    await until(t, () => t.frame().includes("general"))
+    await navTo(t, {}, "onboarding.profile_build")
+    expect(t.frame()).toMatch(/profile_build\s+ask/)
+    expect(t.frame()).toContain("[h/l]")
+    const lines = t.frame().split("\n")
+    const i = lines.findIndex(l => l.includes("▸") && l.includes("profile_build"))
+    expect(lines.slice(i + 1, i + 4).join(" ")).toMatch(/first gateway message/i)
     t.destroy()
   })
 
