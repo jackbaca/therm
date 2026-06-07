@@ -611,6 +611,34 @@ describe("app", () => {
     t.destroy()
   })
 
+  test("/branch activates the live branch session id", async () => {
+    const gw = new MockGateway({
+      "commands.catalog": () => ({ pairs: [["/branch", "Branch current session"]] }),
+      "session.branch": () => ({ session_id: "live-branch", title: "Branch 1" }),
+      "session.resume": () => { throw new Error("session not found") },
+      "session.activate": p => ({
+        session_id: p.session_id,
+        session_key: "stored-branch",
+        status: "idle",
+        info: { model: "branch-model", session_id: p.session_id, tools: {}, skills: {} },
+        messages: [{ role: "user", text: "branch seed" }],
+      }),
+    })
+    const t = await mount({ gw })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("/branch") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.gw.last("session.activate") !== undefined)
+
+    expect(t.gw.last("session.branch")?.params.session_id).toBe("test-sid")
+    expect(t.gw.last("session.activate")?.params.session_id).toBe("live-branch")
+    expect(t.gw.last("session.resume")).toBeUndefined()
+    expect(t.frame()).toContain("branch seed")
+    expect(t.frame()).not.toContain("Failed to resume")
+    t.destroy()
+  })
+
   test("send() routes arg-bearing slash via resolve(): unique prefix, gateway arg, ambiguous, miss", async () => {
     const t = await mount({ handlers: {
       "commands.catalog": () => ({
@@ -873,10 +901,10 @@ describe("app", () => {
     t.destroy()
   })
 
-  test("action menu → Fork → session.branch + undo-in-branch + switch", async () => {
+  test("action menu → Fork → session.branch + undo-in-branch + activate", async () => {
     const gw = new MockGateway({
       "session.branch": () => ({ session_id: "branch-sid", title: "branch 1" }),
-      "session.resume": p => ({ session_id: p.session_id, messages: [] }),
+      "session.activate": p => ({ session_id: p.session_id, messages: [], status: "idle" }),
     })
     const t = await mount({ gw })
     await until(t, () => t.frame().includes("Ready"))
@@ -905,8 +933,8 @@ describe("app", () => {
     // Undo targets the BRANCH session, not the original.
     const u = t.gw.calls.find(c => c.method === "session.undo")
     expect(u?.params.session_id).toBe("branch-sid")
-    // Switched into it.
-    expect(t.gw.last("session.resume")?.params.session_id).toBe("branch-sid")
+    // Activated the returned live runtime session id.
+    expect(t.gw.last("session.activate")?.params.session_id).toBe("branch-sid")
     // Composer seeded.
     expect(t.frame()).toContain("> seed q")
     t.destroy()

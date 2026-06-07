@@ -75,6 +75,7 @@ export type SlashCtx = {
 
   newSession: () => Promise<void>
   switchSession: (id: string) => Promise<void>
+  activateSession: (id: string) => Promise<void>
   rewind: (m: Message) => Promise<void>
   goTo: (tab: number, sub: number) => void
   attachClipboard: () => void
@@ -176,6 +177,13 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
       message: s.headline ?? `Compressed ${r.before_messages ?? 0}→${r.after_messages ?? 0} messages` })
   }, [toast])
 
+  const branch = useCallback((name?: string) => {
+    const x = ctx.current
+    x.session.branch(name?.trim() || undefined).then(id => id
+      ? void x.activateSession(id)
+      : toast.show({ variant: "error", message: "branch failed" }))
+  }, [toast])
+
   const run = useCallback((c: SlashCommand, arg = "") => {
     const x = ctx.current
     if (c.target === "local") {
@@ -239,9 +247,7 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
           if (arg) { void x.switchSession(arg); return }
           x.goTo(TAB_SLASH.sessions.tab, TAB_SLASH.sessions.sub); return
         case "branch":
-          x.session.branch(arg || undefined).then(id => id
-            ? void x.switchSession(id)
-            : toast.show({ variant: "error", message: "branch failed" }))
+          branch(arg)
           return
         case "compress": void runCompress(); return
         case "undo":
@@ -506,7 +512,7 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
           })
           .catch((e: Error) => x.dispatch({ kind: "system", text: `error: ${e.message}` }))
       })
-  }, [gw, dialog, toast, themeCtx, renderer, destructive, applyTitle, runCompress])
+  }, [gw, dialog, toast, themeCtx, renderer, destructive, applyTitle, runCompress, branch])
 
   // Palette entries. Closures read through `ctx.current` so the effect
   // runs once (cmd is a stable context value) instead of re-registering
@@ -545,8 +551,8 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
     { title: "Redo", value: "redo", action: "session.redo", category: "Session",
       onSelect: () => run({ name: "redo", target: "local" } as SlashCommand) },
     { title: "Branch Session", value: "branch", description: "Fork the current conversation", category: "Session",
-      onSelect: () => ctx.current.session.branch() },
-  ]), [cmd, dialog, themeCtx, gw, toast, destructive, pickEikon, runCompress, run])
+      onSelect: () => branch() },
+  ]), [cmd, dialog, themeCtx, gw, toast, destructive, pickEikon, runCompress, branch, run])
 
   return run
 }

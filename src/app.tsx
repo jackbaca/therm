@@ -517,7 +517,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
 
   // Non-destructive: session.branch clones full history into a new
   // gateway session; undo N turns *in that session* to land at m;
-  // then switch. Original session is untouched.
+  // then activate the returned live session id. Original session is untouched.
   const fork = useCallback(async (m: Message) => {
     if (turnRef.current.streaming) return
     const n = turnsFrom(m)
@@ -527,11 +527,11 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     if (!res?.session_id) return
     for (let i = 0; i < n; i++)
       await gw.request("session.undo", { session_id: res.session_id }).catch(() => {})
-    await switchSession(res.session_id)
+    await activateSession(res.session_id)
     composer.current?.set(text)
     setFocusRegion("input")
     toast.show({ variant: "success", message: `forked → ${res.title ?? res.session_id}` })
-  }, [gw, toast, switchSession])
+  }, [gw, toast, activateSession])
 
   const msgMenu = useCallback((m: Message) => {
     if (turnRef.current.streaming) return
@@ -556,7 +556,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     dispatch, session, turnRef, queueRef, sendRef, composer, summoned, undone,
     capabilities, info, sid, title, skin,
     setQueue, setFocusRegion, setSplash, setAttachments, setInfo, setUsage, setTitle,
-    newSession, switchSession, rewind, goTo, attachClipboard, voiceToggle: voice.toggle,
+    newSession, switchSession, activateSession, rewind, goTo, attachClipboard, voiceToggle: voice.toggle,
   })
   const send = useCallback(async (raw: string) => {
     // Bare exit/quit/:q — pass through as literals so a
