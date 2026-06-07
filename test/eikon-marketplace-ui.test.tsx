@@ -2,6 +2,7 @@ import { describe, expect, test, afterEach } from "bun:test"
 import { act } from "react"
 import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+import { createHash } from "node:crypto"
 import { mount, mountNode, until } from "./harness"
 import { EikonGroup } from "../src/tabs/EikonGroup"
 import { eikon } from "../src/service/eikon"
@@ -28,6 +29,7 @@ const launchBody = (name: string, author: string, frames: Record<string, string>
 }
 const body = launchBody("ares", "Kaio", { idle: "ARES-IDLE", thinking: "ARES-THINKING" })
 const monoBody = launchBody("mono", "Nous", { idle: "MONO-IDLE" })
+const digest = (data: string | Uint8Array) => `sha256:${createHash("sha256").update(data).digest("hex")}`
 const png = new Uint8Array([137, 80, 78, 71])
 const servers = new Set<ReturnType<typeof Bun.serve>>()
 const baseTestPerf = process.env.HERM_TEST_PERF
@@ -76,6 +78,26 @@ function local(name: string) {
   const p = eikon.ensure(name)
   writeFileSync(join(p.source, "base.png"), png)
   writeFileSync(eikon.file(name), JSON.stringify({ eikon: 1, name, author: "Local", width: 48, height: 24 }) + "\n")
+}
+
+function packageCatalog(extra: Route[] = []) {
+  const srv = serve([
+    { path: "/eikons/index.json", body: [
+      {
+        name: "ares", author: "Kaio", description: "red warrior", poster: "ARES-POSTER", source: "ares/",
+        trust: { manifestDigest: "sha256:manifest", runtimeDigest: digest(body) },
+      },
+    ] },
+    { path: "/eikons/ares/manifest.json", body: {
+      kind: "eikon.package", schemaVersion: "1.0", id: "liftaris/ares", name: "ares",
+      display: { title: "Ares", author: "Kaio", description: "red warrior" },
+      compatibility: { eikon: ">=1 <2" }, entrypoints: { default: "ares.eikon" },
+      files: [{ path: "ares.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl", size: body.length, digest: digest(body) }], poster: "poster.txt", preview: "ares.eikon",
+    } },
+    { path: "/eikons/ares/ares.eikon", body },
+    ...extra,
+  ])
+  return { srv, base: `http://localhost:${srv.port}/eikons` }
 }
 
 function group(props: { sub?: number; sidebarPreview?: (p?: SidebarPreview) => void } = {}) {
@@ -151,7 +173,7 @@ describe("EikonMarketplace tab", () => {
     await using t = await mountNode(group(), { width: 160, height: 48 })
     await until(t, () => t.frame().includes("Marketplace (6)") && t.frame().includes("ARES-POSTER"))
     expect(t.frame()).toContain("red warrior")
-    expect(t.frame()).toContain("digest unknown")
+    expect(t.frame()).toContain("digest: unknown")
     expect(t.frame()).toContain("Install")
 
     await act(async () => { await t.keys.typeText("/") })
@@ -182,6 +204,28 @@ describe("EikonMarketplace tab", () => {
     act(() => t.keys.pressEnter())
     await until(t, () => prefs.get("eikon") === "ares" && t.frame().includes("Active"))
     expect(t.frame()).toContain("▸ ● ares")
+    fx.srv.stop()
+  })
+
+  test("Marketplace details expose trust source compatibility update and remove lifecycle", async () => {
+    const fx = packageCatalog()
+    process.env.EIKON_URL = fx.base
+    await using t = await mountNode(group(), { width: 120, height: 40 })
+    await until(t, () => t.frame().includes("Marketplace (1)") && t.frame().includes("Unverified"))
+    expect(t.frame()).toContain("source:")
+    expect(t.frame()).toContain("compat: Compatible")
+    expect(t.frame()).toContain("actions: Install")
+
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Use") && t.frame().includes("removable"))
+    expect(prefs.get("eikon")).toBeUndefined()
+    expect(t.frame()).toContain("actions: Use · Update · Remove")
+
+    act(() => t.keys.pressKey("d"))
+    await until(t, () => t.frame().includes("Remove 'ares'?"))
+    expect(t.frame()).toContain("change the active avatar")
+    act(() => t.keys.pressKey("y"))
+    await until(t, () => t.frame().includes("Install") && !eikon.list().some(x => x.name === "ares"))
     fx.srv.stop()
   })
 

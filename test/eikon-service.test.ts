@@ -89,7 +89,7 @@ describe("service/eikon: save", () => {
     s.sources = { base: "base.png" }
     const out = await eikon.save(s)
     expect(out).toBe(eikon.file("pack"))
-    expect(prefs.get("eikon")).toBe("pack")
+    expect(prefs.get("eikon")).toBeUndefined()
     expect(eikon.revision()).toBe(before + 1)
     const doc = parseEikon(readFileSync(out, "utf8"))
     expect(doc.meta.width).toBe(48)

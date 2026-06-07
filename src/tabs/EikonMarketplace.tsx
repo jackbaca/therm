@@ -1,9 +1,11 @@
 import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
 import { useKeyboard } from "@opentui/react"
 import { useTheme } from "../theme"
+import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
 import { TabShell } from "../ui/shell"
 import { HintBar } from "../ui/hint"
+import { openConfirm } from "../dialogs/confirm"
 import { VBAR } from "../ui/table"
 import { useKeys, handleListKey, useFollow } from "../keys"
 import * as perf from "../utils/perf"
@@ -11,7 +13,6 @@ import { parseEikon } from "../components/avatar/eikon"
 import { eikon } from "../service/eikon"
 import * as market from "../service/eikon-marketplace"
 import type { MarketplaceRow, MarketplaceState } from "../service/eikon-marketplace"
-import * as prefs from "../context/preferences"
 import type { SidebarPreview } from "../components/sidebar/Sidebar"
 import type { AvatarState } from "../components/avatar/states"
 
@@ -23,6 +24,7 @@ export const EikonMarketplace = memo((props: {
   sidebarHidden?: boolean
 }) => {
   const toast = useToast()
+  const dialog = useDialog()
   const keys = useKeys()
   const rev = useSyncExternalStore(eikon.onRevision, eikon.revision)
   const [sel, setSel] = useState(0)
@@ -63,7 +65,10 @@ export const EikonMarketplace = memo((props: {
           body: selected.entry.description ?? "No description.",
           rows: [
             { label: "Action", value: actionLabel(selected), strong: selected.action !== "active" },
-            { label: "Status", value: selected.installed ? selected.active ? "active" : "installed" : "not installed" },
+            { label: "Status", value: stateLabel(selected) },
+            { label: "Trust", value: trustLabel(selected) },
+            { label: "Source", value: sourceText(selected) },
+            { label: "Compat", value: compatText(selected) },
             { label: "State", value: st },
             { label: "Digest", value: digest(selected) ?? "unknown" },
           ],
@@ -117,9 +122,13 @@ export const EikonMarketplace = memo((props: {
     const svc = state.service
     if (!row || !svc || installing) return
     if (row.action === "active") return
+    if (row.installState === "incompatible" || row.installState === "mismatch") {
+      toast.show({ variant: "warning", title: "Install blocked", message: row.reason ?? row.installState, duration: 5000 })
+      return
+    }
     if (row.action === "use") {
       const name = row.installedManifest?.name ?? row.entry.name
-      prefs.set("eikon", name)
+      eikon.useInstalled(name)
       toast.show({ variant: "success", message: `Avatar → ${name}` })
       refreshMarket(svc, query)
       return
@@ -138,8 +147,52 @@ export const EikonMarketplace = memo((props: {
       .finally(() => setInstalling(false))
   }, [state.rows, state.service, sel, installing, toast, loadMarket, refreshMarket, query])
 
+  const updateSelected = useCallback(async () => {
+    const row = state.rows[sel]
+    const svc = state.service
+    const name = row?.installedManifest?.name ?? row?.entry.name
+    if (!row || !svc || !name || !row.updateable) return toast.show({ variant: "warning", message: "No recorded source to update" })
+    const run = async (confirmActive = false) => eikon.update(name, { confirmActive })
+    try {
+      const out = await run(false)
+      if ("type" in out) {
+        const ok = await openConfirm(dialog, {
+          title: `Update active '${name}'?`, danger: true,
+          body: `${out.message} The active avatar's backing package will change; the active name remains '${name}'.`,
+          yes: "update active", no: "cancel",
+        })
+        if (!ok) return
+        await run(true)
+      }
+      toast.show({ variant: "success", message: `Updated '${name}'` })
+      refreshMarket(svc, query)
+    } catch (err) {
+      toast.error(err instanceof Error ? err : new Error(String(err)))
+    }
+  }, [dialog, query, refreshMarket, sel, state.rows, state.service, toast])
+
+  const removeSelected = useCallback(async () => {
+    const row = state.rows[sel]
+    const svc = state.service
+    const name = row?.installedManifest?.name ?? row?.entry.name
+    if (!row || !svc || !name || !row.removable) return toast.show({ variant: "warning", message: "This eikon is not removable" })
+    const active = row.active
+    const ok = await openConfirm(dialog, {
+      title: `Remove '${name}'?`, danger: true,
+      body: active
+        ? `Remove the local package for '${name}'. This is the active avatar; removal will clear the active avatar selection. This cannot be undone.`
+        : `Remove the local package for '${name}'. This does not change the active avatar. This cannot be undone.`,
+      yes: "remove", no: "cancel",
+    })
+    if (!ok) return
+    const out = eikon.remove(name, { confirmActive: active })
+    if (out) return toast.show({ variant: "warning", message: out.message })
+    toast.show({ variant: "info", message: `Removed '${name}'` })
+    refreshMarket(svc, query)
+  }, [dialog, query, refreshMarket, sel, state.rows, state.service, toast])
+
   useKeyboard(key => {
-    if (!props.focused) return
+    if (!props.focused || dialog.open()) return
     if (searching) {
       if (key.name === "escape") { setSearching(false); return }
       if (key.name === "backspace") { setQuery(q => q.slice(0, -1)); setSel(0); return }
@@ -164,6 +217,8 @@ export const EikonMarketplace = memo((props: {
       onSearch: () => setSearching(true),
       onRefresh: () => loadMarket(query),
     })) return
+    if (plain && key.name === "u") return void updateSelected()
+    if (plain && key.name === "d") return void removeSelected()
   })
 
   perf.count("market:render")
@@ -185,7 +240,8 @@ export const EikonMarketplace = memo((props: {
       <HintBar pairs={[
         ["↑↓←→/Pg/Home/End", "select"], [keys.print("list.activate"), actionLabel(selected)],
         [keys.print("list.search"), searching ? "typing search" : "search"], [keys.print("list.refresh"), "reload"],
-        ["Space", "preview state"], ["Esc", searching ? "exit search" : props.sidebarPreview ? "restore sidebar" : "clear preview"],
+        ["u", "update"], ["d", "remove"], ["Space", "preview state"],
+        ["Esc", searching ? "exit search" : props.sidebarPreview ? "restore sidebar" : "clear preview"],
       ]} />
     </box>
   )
@@ -225,7 +281,8 @@ const MarketplaceGrid = (props: {
                   </box>
                   <box height={1} paddingLeft={2} overflow="hidden"><text fg={theme.textMuted} wrapMode="none">by {r.entry.author ?? "unknown"}</text></box>
                   <box height={1} paddingLeft={2} overflow="hidden"><text fg={theme.textMuted} wrapMode="none">{r.entry.description ?? "No description."}</text></box>
-                  <box height={1} paddingLeft={2} overflow="hidden"><text fg={theme.textMuted} wrapMode="none">{meta(r)} · {r.installed ? r.active ? "active" : "installed" : "not installed"}</text></box>
+                  <box height={1} paddingLeft={2} overflow="hidden"><text fg={theme.textMuted} wrapMode="none">{trustLabel(r)} · {sourceText(r)}</text></box>
+                  <box height={1} paddingLeft={2} overflow="hidden"><text fg={theme.textMuted} wrapMode="none">{stateLabel(r)} · {compatText(r)}</text></box>
                 </box>
               )
             })}
@@ -241,7 +298,7 @@ const posterLines = (poster?: string) => {
   return lines.length ? lines : ["(no poster)"]
 }
 
-const cardHeight = (row: MarketplaceRow) => posterLines(row.entry.poster).length + 4
+const cardHeight = (row: MarketplaceRow) => posterLines(row.entry.poster).length + 5
 
 const chunk = <T,>(rows: T[], n: number) => rows.reduce<T[][]>((acc, row, i) => {
   if (i % n === 0) acc.push([])
@@ -276,8 +333,12 @@ const MarketplaceDetail = (props: {
       <text fg={r.active ? theme.accent : theme.text}><strong>{r.active ? "● " : ""}{r.entry.name}</strong></text>
       <text fg={theme.textMuted}>by {r.entry.author ?? "unknown"}</text>
       <text fg={theme.text} wrapMode="word">{r.entry.description ?? "No description."}</text>
+      <text fg={trustColor(r, theme)}>{trustLabel(r)}</text>
+      <text fg={theme.textMuted}>source: {sourceText(r)}</text>
+      <text fg={theme.textMuted}>compat: {compatText(r)}</text>
       <text fg={theme.textMuted}>digest: {digest(r) ?? "unknown"}</text>
-      <text fg={theme.textMuted}>state: {r.installed ? r.active ? "active" : "installed" : "not installed"}</text>
+      <text fg={theme.textMuted}>state: {stateLabel(r)}</text>
+      <text fg={theme.textMuted}>actions: {actionLabel(r)}{r.updateable ? " · Update" : ""}{r.removable ? " · Remove" : ""}</text>
       <box height={1} onMouseDown={() => props.onState(next)}>
         <text fg={theme.primary}>Preview: {previewState}  [Space] {next}</text>
       </box>
@@ -309,6 +370,31 @@ const digest = (row: MarketplaceRow) =>
 const meta = (row: MarketplaceRow) => {
   const hash = digest(row)
   return hash ? `digest ${hash}` : "digest unknown"
+}
+
+
+const trustLabel = (row: MarketplaceRow) => {
+  const t = row.trust === "mismatch" ? "Mismatch" : row.trust === "verified" ? "Verified" : row.trust === "unverified" ? "Unverified" : "Trust unknown"
+  return row.reason && row.trust === "mismatch" ? `${t}: ${row.reason}` : t
+}
+
+const sourceText = (row: MarketplaceRow) => row.sourceIdentity ?? row.lifecycle.source.packageUrl ?? row.entry.sourceKey ?? row.entry.packageUrl
+
+const compatText = (row: MarketplaceRow) => row.installState === "incompatible"
+  ? `Blocked: ${row.reason ?? "requires newer Herm/eikon"}`
+  : "Compatible"
+
+const stateLabel = (row: MarketplaceRow) => {
+  const base = row.active ? "active" : row.installed ? "installed" : "not installed"
+  const update = row.updateAvailable ? " · update available" : row.updateable ? " · update possible" : ""
+  const rm = row.removable ? " · removable" : row.installed ? " · not removable" : ""
+  return `${base}${update}${rm}`
+}
+
+const trustColor = (row: MarketplaceRow, theme: ReturnType<typeof useTheme>["theme"]) => {
+  if (row.trust === "verified") return theme.success
+  if (row.trust === "mismatch") return theme.error
+  return theme.warning
 }
 
 const actionColor = (row: MarketplaceRow, theme: ReturnType<typeof useTheme>["theme"]) => {
