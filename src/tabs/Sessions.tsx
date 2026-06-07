@@ -622,6 +622,8 @@ export const Sessions = memo((props: Props) => {
 
   const LIMIT = 2000
 
+  const keep = (d: SessionRow) => d.message_count > 0 || d.lineage_root_id != null
+
   const toRow = (d: SessionRow): Row => ({
     id: d.id, title: d.title ?? "", preview: d.lastMessage ?? "",
     message_count: d.message_count, started_at: d.started_at,
@@ -658,7 +660,7 @@ export const Sessions = memo((props: Props) => {
 
     const disk = await fs
     const local = new Map(disk.map(r => [r.id, r]))
-    const diskRows = disk.filter(d => d.message_count > 0).map(toRow)
+    const diskRows = disk.filter(keep).map(toRow)
     setRows(diskRows)
     if (cached) last.rows = diskRows
 

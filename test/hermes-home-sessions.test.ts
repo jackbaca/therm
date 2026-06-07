@@ -451,6 +451,22 @@ describe("lastReal() — compression chain walk", () => {
     expect(result?.message_count).toBe(4)
   })
 
+  test("returns zero-message tip when the chain has a real predecessor", () => {
+    const db = seed()
+    sess(db, "root", "tui", 1000, {
+      ended_at: 2000, end_reason: "compression", message_count: 296,
+    })
+    sess(db, "tip", "tui", 2100, {
+      parent_session_id: "root", message_count: 0,
+    })
+    db.close()
+    resetDb()
+
+    const result = lastReal()
+    expect(result?.id).toBe("tip")
+    expect(result?.message_count).toBe(0)
+  })
+
   test("returns CLI session when no TUI sessions exist (CLI sessions are valid for herm -c)", () => {
     const db = seed()
     sess(db, "cli-sess", "cli", 1700000000, {
