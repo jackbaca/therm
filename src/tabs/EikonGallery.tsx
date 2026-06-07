@@ -49,7 +49,7 @@ export const EikonGallery = memo((props: Props) => {
         path: e.path, name: e.meta.name, slug, author: e.meta.author,
         bundled: e.path.startsWith(BUNDLED_EIKON_DIR),
         w: e.meta.width, h: e.meta.height,
-        url: (mine?.sourceUrl ?? e.meta.source_url) as string | undefined,
+        url: mine?.sourceUrl,
         hasSource: mine?.hasSource ?? !!eikon.findSource(slug),
       }
     })
