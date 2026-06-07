@@ -20,6 +20,7 @@ import type { ParsedKey, SubmitEvent } from "@opentui/core"
 import { useTheme } from "../../theme"
 import { useGateway } from "../../context/gateway"
 import { mkApproval, remember } from "../../context/approval-memory"
+import { MaskInput } from "../../ui/mask-input"
 import type { PromptPart, PromptReq, Part } from "../../types/message"
 
 export type PromptCardHandle = {
@@ -330,21 +331,7 @@ const Masked = forwardRef<PromptCardHandle, {
         <text fg={theme.warning}><strong>{p.title}</strong></text>
         <text fg={theme.text}>{p.note}</text>
         <box height={1} />
-        <box flexDirection="row" height={1} position="relative">
-          <text fg={theme.textMuted}>{"> "}</text>
-          <input
-            value={value} onInput={setValue}
-            onSubmit={(() => go(value)) as unknown as (e: SubmitEvent) => void}
-            focused flexGrow={1}
-            textColor={theme.backgroundElement}
-            cursorColor={theme.accent}
-            backgroundColor={theme.backgroundElement}
-            focusedBackgroundColor={theme.backgroundElement}
-          />
-          <box position="absolute" left={2} top={0} height={1}>
-            <text fg={theme.text} bg={theme.backgroundElement}>{"•".repeat(value.length)}</text>
-          </box>
-        </box>
+        <MaskInput value={value} input={setValue} submit={() => go(value)} />
         <text fg={theme.textMuted}>Enter submit · Esc cancel</text>
       </box>
     </Frame>
