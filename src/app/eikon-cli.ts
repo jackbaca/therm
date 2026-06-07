@@ -30,7 +30,7 @@ type SearchRow = {
   trust: svc.LifecycleInfo["trust"]
   installed: boolean
   active: boolean
-  compatibility?: Record<string, unknown>
+  compatibility?: Record<string, unknown> | string
 }
 
 type InspectResult = {

@@ -51,7 +51,7 @@ function deps(overrides: Partial<EikonCliDeps> = {}): EikonCliDeps {
       author: "Kaio",
       version: "1.0.0",
       sourceIdentity: "ares",
-      trust: "verified",
+      trust: "verified" as const,
       installed: false,
       active: false,
       compatibility: { eikon: ">=1 <2", available: true },
@@ -270,7 +270,7 @@ describe("eikon headless CLI", () => {
     const removed: Array<{ name: string; confirmActive?: boolean }> = []
     const r = capture()
     expect(await handleEikonCli(["eikon", "remove", "ares", "--active-ok", "--json"], deps({
-      remove: (name, opts) => { removed.push({ name, confirmActive: opts.confirmActive }); return undefined },
+      remove: (name, opts) => { removed.push({ name, confirmActive: opts?.confirmActive }); return undefined },
     }), r.io)).toBe(0)
     expect(removed).toEqual([{ name: "ares", confirmActive: true }])
     expect(JSON.parse(r.stdout())).toEqual({ ok: true, name: "ares", removed: true, activeCleared: false })
@@ -278,7 +278,7 @@ describe("eikon headless CLI", () => {
     const updates: Array<{ name: string; confirmActive?: boolean }> = []
     const u = capture()
     expect(await handleEikonCli(["eikon", "update", "ares", "--active-ok", "--json"], deps({
-      update: async (name, opts) => { updates.push({ name, confirmActive: opts.confirmActive }); return { name, sources: {}, n: 2, bytes: 84 } },
+      update: async (name, opts) => { updates.push({ name, confirmActive: opts?.confirmActive }); return { name, sources: {}, n: 2, bytes: 84 } },
     }), u.io)).toBe(0)
     expect(updates).toEqual([{ name: "ares", confirmActive: true }])
     expect(JSON.parse(u.stdout())).toEqual({ ok: true, name: "ares", n: 2, bytes: 84, active: null })
