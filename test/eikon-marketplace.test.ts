@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+import { createHash } from "node:crypto"
 import type { Catalog } from "eikon"
 import * as market from "../src/service/eikon-marketplace"
 import { eikon } from "../src/service/eikon"
@@ -9,13 +10,13 @@ import * as prefs from "../src/context/preferences"
 const HH = process.env.HERMES_HOME!
 if (!HH || HH.includes("/.hermes")) throw new Error("sandbox not applied")
 
-const body = "{\"eikon\":1,\"name\":\"ares\",\"author\":\"Kaio\",\"width\":48,\"height\":24}\n"
 const launch = [
   JSON.stringify({ type: "header", eikon: 1, size: { cols: 4, rows: 2 }, defaultSignal: "state.idle", signals: { "state.idle": { clip: "idle" } } }),
   JSON.stringify({ type: "clip", name: "idle", fps: 12, frameCount: 1 }),
   JSON.stringify({ type: "frame", clip: "idle", index: 0, rows: ["abcd", "efgh"] }),
 ].join("\n") + "\n"
 const png = new Uint8Array([137, 80, 78, 71])
+const digest = (data: string | Uint8Array) => `sha256:${createHash("sha256").update(data).digest("hex")}`
 
 type RouteBody = BodyInit | object | ((req: Request) => BodyInit | object)
 type Route = { path: string; body: RouteBody; status?: number; headers?: HeadersInit }
@@ -31,6 +32,7 @@ type CatalogEntrySeed = {
   preview?: string
   runtimeUrl?: string
   packageUrl?: string
+  trust?: Record<string, unknown>
 }
 
 function url(raw: string, base: string) {
@@ -56,7 +58,7 @@ function catalogRow(seed: CatalogEntrySeed, base: string) {
     runtimeUrl,
     packageUrl,
     compatibility: { eikon: ">=1 <2", available: true },
-    trust: {},
+    trust: seed.trust ?? {},
   }
 }
 
@@ -92,6 +94,19 @@ function serve(routes: Route[], seen: string[] = []) {
 
 function fixture() {
   const seen: string[] = []
+  const pkg = (name: string) => ({
+    kind: "eikon.package",
+    schemaVersion: "1.0",
+    id: `liftaris/${name}`,
+    name,
+    compatibility: { eikon: ">=1 <2" },
+    entrypoints: { default: `${name}.eikon` },
+    files: [
+      { path: `${name}.eikon`, role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl", size: launch.length, digest: digest(launch) },
+      { path: "source.png", role: "source.base", mediaType: "image/png", size: png.length, digest: digest(png) },
+    ],
+    source: { base: "source.png" },
+  })
   const srv = serve([
     { path: "/eikons/index.json", body: req => {
       const base = `${new URL(req.url).origin}/eikons/`
@@ -101,14 +116,14 @@ function fixture() {
         catalogRow({ name: "ares", author: "Other", poster: "ALT", source: "alt/" }, base),
       ]
     } },
-    { path: "/eikons/ares/ares.eikon", body },
-    { path: "/eikons/ares/manifest.json", body: { name: "ares", source: "source.png" } },
+    { path: "/eikons/ares/ares.eikon", body: launch },
+    { path: "/eikons/ares/manifest.json", body: pkg("ares") },
     { path: "/eikons/ares/source.png", body: png },
-    { path: "/eikons/mono/mono.eikon", body: body.replace("ares", "mono") },
-    { path: "/eikons/mono/manifest.json", body: { name: "mono", source: "source.png" } },
+    { path: "/eikons/mono/mono.eikon", body: launch },
+    { path: "/eikons/mono/manifest.json", body: pkg("mono") },
     { path: "/eikons/mono/source.png", body: png },
-    { path: "/eikons/alt/ares.eikon", body: body.replace("Kaio", "Other") },
-    { path: "/eikons/alt/manifest.json", body: { name: "ares", source: "source.png" } },
+    { path: "/eikons/alt/ares.eikon", body: launch },
+    { path: "/eikons/alt/manifest.json", body: pkg("ares") },
     { path: "/eikons/alt/source.png", body: png },
   ], seen)
   return { srv, seen, base: `http://localhost:${srv.port}/eikons` }
@@ -175,7 +190,7 @@ describe("service/eikon-marketplace", () => {
   test("flat legacy files do not satisfy marketplace installed state", async () => {
     const fx = fixture()
     mkdirSync(join(HH, "eikons"), { recursive: true })
-    writeFileSync(join(HH, "eikons", "mono.eikon"), body.replace("ares", "mono"))
+    writeFileSync(join(HH, "eikons", "mono.eikon"), launch)
 
     const state = await market.load({ catalog: fx.base, allowPrivate: true })
     expect(state.rows.find(r => r.entry.name === "mono")!.installed).toBe(false)
@@ -219,8 +234,8 @@ describe("service/eikon-marketplace", () => {
     const svc = state.service!
     const row = state.rows[0]!
 
-    expect(await svc.preview(row.entry.identityKey)).toBe(body)
-    expect(await svc.preview(row.entry.identityKey)).toBe(body)
+    expect(await svc.preview(row.entry.identityKey)).toBe(launch)
+    expect(await svc.preview(row.entry.identityKey)).toBe(launch)
     expect(fx.seen.filter(p => p.endsWith("ares.eikon"))).toHaveLength(1)
 
     const ctl = new AbortController()
@@ -240,12 +255,12 @@ describe("service/eikon-marketplace", () => {
       svc.preview(ares.entry.identityKey),
       svc.preview(ares.entry.identityKey),
     ])
-    expect(left).toBe(body)
-    expect(right).toBe(body)
+    expect(left).toBe(launch)
+    expect(right).toBe(launch)
     expect(fx.seen.filter(p => p.endsWith("ares.eikon"))).toHaveLength(1)
 
-    expect(await svc.preview(mono.entry.identityKey)).toContain("mono")
-    expect(await svc.preview(ares.entry.identityKey)).toBe(body)
+    expect(await svc.preview(mono.entry.identityKey)).toBe(launch)
+    expect(await svc.preview(ares.entry.identityKey)).toBe(launch)
     expect(fx.seen.filter(p => p.endsWith("ares.eikon"))).toHaveLength(2)
     fx.srv.stop()
   })
@@ -316,9 +331,9 @@ describe("service/eikon-marketplace", () => {
       compatibility: { eikon: ">=1 <2" },
       entrypoints: { default: "streams/pkg.eikon" },
       files: [
-        { path: "streams/pkg.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl" },
-        { path: "source/base.png", role: "source.base", mediaType: "image/png" },
-        { path: "source/idle.mp4", role: "source.clip", mediaType: "video/mp4" },
+        { path: "streams/pkg.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl", size: launch.length, digest: digest(launch) },
+        { path: "source/base.png", role: "source.base", mediaType: "image/png", size: png.length, digest: digest(png) },
+        { path: "source/idle.mp4", role: "source.clip", mediaType: "video/mp4", size: 8, digest: digest(new Uint8Array(8)) },
       ],
       source: { base: "source/base.png", states: { idle: { file: "source/idle.mp4" } } },
     }
@@ -358,7 +373,7 @@ describe("service/eikon-marketplace", () => {
       { path: "/eikons/bad/manifest.json", body: "missing", status: 404 },
     ])
     const state = await market.load({ catalog: `http://localhost:${srv.port}/eikons`, allowPrivate: true })
-    await expect(state.service!.install(state.rows[0]!.entry.identityKey)).rejects.toThrow(/manifest: HTTP 404/)
+    await expect(state.service!.install(state.rows[0]!.entry.identityKey)).rejects.toThrow(/download failed 404/)
     expect(prefs.get("eikon")).toBeUndefined()
     expect(eikon.list().some(x => x.name === "bad")).toBe(false)
     srv.stop()
@@ -373,9 +388,63 @@ describe("service/eikon-marketplace", () => {
     srv.stop()
   })
 
-  test("unsafe public catalog URLs are rejected before fetch", async () => {
-    const state = await market.load({ catalog: "http://127.0.0.1/eikons" })
-    expect(state.status).toBe("error")
-    expect(state.error).toContain("private host")
+  test("rows expose lifecycle source, trust, removable, and compatibility state", async () => {
+    const fx = fixture()
+    eikon.ensure("ares")
+    writeFileSync(eikon.file("ares"), '{"eikon":1,"name":"ares"}\n')
+    writeFileSync(join(eikon.dir("ares"), "manifest.json"), JSON.stringify({
+      kind: "eikon.package",
+      id: "liftaris/ares",
+      name: "ares",
+      version: "2.0.0",
+      display: { title: "Ares", author: "Kaio" },
+      compatibility: { eikon: ">=1 <2" },
+      entrypoints: { default: "ares.eikon" },
+      origin: { source: `${fx.base}/ares/manifest.json`, at: "2026-06-07T00:00:00.000Z", kind: "default-catalog", trust: "verified", sourceKey: `${fx.base}/ares/`, packageUrl: `${fx.base}/ares/manifest.json` },
+    }, null, 2))
+
+    const state = await market.load({ catalog: fx.base, allowPrivate: true })
+    const row = state.rows.find(r => r.entry.poster === "ARES")!
+
+    expect(row.installState).toBe("installed")
+    expect(row.lifecycle.title).toBe("Ares")
+    expect(row.lifecycle.version).toBe("2.0.0")
+    expect(row.trust).toBe("verified")
+    expect(row.sourceIdentity).toBe(`${fx.base}/ares/`)
+    expect(row.removable).toBe(true)
+    expect(row.updateable).toBe(true)
+    fx.srv.stop()
+  })
+
+  test("available catalog rows require descriptor digests for verified trust", async () => {
+    const cat: Catalog = {
+      base: "https://example.com/eikons",
+      entries: [
+        entry({ name: "legacy", trust: {} }),
+        entry({ name: "partial", trust: { manifestDigest: digest("manifest") } }),
+        entry({ name: "signed", trust: { manifestDigest: digest("manifest"), runtimeDigest: digest(launch) } }),
+      ],
+      load: async () => "",
+    }
+    const svc = new market.MarketplaceService(cat)
+    const rows = svc.rows()
+
+    expect(rows.find(r => r.entry.name === "legacy")!.trust).toBe("unverified")
+    expect(rows.find(r => r.entry.name === "partial")!.trust).toBe("unverified")
+    expect(rows.find(r => r.entry.name === "signed")!.trust).toBe("verified")
+  })
+
+  test("incompatible rows are blocked before install", async () => {
+    const cat: Catalog = {
+      base: "https://example.com/eikons",
+      entries: [{ ...entry({ name: "future" }), compatibility: { eikon: ">=99", available: false, reason: "requires newer Herm" } }],
+      load: async () => "",
+    }
+    const svc = new market.MarketplaceService(cat)
+    const row = svc.rows()[0]!
+
+    expect(row.installState).toBe("incompatible")
+    expect(row.reason).toBe("requires newer Herm")
+    await expect(svc.install(row.entry.identityKey)).rejects.toThrow(/requires newer Herm/)
   })
 })

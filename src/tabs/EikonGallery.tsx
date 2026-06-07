@@ -111,12 +111,17 @@ export const EikonGallery = memo((props: Props) => {
 
   const del = async () => {
     if (!cur || cur.bundled) return
+    const here = cur.slug === active
+    const body = here
+      ? `Removes ${dirname(cur.path)} and all its sources. This is the active avatar; deleting it will clear the active avatar selection. This cannot be undone.`
+      : `Removes ${dirname(cur.path)} and all its sources. This cannot be undone.`
     const ok = await openConfirm(dialog, {
       title: `Delete '${cur.name}'?`, danger: true,
-      body: `Removes ${dirname(cur.path)} and all its sources. This cannot be undone.`,
+      body,
     })
     if (!ok) return
-    eikon.remove(cur.slug)
+    const removed = eikon.remove(cur.slug, { confirmActive: here })
+    if (removed) return toast.show({ variant: "warning", message: removed.message })
     toast.show({ variant: "info", message: `Deleted ${cur.name}` })
   }
 
