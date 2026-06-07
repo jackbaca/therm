@@ -328,6 +328,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
 
   const reset = useCallback(() => {
     stream.interrupted.current = false
+    toast.clear("credits.depleted")
     undone.current = []
     dispatch({ kind: "reset" })
     setUsage(undefined)
@@ -335,7 +336,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     setStatus("")
     setTitle("")
     setAttachments([])
-  }, [])
+  }, [toast])
 
   const newSession = useCallback(async () => {
     const prev = sidRef.current

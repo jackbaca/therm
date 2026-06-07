@@ -3,9 +3,11 @@
 import * as perf from "../utils/perf"
 import * as spawnHistory from "../app/spawnHistory"
 import { shouldRemember } from "./approval-memory"
+import { showNotification, clearNotification } from "../app/notices"
 import type { GatewayEvent, GatewaySkin, SessionInfo } from "../context/wire"
 import type { Action } from "../app/turnReducer"
 import { pid, type Usage } from "../types/message"
+import type { ToastContext } from "../ui/toast"
 
 export type Side = {
   onReady?: () => void
@@ -23,6 +25,7 @@ export type Side = {
   onVoiceTranscript?: (text: string, noSpeechLimit: boolean) => void
   /** status.update with kind=process — debounced client-side to prevent TUI lag. */
   onProcessNotification?: (text: string) => void
+  notices?: ToastContext
 }
 
 function count(o: Record<string, string[]> | undefined): number {
@@ -232,6 +235,15 @@ export function mapEvent(ev: GatewayEvent, side: Side): Action | null {
       }
       return { kind: "system", text }
     }
+
+    case "notification.show":
+      if (side.notices) showNotification(side.notices, ev.payload)
+      return null
+
+    case "notification.clear":
+      if (side.notices) clearNotification(side.notices, ev.payload)
+      return null
+
     case "voice.status": {
       // Continuous VAD loop reports its internal state: listening,
       // transcribing, or idle. The UI uses this for the recording indicator.

@@ -105,6 +105,30 @@ describe("mapEvent", () => {
     expect(calls).toEqual([text])
   })
 
+  test("notification events route to keyed notice controller", () => {
+    const seen: unknown[] = []
+    const notices = {
+      show: (o: unknown) => seen.push(["show", o]),
+      clear: (k: string) => seen.push(["clear", k]),
+      error: () => {},
+    }
+    const show = map({
+      type: "notification.show",
+      payload: { text: "Credit access paused", level: "error", kind: "sticky", key: "credits.depleted" },
+    }, { notices })
+    expect(show.action).toBeNull()
+    expect(seen[0]).toEqual(["show", {
+      key: "credits.depleted",
+      variant: "error",
+      message: "Credit access paused",
+      duration: null,
+    }])
+
+    const clear = map({ type: "notification.clear", payload: { key: "credits.depleted" } }, { notices })
+    expect(clear.action).toBeNull()
+    expect(seen[1]).toEqual(["clear", "credits.depleted"])
+  })
+
   test("formatProcessNotification preserves completion and watch-pattern shapes", () => {
     expect(formatProcessNotification(
       "[IMPORTANT: Background process proc_abc completed (exit code 0).\nCommand: bun test\nOutput:\n…long stdout…]",

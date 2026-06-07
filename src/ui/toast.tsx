@@ -15,13 +15,14 @@ import type { ReactNode } from "react"
 import { useTheme } from "../theme"
 import type { RGBA } from "@opentui/core"
 
-type ToastVariant = "info" | "error" | "warning" | "success"
+export type ToastVariant = "info" | "error" | "warning" | "success"
 
-type ToastOptions = {
+export type ToastOptions = {
+  readonly key?: string
   readonly variant: ToastVariant
   readonly title?: string
   readonly message: string
-  readonly duration?: number
+  readonly duration?: number | null
   /** Clickable affordance on the toast (e.g. "view" → open dialog). */
   readonly action?: { label: string; run: () => void }
 }
@@ -30,8 +31,9 @@ type ToastEntry = ToastOptions & {
   readonly id: number
 }
 
-type ToastContext = {
+export type ToastContext = {
   readonly show: (opts: ToastOptions) => void
+  readonly clear: (key: string) => void
   readonly error: (err: Error) => void
 }
 
@@ -50,19 +52,41 @@ export const ToastProvider = ({ children }: { children: ReactNode }) => {
 
   const show = useCallback((opts: ToastOptions) => {
     const id = ++counter.current
-    setItems(prev => [...prev, { ...opts, id }])
+    setItems(prev => {
+      const drop = opts.key ? prev.filter(t => t.key === opts.key) : []
+      for (const item of drop) {
+        const t = timers.current.get(item.id)
+        if (t) clearTimeout(t)
+        timers.current.delete(item.id)
+      }
+      const next = opts.key ? prev.filter(t => t.key !== opts.key) : prev
+      return [...next, { ...opts, id }]
+    })
     const dur = opts.duration ?? DEFAULT_DURATION
+    if (dur === null) return
     timers.current.set(id, setTimeout(() => {
       timers.current.delete(id)
       setItems(prev => prev.filter(t => t.id !== id))
     }, dur))
   }, [])
 
+  const clear = useCallback((key: string) => {
+    setItems(prev => {
+      for (const item of prev) {
+        if (item.key !== key) continue
+        const t = timers.current.get(item.id)
+        if (t) clearTimeout(t)
+        timers.current.delete(item.id)
+      }
+      return prev.filter(t => t.key !== key)
+    })
+  }, [])
+
   const error = useCallback((err: Error) => {
     show({ variant: "error", title: "Error", message: err.message })
   }, [show])
 
-  const value = useMemo<ToastContext>(() => ({ show, error }), [show, error])
+  const value = useMemo<ToastContext>(() => ({ show, clear, error }), [show, clear, error])
 
   return (
     <Ctx.Provider value={value}>

@@ -1005,9 +1005,12 @@ describe("app", () => {
     t.destroy()
   })
 
-  test("/usage handles zero-call sessions without credits", async () => {
+  test("/usage renders credit lines when calls are zero", async () => {
     const gw = new MockGateway({
-      "session.usage": () => ({ calls: 0, credits_lines: [] }),
+      "session.usage": () => ({
+        calls: 0,
+        credits_lines: ["Credits: access paused", "Account: update billing"],
+      }),
     })
     const t = await mount({ gw })
     await until(t, () => t.frame().includes("Ready"))
@@ -1021,6 +1024,9 @@ describe("app", () => {
     expect(f).toContain("API calls")
     expect(f).toContain("0")
     expect(f).toContain("Total")
+    expect(f).toContain("Credits: access paused")
+    expect(f).toContain("Account: update billing")
+    expect(f.indexOf("Credits: access paused")).toBeLessThan(f.indexOf("Account: update billing"))
     t.destroy()
   })
 

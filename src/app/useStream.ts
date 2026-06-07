@@ -178,6 +178,7 @@ export function useStream(c: Ctx) {
         n.timer = setTimeout(flushProcs, 500)
       },
       onSkin: (s) => x.setSkin(deriveSkin(s)),
+      notices: toast,
     })
     if (!action) return
     if (ev.type === "session.info") {
