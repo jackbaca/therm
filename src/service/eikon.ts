@@ -18,7 +18,8 @@
 
 import { existsSync, mkdirSync, readdirSync, copyFileSync, readFileSync, writeFileSync, rmSync } from "node:fs"
 import { join, extname, basename, dirname } from "node:path"
-import { install, peek, header as peekHeader, type Installed as Got } from "eikon"
+import { install, peek, header as peekHeader, serializeLaunchStream, defaultSignalMappings,
+         type LaunchStreamRecord, type Installed as Got } from "eikon"
 import { DEFAULT_PUBLIC_CATALOG } from "eikon/catalog"
 import { hermesPath } from "./hermes-home"
 import * as prefs from "../context/preferences"
@@ -56,6 +57,20 @@ function manifest(name: string): Record<string, unknown> | undefined {
   return undefined
 }
 
+const LEGACY_SOURCE_URL = "source_url"
+
+function origin(man: Record<string, unknown> | undefined): string | undefined {
+  const o = man?.origin
+  if (!o || typeof o !== "object" || Array.isArray(o)) return undefined
+  const src = (o as { source?: unknown }).source
+  return typeof src === "string" ? src : undefined
+}
+
+function legacySource(head: Record<string, unknown> | undefined): string | undefined {
+  const src = head?.[LEGACY_SOURCE_URL]
+  return typeof src === "string" ? src : undefined
+}
+
 /** List folder-form eikons under ~/.hermes/eikons/. Flat legacy
  *  <name>.eikon at the root is still readable by listEikons() in
  *  components/avatar/eikon.ts but doesn't appear here (no studio). */
@@ -67,12 +82,13 @@ export function list(): Installed[] {
     .map(e => {
       const src = join(root, e.name, "source")
       const has = existsSync(src) && readdirSync(src).length > 0
+      const man = manifest(e.name)
       const head = header(join(root, e.name, `${e.name}.eikon`))
       return {
         name: e.name, file: join(root, e.name, `${e.name}.eikon`),
         source: src, hasSource: has,
-        sourceUrl: typeof head?.source_url === "string" ? head.source_url : undefined,
-        manifest: manifest(e.name),
+        sourceUrl: origin(man) ?? legacySource(head),
+        manifest: man,
       }
     })
 }
@@ -135,7 +151,7 @@ export function header(path: string): Record<string, unknown> | undefined {
 
 /** Locate the packed eikon for a name — installed folder-form first,
  *  then bundled launch packages. Studio falls back to this for
- *  baked-frame preview + header `source_url` when `source/` is empty. */
+ *  baked-frame preview when `source/` is empty. */
 export function baked(name: string): string | undefined {
   const local = file(name)
   if (existsSync(local)) return local
@@ -186,20 +202,30 @@ const bump = () => { rev++; for (const f of revSubs) f() }
 
 // ── Save / pack ──────────────────────────────────────────────────────
 
-function serialize(name: string, glyph: string, fps: number,
-                   clips: Map<AvatarState, Frame[]>, url?: string): string {
-  const out: string[] = [JSON.stringify({
-    eikon: 1, name, width: W, height: H, glyph,
-    author: process.env.USER ?? "unknown",
-    created: new Date().toISOString(),
-    ...(url ? { source_url: url } : {}),
-  })]
+function serialize(name: string, fps: number, clips: Map<AvatarState, Frame[]>): string {
+  const records: LaunchStreamRecord[] = [{
+    type: "header",
+    eikon: 1,
+    id: name,
+    title: name,
+    author: { name: process.env.USER ?? "unknown" },
+    size: { cols: W, rows: H },
+    defaultSignal: "state.idle",
+    signals: defaultSignalMappings(),
+  }]
   for (const st of STATES) {
     const fs = clips.get(st)!
-    out.push(JSON.stringify({ state: st, fps, frame_count: fs.length, loop_from: 0 }))
-    fs.forEach((f, i) => out.push(JSON.stringify({ f: i, data: f.join("\n") })))
+    records.push({ type: "clip", name: st, fps, frameCount: fs.length, loopFrom: 0 })
+    fs.forEach((f, i) => records.push({ type: "frame", clip: st, index: i, rows: f }))
   }
-  return out.join("\n") + "\n"
+  return serializeLaunchStream(records)
+}
+
+function preserve(name: string, src: string | undefined) {
+  if (!src) return
+  const man = manifest(name) ?? { name }
+  if (origin(man)) return
+  writeFileSync(join(dir(name), "manifest.json"), JSON.stringify({ ...man, origin: { source: src, at: new Date().toISOString() } }, null, 2) + "\n", "utf8")
 }
 
 /** Render all six states (all frames) and write `.eikon` + `studio.json`.
@@ -236,8 +262,9 @@ export async function save(s: Session): Promise<string> {
     }
     clips.set(st, fs)
   }
-  const url = header(paths.file)?.source_url as string | undefined
-  await Bun.write(paths.file, serialize(s.name, s.glyph, s.fps, clips, url))
+  const head = header(paths.file)
+  preserve(s.name, legacySource(head))
+  await Bun.write(paths.file, serialize(s.name, s.fps, clips))
   writeStudio(s.name, { ...toStudio(s), sources })
   prefs.set("eikon", s.name)
   bump()
@@ -270,7 +297,6 @@ export type PackageManifest = {
   source?: { base?: string; states?: Partial<Record<string, { file: string; role?: string }>> }
   poster?: string
   preview?: string
-  signals?: Record<string, { clip?: string; state?: string; decorator?: string; fallback: string }>
   triggers?: Array<{ signal: string; when: string; fallback?: string }>
   extensions?: { used?: string[]; required?: string[] }
   legacy?: { sourceFormat?: ".eikon"; migration?: "adapt" | "converted"; notes?: string[] }
@@ -291,7 +317,6 @@ export type CatalogPackage = {
   preview?: string
   packageUrl: string
   detailUrl?: string
-  installUrl?: string
   compatibility: { eikon: string; hosts?: Record<string, string>; available?: boolean; reason?: string }
   trust?: Record<string, unknown>
   state: PackageState
@@ -300,7 +325,6 @@ export type AdaptedPackage = {
   manifest: PackageManifest
   eikon: ReturnType<typeof parseEikon>
   states: LifecycleState[]
-  signals?: PackageManifest["signals"]
   triggers?: PackageManifest["triggers"]
   extensions?: PackageManifest["extensions"]
 }
@@ -334,8 +358,6 @@ export async function fetchSource(src: string, opts?: { name?: string; media?: b
 
 const OBJ = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object" && !Array.isArray(x)
 const SAFE = /^[a-zA-Z0-9._/-]+$/
-const LEGACY = /\.eikon$/i
-
 function safePath(path: string): boolean {
   if (!path || path.startsWith("/") || path.startsWith("./") || path.includes("../") || path === "..") return false
   if (!SAFE.test(path)) return false
@@ -348,9 +370,10 @@ function pkgErr(path: string, msg: string): Error {
 
 function launchOk(range: string): boolean {
   const lower = range.match(/>=?\s*(\d+)/)
-  if (lower && Number(lower[1]) > 2) return false
+  if (lower && Number(lower[1]) > 1) return false
   const exact = range.match(/^\s*(\d+)(?:\.\d+)?\s*$/)
-  if (exact && Number(exact[1]) !== 2) return false
+  if (exact && Number(exact[1]) !== 1) return false
+  if (/>=?\s*2\b|\^\s*2\b/.test(range)) return false
   return !/^\s*>=?\s*99/.test(range)
 }
 
@@ -361,7 +384,7 @@ function validatePkg(value: unknown): PackageManifest {
   if (!/^[a-z0-9][a-z0-9-]{1,63}$/.test(String(man.name ?? ""))) throw pkgErr("name", "safe package name required")
   if (!man.id || typeof man.id !== "string") throw pkgErr("id", "safe id required")
   if (!OBJ(man.compatibility) || typeof man.compatibility.eikon !== "string") throw pkgErr("compatibility.eikon", "required")
-  if (!launchOk(man.compatibility.eikon)) throw pkgErr("compatibility.eikon", "must support launch major version 2")
+  if (!launchOk(man.compatibility.eikon)) throw pkgErr("compatibility.eikon", "must support launch major version 1")
   if (!OBJ(man.entrypoints) || typeof man.entrypoints.default !== "string" || !safePath(man.entrypoints.default)) throw pkgErr("entrypoints.default", "safe relative path required")
   for (const [k, p] of Object.entries(man.entrypoints)) {
     if (typeof p !== "string" || !safePath(p)) throw pkgErr(`entrypoints.${k}`, "safe relative path required")
@@ -371,9 +394,6 @@ function validatePkg(value: unknown): PackageManifest {
   }
   if (man.poster && !safePath(man.poster)) throw pkgErr("poster", "safe relative path required")
   if (man.preview && !safePath(man.preview)) throw pkgErr("preview", "safe relative path required")
-  for (const [k, mapping] of Object.entries(man.signals ?? {})) {
-    if (!mapping || typeof mapping.fallback !== "string") throw pkgErr(`signals.${k}.fallback`, "fallback required")
-  }
   return man
 }
 
@@ -415,7 +435,6 @@ function normalize(input: unknown, base?: string): CatalogPackage {
       description: man.display?.description, glyph: man.display?.glyph, tags: man.display?.tags,
       poster: relUrl(root, man.poster), preview: relUrl(root, man.preview ?? man.entrypoints.default),
       packageUrl, detailUrl: typeof input.detailUrl === "string" ? asUrl(input.detailUrl, root) : undefined,
-      installUrl: typeof input.installUrl === "string" ? asUrl(input.installUrl, root) : packageUrl,
       compatibility: { eikon: man.compatibility.eikon, hosts: man.compatibility.hosts, available: launchOk(man.compatibility.eikon) },
       state: entryState(man.name, launchOk(man.compatibility.eikon)),
     }
@@ -433,7 +452,7 @@ function normalize(input: unknown, base?: string): CatalogPackage {
     tags: Array.isArray(input.tags) ? input.tags.filter((x): x is string => typeof x === "string") : undefined,
     glyph: typeof input.glyph === "string" ? input.glyph : undefined,
     poster: typeof input.poster === "string" ? input.poster : undefined,
-    packageUrl: manifest, compatibility: { eikon: ">=1 <3", available: true },
+    packageUrl: manifest, compatibility: { eikon: ">=1 <2", available: true },
     state: entryState(name),
   }
 }
@@ -457,55 +476,13 @@ export async function loadCatalog(index = process.env.HERM_EIKON_MARKETPLACE || 
   return raw.map(item => normalize(item, base))
 }
 
-function legacyToLaunch(raw: string): ReturnType<typeof parseEikon> {
-  return parseEikon(raw)
-}
-
 export async function adaptPackage(manifest: unknown, streamText?: string, legacyText?: string): Promise<AdaptedPackage> {
   const man = validatePkg(manifest)
-  const entry = man.entrypoints.default
   const body = streamText ?? legacyText
   if (!body) throw pkgErr("entrypoints.default", "stream data required")
-  const eik = LEGACY.test(entry) || man.legacy?.sourceFormat === ".eikon" ? legacyToLaunch(body) : parseLaunch(body)
+  const eik = parseEikon(body)
   for (const st of STATES) if (!eik.states.has(st)) throw pkgErr(`states.${st}`, "canonical lifecycle state required")
-  return { manifest: man, eikon: eik, states: [...STATES], signals: man.signals, triggers: man.triggers, extensions: man.extensions }
-}
-
-function parseLaunch(text: string): ReturnType<typeof parseEikon> {
-  const lines = text.split("\n")
-  const clips = new Map<string, { fps: number; frames: string[][]; loopFrom: number }>()
-  let name = "unnamed", glyph: string | undefined, width = 0, height = 0
-  let cur: { name: string; fps: number; frameCount?: number; loopFrom: number; frames: string[][] } | undefined
-  const seal = () => {
-    if (!cur) return
-    if (cur.frameCount != null && cur.frameCount !== cur.frames.length) throw pkgErr(`clip.${cur.name}`, `frameCount=${cur.frameCount} but got ${cur.frames.length}`)
-    clips.set(cur.name, { fps: cur.fps, frames: cur.frames, loopFrom: Math.max(0, Math.min(cur.loopFrom, cur.frames.length)) })
-    cur = undefined
-  }
-  for (const line of lines) {
-    if (!line.trim()) continue
-    const rec = JSON.parse(line)
-    if (rec.type === "header") {
-      const major = Number(String(rec.asset?.version ?? "").split(".")[0])
-      if (!major || major > 2) throw pkgErr("header.asset.version", "unsupported Eikon stream version")
-      name = typeof rec.name === "string" ? rec.name : name
-      glyph = typeof rec.glyph === "string" ? rec.glyph : undefined
-      width = Number(rec.asset?.width ?? 0)
-      height = Number(rec.asset?.height ?? 0)
-      continue
-    }
-    if (rec.type === "clip") {
-      seal()
-      cur = { name: rec.name, fps: rec.fps, frameCount: rec.frameCount, loopFrom: rec.loopFrom ?? 0, frames: [] }
-      continue
-    }
-    if (rec.type === "frame") {
-      if (!cur || cur.name !== rec.clip || rec.index !== cur.frames.length) throw pkgErr("frame", "frame order mismatch")
-      cur.frames.push(rec.rows)
-    }
-  }
-  seal()
-  return { meta: { version: 2, name, glyph, width, height, states: [...clips.keys()] }, states: clips }
+  return { manifest: man, eikon: eik, states: [...STATES], triggers: man.triggers, extensions: man.extensions }
 }
 
 async function loadPackage(url: string, fetcher: typeof fetch = fetch): Promise<{ man: PackageManifest; base: string }> {
@@ -524,11 +501,11 @@ async function installLaunch(url: string, opts: { name?: string; fetcher?: typeo
   const name = opts.name ?? man.name
   const streamUrl = new URL(man.entrypoints.default, base).toString()
   const text = await loadText(streamUrl, opts.fetcher)
-  const adapted = await adaptPackage(man, LEGACY.test(man.entrypoints.default) ? undefined : text, LEGACY.test(man.entrypoints.default) ? text : undefined)
+  const adapted = await adaptPackage(man, text)
   const paths = ensure(name)
   const clips = new Map<AvatarState, Frame[]>()
   for (const st of STATES) clips.set(st, adapted.eikon.states.get(st)?.frames ?? [[""]])
-  const packed = serialize(name, adapted.manifest.display?.glyph ?? adapted.eikon.meta.glyph ?? "◆", adapted.eikon.states.get("idle")?.fps ?? 12, clips, base)
+  const packed = serialize(name, adapted.eikon.states.get("idle")?.fps ?? 12, clips)
   await Bun.write(paths.file, packed)
   await Bun.write(join(paths.dir, "manifest.json"), JSON.stringify({ ...man, origin: { source: url, at: new Date().toISOString() } }, null, 2) + "\n")
   writeStudio(name, { ...toStudio(fresh(name, pick())), sources: {} })
@@ -537,7 +514,7 @@ async function installLaunch(url: string, opts: { name?: string; fetcher?: typeo
 }
 
 export async function installPackage(src: string | CatalogPackage, opts: { name?: string; fetcher?: typeof fetch } = {}): Promise<Fetched> {
-  const url = typeof src === "string" ? src : (src.installUrl ?? src.packageUrl)
+  const url = typeof src === "string" ? src : src.packageUrl
   if (url.endsWith("manifest.json") || url.startsWith("file://")) return installLaunch(url, opts)
   return fetchSource(url, { name: opts.name })
 }

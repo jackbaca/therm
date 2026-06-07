@@ -78,7 +78,6 @@ export const DEFAULTS = {
   "config.save":       def("ctrl+s",               "Write config",                       "config"),
   "config.mode":       def("m",                    "Toggle form ↔ YAML",                 "config"),
   "eikon.save":        def("ctrl+s",               "Save eikon",                         "eikon"),
-  "eikon.marketplace": def("m",                    "Open marketplace",                    "eikon"),
 } satisfies Record<string, Def>
 
 export type ActionId = keyof typeof DEFAULTS
