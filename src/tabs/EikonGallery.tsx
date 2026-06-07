@@ -116,7 +116,8 @@ export const EikonGallery = memo((props: Props) => {
       body: `Removes ${dirname(cur.path)} and all its sources. This cannot be undone.`,
     })
     if (!ok) return
-    eikon.remove(cur.slug)
+    const removed = eikon.remove(cur.slug, { confirmActive: cur.slug === active })
+    if (removed) return toast.show({ variant: "warning", message: removed.message })
     toast.show({ variant: "info", message: `Deleted ${cur.name}` })
   }
 

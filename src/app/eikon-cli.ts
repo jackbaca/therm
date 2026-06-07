@@ -5,7 +5,7 @@ export const EIKON_CLI_USAGE = `\
 herm eikon — install and manage Herm avatars
 
 Usage:
-  herm eikon install <name|url|dir> [--name N] [--no-source] [--no-use] [--json]
+  herm eikon install <name|url|dir> [--name N] [--no-source] [--json]
   herm eikon peek <name|url|dir> [--json]
   herm eikon list [--json]
   herm eikon use <name> [--json]
@@ -47,17 +47,16 @@ type Parsed = {
   json: boolean
   name?: string
   media?: boolean
-  use?: boolean
   error?: string
 }
 
 function parse(rest: readonly string[]): Parsed {
-  const out: Parsed = { values: [], json: false, media: true, use: true }
+  const out: Parsed = { values: [], json: false, media: true }
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i]!
     if (a === "--json") { out.json = true; continue }
     if (a === "--no-source") { out.media = false; continue }
-    if (a === "--no-use") { out.use = false; continue }
+    if (a === "--no-use") continue
     if (a === "--name") {
       const v = rest[++i]
       if (!v || v.startsWith("-")) return { ...out, error: "--name requires a value" }
@@ -97,10 +96,9 @@ export async function handleEikonCli(
       const source = p.values[0]
       if (!source) return emitError(io, "usage: herm eikon install <name|url|dir>", p.json)
       const out = await deps.fetchSource(source, { name: p.name, media: p.media })
-      if (p.use !== false) deps.setActive(out.name)
       const active = deps.getActive() ?? null
       if (p.json) return emit(io, JSON.stringify({ ok: true, name: out.name, n: out.n, bytes: out.bytes, sources: out.sources, active }))
-      return emit(io, `Installed '${out.name}' (${out.n} files)${active === out.name ? " and set active" : ""}`)
+      return emit(io, `Installed '${out.name}' (${out.n} files)`)
     }
 
     if (cmd === "peek") {

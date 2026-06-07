@@ -15,6 +15,26 @@ function capture() {
   }
 }
 
+function item(name = "ares") {
+  return {
+    name,
+    file: `/tmp/${name}/${name}.eikon`,
+    source: `/tmp/${name}/source`,
+    hasSource: true,
+    sourceUrl: "https://eikon.liftaris.dev/eikons/ares/",
+    lifecycle: {
+      name,
+      source: { kind: "default-catalog" as const, identity: "ares" },
+      trust: "verified" as const,
+      active: false,
+      removable: true,
+      updateable: true,
+      updateAvailable: false,
+      dirty: false,
+    },
+  }
+}
+
 function deps(overrides: Partial<EikonCliDeps> = {}): EikonCliDeps {
   let active: string | undefined
   return {
@@ -25,7 +45,7 @@ function deps(overrides: Partial<EikonCliDeps> = {}): EikonCliDeps {
       bytes: opts?.media === false ? 0 : 42,
     }),
     peekSource: async () => ({ n: 2, bytes: 2048 }),
-    list: () => [{ name: "ares", file: "/tmp/ares/ares.eikon", source: "/tmp/ares/source", hasSource: true, sourceUrl: "https://eikon.liftaris.dev/eikons/ares/" }],
+    list: () => [item()],
     baked: name => name === "ares" ? "/tmp/ares/ares.eikon" : undefined,
     setActive: name => { active = name },
     getActive: () => active,
@@ -61,13 +81,13 @@ describe("eikon headless CLI", () => {
     expect(JSON.parse(c.stdout())).toEqual({ ok: true, name: "war", n: 0, bytes: 0, sources: {}, active: null })
   })
 
-  test("install activates by default", async () => {
+  test("install does not activate by default", async () => {
     const c = capture()
     const d = deps()
 
     expect(await handleEikonCli(["eikon", "install", "ares", "--json"], d, c.io)).toBe(0)
 
-    expect(JSON.parse(c.stdout()).active).toBe("ares")
+    expect(JSON.parse(c.stdout()).active).toBeNull()
   })
 
   test("peek and list expose machine-readable json", async () => {

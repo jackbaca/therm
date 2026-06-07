@@ -18,8 +18,8 @@
 
 import { existsSync, mkdirSync, readdirSync, copyFileSync, readFileSync, writeFileSync, rmSync } from "node:fs"
 import { join, extname, basename, dirname } from "node:path"
-import { install, peek, header as peekHeader, serializeLaunchStream, defaultSignalMappings,
-         type LaunchStreamRecord, type Installed as Got } from "eikon"
+import { install, peek, dirty, header as peekHeader, serializeLaunchStream, defaultSignalMappings,
+         type LaunchStreamRecord, type Installed as Got, type Origin as EikonOrigin, type TrustState, type SourceKind } from "eikon"
 import { DEFAULT_PUBLIC_CATALOG } from "eikon/catalog"
 import { hermesPath } from "./hermes-home"
 import * as prefs from "../context/preferences"
@@ -41,10 +41,47 @@ export function ensure(name: string) {
   return { dir: dir(name), file: file(name), source: sourceDir(name) }
 }
 
+export type SourceInfo = {
+  kind: SourceKind | "unknown"
+  identity?: string
+  origin?: string
+  repo?: string
+  selector?: string
+  catalogRoot?: string
+  sha?: string
+  packageUrl?: string
+}
+
+export type LifecycleInfo = {
+  name: string
+  title?: string
+  author?: string
+  version?: string
+  source: SourceInfo
+  trust: TrustState | "unknown"
+  active: boolean
+  removable: boolean
+  updateable: boolean
+  updateAvailable: boolean
+  dirty: boolean
+  poster?: string
+  preview?: string
+  compatibility?: Record<string, unknown>
+  installedAt?: string
+}
+
 export type Installed = {
   name: string; file: string; source: string
   hasSource: boolean; sourceUrl?: string
   manifest?: Record<string, unknown>
+  lifecycle: LifecycleInfo
+}
+
+export type ActiveConsequence = {
+  type: "active-consequence"
+  action: "remove" | "update"
+  name: string
+  message: string
 }
 
 function manifest(name: string): Record<string, unknown> | undefined {
@@ -58,17 +95,72 @@ function manifest(name: string): Record<string, unknown> | undefined {
 }
 
 const LEGACY_SOURCE_URL = "source_url"
+const OBJ = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object" && !Array.isArray(x)
+
+function originObject(man: Record<string, unknown> | undefined): (EikonOrigin & { trust?: TrustState }) | undefined {
+  const o = man?.origin
+  return OBJ(o) ? o as EikonOrigin & { trust?: TrustState } : undefined
+}
 
 function origin(man: Record<string, unknown> | undefined): string | undefined {
-  const o = man?.origin
-  if (!o || typeof o !== "object" || Array.isArray(o)) return undefined
-  const src = (o as { source?: unknown }).source
+  const src = originObject(man)?.source
   return typeof src === "string" ? src : undefined
 }
 
 function legacySource(head: Record<string, unknown> | undefined): string | undefined {
   const src = head?.[LEGACY_SOURCE_URL]
   return typeof src === "string" ? src : undefined
+}
+
+function display(man: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  return OBJ(man?.display) ? man.display : undefined
+}
+
+function sourceInfo(man: Record<string, unknown> | undefined, head: Record<string, unknown> | undefined): SourceInfo {
+  const o = originObject(man)
+  const src = typeof o?.source === "string" ? o.source : legacySource(head)
+  const identity = o?.identityKey ?? o?.sourceKey ?? o?.packageUrl ?? o?.repo ?? src
+  return {
+    kind: o?.kind ?? (src ? "legacy" : "unknown"),
+    ...(identity ? { identity } : {}),
+    ...(src ? { origin: src } : {}),
+    ...(o?.repo ? { repo: o.repo } : {}),
+    ...(o?.selector ? { selector: o.selector } : {}),
+    ...(o?.catalogRoot ? { catalogRoot: o.catalogRoot } : {}),
+    ...(o?.sha ? { sha: o.sha } : {}),
+    ...(o?.packageUrl ? { packageUrl: o.packageUrl } : {}),
+  }
+}
+
+export function lifecycle(name: string): LifecycleInfo {
+  const man = manifest(name)
+  const head = header(file(name))
+  const disp = display(man)
+  const src = sourceInfo(man, head)
+  const title = typeof disp?.title === "string" ? disp.title : typeof man?.title === "string" ? man.title : undefined
+  const author = typeof disp?.author === "string" ? disp.author : typeof man?.author === "string" ? man.author : undefined
+  const version = typeof man?.version === "string" ? man.version : undefined
+  const compatibility = OBJ(man?.compatibility) ? man.compatibility : undefined
+  const installedAt = originObject(man)?.at
+  const hasOrigin = src.kind !== "unknown" && src.kind !== "legacy"
+  const isDirty = existsSync(dir(name)) ? dirty(dir(name)) : false
+  return {
+    name,
+    ...(title ? { title } : {}),
+    ...(author ? { author } : {}),
+    ...(version ? { version } : {}),
+    source: src,
+    trust: originObject(man)?.trust ?? (src.kind === "legacy" ? "unverified" : "unknown"),
+    active: prefs.get("eikon") === name,
+    removable: existsSync(file(name)),
+    updateable: hasOrigin,
+    updateAvailable: false,
+    dirty: isDirty,
+    ...(typeof man?.poster === "string" ? { poster: man.poster } : {}),
+    ...(typeof man?.preview === "string" ? { preview: man.preview } : {}),
+    ...(compatibility ? { compatibility } : {}),
+    ...(installedAt ? { installedAt } : {}),
+  }
 }
 
 /** List folder-form eikons under ~/.hermes/eikons/. Flat legacy
@@ -84,11 +176,13 @@ export function list(): Installed[] {
       const has = existsSync(src) && readdirSync(src).length > 0
       const man = manifest(e.name)
       const head = header(join(root, e.name, `${e.name}.eikon`))
+      const name = e.name
       return {
-        name: e.name, file: join(root, e.name, `${e.name}.eikon`),
+        name, file: join(root, name, `${name}.eikon`),
         source: src, hasSource: has,
         sourceUrl: origin(man) ?? legacySource(head),
         manifest: man,
+        lifecycle: lifecycle(name),
       }
     })
 }
@@ -199,6 +293,7 @@ const revSubs = new Set<() => void>()
 export const revision = () => rev
 export const onRevision = (fn: () => void) => { revSubs.add(fn); return () => revSubs.delete(fn) }
 const bump = () => { rev++; for (const f of revSubs) f() }
+export const notifyRevision = bump
 
 // ── Save / pack ──────────────────────────────────────────────────────
 
@@ -272,10 +367,30 @@ export async function save(s: Session): Promise<string> {
 }
 
 /** Delete an installed eikon's folder. */
-export function remove(name: string) {
+export function remove(name: string, opts: { confirmActive?: boolean } = {}): ActiveConsequence | undefined {
+  if (prefs.get("eikon") === name && !opts.confirmActive) return {
+    type: "active-consequence",
+    action: "remove",
+    name,
+    message: `Removing '${name}' will clear the active avatar. Pass confirmActive to remove it.`,
+  }
   rmSync(dir(name), { recursive: true, force: true })
   if (prefs.get("eikon") === name) prefs.set("eikon", undefined)
   bump()
+  return undefined
+}
+
+export async function update(name: string, opts: { confirmActive?: boolean } = {}): Promise<Fetched | ActiveConsequence> {
+  if (prefs.get("eikon") === name && !opts.confirmActive) return {
+    type: "active-consequence",
+    action: "update",
+    name,
+    message: `Updating '${name}' will change the active avatar's backing package. Pass confirmActive to update it.`,
+  }
+  const info = lifecycle(name)
+  const src = info.source.origin
+  if (!src) throw new Error(`eikon '${name}' has no recorded source`)
+  return fetchSource(src, { name })
 }
 
 // ── Install / fetch ──────────────────────────────────────────────────
@@ -347,7 +462,9 @@ function stripManifestTrust(name: string) {
  *  revision counter so the sidebar + Gallery reload. */
 export async function fetchSource(src: string, opts?: { name?: string; media?: boolean;
                                    progress?: (d: number, t: number) => void }): Promise<Fetched> {
+  const before = prefs.get("eikon")
   const out: Got = await install(src, ROOT(), opts)
+  if (prefs.get("eikon") !== before) prefs.set("eikon", before)
   stripManifestTrust(out.name)
   const prev = readStudio(out.name)
   writeStudio(out.name, { ...(prev ?? toStudio(fresh(out.name, pick()))),
@@ -356,7 +473,6 @@ export async function fetchSource(src: string, opts?: { name?: string; media?: b
   return { name: out.name, sources: out.sources, n: out.n, bytes: out.bytes }
 }
 
-const OBJ = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object" && !Array.isArray(x)
 const SAFE = /^[a-zA-Z0-9._/-]+$/
 function safePath(path: string): boolean {
   if (!path || path.startsWith("/") || path.startsWith("./") || path.includes("../") || path === "..") return false
@@ -515,7 +631,6 @@ async function installLaunch(url: string, opts: { name?: string; fetcher?: typeo
 
 export async function installPackage(src: string | CatalogPackage, opts: { name?: string; fetcher?: typeof fetch } = {}): Promise<Fetched> {
   const url = typeof src === "string" ? src : src.packageUrl
-  if (url.endsWith("manifest.json") || url.startsWith("file://")) return installLaunch(url, opts)
   return fetchSource(url, { name: opts.name })
 }
 

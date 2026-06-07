@@ -98,6 +98,12 @@ export const EikonMarketplace = memo((props: {
       .finally(() => { end(); setLoading(false) })
   }, [query])
 
+  const refreshMarket = useCallback((svc: market.MarketplaceService, q = query) => {
+    const rows = svc.rows(q)
+    setState({ status: rows.length > 0 ? "ready" : "empty", query: q, rows, selected: rows[0], service: svc })
+    setSel(p => Math.max(0, Math.min(rows.length - 1, p)))
+  }, [query])
+
   useEffect(() => { loadMarket(query) }, [query, rev, loadMarket])
 
   const clearPreview = useCallback(() => {
@@ -115,22 +121,22 @@ export const EikonMarketplace = memo((props: {
       const name = row.installedManifest?.name ?? row.entry.name
       prefs.set("eikon", name)
       toast.show({ variant: "success", message: `Avatar → ${name}` })
-      loadMarket(query)
+      refreshMarket(svc, query)
       return
     }
     setInstalling(true)
     void svc.install(row.entry.identityKey)
       .then(out => {
         toast.show({ variant: "success", message: `Installed '${out.name}' (${out.n} files)` })
-        loadMarket(query)
+        refreshMarket(svc, query)
       })
       .catch(err => {
         const e = err instanceof Error ? err : new Error(String(err))
         toast.show({ variant: "error", title: "Install failed", message: e.message, duration: 6000 })
-        loadMarket(query)
+        refreshMarket(svc, query)
       })
       .finally(() => setInstalling(false))
-  }, [state.rows, state.service, sel, installing, toast, loadMarket, query])
+  }, [state.rows, state.service, sel, installing, toast, loadMarket, refreshMarket, query])
 
   useKeyboard(key => {
     if (!props.focused) return
