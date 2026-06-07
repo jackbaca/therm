@@ -6,8 +6,8 @@
 //                   declared tonal rows rendered generically.
 //   States  (bottom-left) six 16×8 thumbnails; Enter → per-state menu.
 //
-// Tab cycles panes (knobs→preview→strip). Ctrl+S saves via
-// service/eikon.save(). Esc on a dirty draft confirms discard.
+// Tab cycles panes (knobs→preview→strip). Ctrl+S saves the draft.
+// Ctrl+U saves and activates. Esc on a dirty draft confirms discard.
 // nav.md: no letter mnemonics beyond `n` (new) on knobs-onNew.
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
@@ -701,6 +701,13 @@ export const EikonStudio = memo((props: {
       .finally(() => setSaving(false))
   }, [s, live, toast])
 
+  const doSaveUse = useCallback(async () => {
+    if (!s) return
+    await doSave()
+    eikon.useInstalled(s.name)
+    toast.show({ variant: "success", message: `Avatar → ${s.name}` })
+  }, [doSave, s, toast])
+
   const doSelectRasterizer = () => {
     const opts = eikon.rasterizers().map(x => {
       const a = x.available()
@@ -855,10 +862,27 @@ export const EikonStudio = memo((props: {
 
   const doInstall = useCallback(async () => {
     const src = await openTextPrompt(dialog, {
-      title: "Install eikon",
-      label: "catalog name · github.com/u/r · git URL · http://…/ · local dir",
+      title: "Inspect eikon source",
+      label: "catalog name · github.com/u/r/eikon-name · git URL · http://…/ · local dir",
     })
     if (!src) return
+    let info: eikon.InspectInfo
+    try { info = await eikon.inspectSource(src) }
+    catch (e) { return toast.error(e instanceof Error ? e : new Error(String(e))) }
+    const ok = await openConfirm(dialog, {
+      title: `Install '${info.title ?? info.name}'?`,
+      body: [
+        `Name: ${info.name}`,
+        `Author: ${info.author ?? "unknown"}`,
+        `Version: ${info.version ?? "unknown"}`,
+        `Source: ${info.sourceLabel}`,
+        `Trust: ${info.trust}${info.reason ? ` (${info.reason})` : ""}`,
+        `Preview: ${info.previewAvailable ? "available" : "none"}; poster: ${info.posterAvailable ? "available" : "none"}`,
+        "Install does not activate; use Ctrl+U or Gallery after install to select it.",
+      ].join("\n"),
+      yes: "install", no: "cancel",
+    })
+    if (!ok) return
     toast.show({ variant: "info", message: `Installing from ${src}…` })
     await eikon.installPackage(src)
       .then(out => {
@@ -1013,6 +1037,7 @@ export const EikonStudio = memo((props: {
 
   useKeyboard((key: ParsedKey) => {
     if (!props.focused || dialog.open()) return
+    if (key.name === "u" && key.ctrl && sRef.current) return void doSaveUse()
     if (key.name === "u" && sRef.current) return void doSubmit()
     if (key.eventType === "release") return
     if (keys.match("eikon.save", key)) { if (!saving) void doSave(); return }
@@ -1093,9 +1118,9 @@ export const EikonStudio = memo((props: {
 
   const hint: Array<readonly [string, string]> =
     !s                   ? [["Enter", "new eikon"], ["Shift+→", "gallery"]]
-  : pane === "knobs"   ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.activate"), "edit"], [keys.print("list.new"), "new"], ["u", "submit"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
-  : pane === "preview" ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.toggle"), "play/pause"], ["wheel", "pan"], ["Ctrl+wheel", "zoom"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
-  :                      [["←→", "state"], [keys.print("list.activate"), "actions"], [keys.print("eikon.save"), "save"], ["Tab", "pane"]]
+  : pane === "knobs"   ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.activate"), "edit"], [keys.print("list.new"), "new"], ["u", "submit"], [keys.print("eikon.save"), "save"], ["Ctrl+U", "save & use"], ["Tab", "pane"]]
+  : pane === "preview" ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.toggle"), "play/pause"], ["wheel", "pan"], ["Ctrl+wheel", "zoom"], [keys.print("eikon.save"), "save"], ["Ctrl+U", "save & use"], ["Tab", "pane"]]
+  :                      [["←→", "state"], [keys.print("list.activate"), "actions"], [keys.print("eikon.save"), "save"], ["Ctrl+U", "save & use"], ["Tab", "pane"]]
 
   // TabShell chrome = border(2) + padding(2) + title(1) + gap(1).
   // PanBars adds +1 row (pan-x) and +2 col (pan-y) around the frame.

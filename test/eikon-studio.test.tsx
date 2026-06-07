@@ -212,6 +212,27 @@ describe("EikonStudio tab", () => {
     un()
   })
 
+  run("Ctrl+S saves without activation; Ctrl+U explicitly saves and uses", async () => {
+    const un = eikon.register(stub)
+    seed("active")
+    seed("draft")
+    prefs.set("eikon", "active")
+    await using t = await mountNode(
+      <EikonStudio focused name="draft" />,
+      { width: 160, height: 48 },
+    )
+    await until(t, () => t.frame().includes("rasterizer"))
+    for (let i = 0; i < 5; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
+    act(() => t.keys.pressArrow("right"))
+    await until(t, () => t.frame().includes("● unsaved"))
+    act(() => t.keys.pressKey("s", { ctrl: true }))
+    await until(t, () => !t.frame().includes("● unsaved"))
+    expect(prefs.get("eikon")).toBe("active")
+    act(() => t.keys.pressKey("u", { ctrl: true }))
+    await until(t, () => prefs.get("eikon") === "draft")
+    un()
+  })
+
   run("revert row appears when dirty and routes through three-way", async () => {
     const un = eikon.register(stub)
     seed("fox")

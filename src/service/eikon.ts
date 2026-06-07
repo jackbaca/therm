@@ -18,8 +18,8 @@
 
 import { existsSync, mkdirSync, readdirSync, copyFileSync, readFileSync, writeFileSync, rmSync } from "node:fs"
 import { join, extname, basename, dirname } from "node:path"
-import { install, peek, dirty, header as peekHeader, serializeLaunchStream, defaultSignalMappings,
-         type LaunchStreamRecord, type Installed as Got, type Origin as EikonOrigin, type TrustState, type SourceKind } from "eikon"
+import { install, resolve, peek, dirty, header as peekHeader, serializeLaunchStream, defaultSignalMappings,
+         type LaunchStreamRecord, type Installed as Got, type Resolved as ResolvedEikon, type Origin as EikonOrigin, type TrustState, type SourceKind } from "eikon"
 import { DEFAULT_PUBLIC_CATALOG } from "eikon/catalog"
 import { hermesPath } from "./hermes-home"
 import * as prefs from "../context/preferences"
@@ -77,6 +77,16 @@ export type Installed = {
   lifecycle: LifecycleInfo
 }
 
+export type InspectInfo = LifecycleInfo & {
+  installed: boolean
+  sourceLabel: string
+  previewAvailable: boolean
+  posterAvailable: boolean
+  n?: number
+  bytes?: number
+  reason?: string
+}
+
 export type ActiveConsequence = {
   type: "active-consequence"
   action: "remove" | "update"
@@ -132,13 +142,71 @@ function sourceInfo(man: Record<string, unknown> | undefined, head: Record<strin
   }
 }
 
+function displayTitle(man: Record<string, unknown> | undefined): string | undefined {
+  const disp = display(man)
+  return typeof disp?.title === "string" ? disp.title : typeof man?.title === "string" ? man.title : undefined
+}
+
+function displayAuthor(man: Record<string, unknown> | undefined): string | undefined {
+  const disp = display(man)
+  return typeof disp?.author === "string" ? disp.author : typeof man?.author === "string" ? man.author : undefined
+}
+
+function sourceLabel(src: SourceInfo): string {
+  const id = src.repo ?? src.identity ?? src.origin ?? src.packageUrl
+  if (!id) return src.kind
+  if (src.sha) return `${src.kind} ${id}@${src.sha.slice(0, 12)}`
+  return `${src.kind} ${id}`
+}
+
+function inspectResolved(src: string, r: ResolvedEikon, stat?: { n: number; bytes: number } | undefined): InspectInfo {
+  const man = r.manifest as Record<string, unknown>
+  const o = r.origin as EikonOrigin & { trust?: TrustState }
+  const info: SourceInfo = {
+    kind: o.kind ?? "unknown",
+    ...(o.identityKey || o.sourceKey || o.packageUrl || o.repo || o.source ? { identity: o.identityKey ?? o.sourceKey ?? o.packageUrl ?? o.repo ?? o.source } : {}),
+    ...(o.source ? { origin: o.source } : {}),
+    ...(o.repo ? { repo: o.repo } : {}),
+    ...(o.selector ? { selector: o.selector } : {}),
+    ...(o.catalogRoot ? { catalogRoot: o.catalogRoot } : {}),
+    ...(o.sha ? { sha: o.sha } : {}),
+    ...(o.packageUrl ? { packageUrl: o.packageUrl } : {}),
+  }
+  const compatibility = OBJ(man.compatibility) ? man.compatibility : undefined
+  const poster = typeof man.poster === "string" ? man.poster : undefined
+  const preview = typeof man.preview === "string" ? man.preview : undefined
+  const out: InspectInfo = {
+    name: r.name,
+    ...(displayTitle(man) ? { title: displayTitle(man) } : {}),
+    ...(displayAuthor(man) ? { author: displayAuthor(man) } : {}),
+    ...(typeof man.version === "string" ? { version: man.version } : {}),
+    source: info,
+    trust: r.trust.state,
+    active: prefs.get("eikon") === r.name,
+    removable: false,
+    updateable: true,
+    updateAvailable: false,
+    dirty: false,
+    ...(poster ? { poster } : {}),
+    ...(preview ? { preview } : {}),
+    ...(compatibility ? { compatibility } : {}),
+    installed: existsSync(file(r.name)),
+    sourceLabel: sourceLabel(info),
+    previewAvailable: Boolean(preview || (man as { entrypoints?: { default?: unknown } }).entrypoints?.default),
+    posterAvailable: Boolean(poster),
+    ...(stat ? { n: stat.n, bytes: stat.bytes } : {}),
+    ...(r.trust.reason ? { reason: r.trust.reason } : {}),
+  }
+  if (!out.source.origin) out.source.origin = src
+  return out
+}
+
 export function lifecycle(name: string): LifecycleInfo {
   const man = manifest(name)
   const head = header(file(name))
-  const disp = display(man)
   const src = sourceInfo(man, head)
-  const title = typeof disp?.title === "string" ? disp.title : typeof man?.title === "string" ? man.title : undefined
-  const author = typeof disp?.author === "string" ? disp.author : typeof man?.author === "string" ? man.author : undefined
+  const title = displayTitle(man)
+  const author = displayAuthor(man)
   const version = typeof man?.version === "string" ? man.version : undefined
   const compatibility = OBJ(man?.compatibility) ? man.compatibility : undefined
   const installedAt = originObject(man)?.at
@@ -361,9 +429,14 @@ export async function save(s: Session): Promise<string> {
   preserve(s.name, legacySource(head))
   await Bun.write(paths.file, serialize(s.name, s.fps, clips))
   writeStudio(s.name, { ...toStudio(s), sources })
-  prefs.set("eikon", s.name)
   bump()
   return paths.file
+}
+
+export function useInstalled(name: string): void {
+  if (!existsSync(file(name))) throw new Error(`eikon '${name}' is not installed`)
+  prefs.set("eikon", name)
+  bump()
 }
 
 /** Delete an installed eikon's folder. */
@@ -454,6 +527,13 @@ function stripManifestTrust(name: string) {
   delete man.license
   delete man.provenance
   writeFileSync(p, JSON.stringify(man, null, 2) + "\n", "utf8")
+}
+
+export async function inspectSource(src: string): Promise<InspectInfo> {
+  const dl = /^http:\/\/localhost[:/]/.test(src) ? { allowPrivate: true } : undefined
+  const r = await resolve(src, { downloader: dl })
+  const stat = await peek(src, { downloader: dl })
+  return inspectResolved(src, r, stat)
 }
 
 /** Install an eikon from any resolvable source (catalog name, git
@@ -632,12 +712,6 @@ async function installLaunch(url: string, opts: { name?: string; fetcher?: typeo
 export async function installPackage(src: string | CatalogPackage, opts: { name?: string; fetcher?: typeof fetch } = {}): Promise<Fetched> {
   const url = typeof src === "string" ? src : src.packageUrl
   return fetchSource(url, { name: opts.name })
-}
-
-export function useInstalled(name: string): void {
-  if (!existsSync(file(name))) throw new Error(`eikon '${name}' is not installed`)
-  prefs.set("eikon", name)
-  bump()
 }
 
 export { parseEikon, probe }

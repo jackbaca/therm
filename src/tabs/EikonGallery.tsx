@@ -23,6 +23,7 @@ import { eikon } from "../service/eikon"
 type Row = {
   path: string; name: string; slug: string; author?: string; bundled: boolean
   w: number; h: number; url?: string; hasSource: boolean
+  lifecycle?: eikon.LifecycleInfo
 }
 
 type Props = {
@@ -51,6 +52,7 @@ export const EikonGallery = memo((props: Props) => {
         w: e.meta.width, h: e.meta.height,
         url: mine?.sourceUrl,
         hasSource: mine?.hasSource ?? !!eikon.findSource(slug),
+        lifecycle: mine?.lifecycle,
       }
     })
   }, [rev])
@@ -69,7 +71,8 @@ export const EikonGallery = memo((props: Props) => {
 
   const activate = (row = cur) => {
     if (!row) return
-    prefs.set("eikon", row.slug)
+    if (row.bundled) prefs.set("eikon", row.slug)
+    else eikon.useInstalled(row.slug)
     toast.show({ variant: "success", message: `Avatar → ${row.name}` })
   }
 
@@ -93,6 +96,22 @@ export const EikonGallery = memo((props: Props) => {
       })
       .catch(e => toast.error(e instanceof Error ? e : new Error(String(e))))
   }, [dialog, toast, props])
+
+  const updateLocal = useCallback(async () => {
+    if (!cur || cur.bundled) return
+    const out = await eikon.update(cur.slug).catch(e => { toast.error(e instanceof Error ? e : new Error(String(e))); return undefined })
+    if (!out) return
+    if ("type" in out) {
+      const ok = await openConfirm(dialog, {
+        title: `Update active '${cur.name}'?`, danger: true,
+        body: `${out.message} The active avatar's backing package will change even though the selected name stays '${cur.slug}'.`,
+        yes: "update active", no: "cancel",
+      })
+      if (!ok) return
+      await eikon.update(cur.slug, { confirmActive: true }).catch(e => toast.error(e instanceof Error ? e : new Error(String(e))))
+    }
+    toast.show({ variant: "success", message: `Updated ${cur.name}` })
+  }, [cur, dialog, toast])
 
   const submitLocal = useCallback(async () => {
     if (!cur || cur.bundled) return
@@ -136,6 +155,7 @@ export const EikonGallery = memo((props: Props) => {
       onDelete: () => void del(),
       onNew: doNew,
     })) return
+    if (key.name === "r" && cur && !cur.bundled) return void updateLocal()
     if (key.name === "u" && cur && !cur.bundled) return void submitLocal()
     if (key.name === "e" && cur && props.onEdit) props.onEdit(cur.slug)
   })
@@ -161,10 +181,7 @@ export const EikonGallery = memo((props: Props) => {
                           <span fg={theme.textMuted}>{r.bundled ? "  (bundled)" : ""}</span>
                         </text></box>
                         <box height={1}><text fg={theme.textMuted}>
-                          {`  ${r.author ?? "—"} · `}
-                          <span fg={r.hasSource ? theme.success : r.url ? theme.textMuted : theme.border}>
-                            {r.hasSource ? "● source" : r.url ? "○ source available" : "— no source"}
-                          </span>
+                          {`  ${r.author ?? "—"} · ${sourceBadge(r)} · ${galleryTrust(r)} · ${gallerySource(r)}`}
                         </text></box>
                       </box>
                     </box>
@@ -183,9 +200,26 @@ export const EikonGallery = memo((props: Props) => {
       <HintBar pairs={[
         ["↑↓", "select"], [keys.print("list.activate"), "use"],
         ...(cur && props.onEdit ? [["e", "edit in studio"] as const] : []),
-        ...(cur && !cur.bundled ? [["u", "submit"] as const] : []), [keys.print("list.new"), "new / install"],
-        ...(cur && !cur.bundled ? [[keys.print("list.delete"), "delete"] as const] : []),
+        ...(cur && !cur.bundled ? [["r", "update"] as const, ["u", "submit"] as const] : []),
+        [keys.print("list.new"), "new / install"],
+        ...(cur && !cur.bundled ? [[keys.print("list.delete"), "remove"] as const] : []),
       ]} />
     </box>
   )
 })
+
+const galleryTrust = (row: Row) => {
+  const t = row.lifecycle?.trust
+  if (t === "verified") return "Verified"
+  if (t === "mismatch") return "Mismatch"
+  if (t === "unverified") return "Unverified"
+  return row.bundled ? "Bundled" : "Legacy local"
+}
+
+const gallerySource = (row: Row) => {
+  const src = row.lifecycle?.source
+  if (!src) return row.bundled ? "system" : "local"
+  return src.identity ?? src.repo ?? src.origin ?? src.kind
+}
+
+const sourceBadge = (row: Row) => row.hasSource ? "● source" : row.url ? "○ source available" : "— no source"
