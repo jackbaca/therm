@@ -135,6 +135,12 @@ function previewTarget(entry: CatalogEntry) {
   return entry.preview || entry.runtimeUrl
 }
 
+function verifiedCatalogTrust(entry: CatalogEntry) {
+  const trust = entry.trust
+  return typeof trust.manifestDigest === "string" && trust.manifestDigest.length > 0
+    && typeof trust.runtimeDigest === "string" && trust.runtimeDigest.length > 0
+}
+
 export function installed(): InstalledMetadata[] {
   return eikon.list().map(inst => ({ ...inst, manifest: inst.manifest as InstalledManifest | undefined, identityKeys: keysFor(inst) }))
 }
@@ -161,7 +167,7 @@ function row(entry: CatalogEntry, xs: InstalledMetadata[]): MarketplaceRow {
     author: entry.author,
     version: entry.version,
     source: { kind: "default-catalog" as const, identity: entry.sourceKey, packageUrl: entry.packageUrl },
-    trust: entry.trust ? "verified" as const : "unverified" as const,
+    trust: verifiedCatalogTrust(entry) ? "verified" as const : "unverified" as const,
     active: false,
     removable: false,
     updateable: false,

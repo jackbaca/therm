@@ -137,6 +137,8 @@ test("Eikon visual E2E: duplicate Nous draft, studio preview, submit, delete rel
     act(() => gallery.keys.pressKey("d"))
     await until(gallery, () => gallery.frame().includes(`Delete '${name}'?`))
     snap("delete-confirm", gallery, frames)
+    expect(frames["delete-confirm"]).toContain("active avatar")
+    expect(frames["delete-confirm"]).toContain("clear the active avatar selection")
     act(() => gallery.keys.pressEnter())
     await until(gallery, () => !existsSync(seeded.dir) && !rowVisible(gallery, name))
     snap("delete-reload", gallery, frames)

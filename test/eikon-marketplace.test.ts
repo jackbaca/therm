@@ -32,6 +32,7 @@ type CatalogEntrySeed = {
   preview?: string
   runtimeUrl?: string
   packageUrl?: string
+  trust?: Record<string, unknown>
 }
 
 function url(raw: string, base: string) {
@@ -57,7 +58,7 @@ function catalogRow(seed: CatalogEntrySeed, base: string) {
     runtimeUrl,
     packageUrl,
     compatibility: { eikon: ">=1 <2", available: true },
-    trust: {},
+    trust: seed.trust ?? {},
   }
 }
 
@@ -413,6 +414,24 @@ describe("service/eikon-marketplace", () => {
     expect(row.removable).toBe(true)
     expect(row.updateable).toBe(true)
     fx.srv.stop()
+  })
+
+  test("available catalog rows require descriptor digests for verified trust", async () => {
+    const cat: Catalog = {
+      base: "https://example.com/eikons",
+      entries: [
+        entry({ name: "legacy", trust: {} }),
+        entry({ name: "partial", trust: { manifestDigest: digest("manifest") } }),
+        entry({ name: "signed", trust: { manifestDigest: digest("manifest"), runtimeDigest: digest(launch) } }),
+      ],
+      load: async () => "",
+    }
+    const svc = new market.MarketplaceService(cat)
+    const rows = svc.rows()
+
+    expect(rows.find(r => r.entry.name === "legacy")!.trust).toBe("unverified")
+    expect(rows.find(r => r.entry.name === "partial")!.trust).toBe("unverified")
+    expect(rows.find(r => r.entry.name === "signed")!.trust).toBe("verified")
   })
 
   test("incompatible rows are blocked before install", async () => {
