@@ -156,6 +156,18 @@ describe("useSession.boot", () => {
     expect(gw.last("session.resume")?.params.session_id).toBe("real")
   })
 
+  test("mode:resume targets zero-message compression tip", async () => {
+    const db = seed()
+    sess(db, "root", "tui", 1000, 296, { ended_at: 2000, end_reason: "compression" })
+    sess(db, "tip", "tui", 2100, 0, { parent_session_id: "root" })
+    db.close()
+    resetDb()
+
+    const gw = new MockGateway()
+    await boot(gw, { mode: "resume" })
+    expect(gw.last("session.resume")?.params.session_id).toBe("tip")
+  })
+
   test("mode:resume switches live model to the stored provider/model", async () => {
     const db = seed()
     sess(db, "past", "tui", 1005, 5, { model: "gpt-5.5", billing_provider: "openai-codex" })

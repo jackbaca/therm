@@ -262,12 +262,12 @@ export const byId = (id: string): SessionRow | null => {
   return r ? toRow(r) : null
 }
 
-/** Newest real TUI/CLI session that actually has messages. Target of
- *  `-c` and source of the splash continue-prompt title.
+/** Newest real TUI/CLI conversation. Target of `-c` and source of the
+ *  splash continue-prompt title.
  *
  *  Newest row with messages (root or continuation — subagents/branches
- *  excluded), then walk the compression chain to its live tip so a
- *  compressed root resolves to the continuation holding the messages. */
+ *  excluded), then walk the compression chain to its live tip. The tip
+ *  can have 0 messages when compaction rotated but no turn landed yet. */
 export const lastReal = (): SessionRow | undefined => {
   const hit = q(`
     SELECT s.id FROM sessions s
@@ -277,8 +277,7 @@ export const lastReal = (): SessionRow | undefined => {
     ORDER BY s.started_at DESC LIMIT 1
   `)?.get() as { id: string } | undefined
   if (!hit) return undefined
-  const row = byId(chainTip(hit.id))
-  return row && row.message_count > 0 ? row : undefined
+  return byId(chainTip(hit.id)) ?? undefined
 }
 
 /** Resolve any id in a compression chain to the live tip. Walks up to

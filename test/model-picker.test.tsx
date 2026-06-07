@@ -82,6 +82,117 @@ describe("model-picker", () => {
     t.destroy()
   })
 
+  test("unauthenticated provider rows show setup metadata and do not advance to empty models", async () => {
+    const t = await mountNode(<Open />, {
+      handlers: {
+        "model.options": () => ({
+          provider: "openai",
+          model: "gpt-4",
+          providers: [
+            { slug: "openai", name: "OpenAI", total_models: 1, models: ["gpt-4"] },
+            {
+              slug: "anthropic",
+              name: "Anthropic",
+              total_models: 0,
+              models: [],
+              authenticated: false,
+              auth_type: "api_key",
+              key_env: "ANTHROPIC_API_KEY",
+              warning: "paste ANTHROPIC_API_KEY to activate",
+            },
+          ],
+        }),
+      },
+    })
+    await until(t, () => t.frame().includes("Anthropic"))
+    expect(t.frame()).toContain("Setup required")
+    expect(t.frame()).toContain("paste ANTHROPIC_API_KEY to activate")
+    expect(t.frame()).toContain("auth_type=")
+
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    act(() => t.keys.pressEnter()); await t.settle()
+    await until(t, () => t.frame().includes("Paste ANTHROPIC_API_KEY"))
+    expect(t.frame()).not.toContain("Switch Model (Anthropic)")
+    t.destroy()
+  })
+
+  test("api-key setup calls model.save_key and advances to refreshed models", async () => {
+    const saves: Array<Record<string, unknown>> = []
+    const t = await mountNode(<Open />, {
+      handlers: {
+        "model.options": () => ({
+          providers: [
+            { slug: "openai", name: "OpenAI", total_models: 1, models: ["gpt-4"] },
+            {
+              slug: "anthropic",
+              name: "Anthropic",
+              total_models: 0,
+              models: [],
+              authenticated: false,
+              auth_type: "api_key",
+              key_env: "ANTHROPIC_API_KEY",
+              warning: "paste ANTHROPIC_API_KEY to activate",
+            },
+          ],
+        }),
+        "model.save_key": (p) => {
+          saves.push(p)
+          return {
+            provider: {
+              slug: "anthropic",
+              name: "Anthropic",
+              authenticated: true,
+              total_models: 1,
+              models: ["claude-opus"],
+            },
+          }
+        },
+      },
+    })
+    await until(t, () => t.frame().includes("Anthropic"))
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    act(() => t.keys.pressEnter()); await t.settle()
+    await until(t, () => t.frame().includes("Paste ANTHROPIC_API_KEY"))
+    await act(async () => { await t.keys.typeText("sk-test") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("claude-opus"))
+
+    expect(saves).toEqual([{ slug: "anthropic", api_key: "sk-test" }])
+    expect(t.frame()).toContain("Switch Model (Anthropic)")
+    t.destroy()
+  })
+
+  test("non-api-key unauthenticated providers warn without model.save_key", async () => {
+    const saves: Array<Record<string, unknown>> = []
+    const t = await mountNode(<Open />, {
+      handlers: {
+        "model.options": () => ({
+          providers: [
+            { slug: "openai", name: "OpenAI", total_models: 1, models: ["gpt-4"] },
+            {
+              slug: "google-oauth",
+              name: "Google OAuth",
+              total_models: 0,
+              models: [],
+              authenticated: false,
+              auth_type: "oauth",
+              warning: "run `hermes model` to configure (oauth)",
+            },
+          ],
+        }),
+        "model.save_key": (p) => { saves.push(p); return {} },
+      },
+    })
+    await until(t, () => t.frame().includes("Google OAuth"))
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    act(() => t.keys.pressEnter()); await t.settle()
+    await until(t, () => t.frame().includes("run `hermes model` to configure (oauth)"))
+
+    expect(saves).toHaveLength(0)
+    expect(t.frame()).not.toContain("Switch Model (Google OAuth)")
+    t.destroy()
+  })
+
   test("provider dialog leads with current provider and Enter selects it", async () => {
     const opts = {
       provider: "anthropic",

@@ -194,6 +194,19 @@ describe("Sessions tab", () => {
     t.destroy()
   })
 
+  test("keeps 0-msg compression tips from state.db", async () => {
+    const disk = [detail({
+      id: "tip", sessionSource: "tui", title: "Compacted tip",
+      message_count: 0, started_at: 1700000000,
+      parent_session_id: "root", lineage_root_id: "root",
+    })]
+    const gw = new MockGateway({ "session.list": () => ({ sessions: [] }) })
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, list: () => disk }} />, { gw })
+    await until(t, () => t.frame().includes("Sessions (1)") && t.frame().includes("Compacted tip"))
+    expect(t.frame()).toContain("0")
+    t.destroy()
+  })
+
   test("sort: defaults to last-activity; Space toggles to started and persists", async () => {
     prefs.reset()
     // "Older Start Fresh Activity" should top "active" sort;

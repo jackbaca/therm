@@ -9,12 +9,13 @@
 import { useEffect, useState, useCallback } from "react"
 import { useDialog } from "../ui/dialog"
 import { DialogSelect, type SelectOption } from "../ui/dialog-select"
+import { SecretPrompt } from "./secret-prompt"
 import { useTheme } from "../theme"
 import { useToast } from "../ui/toast"
 import type { Gateway } from "../context/gateway"
-import type { ConfigSetResponse, ModelOptionsResponse } from "../context/wire"
+import type { ConfigSetResponse, ModelOptionProvider, ModelOptionsResponse } from "../context/wire"
 
-type Step = "provider" | "model"
+type Step = "provider" | "model" | "setup"
 
 type Props = {
   gw: Gateway
@@ -24,6 +25,38 @@ type Props = {
   title?: string
 }
 
+type SaveKeyResponse = {
+  provider?: ModelOptionProvider
+  warning?: string
+}
+
+const configured = (p: ModelOptionProvider) => (p.models?.length ?? 0) > 0
+
+const setupDescription = (p: ModelOptionProvider): string | undefined => {
+  if (p.warning) return p.warning
+  if (p.auth_type === "api_key" && p.key_env) return `paste ${p.key_env} to activate`
+  if (p.key_env) return p.key_env
+  if (p.auth_type) return `run hermes model to configure (${p.auth_type})`
+  return undefined
+}
+
+const providerDescription = (p: ModelOptionProvider): string | undefined => {
+  if (p.authenticated === false) return setupDescription(p)
+  return p.total_models ? `${p.total_models} models` : undefined
+}
+
+const providerHint = (p: ModelOptionProvider): string | undefined => {
+  if (p.authenticated !== false) return undefined
+  return p.auth_type ? `auth_type=${p.auth_type}` : undefined
+}
+
+const replaceProvider = (
+  data: ModelOptionsResponse, slug: string, next: ModelOptionProvider,
+): ModelOptionsResponse => ({
+  ...data,
+  providers: (data.providers ?? []).map(p => p.slug === slug ? next : p),
+})
+
 const ModelPickerDialog = (props: Props) => {
   const dialog = useDialog()
   const toast = useToast()
@@ -31,13 +64,14 @@ const ModelPickerDialog = (props: Props) => {
   const [data, setData] = useState<ModelOptionsResponse | null>(null)
   const [step, setStep] = useState<Step>("provider")
   const [provider, setProvider] = useState<string | null>(null)
+  const [setupProvider, setSetupProvider] = useState<ModelOptionProvider | null>(null)
   const [global, setGlobal] = useState(false)
 
-  useEffect(() => {
-    props.gw.request<ModelOptionsResponse>("model.options")
-      .then(setData)
-      .catch(() => setData({ providers: [] }))
-  }, [props.gw])
+  const refresh = useCallback(() => props.gw.request<ModelOptionsResponse>("model.options")
+    .then(setData)
+    .catch(() => setData({ providers: [] })), [props.gw])
+
+  useEffect(() => { void refresh() }, [refresh])
 
   const apply = useCallback((model: string, prov: string) => {
     if (props.onApply) return void props.onApply(prov, model)
@@ -53,9 +87,43 @@ const ModelPickerDialog = (props: Props) => {
       .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
   }, [props.gw, props.onApply, global, toast])
 
+  const submitKey = useCallback(async (p: ModelOptionProvider, key: string) => {
+    try {
+      const r = await props.gw.request<SaveKeyResponse>("model.save_key", { slug: p.slug, api_key: key })
+      if (r.warning) toast.show({ variant: "warning", message: r.warning })
+      const next = r.provider ?? (await props.gw.request<ModelOptionsResponse>("model.options"))
+        .providers?.find(pp => pp.slug === p.slug)
+      if (!next) {
+        toast.show({ variant: "warning", message: "Provider saved; refresh model options to continue" })
+        return
+      }
+      setData(d => d ? replaceProvider(d, p.slug, next) : d)
+      if (configured(next)) {
+        setSetupProvider(null)
+        setProvider(next.slug)
+        setStep("model")
+        toast.show({ variant: "success", message: `${next.name} activated` })
+        return
+      }
+      toast.show({ variant: "warning", message: next.warning ?? "Provider saved but no models were returned" })
+    } catch (e) {
+      toast.show({ variant: "error", message: e instanceof Error ? e.message : String(e) })
+    }
+  }, [props.gw, toast])
+
+  const setup = useCallback((p: ModelOptionProvider) => {
+    const msg = setupDescription(p)
+    if (p.auth_type !== "api_key" || !p.key_env) {
+      toast.show({ variant: "warning", message: msg ?? "Run hermes model to configure this provider" })
+      return
+    }
+    setSetupProvider(p)
+    setStep("setup")
+  }, [toast])
+
   const onKey = useCallback((k: { name: string }) => {
     if (k.name === "tab" && !props.onApply) { setGlobal(g => !g); return true }
-    if (k.name === "left" && step === "model") { setStep("provider"); return true }
+    if (k.name === "left" && step !== "provider") { setStep("provider"); return true }
     return false
   }, [step, props.onApply])
 
@@ -73,21 +141,33 @@ const ModelPickerDialog = (props: Props) => {
 
   if (!data) return <box width={50} padding={1}><text>Loading models…</text></box>
 
+  if (step === "setup" && setupProvider?.key_env) return <SecretPrompt
+    title={`Paste ${setupProvider.key_env}`}
+    label={setupDescription(setupProvider) ?? `API key for ${setupProvider.name}`}
+    onSubmit={(key) => { void submitKey(setupProvider, key) }}
+  />
+
   if (step === "provider") {
     const options: SelectOption[] = (data.providers ?? [])
       .toSorted((a, b) => Number(Boolean(b.is_current)) - Number(Boolean(a.is_current)))
       .map(p => ({
         title: p.name,
         value: p.slug,
-        description: p.total_models ? `${p.total_models} models` : undefined,
-        category: p.is_current ? "Current" : "Available",
+        description: providerDescription(p),
+        hint: providerHint(p),
+        category: p.is_current ? "Current" : p.authenticated === false ? "Setup required" : "Available",
       }))
     return (
       <DialogSelect
         title={props.title ?? "Switch Provider"}
         options={options}
         current={data.provider}
-        onSelect={(o) => { setProvider(o.value); setStep("model") }}
+        onSelect={(o) => {
+          const p = data.providers?.find(pp => pp.slug === o.value)
+          if (p?.authenticated === false || (p && !configured(p))) return void setup(p)
+          setProvider(o.value)
+          setStep("model")
+        }}
         onKey={onKey}
         placeholder="Search providers..."
         footer={footer}
