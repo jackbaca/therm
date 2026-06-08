@@ -24,6 +24,7 @@ import { HintBar } from "../ui/hint"
 import { KVBlock } from "../ui/kv"
 import { ago, trunc } from "../ui/fmt"
 import { load as loadPrefs, set as setPref, type KanbanPrefs } from "../context/preferences"
+import { parseDispatchResult, dispatchFailures, dispatchGuarded, dispatchVariant, dispatchDetails } from "../service/kanban-dispatch"
 
 // Operator surface for every kanban board under ~/.hermes/.
 //
@@ -100,23 +101,6 @@ const recOf = (v: unknown): Record<string, unknown> | null =>
 const assignedByDefault = (d: Detail): boolean =>
   d.events.some(e => e.kind === "assigned"
     && recOf(e.payload)?.source === "kanban.default_assignee")
-
-type DispatchJson = {
-  spawned?: Array<{ task_id?: string; assignee?: string; workspace?: string }>
-  skipped_unassigned?: string[]
-  skipped_nonspawnable?: string[]
-  skipped_per_profile_capped?: Array<{ task_id?: string; assignee?: string; current?: number }>
-  auto_assigned_default?: string[]
-}
-
-const dispatchJson = (out: string): DispatchJson | null => {
-  try {
-    const raw = JSON.parse(out) as unknown
-    return recOf(raw) as DispatchJson | null
-  } catch { return null }
-}
-
-const countOf = <T,>(xs: T[] | undefined): number => Array.isArray(xs) ? xs.length : 0
 
 /** True when `v` survives the group. Absence ⇒ "off". */
 function admits<V>(g: Map<V, Tri>, v: V): boolean {
@@ -347,15 +331,16 @@ const fieldsFor = (t: Task): PaneField[] =>
 type Pane =
   | { kind: "detail"; slug: string; d: Detail }
   | { kind: "log"; slug: string; id: string; text: string }
+  | { kind: "dispatch"; slug: string; text: string }
 
 const SidePane = memo((p: { pane: Pane; on: boolean; sel: number; diags: Diag[] }) => {
   const { theme, syntaxStyle } = useTheme()
-  if (p.pane.kind === "log") return (
+  if (p.pane.kind === "log" || p.pane.kind === "dispatch") return (
     <box flexDirection="column" padding={1} border borderColor={theme.border}
          backgroundColor={theme.backgroundPanel} width="50%">
       <box height={1}><text>
-        <span fg={theme.primary}><strong>{p.pane.id}</strong></span>
-        <span fg={theme.textMuted}>{`  ·  ${p.pane.slug}  ·  worker log (tail)`}</span>
+        <span fg={theme.primary}><strong>{p.pane.kind === "log" ? p.pane.id : "Dispatch"}</strong></span>
+        <span fg={theme.textMuted}>{`  ·  ${p.pane.slug}  ·  ${p.pane.kind === "log" ? "worker log (tail)" : "details"}`}</span>
       </text></box>
       <box height={1} />
       <scrollbox scrollY flexGrow={1}>
@@ -996,17 +981,28 @@ export const Kanban = memo((props: { focused?: boolean }) => {
       if (!ok) return
       void sh("dispatch --json").then(out => {
         if (out == null) return
-        const r = dispatchJson(out)
-        const spawned = countOf(r?.spawned)
-        const capped = countOf(r?.skipped_per_profile_capped)
-        const defaults = countOf(r?.auto_assigned_default)
-        const skipped = countOf(r?.skipped_unassigned) + countOf(r?.skipped_nonspawnable)
+        const r = parseDispatchResult(out)
+        const spawned = r.spawned.length
+        const deferred = r.skipped_per_profile_capped.length
+        const defaults = r.auto_assigned_default.length
+        const unassigned = r.skipped_unassigned.length
+        const nonspawnable = r.skipped_nonspawnable.length
+        const failed = dispatchFailures(r).length
+        const guarded = dispatchGuarded(r).length
         const parts = [`${spawned} spawned`]
-        if (defaults) parts.push(`${defaults} default-assigned`)
-        if (capped) parts.push(`${capped} profile-capped`)
-        if (skipped) parts.push(`${skipped} skipped`)
-        toast.show({ variant: capped || skipped ? "info" : "success", message: `Dispatch: ${parts.join(" · ")}` })
-      })
+        if (defaults) parts.push(`${defaults} defaulted`)
+        if (deferred) parts.push(`${deferred} deferred`)
+        if (unassigned) parts.push(`${unassigned} unassigned`)
+        if (nonspawnable) parts.push(`${nonspawnable} non-spawnable`)
+        if (failed) parts.push(`${failed} failed`)
+        if (guarded) parts.push(`${guarded} guarded`)
+        const more = dispatchDetails(r)
+        toast.show({
+          variant: dispatchVariant(r),
+          message: `Dispatch: ${parts.join(" · ")}`,
+          action: more ? { label: "details", run: () => setPane({ kind: "dispatch", slug: live.current.at, text: more }) } : undefined,
+        })
+      }).catch((e: Error) => void toast.show({ variant: "error", message: trunc(e.message, 120) }))
     })
   }, [dialog, sh, toast])
 

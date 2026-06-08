@@ -9,6 +9,7 @@ import {
   currentBoard, listBoards, parseDiagnostics, maxSeverity, sortDiags,
   boardStateOf, boardErrors, corruptBackupsOf,
 } from "../src/service/hermes-kanban"
+import { parseDispatchResult, dispatchFailures, dispatchVariant, dispatchDetails } from "../src/service/kanban-dispatch"
 import { Kanban } from "../src/tabs/Kanban"
 
 const now = Math.floor(Date.now() / 1000)
@@ -803,10 +804,25 @@ describe("Kanban tab", () => {
     t.destroy()
   })
 
-  test("D → confirm → dispatch", async () => {
+  test("D → confirm → dispatch parses telemetry", async () => {
     const cmds: string[] = []
     const gw = new MockGateway({
-      "shell.exec": p => { if (!/\bdiagnostics\b/.test(p.command as string)) cmds.push(p.command as string); return { stdout: "[]", stderr: "", code: 0 } },
+      "shell.exec": p => {
+        if (!/\bdiagnostics\b/.test(p.command as string)) cmds.push(p.command as string)
+        return { stdout: JSON.stringify({
+          reclaimed: 0,
+          promoted: 1,
+          spawned: [{ task_id: "t1", assignee: "researcher", workspace: "/tmp/w" }],
+          auto_assigned_default: ["t6"],
+          skipped_per_profile_capped: [{ task_id: "t7", assignee: "researcher", current: 2 }],
+          skipped_unassigned: [],
+          skipped_nonspawnable: [],
+          crashed: [],
+          auto_blocked: [],
+          timed_out: [],
+          stale: [],
+        }), stderr: "", code: 0 }
+      },
     })
     const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
@@ -815,7 +831,149 @@ describe("Kanban tab", () => {
     await act(async () => { await t.keys.typeText("y") })
     await until(t, () => cmds.length === 1)
     expect(cmds[0]).toBe("hermes kanban --board default dispatch --json")
+    await until(t, () => t.frame().includes("Dispatch: 1 spawned · 1 defaulted · 1 deferred"))
     t.destroy()
+  })
+
+  test("D → confirm → dispatch surfaces unassigned separately", async () => {
+    const gw = new MockGateway({
+      "shell.exec": p => /\bdiagnostics\b/.test(p.command as string)
+        ? { stdout: "[]", stderr: "", code: 0 }
+        : { stdout: JSON.stringify({
+          spawned: [],
+          skipped_unassigned: ["t8"],
+          skipped_nonspawnable: [],
+          skipped_per_profile_capped: [],
+          auto_assigned_default: [],
+          crashed: [],
+          auto_blocked: [],
+          timed_out: [],
+          stale: [],
+        }), stderr: "", code: 0 },
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    await act(async () => { await t.keys.typeText("D") })
+    await until(t, () => t.frame().includes("Dispatch · default"))
+    await act(async () => { await t.keys.typeText("y") })
+    await until(t, () => t.frame().includes("Dispatch: 0 spawned · 1 unassigned"))
+    expect(t.frame()).not.toContain("skipped")
+    t.destroy()
+  })
+
+  test("D → confirm → dispatch shows failed instead of skipped when no worker spawns", async () => {
+    const gw = new MockGateway({
+      "shell.exec": p => /\bdiagnostics\b/.test(p.command as string)
+        ? { stdout: "[]", stderr: "", code: 0 }
+        : { stdout: JSON.stringify({
+          spawned: [],
+          skipped_unassigned: [],
+          skipped_nonspawnable: [],
+          skipped_per_profile_capped: [],
+          auto_assigned_default: [],
+          crashed: ["t8"],
+          auto_blocked: [],
+          timed_out: ["t9"],
+          stale: [],
+        }), stderr: "", code: 0 },
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    await act(async () => { await t.keys.typeText("D") })
+    await until(t, () => t.frame().includes("Dispatch · default"))
+    await act(async () => { await t.keys.typeText("y") })
+    await until(t, () => t.frame().includes("Dispatch: 0 spawned · 2 failed"))
+    expect(t.frame()).not.toContain("skipped")
+    t.destroy()
+  })
+
+  test("D → confirm → dispatch separates benign and failure labels", async () => {
+    const gw = new MockGateway({
+      "shell.exec": p => /\bdiagnostics\b/.test(p.command as string)
+        ? { stdout: "[]", stderr: "", code: 0 }
+        : { stdout: JSON.stringify({
+          spawned: [{ task_id: "t1", assignee: "builder", workspace: "/tmp/w" }],
+          skipped_unassigned: [],
+          skipped_nonspawnable: [],
+          skipped_per_profile_capped: [{ task_id: "t3", assignee: "researcher", current: 2 }],
+          auto_assigned_default: [],
+          crashed: ["t6"],
+          auto_blocked: [],
+          timed_out: [],
+          stale: [],
+          respawn_guarded: [],
+        }), stderr: "", code: 0 },
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    await act(async () => { await t.keys.typeText("D") })
+    await until(t, () => t.frame().includes("Dispatch · default"))
+    await act(async () => { await t.keys.typeText("y") })
+    await until(t, () => t.frame().includes("Dispatch: 1 spawned · 1 deferred · 1 failed"))
+    expect(t.frame()).not.toContain("skipped")
+    t.destroy()
+  })
+
+  test("D → confirm → malformed dispatch json surfaces error toast", async () => {
+    const gw = new MockGateway({
+      "shell.exec": p => /\bdiagnostics\b/.test(p.command as string)
+        ? { stdout: "[]", stderr: "", code: 0 }
+        : { stdout: "not json", stderr: "", code: 0 },
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    await act(async () => { await t.keys.typeText("D") })
+    await until(t, () => t.frame().includes("Dispatch · default"))
+    await act(async () => { await t.keys.typeText("y") })
+    await until(t, () => t.frame().includes("JSON Parse error"))
+    t.destroy()
+  })
+
+  test("dispatch parser defaults new buckets and separates dispatch variants", () => {
+    const old = parseDispatchResult(JSON.stringify({
+      reclaimed: 0,
+      promoted: 0,
+      spawned: [{ task_id: "t1", assignee: "builder", workspace: "" }],
+      skipped_unassigned: ["t2"],
+      skipped_nonspawnable: ["t3"],
+      crashed: [],
+      auto_blocked: [],
+      timed_out: [],
+      stale: [],
+    }))
+    expect(old.auto_assigned_default).toEqual([])
+    expect(old.skipped_per_profile_capped).toEqual([])
+
+    const cur = parseDispatchResult(JSON.stringify({
+      spawned: [{ task_id: "t1", assignee: "builder", workspace: "" }],
+      skipped_per_profile_capped: [{ task_id: "t4", assignee: "builder", current: 1 }],
+      auto_assigned_default: ["t5"],
+      crashed: ["t6"],
+    }))
+    expect(cur.skipped_per_profile_capped).toEqual([{ task_id: "t4", assignee: "builder", current: 1 }])
+    expect(cur.auto_assigned_default).toEqual(["t5"])
+    expect(dispatchFailures(cur)).toEqual(["t6"])
+    expect(dispatchVariant(cur)).toBe("warning")
+    expect(dispatchVariant(parseDispatchResult(JSON.stringify({ spawned: [], crashed: ["t6"] })))).toBe("error")
+    expect(dispatchVariant(parseDispatchResult(JSON.stringify({ spawned: [], skipped_per_profile_capped: [{ task_id: "t4", assignee: "builder", current: 1 }] })))).toBe("info")
+    expect(dispatchVariant(parseDispatchResult(JSON.stringify({ spawned: [{ task_id: "t1", assignee: "builder", workspace: "" }], auto_assigned_default: ["t5"] })))).toBe("success")
+    expect(dispatchDetails(parseDispatchResult(JSON.stringify({
+      auto_assigned_default: ["t5"],
+      skipped_per_profile_capped: [{ task_id: "t4", assignee: "builder", current: 1 }],
+      skipped_unassigned: ["t2"],
+      skipped_nonspawnable: ["t3"],
+      crashed: ["t6"],
+      respawn_guarded: [["t7", "active_pr"]],
+    })))).toBe([
+      "Defaulted to kanban.default_assignee: t5",
+      "Deferred at per-profile cap:",
+      "  builder (1 running): t4",
+      "Unassigned: t2",
+      "Non-spawnable lanes: t3",
+      "Failed/reclaimed · crashed: t6",
+      "Respawn guarded: t7 (active_pr)",
+    ].join("\n"))
+    expect(() => parseDispatchResult("not json")).toThrow()
   })
 
   test("l opens log pane; Esc closes", async () => {
