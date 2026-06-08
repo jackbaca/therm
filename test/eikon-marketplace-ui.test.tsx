@@ -218,7 +218,7 @@ describe("EikonMarketplace tab", () => {
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Eikon only"))
     act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("installed") && prefs.get("eikon") === "localone")
+    await until(t, () => eikon.list().some(x => x.name === "ares") && t.frame().includes("installed") && prefs.get("eikon") === "localone")
     expect(eikon.list().find(x => x.name === "ares")!.hasSource).toBe(false)
 
     act(() => t.keys.pressEnter())
