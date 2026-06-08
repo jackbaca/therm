@@ -26,7 +26,7 @@ import { lastReal } from "./service/sessions-db"
 import { readChangelog } from "./service/hermes-home"
 import { openMessage } from "./dialogs/message"
 import { openTextPrompt } from "./dialogs/text-prompt"
-import { parseEikon, type ParsedEikon } from "./components/avatar/eikon"
+import { parseEikonFile, type ParsedEikon } from "./components/avatar/eikon"
 import { bundledEikonPath } from "./components/avatar/bundled"
 import { pending as pendingPrompt, type PromptCardHandle } from "./components/chat/PromptCard"
 import type { PromptWire } from "./components/chat/MessageItem"
@@ -475,9 +475,8 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   }, [reset, goToTab, gwRestart, toast, gw])
 
   const loadEikon = useCallback((path: string) => {
-    Bun.file(path).text()
-      .then(t => setEikon(parseEikon(t)))
-      .catch(() => {})
+    try { setEikon(parseEikonFile(path)) }
+    catch { setEikon(undefined) }
   }, [])
 
   // Precedence: user pref (by name) → bundled eikon matching active

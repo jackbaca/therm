@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { mkdtempSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
+import { runtimeDescriptor } from "eikon"
 import { mountNode, until } from "./harness"
 import { EikonPickerDialog } from "../src/dialogs/eikon-picker"
 
@@ -15,7 +16,7 @@ const FIXTURE = [
 describe("EikonPickerDialog", () => {
   test("lists fixture and renders live preview", async () => {
     const dir = mkdtempSync(join(tmpdir(), "eikon-pick-"))
-    writeFileSync(join(dir, "tiny.eikon"), FIXTURE)
+    writeFileSync(join(dir, "tiny.eikon"), runtimeDescriptor(FIXTURE, { encoding: "gzip" }).bytes)
 
     let picked = ""
     const t = await mountNode(

@@ -83,7 +83,7 @@ function local(name: string) {
 
 function packageCatalog(extra: Route[] = []) {
   const runtime = {
-    kind: "eikon.package", schemaVersion: "1.0", id: "liftaris/ares", name: "ares",
+    kind: "eikon.package", schemaVersion: "1.0", id: "liftaris/ares", name: "ares", version: "1.0.0",
     display: { title: "Ares", author: "Kaio", description: "red warrior" },
     compatibility: { eikon: ">=1 <2" }, entrypoints: { default: "ares.eikon" },
     files: [{ path: "ares.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl", size: body.length, digest: digest(body) }], poster: "poster.txt", preview: "ares.eikon",
@@ -291,7 +291,7 @@ describe("EikonMarketplace tab", () => {
     eikon.ensure("ares")
     writeFileSync(eikon.file("ares"), body)
     writeFileSync(join(eikon.dir("ares"), "manifest.json"), JSON.stringify({
-      kind: "eikon.package", schemaVersion: "1.0", id: "liftaris/ares", name: "ares",
+      kind: "eikon.package", schemaVersion: "1.0", id: "liftaris/ares", name: "ares", version: "1.0.0",
       compatibility: { eikon: ">=1 <2" }, entrypoints: { default: "ares.eikon" },
       files: [{ path: "ares.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl", size: body.length, digest: digest(body) }],
       origin: { sourceKey: `${fx.base}/ares/`, identityKey: `${fx.base}/ares/`, packageUrl: `${fx.base}/ares/manifest.json` },

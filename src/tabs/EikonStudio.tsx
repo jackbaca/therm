@@ -14,7 +14,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExterna
 import { extend, useKeyboard, useTerminalDimensions } from "@opentui/react"
 import { SliderRenderable } from "@opentui/core"
 import type { ParsedKey, ScrollBoxRenderable } from "@opentui/core"
-import { readFileSync, statSync } from "node:fs"
+import { statSync } from "node:fs"
 import { basename } from "node:path"
 import type { ReactNode } from "react"
 import { useTheme } from "../theme"
@@ -561,7 +561,7 @@ export const EikonStudio = memo((props: {
     if (live || !s) return undefined
     const p = eikon.baked(s.name)
     if (!p) return undefined
-    try { return eikon.parseEikon(readFileSync(p, "utf8")) } catch { return undefined }
+    try { return eikon.parseEikonFile(p) } catch { return undefined }
   }, [live, s?.name])
   const url = useMemo(() => {
     if (!s) return undefined

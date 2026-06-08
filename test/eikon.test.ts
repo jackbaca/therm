@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { dirname, join } from "path"
-import { parseEikon, listEikons } from "../src/components/avatar/eikon"
+import { runtimeDescriptor } from "eikon"
+import { parseEikon, parseEikonFile, listEikons } from "../src/components/avatar/eikon"
 import { bundledEikonPath } from "../src/components/avatar/bundled"
 
 const FIXTURE = [
@@ -113,6 +114,18 @@ describe("parseEikon", () => {
     expect(e.states.get("idle")!.frames[0]).toEqual([" o ", "/|\\"])
     expect(e.states.get("error")!.loopFrom).toBe(1)
   })
+
+  test("parses gzip runtime files", () => {
+    const dir = mkdtempSync(join(tmpdir(), "eikon-gzip-"))
+    const info = runtimeDescriptor(LAUNCH_FIXTURE, { encoding: "gzip" })
+    const p = join(dir, "tiny.eikon")
+    writeFileSync(p, info.bytes)
+
+    const e = parseEikonFile(p)
+
+    expect(e.meta.name).toBe("tiny launch")
+    expect(e.states.get("idle")!.frames[0]).toEqual([" o ", "/|\\"])
+  })
 })
 
 describe("listEikons", () => {
@@ -154,6 +167,36 @@ describe("listEikons", () => {
     expect(paths.some(p => p.endsWith("extra.eikon"))).toBe(false)
   })
 
+  test("scans gzip runtime package entrypoints", () => {
+    const dir = mkdtempSync(join(tmpdir(), "eikon-gzip-list-"))
+    const info = runtimeDescriptor(LAUNCH_FIXTURE, { encoding: "gzip" })
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify({
+      kind: "eikon.package",
+      schemaVersion: "1.0",
+      id: "test/gzip",
+      name: "gzip",
+      compatibility: { eikon: ">=1 <2" },
+      entrypoints: { default: "streams/gzip.eikon" },
+      files: [{
+        path: "streams/gzip.eikon",
+        role: "runtime",
+        mediaType: "application/vnd.eikon.stream+jsonl",
+        encoding: "gzip",
+        size: info.size,
+        digest: info.digest,
+        decodedSize: info.decodedSize,
+        decodedDigest: info.decodedDigest,
+      }],
+    }))
+    mkdirSync(join(dir, "streams"))
+    writeFileSync(join(dir, "streams", "gzip.eikon"), info.bytes)
+
+    const found = listEikons([dir])
+
+    expect(found).toHaveLength(1)
+    expect(found[0].meta.name).toBe("tiny launch")
+  })
+
   test("bundled eikons ship only Nous as a package runtime stream", () => {
     const p = bundledEikonPath("nous")!
     expect(bundledEikonPath("default")).toBe(p)
@@ -165,7 +208,7 @@ describe("listEikons", () => {
     expect(man.version).toBe("1.0.0")
     expect(man.origin.identityKey).toBe("registry:eikon.liftaris.dev:liftaris/nous@1.0.0")
     expect(man.origin.packageUrl).toBe("https://eikon.liftaris.dev/packages/liftaris/nous/1.0.0.json")
-    const e = parseEikon(readFileSync(p, "utf8"))
+    const e = parseEikonFile(p)
     expect(e.meta.width).toBe(48)
     expect(e.states.has("idle")).toBe(true)
     const found = listEikons([join(import.meta.dir, "../assets/eikons")])
