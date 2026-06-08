@@ -14,7 +14,7 @@ import { openNewEikon } from "../dialogs/new-eikon"
 import * as submitSvc from "../service/eikon-submit"
 import { useKeyboard } from "@opentui/react"
 import { AnimatedAvatar } from "../components/avatar/AnimatedAvatar"
-import { listEikons, parseEikon, type ParsedEikon } from "../components/avatar/eikon"
+import { listEikons, parseEikonFile, type ParsedEikon } from "../components/avatar/eikon"
 import { BUNDLED_EIKON_DIR } from "../components/avatar/bundled"
 import { hermesPath } from "../service/hermes-home"
 import * as prefs from "../context/preferences"
@@ -74,7 +74,7 @@ export const EikonGallery = memo((props: Props) => {
   const cur = rows[sel]
   const parsed = useMemo<ParsedEikon | undefined>(() => {
     if (!cur) return undefined
-    try { return parseEikon(readFileSync(cur.path, "utf8")) } catch { return undefined }
+    try { return parseEikonFile(cur.path) } catch { return undefined }
   }, [cur])
 
   const activate = (row = cur) => {

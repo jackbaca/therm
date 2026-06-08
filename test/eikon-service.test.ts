@@ -3,15 +3,17 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { join } from "node:path"
+import { runtimeDescriptor } from "eikon"
 import { eikon } from "../src/service/eikon"
 import { knobs } from "../src/utils/eikon-knobs"
 import { native, caps, type Rasterizer } from "../src/utils/eikon-render"
-import { parseEikon } from "../src/components/avatar/eikon"
+import { parseEikon, parseEikonFile } from "../src/components/avatar/eikon"
 import * as prefs from "../src/context/preferences"
 
 const HH = process.env.HERMES_HOME!
 if (!HH || HH.includes("/.hermes")) throw new Error("sandbox not applied")
 const digest = (data: string | Uint8Array) => `sha256:${createHash("sha256").update(data).digest("hex")}`
+const wire = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
 
 describe("service/eikon: layout", () => {
   test("ensure creates folder form", () => {
@@ -132,6 +134,7 @@ describe("service/eikon: fetchSource", () => {
       schemaVersion: "1.0",
       id: "liftaris/ares",
       name: "ares",
+      version: "1.0.0",
       compatibility: { eikon: ">=1 <2" },
       entrypoints: { default: "ares.eikon" },
       files: [
@@ -213,6 +216,123 @@ describe("service/eikon: fetchSource", () => {
     expect(seen).toContain("/pkg/ares.eikon")
     expect(existsSync(eikon.file("ares"))).toBe(true)
   })
+
+  test("fetchSource installs gzip runtime packages as stored bytes", async () => {
+    const info = runtimeDescriptor(launch, { encoding: "gzip" })
+    const srv = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const name = new URL(req.url).pathname.split("/").pop()!
+        if (name === "manifest.json") return Response.json({
+          kind: "eikon.package",
+          schemaVersion: "1.0",
+          id: "liftaris/gzip",
+          name: "gzip",
+          version: "1.0.0",
+          compatibility: { eikon: ">=1 <2" },
+          entrypoints: { default: "gzip.eikon" },
+          files: [{
+            path: "gzip.eikon",
+            role: "runtime",
+            mediaType: "application/vnd.eikon.stream+jsonl",
+            encoding: "gzip",
+            size: info.size,
+            digest: info.digest,
+            decodedSize: info.decodedSize,
+            decodedDigest: info.decodedDigest,
+          }],
+        })
+        if (name === "gzip.eikon") return new Response(wire(info.bytes))
+        return new Response("404", { status: 404 })
+      },
+    })
+
+    const out = await eikon.fetchSource(`http://localhost:${srv.port}/pkg/`, { media: false })
+
+    expect(out.name).toBe("gzip")
+    expect(Buffer.from(readFileSync(eikon.file("gzip"))).equals(Buffer.from(info.bytes))).toBe(true)
+    expect(parseEikonFile(eikon.file("gzip")).states.get("idle")!.frames[0]).toEqual(["abcd", "efgh"])
+    srv.stop()
+  })
+
+  test("fetchSource rejects digest-bound gzip runtime served with Content-Encoding", async () => {
+    const info = runtimeDescriptor(launch, { encoding: "gzip" })
+    const srv = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const name = new URL(req.url).pathname.split("/").pop()!
+        if (name === "manifest.json") return Response.json({
+          kind: "eikon.package",
+          schemaVersion: "1.0",
+          id: "liftaris/wiregzip",
+          name: "wiregzip",
+          version: "1.0.0",
+          compatibility: { eikon: ">=1 <2" },
+          entrypoints: { default: "wiregzip.eikon" },
+          files: [{
+            path: "wiregzip.eikon",
+            role: "runtime",
+            mediaType: "application/vnd.eikon.stream+jsonl",
+            encoding: "gzip",
+            size: info.size,
+            digest: info.digest,
+            decodedSize: info.decodedSize,
+            decodedDigest: info.decodedDigest,
+          }],
+        })
+        if (name === "wiregzip.eikon") return new Response(wire(info.bytes), { headers: { "content-encoding": "gzip" } })
+        return new Response("404", { status: 404 })
+      },
+    })
+
+    await expect(eikon.fetchSource(`http://localhost:${srv.port}/pkg/`, { media: false })).rejects.toThrow(/content-encoding/i)
+    expect(existsSync(eikon.file("wiregzip"))).toBe(false)
+    srv.stop()
+  })
+
+  test("previewPackage decodes gzip package entrypoints", async () => {
+    const names = ["idle", "listening", "thinking", "speaking", "working", "error"]
+    const full = [
+      JSON.stringify({ type: "header", eikon: 1, size: { cols: 4, rows: 2 }, defaultSignal: "state.idle", signals: Object.fromEntries(names.map(name => [`state.${name}`, { clip: name }])) }),
+      ...names.flatMap(name => [
+        JSON.stringify({ type: "clip", name, fps: 12, frameCount: 1 }),
+        JSON.stringify({ type: "frame", clip: name, index: 0, rows: ["abcd", "efgh"] }),
+      ]),
+    ].join("\n") + "\n"
+    const info = runtimeDescriptor(full, { encoding: "gzip" })
+    const srv = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const name = new URL(req.url).pathname.split("/").pop()!
+        if (name === "manifest.json") return Response.json({
+          kind: "eikon.package",
+          schemaVersion: "1.0",
+          id: "liftaris/preview-gzip",
+          name: "preview-gzip",
+          version: "1.0.0",
+          compatibility: { eikon: ">=1 <2" },
+          entrypoints: { default: "preview-gzip.eikon" },
+          files: [{
+            path: "preview-gzip.eikon",
+            role: "runtime",
+            mediaType: "application/vnd.eikon.stream+jsonl",
+            encoding: "gzip",
+            size: info.size,
+            digest: info.digest,
+            decodedSize: info.decodedSize,
+            decodedDigest: info.decodedDigest,
+          }],
+        })
+        if (name === "preview-gzip.eikon") return new Response(wire(info.bytes))
+        return new Response("404", { status: 404 })
+      },
+    })
+
+    const out = await eikon.previewPackage({ packageUrl: `http://localhost:${srv.port}/pkg/manifest.json` } as Parameters<typeof eikon.previewPackage>[0])
+
+    expect(out.eikon.states.get("idle")!.frames[0]).toEqual(["abcd", "efgh"])
+    srv.stop()
+  })
 })
 
 describe("service/eikon: lifecycle", () => {
@@ -293,6 +413,7 @@ describe("service/eikon: lifecycle", () => {
           schemaVersion: "1.0",
           id: "liftaris/pkgonly",
           name: "pkgonly",
+          version: "1.0.0",
           compatibility: { eikon: ">=1 <2" },
           entrypoints: { default: "pkgonly.eikon" },
           files: [

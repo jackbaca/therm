@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from "bun:test"
 import { act } from "react"
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+import { runtimeDescriptor } from "eikon"
 import { mountNode, until, type Harness } from "./harness"
 import { EikonGallery } from "../src/tabs/EikonGallery"
 import { eikon } from "../src/service/eikon"
@@ -94,6 +95,17 @@ describe("Eikon submit dialog", () => {
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Submitted") && t.frame().includes("pull/7"))
     expect(fn).toHaveBeenCalledWith({ path: eikon.file("draft") })
+  })
+
+  test("preflight preview accepts gzip runtime drafts", async () => {
+    await seed("draft")
+    const raw = await Bun.file(eikon.file("draft")).text()
+    writeFileSync(eikon.file("draft"), runtimeDescriptor(raw, { encoding: "gzip" }).bytes)
+
+    const seen = await submit.preview({ path: eikon.file("draft") })
+
+    expect(seen.name).toBe("draft")
+    expect(seen.files.map(f => f.path)).toContain("manifest.json")
   })
 
   test("preflight setup guidance does not submit", async () => {

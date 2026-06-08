@@ -4,7 +4,7 @@
 
 import { readdirSync, readFileSync } from "node:fs"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
-import { parse, header as peek, type Eikon, type Clip, type Meta } from "eikon"
+import { parse, header as peek, decodeRuntimeFile, type Eikon, type Clip, type Meta } from "eikon"
 
 export type EikonMeta = Meta
 export type EikonState = Clip
@@ -29,6 +29,10 @@ function readManifestEntrypoint(path: string): string | undefined {
 export function parseEikon(text: string): ParsedEikon {
   const e = parse(text)
   return { meta: e.meta, states: e.clips }
+}
+
+export function parseEikonFile(path: string): ParsedEikon {
+  return parseEikon(decodeRuntimeFile(path))
 }
 
 export function listEikons(dirs: string[]): ListedEikon[] {

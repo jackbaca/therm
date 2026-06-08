@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { createHash } from "node:crypto"
-import type { Catalog } from "eikon"
+import { runtimeDescriptor, type Catalog } from "eikon"
 import * as market from "../src/service/eikon-marketplace"
 import { eikon } from "../src/service/eikon"
 import * as prefs from "../src/context/preferences"
@@ -17,6 +17,7 @@ const launch = [
 ].join("\n") + "\n"
 const png = new Uint8Array([137, 80, 78, 71])
 const digest = (data: string | Uint8Array) => `sha256:${createHash("sha256").update(data).digest("hex")}`
+const wire = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
 
 function pack(name: string, text = launch) {
   return {
@@ -24,6 +25,7 @@ function pack(name: string, text = launch) {
     schemaVersion: "1.0",
     id: `liftaris/${name}`,
     name,
+    version: "1.0.0",
     compatibility: { eikon: ">=1 <2" },
     entrypoints: { default: `${name}.eikon` },
     files: [
@@ -31,6 +33,41 @@ function pack(name: string, text = launch) {
       { path: "source.png", role: "source.base", mediaType: "image/png", size: png.length, digest: digest(png) },
     ],
     source: { base: "source.png" },
+  }
+}
+
+function gzip(name: string) {
+  const info = runtimeDescriptor(launch, { encoding: "gzip" })
+  return {
+    bytes: info.bytes,
+    trust: {
+      runtimeDigest: info.digest,
+      runtimeSize: info.size,
+      runtimeEncoding: info.encoding,
+      runtimeDecodedSize: info.decodedSize,
+      runtimeDecodedDigest: info.decodedDigest,
+    },
+    manifest: {
+      kind: "eikon.package",
+      schemaVersion: "1.0",
+      id: `liftaris/${name}`,
+      name,
+      version: "1.0.0",
+      compatibility: { eikon: ">=1 <2" },
+      entrypoints: { default: `${name}.eikon` },
+      files: [
+        {
+          path: `${name}.eikon`,
+          role: "runtime",
+          mediaType: "application/vnd.eikon.stream+jsonl",
+          encoding: "gzip",
+          size: info.size,
+          digest: info.digest,
+          decodedSize: info.decodedSize,
+          decodedDigest: info.decodedDigest,
+        },
+      ],
+    },
   }
 }
 
@@ -247,6 +284,55 @@ describe("service/eikon-marketplace", () => {
     fx.srv.stop()
   })
 
+  test("preview decodes gzip runtime bytes and rejects transport gzip", async () => {
+    const gz = gzip("zip")
+    const srv = serve([
+      { path: "/eikons/index.json", body: req => [catalogRow({ name: "zip", source: "zip/", trust: gz.trust }, `${new URL(req.url).origin}/eikons/`)] },
+      { path: "/eikons/zip/manifest.json", body: gz.manifest },
+      { path: "/eikons/zip/zip.eikon", body: gz.bytes },
+    ])
+    const state = await market.load({ catalog: `http://localhost:${srv.port}/eikons`, allowPrivate: true })
+
+    expect(await state.service!.preview(state.rows[0]!.entry.identityKey)).toBe(launch)
+    srv.stop()
+
+    const bad = serve([
+      { path: "/eikons/index.json", body: req => [catalogRow({ name: "zip", source: "zip/", trust: gz.trust }, `${new URL(req.url).origin}/eikons/`)] },
+      { path: "/eikons/zip/manifest.json", body: gz.manifest },
+      { path: "/eikons/zip/zip.eikon", body: gz.bytes, headers: { "content-encoding": "gzip" } },
+    ])
+    const broken = await market.load({ catalog: `http://localhost:${bad.port}/eikons`, allowPrivate: true })
+
+    await expect(broken.service!.preview(broken.rows[0]!.entry.identityKey)).rejects.toThrow(/content-encoding/i)
+    bad.stop()
+  })
+
+  test("preview keeps explicit preview URLs and allows unverified transport gzip", async () => {
+    const prev = launch.replace("abcd", "prev")
+    const gz = runtimeDescriptor(launch, { encoding: "gzip" })
+    const cat: Catalog = {
+      base: "https://example.com/eikons",
+      entries: [entry({ name: "split", preview: "preview.eikon", runtimeUrl: "runtime.eikon" })],
+      load: async () => "",
+    }
+    const seen: string[] = []
+    const svc = new market.MarketplaceService(cat, {
+      fetcher: async input => {
+        seen.push(String(input))
+        if (String(input).endsWith("preview.eikon")) return new Response(prev)
+        return new Response(wire(gz.bytes), { headers: { "content-encoding": "gzip" } })
+      },
+    })
+
+    expect(await svc.preview(cat.entries[0]!.identityKey)).toBe(prev)
+    expect(seen.some(u => u.endsWith("preview.eikon"))).toBe(true)
+
+    const raw: Catalog = { ...cat, entries: [entry({ name: "raw", runtimeUrl: "runtime.eikon" })] }
+    const open = new market.MarketplaceService(raw, { fetcher: async () => new Response(wire(gz.bytes), { headers: { "content-encoding": "gzip" } }) })
+
+    expect(await open.preview(raw.entries[0]!.identityKey)).toBe(launch)
+  })
+
   test("preview deduplicates concurrent requests and caps cached entries", async () => {
     const fx = fixture()
     const state = await market.load({ catalog: fx.base, allowPrivate: true, previewCacheLimit: 1 })
@@ -322,6 +408,23 @@ describe("service/eikon-marketplace", () => {
     const man = JSON.parse(readFileSync(join(eikon.dir("ares"), "manifest.json"), "utf8"))
     expect(man.origin.source).toBe(`${fx.base}/ares/manifest.json`)
     fx.srv.stop()
+  })
+
+  test("marketplace install preserves gzip runtime stored bytes", async () => {
+    const gz = gzip("zip")
+    const srv = serve([
+      { path: "/eikons/index.json", body: req => [catalogRow({ name: "zip", source: "zip/", trust: gz.trust }, `${new URL(req.url).origin}/eikons/`)] },
+      { path: "/eikons/zip/manifest.json", body: gz.manifest },
+      { path: "/eikons/zip/zip.eikon", body: gz.bytes },
+    ])
+    const state = await market.load({ catalog: `http://localhost:${srv.port}/eikons`, allowPrivate: true })
+
+    const out = await state.service!.install(state.rows[0]!.entry.identityKey)
+
+    expect(out.name).toBe("zip")
+    expect(Buffer.from(readFileSync(eikon.file("zip"))).equals(Buffer.from(gz.bytes))).toBe(true)
+    expect(eikon.parseEikonFile(eikon.file("zip")).states.get("idle")!.frames[0]).toEqual(["abcd", "efgh"])
+    srv.stop()
   })
 
   test("marketplace installs launch package catalog entries from explicit manifest URLs", async () => {
@@ -414,7 +517,7 @@ describe("service/eikon-marketplace", () => {
     let seen = 0
     const cat: Catalog = {
       base: "https://example.com/eikons",
-      entries: [entry({ name: "secret", preview: "http://127.0.0.1:65530/secret.eikon" })],
+      entries: [entry({ name: "secret", runtimeUrl: "http://127.0.0.1:65530/secret.eikon" })],
       load: async () => "",
     }
     const svc = new market.MarketplaceService(cat, { fetcher: async () => { seen += 1; return new Response(launch) } })

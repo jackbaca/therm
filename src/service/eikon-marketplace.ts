@@ -1,7 +1,8 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 import { createHash } from "node:crypto"
 import { basename, dirname, extname, join } from "node:path"
-import { loadCatalog, searchCatalog, publicCatalogUrl, downloadBytes, entries as packageEntries, type Catalog, type PublicCatalogEntry as CatalogEntry, type CatalogOptions, type DownloadOptions } from "eikon"
+import { downloadBytes, entries as packageEntries, type Catalog, type PublicCatalogEntry as CatalogEntry, type CatalogOptions, type DownloadOptions } from "eikon"
+import { loadCatalog, loadRuntimeArtifact, publicCatalogUrl, searchCatalog } from "eikon/catalog"
 import { eikon } from "./eikon"
 import * as prefs from "../context/preferences"
 import { listEikons } from "../components/avatar/eikon"
@@ -220,8 +221,15 @@ function cacheKey(entry: CatalogEntry) {
   return entry.identityKey || entry.sourceKey || entry.id
 }
 
-function previewTarget(entry: CatalogEntry) {
-  return entry.preview || entry.runtimeUrl
+function blob(url: string) {
+  return /\/blobs\/sha256\/[^/?#]+/.test(url)
+}
+
+function artifact(entry: CatalogEntry): CatalogEntry {
+  if (!entry.preview || entry.preview === entry.runtimeUrl) return entry
+  const out = { ...entry, runtimeUrl: entry.preview } as Partial<CatalogEntry>
+  delete out.trust
+  return out as CatalogEntry
 }
 
 type Trust = { manifestDigest?: string; runtimeDigest?: string; digest?: string }
@@ -429,6 +437,16 @@ export class MarketplaceService {
     return { allowPrivate: this.allowPrivate, fetcher: (input, init) => fetcher(input, signal ? { ...init, signal } : init) }
   }
 
+  private runtime(entry: CatalogEntry, signal?: AbortSignal): Fetcher {
+    return async input => {
+      const url = target(input)
+      const bound = keyIdentity(url) === keyIdentity(entry.runtimeUrl) && (!!entry.trust?.runtimeDigest || blob(url))
+      const raw = await downloadBytes(url, { ...this.dl(signal), rejectContentEncoding: bound })
+      const buf = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer
+      return new Response(buf, { headers: { "content-length": String(raw.length) } })
+    }
+  }
+
   private cached(url: string, raw: Uint8Array): Fetcher {
     const key = keyIdentity(url)
     return async (input, init) => {
@@ -467,8 +485,8 @@ export class MarketplaceService {
     const out = await eikon.fetchSource(entry.packageUrl, { name: entry.name, media: opts.media === true, downloader: this.dl(undefined, this.cached(entry.packageUrl, raw)) })
     const ef = eikon.file(out.name)
     if (!existsSync(ef)) {
-      const text = await this.preview(entry.identityKey)
-      writeFileSync(ef, text)
+      const art = await loadRuntimeArtifact(entry, this.runtime(entry))
+      await Bun.write(ef, art.bytes)
       eikon.notifyRevision()
     }
     const mf = join(eikon.dir(out.name), "manifest.json")
@@ -530,7 +548,8 @@ export class MarketplaceService {
     const off = () => ctl.abort()
     opts.signal?.addEventListener("abort", off, { once: true })
     try {
-      const text = dec.decode(await downloadBytes(previewTarget(entry), this.dl(ctl.signal)))
+      const item = artifact(entry)
+      const text = (await loadRuntimeArtifact(item, this.runtime(item, ctl.signal), { signal: ctl.signal })).text
       this.cache.set(cacheKey(entry), text)
       while (this.cache.size > this.previewCacheLimit) this.cache.delete(this.cache.keys().next().value!)
       return text

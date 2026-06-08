@@ -18,12 +18,12 @@
 
 import { existsSync, mkdirSync, readdirSync, copyFileSync, readFileSync, writeFileSync, rmSync, statSync } from "node:fs"
 import { join, extname, basename, dirname } from "node:path"
-import { install, resolve, peek, entries as packageEntries, dirty, header as peekHeader, serializeLaunchStream, defaultSignalMappings,
-         type LaunchStreamRecord, type Installed as Got, type Resolved as ResolvedEikon, type Origin as EikonOrigin, type TrustState, type SourceKind, type DownloadOptions } from "eikon"
+import { install, resolve, peek, entries as packageEntries, dirty, header as peekHeader, serializeLaunchStream, defaultSignalMappings, decodeRuntimeBytes,
+         type LaunchStreamRecord, type Installed as Got, type Resolved as ResolvedEikon, type Origin as EikonOrigin, type TrustState, type SourceKind, type DownloadOptions, type RuntimeDescriptor } from "eikon"
 import { DEFAULT_PUBLIC_CATALOG } from "eikon/catalog"
 import { hermesPath } from "./hermes-home"
 import * as prefs from "../context/preferences"
-import { parseEikon, listEikons } from "../components/avatar/eikon"
+import { parseEikon, parseEikonFile, listEikons } from "../components/avatar/eikon"
 import { BUNDLED_EIKON_DIR } from "../components/avatar/bundled"
 import type { AvatarState } from "../components/avatar/states"
 import { BUILTIN, cached, probe, W, H, type Rasterizer, type Frame } from "../utils/eikon-render"
@@ -485,7 +485,7 @@ export type PackageManifest = {
   display?: { title?: string; author?: string; description?: string; glyph?: string; tags?: string[] }
   compatibility: { eikon: string; hosts?: Record<string, string> }
   entrypoints: { default: string; [key: string]: string }
-  files?: Array<{ path: string; mediaType?: string; size?: number; digest?: string; role?: string }>
+  files?: Array<{ path: string; mediaType?: string; size?: number; digest?: string; role?: string; encoding?: string; decodedSize?: number; decodedDigest?: string }>
   source?: { base?: string; states?: Partial<Record<string, { file: string; role?: string }>> }
   poster?: string
   preview?: string
@@ -679,6 +679,15 @@ async function loadText(url: string, fetcher: typeof fetch = fetch): Promise<str
   return await res.text()
 }
 
+async function loadBytes(url: string, fetcher: typeof fetch = fetch, desc?: RuntimeDescriptor): Promise<Uint8Array> {
+  if (url.startsWith("file://")) return new Uint8Array(readFileSync(new URL(url)))
+  const res = await fetcher(url)
+  if (!res.ok) throw new Error(`fetch: ${res.status} ${url}`)
+  const enc = res.headers.get("content-encoding")
+  if (enc && enc.toLowerCase() !== "identity" && desc?.digest) throw pkgErr("runtime", `artifact must be served without Content-Encoding: ${enc}`)
+  return new Uint8Array(await res.arrayBuffer())
+}
+
 async function loadJson(url: string, fetcher: typeof fetch = fetch): Promise<unknown> {
   return JSON.parse(await loadText(url, fetcher))
 }
@@ -705,27 +714,36 @@ async function loadPackage(url: string, fetcher: typeof fetch = fetch): Promise<
   return { man, base: url.slice(0, url.lastIndexOf("/") + 1) }
 }
 
+function runtimeDesc(man: PackageManifest, path = man.entrypoints.default): RuntimeDescriptor | undefined {
+  const file = man.files?.find(f => f.path === path) ?? man.files?.find(f => f.role === "runtime")
+  if (!file || (!file.digest && file.size == null && !file.encoding && file.decodedSize == null && !file.decodedDigest)) return undefined
+  return { digest: file.digest, size: file.size, encoding: file.encoding, decodedSize: file.decodedSize, decodedDigest: file.decodedDigest }
+}
+
+async function loadRuntime(man: PackageManifest, base: string, fetcher: typeof fetch = fetch, path = man.entrypoints.default): Promise<{ text: string; bytes: Uint8Array }> {
+  const desc = runtimeDesc(man, path)
+  const bytes = await loadBytes(new URL(path, base).toString(), fetcher, desc)
+  return { bytes, text: decodeRuntimeBytes(bytes, { descriptor: desc }) }
+}
+
 export async function previewPackage(entry: CatalogPackage, fetcher: typeof fetch = fetch): Promise<AdaptedPackage> {
   const { man, base } = await loadPackage(entry.packageUrl, fetcher)
-  const streamUrl = new URL(man.entrypoints.default, base).toString()
-  return adaptPackage(man, await loadText(streamUrl, fetcher))
+  return adaptPackage(man, (await loadRuntime(man, base, fetcher)).text)
 }
 
 async function installLaunch(url: string, opts: { name?: string; fetcher?: typeof fetch } = {}): Promise<Fetched> {
   const { man, base } = await loadPackage(url, opts.fetcher)
   const name = opts.name ?? man.name
-  const streamUrl = new URL(man.entrypoints.default, base).toString()
-  const text = await loadText(streamUrl, opts.fetcher)
-  const adapted = await adaptPackage(man, text)
+  const run = await loadRuntime(man, base, opts.fetcher)
+  const adapted = await adaptPackage(man, run.text)
   const paths = ensure(name)
   const clips = new Map<AvatarState, Frame[]>()
   for (const st of STATES) clips.set(st, adapted.eikon.states.get(st)?.frames ?? [[""]])
-  const packed = serialize(name, adapted.eikon.states.get("idle")?.fps ?? 12, clips)
-  await Bun.write(paths.file, packed)
+  await Bun.write(paths.file, run.bytes)
   await Bun.write(join(paths.dir, "manifest.json"), JSON.stringify({ ...man, origin: { source: url, at: new Date().toISOString() } }, null, 2) + "\n")
   writeStudio(name, { ...toStudio(fresh(name, pick())), sources: {} })
   bump()
-  return { name, sources: {}, n: 1, bytes: text.length }
+  return { name, sources: {}, n: 1, bytes: run.bytes.length }
 }
 
 export async function installPackage(src: string | CatalogPackage, opts: { name?: string; fetcher?: DownloadOptions["fetcher"] } = {}): Promise<Fetched> {
@@ -733,5 +751,5 @@ export async function installPackage(src: string | CatalogPackage, opts: { name?
   return fetchSource(url, { name: opts.name, downloader: opts.fetcher ? { fetcher: opts.fetcher } : undefined })
 }
 
-export { parseEikon, probe }
+export { parseEikon, parseEikonFile, probe }
 export * as eikon from "./eikon"
