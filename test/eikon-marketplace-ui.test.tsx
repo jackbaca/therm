@@ -29,6 +29,7 @@ const launchBody = (name: string, author: string, frames: Record<string, string>
 }
 const body = launchBody("ares", "Kaio", { idle: "ARES-IDLE", thinking: "ARES-THINKING" })
 const monoBody = launchBody("mono", "Nous", { idle: "MONO-IDLE" })
+const nousBody = launchBody("nous", "Kaio", { idle: "NOUS-IDLE" })
 const digest = (data: string | Uint8Array) => `sha256:${createHash("sha256").update(data).digest("hex")}`
 const png = new Uint8Array([137, 80, 78, 71])
 const servers = new Set<ReturnType<typeof Bun.serve>>()
@@ -257,6 +258,31 @@ describe("EikonMarketplace tab", () => {
     act(() => t.keys.pressKey("y"))
     await until(t, () => t.frame().includes("Install") && !eikon.list().some(x => x.name === "ares"))
     fx.srv.stop()
+  })
+
+  test("bundled Nous registry row is active without replace prompt", async () => {
+    const man = {
+      kind: "eikon.package", schemaVersion: "1.0", id: "liftaris/nous", name: "nous", version: "1.0.0",
+      display: { title: "Nous", author: "Kaio" }, compatibility: { eikon: ">=1 <2" }, entrypoints: { default: "nous.eikon" },
+      files: [{ path: "nous.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl", size: nousBody.length, digest: digest(nousBody) }],
+      preview: "nous.eikon",
+    }
+    const srv = serve([
+      { path: "/eikons/index.json", body: [{ manifest: man, packageUrl: "nous/manifest.json", sourceKey: "registry:eikon.liftaris.dev:liftaris/nous@1.0.0" }] },
+      { path: "/eikons/nous/manifest.json", body: man },
+      { path: "/eikons/nous/nous.eikon", body: nousBody },
+    ])
+    process.env.EIKON_URL = `http://localhost:${srv.port}/eikons`
+    prefs.set("eikon", "nous")
+    await using t = await mountNode(group(), { width: 140, height: 40 })
+
+    await until(t, () => t.frame().includes("Marketplace (1)") && t.frame().includes("▸ ● nous") && t.frame().includes("active"))
+    expect(t.frame()).not.toContain("active name conflict")
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Download Source") || t.frame().includes("No available actions."))
+    expect(t.frame()).not.toContain("Replace active 'nous'?")
+    expect(t.frame()).not.toContain("Eikon only")
+    srv.stop()
   })
 
   test("sidebar preview does not claim runtime-only installed packages have source", async () => {

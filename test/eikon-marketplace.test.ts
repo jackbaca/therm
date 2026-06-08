@@ -531,6 +531,63 @@ describe("service/eikon-marketplace", () => {
     srv.stop()
   })
 
+  test("bundled Nous satisfies the registry package identity", () => {
+    prefs.set("eikon", "nous")
+    const cat: Catalog = {
+      base: "https://eikon.liftaris.dev/eikons",
+      entries: [entry({
+        name: "nous",
+        id: "liftaris/nous",
+        version: "1.0.0",
+        sourceKey: "registry:eikon.liftaris.dev:liftaris/nous@1.0.0",
+        packageUrl: "https://eikon.liftaris.dev/packages/liftaris/nous/1.0.0.json",
+      })],
+      load: async () => "",
+    }
+    const row = new market.MarketplaceService(cat).rows()[0]!
+
+    expect(row.installed).toBe(true)
+    expect(row.active).toBe(true)
+    expect(row.installState).toBe("active")
+    expect(row.action).toBe("active")
+    expect(row.removable).toBe(false)
+    expect(row.installedName).toBe("nous")
+    expect(row.sourceIdentity).toBe("registry:eikon.liftaris.dev:liftaris/nous@1.0.0")
+    expect(row.reason).toBeUndefined()
+  })
+
+  test("bundled Nous can download registry source without replacing runtime", async () => {
+    const man = pack("nous")
+    const srv = serve([
+      { path: "/eikons/index.json", body: req => [catalogRow({
+        name: "nous",
+        id: "liftaris/nous",
+        source: "nous/",
+        sourceKey: "registry:eikon.liftaris.dev:liftaris/nous@1.0.0",
+      }, `${new URL(req.url).origin}/eikons/`)] },
+      { path: "/eikons/nous/manifest.json", body: man },
+      { path: "/eikons/nous/nous.eikon", body: launch },
+      { path: "/eikons/nous/source.png", body: png },
+    ])
+    prefs.set("eikon", "nous")
+    const svc = (await market.load({ catalog: `http://localhost:${srv.port}/eikons`, allowPrivate: true })).service!
+    const before = svc.rows()[0]!
+
+    expect(before.installed).toBe(true)
+    expect(before.active).toBe(true)
+    expect(before.sourceDownloadable).toBe(true)
+    const out = await svc.downloadSource(before.entry.identityKey)
+    const after = svc.rows()[0]!
+
+    expect(out.name).toBe("nous")
+    expect(existsSync(eikon.file("nous"))).toBe(false)
+    expect(existsSync(join(eikon.sourceDir("nous"), "base.png"))).toBe(true)
+    expect(after.sourcePresent).toBe(true)
+    expect(after.sourceDownloadable).toBe(false)
+    expect(after.installState).toBe("active")
+    srv.stop()
+  })
+
   test("marketplace install requires acknowledgement before replacing active same-name package", async () => {
     const fx = fixture()
     const old = launch.replace("abcd", "OLDX")

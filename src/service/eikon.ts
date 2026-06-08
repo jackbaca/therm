@@ -438,7 +438,7 @@ export async function save(s: Session): Promise<string> {
 }
 
 export function useInstalled(name: string): void {
-  if (!existsSync(file(name))) throw new Error(`eikon '${name}' is not installed`)
+  if (!existsSync(file(name)) && !baked(name)) throw new Error(`eikon '${name}' is not installed`)
   prefs.set("eikon", name)
   bump()
 }

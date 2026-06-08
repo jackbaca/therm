@@ -43,6 +43,11 @@ describe("service/eikon: layout", () => {
     expect(eikon.baked("nous")).toEndWith("nous.eikon")
   })
 
+  test("bundled Nous can be selected through installed-use path", () => {
+    eikon.useInstalled("nous")
+    expect(prefs.get("eikon")).toBe("nous")
+  })
+
   test("list returns folder-form only; legacy header source_url is a fallback", () => {
     writeFileSync(eikon.file("foo"), JSON.stringify({ eikon: 1, name: "foo", source_url: "http://x/foo/" }) + "\n")
     eikon.ensure("bar"); writeFileSync(eikon.file("bar"), '{"eikon":1,"name":"bar"}\n')

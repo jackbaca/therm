@@ -1,9 +1,11 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 import { createHash } from "node:crypto"
-import { basename, extname, join } from "node:path"
+import { basename, dirname, extname, join } from "node:path"
 import { loadCatalog, searchCatalog, publicCatalogUrl, downloadBytes, entries as packageEntries, type Catalog, type PublicCatalogEntry as CatalogEntry, type CatalogOptions, type DownloadOptions } from "eikon"
 import { eikon } from "./eikon"
 import * as prefs from "../context/preferences"
+import { listEikons } from "../components/avatar/eikon"
+import { BUNDLED_EIKON_DIR } from "../components/avatar/bundled"
 
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
@@ -138,6 +140,82 @@ function keysFor(inst: eikon.Installed): string[] {
   return [...keys]
 }
 
+function read(path: string): InstalledManifest | undefined {
+  try {
+    const man = JSON.parse(readFileSync(path, "utf8")) as unknown
+    return obj(man) ? man as InstalledManifest : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function chosen(active: unknown, name: string) {
+  return active === name || (active === "default" && name === "nous")
+}
+
+function media(dir: string) {
+  return existsSync(dir) && readdirSync(dir).length > 0
+}
+
+function text(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined
+}
+
+function life(name: string, man: InstalledManifest): eikon.LifecycleInfo {
+  const origin = obj(man.origin) ? man.origin : {}
+  const display = obj(man.display) ? man.display : {}
+  const src = text(origin.source)
+  const identity = text(origin.identityKey) ?? text(origin.sourceKey) ?? text(origin.packageUrl) ?? text(origin.repo) ?? src
+  const title = text(display.title) ?? text(man.title)
+  const author = text(display.author) ?? text(man.author)
+  return {
+    name,
+    ...(title ? { title } : {}),
+    ...(author ? { author } : {}),
+    ...(text(man.version) ? { version: text(man.version) } : {}),
+    source: {
+      kind: (text(origin.kind) ?? "default-catalog") as eikon.SourceInfo["kind"],
+      ...(identity ? { identity } : {}),
+      ...(src ? { origin: src } : {}),
+      ...(text(origin.repo) ? { repo: text(origin.repo) } : {}),
+      ...(text(origin.selector) ? { selector: text(origin.selector) } : {}),
+      ...(text(origin.catalogRoot) ? { catalogRoot: text(origin.catalogRoot) } : {}),
+      ...(text(origin.sha) ? { sha: text(origin.sha) } : {}),
+      ...(text(origin.packageUrl) ? { packageUrl: text(origin.packageUrl) } : {}),
+    },
+    trust: (text(origin.trust) ?? "verified") as eikon.LifecycleInfo["trust"],
+    active: chosen(prefs.get("eikon"), name),
+    removable: false,
+    updateable: Boolean(src ?? text(origin.packageUrl)),
+    updateAvailable: false,
+    dirty: false,
+    ...(text(man.poster) ? { poster: text(man.poster) } : {}),
+    ...(text(man.preview) ? { preview: text(man.preview) } : {}),
+    ...(obj(man.compatibility) ? { compatibility: man.compatibility as Record<string, unknown> } : {}),
+    ...(text(origin.at) ? { installedAt: text(origin.at) } : {}),
+  }
+}
+
+function bundled(xs: InstalledMetadata[]): InstalledMetadata[] {
+  const names = new Set(xs.map(x => x.name.toLowerCase()))
+  return listEikons([BUNDLED_EIKON_DIR]).flatMap(e => {
+    const man = read(join(dirname(e.path), "manifest.json"))
+    if (man?.kind !== "eikon.package") return []
+    const name = text(man.name) ?? e.meta.name.toLowerCase()
+    if (names.has(name.toLowerCase())) return []
+    const inst: eikon.Installed = {
+      name,
+      file: e.path,
+      source: eikon.sourceDir(name),
+      hasSource: media(eikon.sourceDir(name)),
+      sourceUrl: text(man.origin?.source) ?? text(man.origin?.packageUrl),
+      manifest: man,
+      lifecycle: life(name, man),
+    }
+    return [{ ...inst, manifest: man, identityKeys: keysFor(inst) }]
+  })
+}
+
 function cacheKey(entry: CatalogEntry) {
   return entry.identityKey || entry.sourceKey || entry.id
 }
@@ -234,7 +312,8 @@ function verifiedCatalogTrust(entry: CatalogEntry) {
 }
 
 export function installed(): InstalledMetadata[] {
-  return eikon.list().map(inst => ({ ...inst, manifest: inst.manifest as InstalledManifest | undefined, identityKeys: keysFor(inst) }))
+  const xs = eikon.list().map(inst => ({ ...inst, manifest: inst.manifest as InstalledManifest | undefined, identityKeys: keysFor(inst) }))
+  return [...xs, ...bundled(xs)]
 }
 
 function match(entry: CatalogEntry, xs: InstalledMetadata[]) {
@@ -248,10 +327,9 @@ function match(entry: CatalogEntry, xs: InstalledMetadata[]) {
 
 function row(entry: CatalogEntry, xs: InstalledMetadata[]): MarketplaceRow {
   const usable = match(entry, xs)
-  const activeName = prefs.get("eikon")
-  const active = usable ? activeName === usable.inst.name : false
+  const active = usable ? chosen(prefs.get("eikon"), usable.inst.name) : false
   const installed = Boolean(usable)
-  const conflict = !usable && activeName === entry.name
+  const conflict = !usable && chosen(prefs.get("eikon"), entry.name)
   const blocked = entry.compatibility?.available === false
   const mismatch = usable?.inst.lifecycle.trust === "mismatch"
   const installState: EntryState = mismatch ? "mismatch" : blocked ? "incompatible" : active ? "active" : conflict ? "active-name-conflict" : !usable ? "available" : usable.legacy ? "legacy-name-match" : "installed"
@@ -383,7 +461,7 @@ export class MarketplaceService {
     const entry = this.entry(id)
     if (!entry) throw new Error(`marketplace: unknown eikon "${id}"`)
     if (entry.compatibility?.available === false) throw new Error(entry.compatibility.reason ?? "eikon is incompatible")
-    if (prefs.get("eikon") === entry.name && !opts.confirmActive) throw new Error(`Installing '${entry.name}' will replace the active avatar's backing package. Pass confirmActive to install it.`)
+    if (!match(entry, installed()) && chosen(prefs.get("eikon"), entry.name) && !opts.confirmActive) throw new Error(`Installing '${entry.name}' will replace the active avatar's backing package. Pass confirmActive to install it.`)
     const raw = await downloadBytes(entry.packageUrl, this.dl())
     const state = boundTrust(entry, raw)
     const out = await eikon.fetchSource(entry.packageUrl, { name: entry.name, media: opts.media === true, downloader: this.dl(undefined, this.cached(entry.packageUrl, raw)) })
