@@ -12,7 +12,7 @@ const HH = process.env.HERMES_HOME!
 
 function seed(name: string, opts: { published?: boolean } = {}) {
   const p = eikon.ensure(name)
-  const src = Bun.file(join(import.meta.dir, "../assets/eikons/default/default.eikon")).text()
+  const src = Bun.file(join(import.meta.dir, "../assets/eikons/nous/nous.eikon")).text()
   return src.then(raw => {
     const lines = raw.trimEnd().split("\n")
     const baseHead = JSON.parse(lines[0]!)
@@ -38,7 +38,7 @@ async function selectDraft(t: Harness) {
 
 async function open(t: Harness) {
   await selectDraft(t)
-  act(() => t.keys.pressKey("u"))
+  act(() => t.keys.pressKey("s"))
   await until(t, () => t.frame().includes("Submit eikon"))
 }
 
@@ -64,7 +64,7 @@ describe("Eikon submit dialog", () => {
     const fn = mock(async () => ({ kind: "submitted" as const, url: "https://github.com/liftaris/eikon/pull/1", request: {} as never }))
     await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 160, height: 48 })
     await selectDraft(t)
-    act(() => t.keys.pressKey("u"))
+    act(() => t.keys.pressKey("s"))
     await until(t, () => t.frame().includes("Create a local draft before submitting"))
     expect(t.frame()).not.toContain("Submit eikon")
     expect(fn).not.toHaveBeenCalled()
@@ -161,12 +161,12 @@ describe("Eikon submit dialog", () => {
   })
 
   test("Submit entry is hidden for bundled eikons", async () => {
-    prefs.set("eikon", "default")
+    prefs.set("eikon", "nous")
     const fn = mock(async () => ({ kind: "submitted" as const, url: "https://github.com/liftaris/eikon/pull/1", request: {} as never }))
     await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 160, height: 48 })
-    await until(t, () => t.frame().includes("(bundled)"))
+    await until(t, () => t.frame().includes("bundled/system"))
     expect(t.frame()).not.toContain("submit")
-    act(() => t.keys.pressKey("u"))
+    act(() => t.keys.pressKey("s"))
     await t.settle()
     expect(t.frame()).not.toContain("Submit eikon")
     expect(fn).not.toHaveBeenCalled()

@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test"
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import { join } from "node:path"
 import { eikon } from "../src/service/eikon"
 import { knobs } from "../src/utils/eikon-knobs"
@@ -10,6 +11,7 @@ import * as prefs from "../src/context/preferences"
 
 const HH = process.env.HERMES_HOME!
 if (!HH || HH.includes("/.hermes")) throw new Error("sandbox not applied")
+const digest = (data: string | Uint8Array) => `sha256:${createHash("sha256").update(data).digest("hex")}`
 
 describe("service/eikon: layout", () => {
   test("ensure creates folder form", () => {
@@ -34,6 +36,16 @@ describe("service/eikon: layout", () => {
     const r = eikon.readStudio("foo")!
     expect(r.rasterizer).toBe("native")
     expect(r.glyph).toBe("◆")
+  })
+
+  test("default bundled alias resolves to Nous", () => {
+    expect(eikon.baked("default")).toBe(eikon.baked("nous"))
+    expect(eikon.baked("nous")).toEndWith("nous.eikon")
+  })
+
+  test("bundled Nous can be selected through installed-use path", () => {
+    eikon.useInstalled("nous")
+    expect(prefs.get("eikon")).toBe("nous")
   })
 
   test("list returns folder-form only; legacy header source_url is a fallback", () => {
@@ -87,7 +99,7 @@ describe("service/eikon: save", () => {
     s.sources = { base: "base.png" }
     const out = await eikon.save(s)
     expect(out).toBe(eikon.file("pack"))
-    expect(prefs.get("eikon")).toBe("pack")
+    expect(prefs.get("eikon")).toBeUndefined()
     expect(eikon.revision()).toBe(before + 1)
     const doc = parseEikon(readFileSync(out, "utf8"))
     expect(doc.meta.width).toBe(48)
@@ -109,12 +121,26 @@ describe("service/eikon: save", () => {
 
 describe("service/eikon: fetchSource", () => {
   const png = new Uint8Array([137, 80, 78, 71])
+  const launch = [
+    JSON.stringify({ type: "header", eikon: 1, size: { cols: 4, rows: 2 }, defaultSignal: "state.idle", signals: { "state.idle": { clip: "idle" } } }),
+    JSON.stringify({ type: "clip", name: "idle", fps: 12, frameCount: 1 }),
+    JSON.stringify({ type: "frame", clip: "idle", index: 0, rows: ["abcd", "efgh"] }),
+  ].join("\n") + "\n"
   const body = (name: string) => {
     if (name === "manifest.json") return Response.json({
-      name: "remix", source: "source.png",
-      license: "MIT", provenance: "made by Kaio",
-      states: { idle: { file: "states/idle.mp4" }, error: { file: "states/error.mp4" } },
+      kind: "eikon.package",
+      schemaVersion: "1.0",
+      id: "liftaris/ares",
+      name: "ares",
+      compatibility: { eikon: ">=1 <2" },
+      entrypoints: { default: "ares.eikon" },
+      files: [
+        { path: "ares.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl", size: launch.length, digest: digest(launch) },
+        { path: "source.png", role: "source.base", mediaType: "image/png", size: png.length, digest: digest(png) },
+      ],
+      source: { base: "source.png" },
     })
+    if (name === "ares.eikon") return new Response(launch)
     if (name === "source.png") return new Response(png)
     if (name.endsWith(".mp4")) return new Response(new Uint8Array(1024))
     return new Response("404", { status: 404 })
@@ -123,16 +149,15 @@ describe("service/eikon: fetchSource", () => {
     const srv = Bun.serve({ port: 0, fetch: r => body(new URL(r.url).pathname.split("/").pop()!) })
     const url = `http://localhost:${srv.port}/x/`
     const peek = await eikon.peekSource(url)
-    expect(peek!.n).toBe(3)
-    expect(peek!.bytes).toBeGreaterThan(0)
+    expect(peek!.n).toBe(1)
+    expect(peek!.bytes).toBe(4)
     const out = await eikon.fetchSource(url, { name: "remix" })
-    expect(out.n).toBe(3)
+    expect(out.name).toBe("remix")
+    expect(out.n).toBe(1)
     expect(out.sources.base).toBe("base.png")
-    expect(out.sources.idle).toBe("idle.mp4")
-    expect(existsSync(join(eikon.sourceDir("remix"), "idle.mp4"))).toBe(true)
+    expect(existsSync(join(eikon.sourceDir("remix"), "base.png"))).toBe(true)
     // studio.json + manifest.json (with origin) both written.
-    expect(eikon.readStudio("remix")!.sources.error).toBe("error.mp4")
-    writeFileSync(eikon.file("remix"), '{"eikon":1,"name":"remix"}\n')
+    expect(eikon.readStudio("remix")!.sources.base).toBe("base.png")
     const man = JSON.parse(readFileSync(join(eikon.dir("remix"), "manifest.json"), "utf8"))
     expect(man.origin.source).toBe(url)
     expect(eikon.list().find(x => x.name === "remix")!.manifest!.origin).toEqual(man.origin)
@@ -148,11 +173,11 @@ describe("service/eikon: fetchSource", () => {
     const url = `http://localhost:${srv.port}/nosource/`
     const out = await eikon.fetchSource(url, { name: "nosource", media: false })
     expect(out.name).toBe("nosource")
-    expect(out.n).toBe(3)
+    expect(out.n).toBe(1)
     expect(out.bytes).toBe(0)
     expect(out.sources).toEqual({})
     expect(eikon.readStudio("nosource")!.sources).toEqual({})
-    expect(existsSync(join(eikon.sourceDir("nosource"), "idle.mp4"))).toBe(false)
+    expect(existsSync(join(eikon.sourceDir("nosource"), "base.png"))).toBe(false)
     srv.stop()
   })
 
@@ -171,6 +196,146 @@ describe("service/eikon: fetchSource", () => {
     expect(out.name).toBe("legacy")
     expect(out.sources).toEqual({ base: "base.png", thinking: "thinking.png" })
     srv.stop()
+  })
+
+  test("installPackage honors the supplied fetcher instead of global fetch", async () => {
+    const seen: string[] = []
+    const fetcher = async (input: string | URL | Request) => {
+      const u = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url)
+      seen.push(u.pathname)
+      return body(u.pathname.split("/").pop()!)
+    }
+
+    const out = await eikon.installPackage("https://example.com/pkg/manifest.json", { fetcher })
+
+    expect(out.name).toBe("ares")
+    expect(seen).toContain("/pkg/manifest.json")
+    expect(seen).toContain("/pkg/ares.eikon")
+    expect(existsSync(eikon.file("ares"))).toBe(true)
+  })
+})
+
+describe("service/eikon: lifecycle", () => {
+  test("normalizes typed origin, trust, metadata, and active state", () => {
+    eikon.ensure("typed")
+    writeFileSync(eikon.file("typed"), '{"eikon":1,"name":"typed"}\n')
+    writeFileSync(join(eikon.dir("typed"), "manifest.json"), JSON.stringify({
+      kind: "eikon.package",
+      id: "liftaris/typed",
+      name: "typed",
+      version: "1.2.3",
+      display: { title: "Typed", author: "Kaio" },
+      compatibility: { eikon: ">=1 <2" },
+      entrypoints: { default: "typed.eikon" },
+      origin: {
+        source: "github.com/liftaris/eikon/typed",
+        at: "2026-06-07T00:00:00.000Z",
+        kind: "github-catalog",
+        trust: "verified",
+        repo: "github.com/liftaris/eikon/typed",
+        selector: "typed",
+        sha: "abc123",
+        sourceKey: "liftaris/typed",
+      },
+    }, null, 2))
+    prefs.set("eikon", "typed")
+
+    const info = eikon.lifecycle("typed")
+
+    expect(info.title).toBe("Typed")
+    expect(info.author).toBe("Kaio")
+    expect(info.version).toBe("1.2.3")
+    expect(info.source.kind).toBe("github-catalog")
+    expect(info.source.identity).toBe("liftaris/typed")
+    expect(info.source.selector).toBe("typed")
+    expect(info.source.sha).toBe("abc123")
+    expect(info.trust).toBe("verified")
+    expect(info.active).toBe(true)
+    expect(info.removable).toBe(true)
+    expect(info.updateable).toBe(true)
+  })
+
+  test("legacy source_url is read as unverified legacy metadata", async () => {
+    eikon.ensure("legacy")
+    writeFileSync(eikon.file("legacy"), JSON.stringify({ eikon: 1, name: "legacy", source_url: "http://x/legacy/" }) + "\n")
+    writeFileSync(join(eikon.dir("legacy"), "manifest.json"), JSON.stringify({ name: "legacy" }))
+    const info = eikon.lifecycle("legacy")
+    expect(info.source.kind).toBe("legacy")
+    expect(info.source.origin).toBe("http://x/legacy/")
+    expect(info.trust).toBe("unverified")
+  })
+
+  test("list tolerates corrupt installed manifests", () => {
+    eikon.ensure("corrupt")
+    writeFileSync(eikon.file("corrupt"), '{"eikon":1,"name":"corrupt"}\n')
+    writeFileSync(join(eikon.dir("corrupt"), "manifest.json"), "{")
+
+    const row = eikon.list().find(x => x.name === "corrupt")!
+
+    expect(row.name).toBe("corrupt")
+    expect(row.manifest).toBeUndefined()
+    expect(row.lifecycle.source.kind).toBe("unknown")
+  })
+
+  test("packageUrl-only origins are advertised and updateable", async () => {
+    const text = [
+      JSON.stringify({ type: "header", eikon: 1, size: { cols: 4, rows: 2 }, defaultSignal: "state.idle", signals: { "state.idle": { clip: "idle" } } }),
+      JSON.stringify({ type: "clip", name: "idle", fps: 12, frameCount: 1 }),
+      JSON.stringify({ type: "frame", clip: "idle", index: 0, rows: ["abcd", "efgh"] }),
+    ].join("\n") + "\n"
+    const data = new Uint8Array([137, 80, 78, 71])
+    const srv = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const name = new URL(req.url).pathname.split("/").pop()!
+        if (name === "manifest.json") return Response.json({
+          kind: "eikon.package",
+          schemaVersion: "1.0",
+          id: "liftaris/pkgonly",
+          name: "pkgonly",
+          compatibility: { eikon: ">=1 <2" },
+          entrypoints: { default: "pkgonly.eikon" },
+          files: [
+            { path: "pkgonly.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl", size: text.length, digest: digest(text) },
+            { path: "source.png", role: "source.base", mediaType: "image/png", size: data.length, digest: digest(data) },
+          ],
+          source: { base: "source.png" },
+        })
+        if (name === "pkgonly.eikon") return new Response(text)
+        if (name === "source.png") return new Response(data)
+        return new Response("404", { status: 404 })
+      },
+    })
+    const url = `http://localhost:${srv.port}/pkg/manifest.json`
+    eikon.ensure("pkgonly")
+    writeFileSync(eikon.file("pkgonly"), '{"eikon":1,"name":"pkgonly"}\n')
+    writeFileSync(join(eikon.dir("pkgonly"), "manifest.json"), JSON.stringify({
+      name: "pkgonly",
+      origin: { packageUrl: url, kind: "catalog-package" },
+    }))
+
+    expect(eikon.lifecycle("pkgonly").updateable).toBe(true)
+    const out = await eikon.update("pkgonly")
+
+    expect("type" in out).toBe(false)
+    expect(out.name).toBe("pkgonly")
+    srv.stop()
+  })
+
+  test("active remove/update require explicit acknowledgement before mutation", async () => {
+    eikon.ensure("live")
+    writeFileSync(eikon.file("live"), '{"eikon":1,"name":"live"}\n')
+    writeFileSync(join(eikon.dir("live"), "manifest.json"), JSON.stringify({ name: "live", origin: { source: "http://x/live/", at: "2026-06-07T00:00:00.000Z", kind: "catalog-package" } }))
+    prefs.set("eikon", "live")
+
+    const remove = eikon.remove("live")
+    expect(remove?.type).toBe("active-consequence")
+    expect(existsSync(eikon.file("live"))).toBe(true)
+    expect(prefs.get("eikon")).toBe("live")
+
+    const update = await eikon.update("live")
+    expect("type" in update && update.type).toBe("active-consequence")
+    expect(existsSync(eikon.file("live"))).toBe(true)
   })
 })
 

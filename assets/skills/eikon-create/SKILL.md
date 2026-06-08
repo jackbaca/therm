@@ -16,6 +16,8 @@ deliverable is one or more images/videos under
 named so Studio resolves them: `base.*` for the default pose, `<state>.*`
 for per-state overrides (`idle listening thinking speaking working
 error`). Extensions: `png jpg jpeg webp gif bmp mp4 webm mov mkv`.
+Studio bakes with **Ctrl+S** without activation; **Ctrl+U** bakes and uses the
+eikon as the active avatar.
 
 ## What survives rasterization
 
@@ -140,7 +142,8 @@ Adopt as `<state>.mp4` (or `base.mp4` for an animated idle).
 Once source files are in place:
 
 > Open the **Eikon** tab → `eikon` row → **<name>**. Tune zoom /
-> contrast / invert / symbols there, then **Ctrl+S** to bake.
+> contrast / invert / symbols there, then **Ctrl+S** to bake or **Ctrl+U**
+> to bake and use.
 
 Stop there. Studio writes `<name>.eikon` and `studio.json`.
 

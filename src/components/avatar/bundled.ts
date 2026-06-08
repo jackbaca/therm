@@ -49,12 +49,13 @@ const packageEntrypoint = (dir: string): string | undefined => {
 /** Path to the bundled eikon for a skin name, if one ships with herm. */
 export function bundledEikonPath(name: string | undefined): string | undefined {
   if (!name) return undefined
-  const packageDir = join(BUNDLED_EIKON_DIR, name)
-  const entry = packageEntrypoint(packageDir)
+  const id = name === "default" ? "nous" : name
+  const dir = join(BUNDLED_EIKON_DIR, id)
+  const entry = packageEntrypoint(dir)
   if (entry) return entry
   for (const p of [
-    join(packageDir, `${name}.eikon`),
-    join(BUNDLED_EIKON_DIR, `${name}.eikon`),
+    join(dir, `${id}.eikon`),
+    join(BUNDLED_EIKON_DIR, `${id}.eikon`),
   ]) if (existsSync(p)) return p
   return undefined
 }

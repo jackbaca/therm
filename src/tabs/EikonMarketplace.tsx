@@ -1,9 +1,13 @@
 import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
 import { useKeyboard } from "@opentui/react"
 import { useTheme } from "../theme"
+import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
 import { TabShell } from "../ui/shell"
 import { HintBar } from "../ui/hint"
+import { FilterChip } from "../ui/filter-chip"
+import { openConfirm } from "../dialogs/confirm"
+import { openEikonMarketplaceAction } from "../dialogs/eikon-marketplace-action"
 import { VBAR } from "../ui/table"
 import { useKeys, handleListKey, useFollow } from "../keys"
 import * as perf from "../utils/perf"
@@ -11,11 +15,19 @@ import { parseEikon } from "../components/avatar/eikon"
 import { eikon } from "../service/eikon"
 import * as market from "../service/eikon-marketplace"
 import type { MarketplaceRow, MarketplaceState } from "../service/eikon-marketplace"
-import * as prefs from "../context/preferences"
 import type { SidebarPreview } from "../components/sidebar/Sidebar"
 import type { AvatarState } from "../components/avatar/states"
 
 const NO_MARKET: MarketplaceState = { status: "empty", query: "", rows: [] }
+
+function localCatalog(raw?: string) {
+  if (!raw) return false
+  try {
+    const url = new URL(raw)
+    const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "")
+    return url.protocol === "file:" || host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0" || host === "::1" || host.endsWith(".localhost")
+  } catch { return false }
+}
 
 export const EikonMarketplace = memo((props: {
   focused: boolean
@@ -23,6 +35,7 @@ export const EikonMarketplace = memo((props: {
   sidebarHidden?: boolean
 }) => {
   const toast = useToast()
+  const dialog = useDialog()
   const keys = useKeys()
   const rev = useSyncExternalStore(eikon.onRevision, eikon.revision)
   const [sel, setSel] = useState(0)
@@ -62,11 +75,14 @@ export const EikonMarketplace = memo((props: {
           subtitle: selected.entry.author ?? "unknown",
           body: selected.entry.description ?? "No description.",
           rows: [
-            { label: "Action", value: actionLabel(selected), strong: selected.action !== "active" },
-            { label: "Status", value: selected.installed ? selected.active ? "active" : "installed" : "not installed" },
+            { label: "Status", value: previewStatus(selected), block: true },
+            { label: "Source", value: sourceText(selected), block: true },
+            { label: "Compat", value: compatText(selected) },
             { label: "State", value: st },
-            { label: "Digest", value: digest(selected) ?? "unknown" },
+            { label: "Digest", value: digest(selected) ?? "unknown", block: true },
           ],
+          states: [...e.states.keys()] as AvatarState[],
+          onState: setPreviewState,
         }
         if (props.sidebarPreview) props.sidebarPreview(preview)
         setDetailPreview(preview)
@@ -78,7 +94,7 @@ export const EikonMarketplace = memo((props: {
         props.sidebarPreview?.(undefined)
         perf.count("market:preview:error")
       })
-  }, [selected?.entry.identityKey, state.service, previewState, props.sidebarPreview, props.sidebarHidden])
+  }, [selected, state.service, previewState, props.sidebarPreview, props.sidebarHidden])
 
   useEffect(() => () => {
     previewSeq.current++
@@ -89,13 +105,20 @@ export const EikonMarketplace = memo((props: {
   const loadMarket = useCallback((q = query) => {
     setLoading(true)
     const end = perf.mark("market:list:load")
-    void market.load({ catalog: process.env.EIKON_URL, allowPrivate: true, query: q })
+    const catalog = process.env.EIKON_URL
+    void market.load({ catalog, allowPrivate: localCatalog(catalog), query: q })
       .then(next => {
         perf.count("market:list:rows", next.rows.length)
         setState(next)
         setSel(p => Math.max(0, Math.min(next.rows.length - 1, p)))
       })
       .finally(() => { end(); setLoading(false) })
+  }, [query])
+
+  const refreshMarket = useCallback((svc: market.MarketplaceService, q = query) => {
+    const rows = svc.rows(q)
+    setState({ status: rows.length > 0 ? "ready" : "empty", query: q, rows, selected: rows[0], service: svc })
+    setSel(p => Math.max(0, Math.min(rows.length - 1, p)))
   }, [query])
 
   useEffect(() => { loadMarket(query) }, [query, rev, loadMarket])
@@ -110,30 +133,63 @@ export const EikonMarketplace = memo((props: {
     const row = state.rows[idx ?? sel]
     const svc = state.service
     if (!row || !svc || installing) return
-    if (row.action === "active") return
-    if (row.action === "use") {
-      const name = row.installedManifest?.name ?? row.entry.name
-      prefs.set("eikon", name)
-      toast.show({ variant: "success", message: `Avatar → ${name}` })
-      loadMarket(query)
-      return
+    const run = async () => {
+      const sizes = !row.installed ? await svc.packageSizes(row.entry.identityKey).catch(() => undefined) : undefined
+      const pick = await openEikonMarketplaceAction(dialog, { row, sizes })
+      if (!pick) return
+      if (pick === "use") {
+        const name = row.installedName ?? row.entry.name
+        eikon.useInstalled(name)
+        toast.show({ variant: "success", message: `Avatar → ${name}` })
+        refreshMarket(svc, query)
+        return
+      }
+      if (pick === "delete") return removeSelected(idx)
+      setInstalling(true)
+      try {
+        const confirm = row.installState === "active-name-conflict"
+          ? await openConfirm(dialog, {
+              title: `Replace active '${row.entry.name}'?`, danger: true,
+              body: `Installing this marketplace package will replace the active avatar's backing package for '${row.entry.name}' because another package with the same installed name is active.`,
+              yes: "replace active", no: "cancel",
+            })
+          : true
+        if (!confirm) return
+        const out = pick === "download" ? await svc.downloadSource(row.entry.identityKey) : await svc.install(row.entry.identityKey, { media: pick === "source", confirmActive: row.installState === "active-name-conflict" })
+        toast.show({ variant: "success", message: pick === "download" ? `Downloaded source for '${out.name}'` : `Installed '${out.name}' (${out.n} files)` })
+        refreshMarket(svc, query)
+      } catch (err) {
+        toast.show({ variant: "error", title: pick === "download" ? "Source download failed" : "Install failed", message: err instanceof Error ? err.message : String(err), duration: 6000 })
+        refreshMarket(svc, query)
+      } finally {
+        setInstalling(false)
+      }
     }
-    setInstalling(true)
-    void svc.install(row.entry.identityKey)
-      .then(out => {
-        toast.show({ variant: "success", message: `Installed '${out.name}' (${out.n} files)` })
-        loadMarket(query)
-      })
-      .catch(err => {
-        const e = err instanceof Error ? err : new Error(String(err))
-        toast.show({ variant: "error", title: "Install failed", message: e.message, duration: 6000 })
-        loadMarket(query)
-      })
-      .finally(() => setInstalling(false))
-  }, [state.rows, state.service, sel, installing, toast, loadMarket, query])
+    void run()
+  }, [dialog, state.rows, state.service, sel, installing, toast, refreshMarket, query])
+
+  const removeSelected = useCallback(async (idx?: number) => {
+    const row = state.rows[idx ?? sel]
+    const svc = state.service
+    const name = row?.installedName ?? row?.entry.name
+    if (!row || !svc || !name || !row.removable) return toast.show({ variant: "warning", message: "This eikon is not removable" })
+    const active = row.active
+    const ok = await openConfirm(dialog, {
+      title: `Remove '${name}'?`, danger: true,
+      body: active
+        ? `Remove the local package for '${name}'. This is the active avatar; removal will clear the active avatar selection.`
+        : `Remove the local package for '${name}'. This does not change the active avatar.`,
+      yes: "remove", no: "cancel",
+    })
+    if (!ok) return
+    const out = eikon.remove(name, { confirmActive: active })
+    if (out) return toast.show({ variant: "warning", message: out.message })
+    toast.show({ variant: "info", message: `Removed '${name}'` })
+    refreshMarket(svc, query)
+  }, [dialog, query, refreshMarket, sel, state.rows, state.service, toast])
 
   useKeyboard(key => {
-    if (!props.focused) return
+    if (!props.focused || dialog.open()) return
     if (searching) {
       if (key.name === "escape") { setSearching(false); return }
       if (key.name === "backspace") { setQuery(q => q.slice(0, -1)); setSel(0); return }
@@ -157,6 +213,7 @@ export const EikonMarketplace = memo((props: {
       onToggle: () => setPreviewState(s => s === "idle" ? "thinking" : "idle"),
       onSearch: () => setSearching(true),
       onRefresh: () => loadMarket(query),
+      onDelete: () => void removeSelected(),
     })) return
   })
 
@@ -177,9 +234,9 @@ export const EikonMarketplace = memo((props: {
         ) : null}
       </box>
       <HintBar pairs={[
-        ["↑↓←→/Pg/Home/End", "select"], [keys.print("list.activate"), actionLabel(selected)],
+        [keys.print("list.activate"), "actions"], ["↑↓←→/Pg", "select"],
         [keys.print("list.search"), searching ? "typing search" : "search"], [keys.print("list.refresh"), "reload"],
-        ["Space", "preview state"], ["Esc", searching ? "exit search" : props.sidebarPreview ? "restore sidebar" : "clear preview"],
+        ["d", "delete in modal"], ["Space", "preview"],
       ]} />
     </box>
   )
@@ -207,19 +264,13 @@ const MarketplaceGrid = (props: {
                 <box key={r.entry.identityKey} id={props.follow.id(i)} flexDirection="column" height={h} width="50%" paddingX={1}
                      backgroundColor={on ? theme.backgroundElement : undefined}
                      onMouseMove={() => props.onSel(i)} onMouseDown={() => { props.onSel(i); props.onUse(i) }}>
-                  <box height={1} flexDirection="row">
-                    <box width={2}><text fg={on ? theme.primary : theme.textMuted}>{on ? "▸ " : "  "}</text></box>
-                    <box flexGrow={1} minWidth={0} height={1} overflow="hidden"><text fg={r.active ? theme.accent : theme.text} wrapMode="none">{r.active ? "● " : "  "}<strong>{r.entry.name}</strong></text></box>
-                    <box width={10}><text fg={actionColor(r, theme)}>{actionLabel(r)}</text></box>
-                  </box>
-                  <box height={lines.length} paddingLeft={2} overflow="hidden" flexDirection="column">
+                  <box height={lines.length} overflow="hidden" flexDirection="column">
                     {lines.map((line, j) => (
                       <box key={j} height={1} overflow="hidden"><text fg={theme.textMuted} wrapMode="none">{line || " "}</text></box>
                     ))}
                   </box>
-                  <box height={1} paddingLeft={2} overflow="hidden"><text fg={theme.textMuted} wrapMode="none">by {r.entry.author ?? "unknown"}</text></box>
-                  <box height={1} paddingLeft={2} overflow="hidden"><text fg={theme.textMuted} wrapMode="none">{r.entry.description ?? "No description."}</text></box>
-                  <box height={1} paddingLeft={2} overflow="hidden"><text fg={theme.textMuted} wrapMode="none">{meta(r)} · {r.installed ? r.active ? "active" : "installed" : "not installed"}</text></box>
+                  <box height={1} overflow="hidden"><text fg={r.active ? theme.accent : theme.text} wrapMode="none">{on ? "▸ " : "  "}{r.active ? "● " : "  "}<strong>{r.entry.name}</strong></text></box>
+                  <box height={1} overflow="hidden"><text fg={theme.textMuted} wrapMode="none">by {r.entry.author ?? "unknown"} · {stateLabel(r, true)}</text></box>
                 </box>
               )
             })}
@@ -235,7 +286,7 @@ const posterLines = (poster?: string) => {
   return lines.length ? lines : ["(no poster)"]
 }
 
-const cardHeight = (row: MarketplaceRow) => posterLines(row.entry.poster).length + 4
+const cardHeight = (row: MarketplaceRow) => posterLines(row.entry.poster).length + 2
 
 const chunk = <T,>(rows: T[], n: number) => rows.reduce<T[][]>((acc, row, i) => {
   if (i % n === 0) acc.push([])
@@ -255,7 +306,7 @@ const MarketplaceDetail = (props: {
   const r = props.row
   if (!r) return <box padding={1}><text fg={theme.textMuted}>{props.loading ? "Loading shared eikons…" : "No marketplace entry selected."}</text></box>
   const previewState = props.preview?.state ?? "idle"
-  const next = previewState === "idle" ? "thinking" : "idle"
+  const states = props.preview ? [...props.preview.eikon.states.keys()] as AvatarState[] : [previewState]
   return (
     <box flexDirection="column" padding={1} gap={1}>
       {props.preview ? (
@@ -270,24 +321,34 @@ const MarketplaceDetail = (props: {
       <text fg={r.active ? theme.accent : theme.text}><strong>{r.active ? "● " : ""}{r.entry.name}</strong></text>
       <text fg={theme.textMuted}>by {r.entry.author ?? "unknown"}</text>
       <text fg={theme.text} wrapMode="word">{r.entry.description ?? "No description."}</text>
-      <text fg={theme.textMuted}>digest: {digest(r) ?? "unknown"}</text>
-      <text fg={theme.textMuted}>state: {r.installed ? r.active ? "active" : "installed" : "not installed"}</text>
-      <box height={1} onMouseDown={() => props.onState(next)}>
-        <text fg={theme.primary}>Preview: {previewState}  [Space] {next}</text>
+      <box flexDirection="row" height={1}>
+        {states.map((s, i) => (
+          <FilterChip key={s} label={s} state={s === previewState ? "in" : "off"}
+            gap={i === 0 ? 0 : 1} color={theme.primary} textColor={theme.textMuted}
+            onMouseDown={() => props.onState(s)} />
+        ))}
       </box>
+      <DetailRow label="Status" value={stateLabel(r)} block />
+      <DetailRow label="Trust" value={trustLabel(r)} block />
+      <DetailRow label="Source" value={sourceText(r)} block />
+      <DetailRow label="Compat" value={compatText(r)} />
+      <DetailRow label="Digest" value={digest(r) ?? "unknown"} block />
       <box height={1} onMouseDown={props.onUse}>
-        <text fg={r.action === "active" ? theme.textMuted : theme.primary}>{props.installing ? "Installing…" : actionLabel(r)}</text>
+        <text fg={r.action === "active" ? theme.textMuted : theme.primary}>{props.installing ? "Installing…" : "Open actions"}</text>
       </box>
     </box>
   )
 }
 
-const actionLabel = (row?: MarketplaceRow) => {
-  if (!row) return "action"
-  if (row.action === "install") return "Install"
-  if (row.action === "use") return "Use"
-  if (row.action === "retry") return "Retry"
-  return "Active"
+const DetailRow = (props: { label: string; value: string; block?: boolean }) => {
+  const theme = useTheme().theme
+  if (props.block) return (
+    <box flexDirection="column" minHeight={2}>
+      <text fg={theme.textMuted}>{props.label}</text>
+      <text fg={theme.text} wrapMode="word">{props.value}</text>
+    </box>
+  )
+  return <text fg={theme.textMuted}>{props.label}: {props.value}</text>
 }
 
 const shortDigest = (value?: string) => {
@@ -297,16 +358,34 @@ const shortDigest = (value?: string) => {
   return algo ? `${algo}:${hash.slice(0, 12)}…` : `${hash.slice(0, 12)}…`
 }
 
-const digest = (row: MarketplaceRow) =>
-  shortDigest(row.entry.trust.manifestDigest ?? row.entry.trust.runtimeDigest ?? row.entry.trust.digest)
-
-const meta = (row: MarketplaceRow) => {
-  const hash = digest(row)
-  return hash ? `digest ${hash}` : "digest unknown"
+const digest = (row: MarketplaceRow) => {
+  const t = row.entry.trust as { manifestDigest?: string; runtimeDigest?: string; digest?: string }
+  return shortDigest(t.manifestDigest ?? t.runtimeDigest ?? t.digest)
 }
 
-const actionColor = (row: MarketplaceRow, theme: ReturnType<typeof useTheme>["theme"]) => {
-  if (row.action === "active") return theme.textMuted
-  if (row.action === "use") return theme.success
-  return theme.primary
+
+const trustLabel = (row: MarketplaceRow) => {
+  const t = row.trust === "mismatch" ? "Mismatch" : row.trust === "verified" ? "Verified" : row.trust === "unverified" ? "Unverified" : "Trust unknown"
+  return row.reason && row.trust === "mismatch" ? `${t}: ${row.reason}` : t
+}
+
+const previewStatus = (row: MarketplaceRow) => {
+  const base = row.installState === "active-name-conflict" ? "active name conflict" : row.active ? "active" : row.installed ? "installed" : "not installed"
+  const src = row.sourcePresent ? " · source present" : row.sourceAvailable ? " · source available" : ""
+  const rm = row.removable ? " · removable" : row.installed ? " · not removable" : ""
+  return `${base}${src}${rm}`
+}
+
+const sourceText = (row: MarketplaceRow) => row.sourceIdentity ?? row.lifecycle.source.packageUrl ?? row.entry.sourceKey ?? row.entry.packageUrl
+
+const compatText = (row: MarketplaceRow) => row.installState === "incompatible"
+  ? `Blocked: ${row.reason ?? "requires newer Herm/eikon"}`
+  : row.installState === "active-name-conflict" ? `Requires confirmation: ${row.reason}` : "Compatible"
+
+const stateLabel = (row: MarketplaceRow, short = false) => {
+  const base = row.installState === "active-name-conflict" ? "active name conflict" : row.active ? "active" : row.installed ? "installed" : "not installed"
+  if (short) return base
+  const src = row.sourcePresent ? " · source present" : row.sourceDownloadable ? " · source downloadable" : row.sourceAvailable ? " · source available" : ""
+  const rm = row.removable ? " · removable" : row.installed ? " · not removable" : ""
+  return `${base}${src}${rm}`
 }

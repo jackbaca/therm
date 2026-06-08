@@ -30,7 +30,7 @@ function seedNousDraft(name: string) {
   const source = join(p.source, "base.png")
   writeFileSync(source, PX)
 
-  const lines = readFileSync(join(import.meta.dir, "../assets/eikons/default/default.eikon"), "utf8").trimEnd().split("\n")
+  const lines = readFileSync(join(import.meta.dir, "../assets/eikons/nous/nous.eikon"), "utf8").trimEnd().split("\n")
   const head = JSON.parse(lines[0]!)
   head.id = `liftaris/${name}`
   head.title = name
@@ -112,7 +112,7 @@ test("Eikon visual E2E: duplicate Nous draft, studio preview, submit, delete rel
     expect(frames.studio).toContain("States")
     expect(frames.studio).toContain("e2e-stub")
 
-    act(() => gallery.keys.pressKey("u"))
+    act(() => gallery.keys.pressKey("s"))
     await until(gallery, () => gallery.frame().includes("Submit eikon"))
     snap("submit-open", gallery, frames)
     act(() => gallery.keys.pressEnter())
@@ -137,6 +137,8 @@ test("Eikon visual E2E: duplicate Nous draft, studio preview, submit, delete rel
     act(() => gallery.keys.pressKey("d"))
     await until(gallery, () => gallery.frame().includes(`Delete '${name}'?`))
     snap("delete-confirm", gallery, frames)
+    expect(frames["delete-confirm"]).toContain("active avatar")
+    expect(frames["delete-confirm"]).toContain("clear the active avatar selection")
     act(() => gallery.keys.pressEnter())
     await until(gallery, () => !existsSync(seeded.dir) && !rowVisible(gallery, name))
     snap("delete-reload", gallery, frames)

@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { mountNode, until } from "./harness"
 import { EikonGroup } from "../src/tabs/EikonGroup"
+import { EikonGallery } from "../src/tabs/EikonGallery"
 import { EikonStudio, resetToolsetsCache } from "../src/tabs/EikonStudio"
 import { gen } from "../src/service/eikon-gen"
 import { eikon } from "../src/service/eikon"
@@ -209,6 +210,51 @@ describe("EikonStudio tab", () => {
     act(() => t.keys.pressKey("s"))
     await until(t, () => t.frame().includes("Saved →"))
     await until(t, () => !t.frame().includes("● unsaved"))
+    un()
+  })
+
+  run("dirty Esc → failed [s] save keeps dirty edits", async () => {
+    const bad: Rasterizer = { ...stub, name: "bad", render: async () => ({ err: "save failed" }) }
+    const un = eikon.register(bad)
+    seed("badsave")
+    eikon.writeStudio("badsave", { ...eikon.readStudio("badsave")!, rasterizer: "bad" })
+    prefs.set("eikon", "badsave")
+    let sub = 1
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
+    )
+    await until(t, () => t.frame().includes("rasterizer"))
+    for (let i = 0; i < 5; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
+    act(() => t.keys.pressArrow("right"))
+    await until(t, () => t.frame().includes("● unsaved"))
+    act(() => t.keys.pressEscape())
+    await until(t, () => t.frame().includes("Unsaved edits"))
+    act(() => t.keys.pressKey("s"))
+    await until(t, () => t.frame().includes("save failed"))
+
+    expect(t.frame()).toContain("● unsaved")
+    expect(t.frame()).not.toContain("Saved →")
+    un()
+  })
+
+  run("Ctrl+S saves without activation; Ctrl+U explicitly saves and uses", async () => {
+    const un = eikon.register(stub)
+    seed("active")
+    seed("draft")
+    prefs.set("eikon", "active")
+    await using t = await mountNode(
+      <EikonStudio focused name="draft" />,
+      { width: 160, height: 48 },
+    )
+    await until(t, () => t.frame().includes("rasterizer"))
+    for (let i = 0; i < 5; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
+    act(() => t.keys.pressArrow("right"))
+    await until(t, () => t.frame().includes("● unsaved"))
+    act(() => t.keys.pressKey("s", { ctrl: true }))
+    await until(t, () => !t.frame().includes("● unsaved"))
+    expect(prefs.get("eikon")).toBe("active")
+    act(() => t.keys.pressKey("u", { ctrl: true }))
+    await until(t, () => prefs.get("eikon") === "draft")
     un()
   })
 
@@ -474,6 +520,16 @@ describe("EikonStudio tab", () => {
 })
 
 describe("EikonGallery tab", () => {
+  test("shows installed Nous once when it shadows bundled Nous", async () => {
+    mkdirSync(join(HH, "eikons"), { recursive: true })
+    seed("nous")
+    prefs.set("eikon", "nous")
+    await using t = await mountNode(<EikonGallery focused />, { width: 160, height: 48 })
+    await until(t, () => t.frame().includes("Gallery (") && /●\s+nous/.test(t.frame()))
+    expect(t.frame().split("\n").filter(l => /^│\s*(?:▸\s*)?(?:●\s*)?nous\s+[█│]/i.test(l))).toHaveLength(1)
+    expect(t.frame().match(/●\s+nous/g)?.length ?? 0).toBe(1)
+  })
+
   test("lists bundled + installed; Enter sets active eikon", async () => {
     mkdirSync(join(HH, "eikons"), { recursive: true })
     seed("galone")
@@ -484,7 +540,7 @@ describe("EikonGallery tab", () => {
     )
     await until(t, () => t.frame().includes("Gallery ("))
     expect(t.frame()).toContain("galone")
-    // Bundled dir also shows (at least default/mono/ares ship).
+    // Bundled Nous also shows when no installed eikon shadows it.
     // Move to galone and activate.
     const rows = t.frame()
     const target = rows.split("\n").findIndex(l => l.includes("galone"))
