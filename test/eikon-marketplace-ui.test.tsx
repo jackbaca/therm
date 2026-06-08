@@ -81,20 +81,38 @@ function local(name: string) {
 }
 
 function packageCatalog(extra: Route[] = []) {
+  const runtime = {
+    kind: "eikon.package", schemaVersion: "1.0", id: "liftaris/ares", name: "ares",
+    display: { title: "Ares", author: "Kaio", description: "red warrior" },
+    compatibility: { eikon: ">=1 <2" }, entrypoints: { default: "ares.eikon" },
+    files: [{ path: "ares.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl", size: body.length, digest: digest(body) }], poster: "poster.txt", preview: "ares.eikon",
+  }
+  const source = {
+    ...runtime,
+    id: "liftaris/mono",
+    name: "mono",
+    display: { title: "Mono", author: "Nous", description: "quiet lines" },
+    entrypoints: { default: "mono.eikon" },
+    files: [
+      { path: "mono.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl", size: monoBody.length, digest: digest(monoBody) },
+      { path: "source/base.png", role: "source.base", mediaType: "image/png", size: png.length, digest: digest(png) },
+    ],
+    source: { base: "source/base.png" },
+    preview: "mono.eikon",
+  }
   const srv = serve([
     { path: "/eikons/index.json", body: [
       {
         name: "ares", author: "Kaio", description: "red warrior", poster: "ARES-POSTER", source: "ares/",
         trust: { manifestDigest: "sha256:manifest", runtimeDigest: digest(body) },
       },
+      { manifest: source, packageUrl: "mono/manifest.json" },
     ] },
-    { path: "/eikons/ares/manifest.json", body: {
-      kind: "eikon.package", schemaVersion: "1.0", id: "liftaris/ares", name: "ares",
-      display: { title: "Ares", author: "Kaio", description: "red warrior" },
-      compatibility: { eikon: ">=1 <2" }, entrypoints: { default: "ares.eikon" },
-      files: [{ path: "ares.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl", size: body.length, digest: digest(body) }], poster: "poster.txt", preview: "ares.eikon",
-    } },
+    { path: "/eikons/ares/manifest.json", body: runtime },
     { path: "/eikons/ares/ares.eikon", body },
+    { path: "/eikons/mono/manifest.json", body: source },
+    { path: "/eikons/mono/mono.eikon", body: monoBody },
+    { path: "/eikons/mono/source/base.png", body: png },
     ...extra,
   ])
   return { srv, base: `http://localhost:${srv.port}/eikons` }
@@ -200,7 +218,7 @@ describe("EikonMarketplace tab", () => {
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Eikon only"))
     act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("source downloadable") && prefs.get("eikon") === "localone")
+    await until(t, () => t.frame().includes("installed") && prefs.get("eikon") === "localone")
     expect(eikon.list().find(x => x.name === "ares")!.hasSource).toBe(false)
 
     act(() => t.keys.pressEnter())
@@ -211,11 +229,11 @@ describe("EikonMarketplace tab", () => {
     fx.srv.stop()
   })
 
-  test("Marketplace details expose trust source compatibility update and remove lifecycle", async () => {
+  test("Marketplace details expose runtime-only package lifecycle truthfully", async () => {
     const fx = packageCatalog()
     process.env.EIKON_URL = fx.base
     await using t = await mountNode(group(), { width: 120, height: 40 })
-    await until(t, () => t.frame().includes("Marketplace (1)") && t.frame().includes("Unverified"))
+    await until(t, () => t.frame().includes("Marketplace (2)") && t.frame().includes("Unverified"))
     expect(t.frame()).toContain("Source")
     expect(t.frame()).toContain("Compat: Compatible")
     expect(t.frame()).toContain("Open actions")
@@ -223,16 +241,38 @@ describe("EikonMarketplace tab", () => {
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Eikon only"))
     act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("source downloadable") && t.frame().includes("removable"))
+    await until(t, () => t.frame().includes("installed") && t.frame().includes("removable"))
+    expect(t.frame()).not.toContain("source downloadable")
     expect(prefs.get("eikon")).toBeUndefined()
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("set as active avatar"))
+    expect(t.frame()).not.toContain("Download Source")
 
     act(() => t.keys.pressKey("d"))
     await until(t, () => t.frame().includes("Remove 'ares'?"))
     expect(t.frame()).toContain("change the active avatar")
     act(() => t.keys.pressKey("y"))
     await until(t, () => t.frame().includes("Install") && !eikon.list().some(x => x.name === "ares"))
+    fx.srv.stop()
+  })
+
+  test("source-bearing installed package offers source download action", async () => {
+    const fx = packageCatalog()
+    process.env.EIKON_URL = fx.base
+    await using t = await mountNode(group(), { width: 160, height: 40 })
+    await until(t, () => t.frame().includes("Marketplace (2)") && t.frame().includes("mono"))
+    act(() => t.keys.pressArrow("right"))
+    await until(t, () => /▸ .*mono/.test(t.frame()))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Eikon only"))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("source downloadable") && t.frame().includes("removable"))
+    expect(eikon.list().find(x => x.name === "mono")!.hasSource).toBe(false)
+
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Download Source"))
+    act(() => t.keys.pressKey("2"))
+    await until(t, () => eikon.list().find(x => x.name === "mono")!.hasSource)
     fx.srv.stop()
   })
 

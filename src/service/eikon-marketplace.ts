@@ -147,8 +147,30 @@ function previewTarget(entry: CatalogEntry) {
 }
 
 type Trust = { manifestDigest?: string; runtimeDigest?: string; digest?: string }
-type Package = { kind?: string; entrypoints?: { default?: string }; files?: Array<{ path?: string; digest?: string }> }
+type PackageFile = { path?: string; digest?: string; size?: number; role?: string }
+type SourceManifest = { source?: { base?: unknown; states?: unknown }; files?: PackageFile[] }
+type Package = { kind?: string; entrypoints?: { default?: string }; files?: PackageFile[] }
 type SizedPackage = Omit<Package, "files"> & { files?: Array<{ path?: string; digest?: string; size?: number; role?: string }> }
+
+function obj(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+function rawManifest(entry: CatalogEntry): SourceManifest | undefined {
+  const raw = entry.raw as Record<string, unknown>
+  return obj(raw.manifest) ? raw.manifest as SourceManifest : undefined
+}
+
+function sourceDescriptors(man: SourceManifest | undefined) {
+  if (!man) return false
+  if (typeof man.source?.base === "string" && man.source.base.length > 0) return true
+  if (obj(man.source?.states) && Object.values(man.source.states).some(st => obj(st) && typeof st.file === "string" && st.file.length > 0)) return true
+  return (man.files ?? []).some(f => typeof f.role === "string" && f.role.startsWith("source"))
+}
+
+function sourceAvailable(entry: CatalogEntry, inst?: InstalledMetadata) {
+  return sourceDescriptors(inst?.manifest as SourceManifest | undefined) || sourceDescriptors(rawManifest(entry))
+}
 
 function trust(entry: CatalogEntry): Trust {
   return entry.trust as Trust
@@ -213,6 +235,7 @@ function row(entry: CatalogEntry, xs: InstalledMetadata[]): MarketplaceRow {
     ...(entry.preview ? { preview: entry.preview } : {}),
     compatibility: entry.compatibility as Record<string, unknown>,
   }
+  const available = sourceAvailable(entry, usable?.inst)
   return {
     entry,
     installed,
@@ -227,8 +250,8 @@ function row(entry: CatalogEntry, xs: InstalledMetadata[]): MarketplaceRow {
     removable: lifecycle.removable,
     sourceIdentity: lifecycle.source.identity,
     sourcePresent: usable?.inst.hasSource ?? false,
-    sourceAvailable: Boolean(entry.packageUrl),
-    sourceDownloadable: Boolean(usable && !usable.inst.hasSource && entry.packageUrl),
+    sourceAvailable: available,
+    sourceDownloadable: Boolean(usable && !usable.inst.hasSource && available),
     reason: blocked ? entry.compatibility?.reason ?? "incompatible" : mismatch ? "trust mismatch" : undefined,
     action: active ? "active" : installed ? "use" : "install",
   }
@@ -341,6 +364,10 @@ export class MarketplaceService {
   }
 
   async downloadSource(id: string): Promise<MarketplaceInstall> {
+    const entry = this.entry(id)
+    if (!entry) throw new Error(`marketplace: unknown eikon "${id}"`)
+    const usable = match(entry, installed())
+    if (!sourceAvailable(entry, usable?.inst)) throw new Error(`marketplace: no source media published for "${entry.name}"`)
     return this.install(id, { media: true })
   }
 

@@ -158,30 +158,6 @@ export const EikonMarketplace = memo((props: {
     void run()
   }, [dialog, state.rows, state.service, sel, installing, toast, refreshMarket, query])
 
-  const updateSelected = useCallback(async (idx?: number) => {
-    const row = state.rows[idx ?? sel]
-    const svc = state.service
-    const name = row?.installedName ?? row?.entry.name
-    if (!row || !svc || !name || !row.updateable) return toast.show({ variant: "warning", message: "No recorded source to update" })
-    const run = async (confirmActive = false) => eikon.update(name, { confirmActive })
-    try {
-      const out = await run(false)
-      if ("type" in out) {
-        const ok = await openConfirm(dialog, {
-          title: `Update active '${name}'?`, danger: true,
-          body: `${out.message} The active avatar's backing package will change; the active name remains '${name}'.`,
-          yes: "update active", no: "cancel",
-        })
-        if (!ok) return
-        await run(true)
-      }
-      toast.show({ variant: "success", message: `Updated '${name}'` })
-      refreshMarket(svc, query)
-    } catch (err) {
-      toast.error(err instanceof Error ? err : new Error(String(err)))
-    }
-  }, [dialog, query, refreshMarket, sel, state.rows, state.service, toast])
-
   const removeSelected = useCallback(async (idx?: number) => {
     const row = state.rows[idx ?? sel]
     const svc = state.service
@@ -365,14 +341,6 @@ const DetailRow = (props: { label: string; value: string; block?: boolean }) => 
   return <text fg={theme.textMuted}>{props.label}: {props.value}</text>
 }
 
-const actionLabel = (row?: MarketplaceRow) => {
-  if (!row) return "action"
-  if (row.action === "install") return "Install"
-  if (row.action === "use") return "Use"
-  if (row.action === "retry") return "Retry"
-  return "Active"
-}
-
 const shortDigest = (value?: string) => {
   if (!value) return undefined
   const [algo, hash] = value.includes(":") ? value.split(":", 2) : [undefined, value]
@@ -383,11 +351,6 @@ const shortDigest = (value?: string) => {
 const digest = (row: MarketplaceRow) => {
   const t = row.entry.trust as { manifestDigest?: string; runtimeDigest?: string; digest?: string }
   return shortDigest(t.manifestDigest ?? t.runtimeDigest ?? t.digest)
-}
-
-const meta = (row: MarketplaceRow) => {
-  const hash = digest(row)
-  return hash ? `digest ${hash}` : "digest unknown"
 }
 
 
@@ -410,14 +373,3 @@ const stateLabel = (row: MarketplaceRow, short = false) => {
   return `${base}${src}${rm}`
 }
 
-const trustColor = (row: MarketplaceRow, theme: ReturnType<typeof useTheme>["theme"]) => {
-  if (row.trust === "verified") return theme.success
-  if (row.trust === "mismatch") return theme.error
-  return theme.warning
-}
-
-const actionColor = (row: MarketplaceRow, theme: ReturnType<typeof useTheme>["theme"]) => {
-  if (row.action === "active") return theme.textMuted
-  if (row.action === "use") return theme.success
-  return theme.primary
-}
