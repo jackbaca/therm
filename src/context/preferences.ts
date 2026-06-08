@@ -23,6 +23,8 @@ interface TuiPreferences {
   $schema?: string
   /** Theme name — must match a built-in or custom theme */
   theme?: string
+  /** Theme palette mode */
+  themeMode?: "dark" | "light"
   /** Mouse capture enabled */
   mouse?: boolean
   /** Target render FPS */

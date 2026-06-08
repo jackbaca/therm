@@ -54,7 +54,7 @@ export const LOCAL_NAMES = new Set([
 export const LOCAL_COMMANDS: ReadonlyArray<SlashCommand> = [
   { name: "clear", description: "Clear chat messages",       category: "Client", aliases: [],       argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "new",   description: "Start a new session",        category: "Client", aliases: ["reset"], argsHint: "", subcommands: [], source: "local", target: "local" },
-  { name: "theme", description: "Switch color theme",         category: "Client", aliases: [],       argsHint: "", subcommands: [], source: "local", target: "local" },
+  { name: "theme", description: "Switch color theme or mode", category: "Client", aliases: [],       argsHint: "[light|dark]", subcommands: [], source: "local", target: "local" },
   { name: "help",  description: "Show keyboard shortcuts",    category: "Client", aliases: [],       argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "keys",  description: "Rebind keyboard shortcuts",  category: "Client", aliases: [],       argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "logs",  description: "Show gateway stderr log",    category: "Client", aliases: [],       argsHint: "", subcommands: [], source: "local", target: "local" },

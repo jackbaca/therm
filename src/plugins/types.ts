@@ -61,6 +61,7 @@ export type HermPluginApi = {
     readonly name: string
     readonly mode: "dark" | "light"
     set(name: string): boolean
+    setMode(mode: "dark" | "light"): void
     has(name: string): boolean
   }
   readonly keys: Keys
