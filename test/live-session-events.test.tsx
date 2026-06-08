@@ -31,4 +31,25 @@ describe("live session event routing", () => {
     expect(t.frame()).not.toContain("Ready")
     t.destroy()
   })
+
+  test("surfaces sibling process notifications while stream events stay scoped", async () => {
+    const gw = new MockGateway({
+      "session.resume": p => ({ session_id: p.session_id, messages: [] }),
+    })
+    const t = await mount({ gw, launch: { mode: "resume", sid: "sid-b", splash: false } })
+    await until(t, () => t.frame().includes("Ready"))
+
+    act(() => t.gw.push({
+      type: "status.update",
+      session_id: "sid-a",
+      payload: {
+        kind: "process",
+        text: "Background process proc_watch completed (exit code 0).\nCommand: watch-kanban",
+      },
+    }))
+    await until(t, () => t.frame().includes("proc_watch exited 0"))
+
+    expect(t.frame()).toContain("watch-kanban")
+    t.destroy()
+  })
 })

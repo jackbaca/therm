@@ -45,6 +45,8 @@ export type CompressResult = {
 type Booted = { id: string; messages: Message[]; note?: string; info?: SessionInfo }
 type Resumed = { id: string; messages: Message[]; info?: SessionInfo }
 type Activated = { id: string; messages: Message[]; info?: SessionInfo; running: boolean; status?: string; startedAt?: number }
+type Agents = { processes?: Array<{ status?: string }> }
+type Close = { preserveBackground?: boolean }
 
 export const normalize = (sid: string): string =>
   sid.trim().replace(/\.json$/i, "").replace(/^session_(?=\d{8}_)/, "")
@@ -56,7 +58,7 @@ type SessionOps = {
   resume: (sid: string) => Promise<Resumed>
   activate: (sid: string) => Promise<Activated>
   /** Finalize a gateway session (best-effort — swallows errors). */
-  close: (sid: string) => Promise<void>
+  close: (sid: string, opts?: Close) => Promise<boolean>
   interrupt: () => Promise<void>
   branch: (name?: string) => Promise<string | null>
   compress: () => Promise<CompressResult | null>
@@ -131,10 +133,26 @@ export function useSession(): SessionOps {
   // useSessionLifecycle.closeSession. Pass `session_id` explicitly so
   // auto-injection doesn't close whatever sid the gateway already
   // switched to.
-  const close = useCallback(async (sid: string) => {
-    if (!sid) return
-    try { await gw.request("session.close", { session_id: sid }) } catch {}
+  const busy = useCallback(async () => {
+    try {
+      const res = await gw.request<Agents>("agents.list")
+      return res.processes?.some(p => p.status === "running") ?? false
+    } catch { return false }
   }, [gw])
+
+  const close = useCallback(async (sid: string, opts?: Close) => {
+    if (!sid) return false
+    // Hermes Agent's session.close tears down the AIAgent, which also kills
+    // terminal(background=true) processes owned by that agent. The gateway
+    // only exposes a global agents.list summary today, not owner session keys,
+    // so preserve the outgoing live session while any durable process is
+    // running rather than risking SIGTERM on a watcher during session switch.
+    if (opts?.preserveBackground && await busy()) return false
+    try {
+      await gw.request("session.close", { session_id: sid })
+      return true
+    } catch { return false }
+  }, [gw, busy])
 
   const boot = useCallback(async (launch: Launch): Promise<Booted> => {
     const fresh = async (note?: string) => ({ ...(await create()), messages: [], note })

@@ -1,9 +1,10 @@
-// Regression: /new and session-switch must finalize the outgoing
-// gateway session via session.close. Without it the gateway leaks one
-// slash_worker subprocess + one live AIAgent per hop and leaves the
-// DB row's `ended_at IS NULL`, which breaks lineage classification
-// (sessions-db.ts SUB/CONT predicates) until quit. Parity with Ink
-// TUI's useSessionLifecycle.closeSession.
+// Regression: /new and session-switch finalize idle outgoing gateway
+// sessions via session.close. Without it the gateway leaks one slash_worker
+// subprocess + one live AIAgent per hop and leaves the DB row's
+// `ended_at IS NULL`, which breaks lineage classification until quit.
+// A running background process is the exception: older gateways kill
+// terminal(background=true) children from session.close, so Herm preserves
+// that live session instead of SIGTERM'ing a watcher.
 
 import { afterAll, describe, expect, test } from "bun:test"
 import { act } from "react"
@@ -74,6 +75,49 @@ describe("session.close", () => {
     const ci = gw.calls.findIndex(c => c.method === "session.close")
     expect(ri).toBeGreaterThan(-1)
     expect(ci).toBeGreaterThan(ri)
+
+    t.destroy()
+  })
+
+  test("switchSession preserves prev while a background process runs", async () => {
+    const gw = new MockGateway({
+      "commands.catalog": () => ({ pairs: [["/resume", "resume session"]] }),
+      "agents.list": () => ({ processes: [
+        { session_id: "proc_watch", command: "watch", status: "running", uptime: 1 },
+      ] }),
+      "session.resume": p => ({ session_id: p.session_id, messages: [] }),
+    })
+    const t = await mount({ gw, launch: { mode: "resume", sid: "first", splash: false } })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("/resume second") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => gw.last("agents.list") !== undefined)
+
+    expect(gw.calls.some(c => c.method === "session.resume" && c.params.session_id === "second")).toBe(true)
+    expect(t.gw.last("session.close")).toBeUndefined()
+
+    t.destroy()
+  })
+
+  test("/new preserves prev while a background process runs", async () => {
+    let n = 0
+    const gw = new MockGateway({
+      "commands.catalog": () => ({ pairs: [["/new", "new session"]] }),
+      "agents.list": () => ({ processes: [
+        { session_id: "proc_watch", command: "watch", status: "running", uptime: 1 },
+      ] }),
+      "session.create": () => ({ session_id: `sid-${++n}` }),
+    })
+    const t = await mount({ gw })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("/new now") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => gw.calls.filter(c => c.method === "session.create").length >= 2)
+    await until(t, () => gw.last("agents.list") !== undefined)
+
+    expect(t.gw.last("session.close")).toBeUndefined()
 
     t.destroy()
   })
