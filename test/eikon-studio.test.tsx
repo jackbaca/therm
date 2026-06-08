@@ -212,6 +212,30 @@ describe("EikonStudio tab", () => {
     un()
   })
 
+  run("dirty Esc → failed [s] save keeps dirty edits", async () => {
+    const bad: Rasterizer = { ...stub, name: "bad", render: async () => ({ err: "save failed" }) }
+    const un = eikon.register(bad)
+    seed("badsave")
+    eikon.writeStudio("badsave", { ...eikon.readStudio("badsave")!, rasterizer: "bad" })
+    prefs.set("eikon", "badsave")
+    let sub = 1
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
+    )
+    await until(t, () => t.frame().includes("rasterizer"))
+    for (let i = 0; i < 5; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
+    act(() => t.keys.pressArrow("right"))
+    await until(t, () => t.frame().includes("● unsaved"))
+    act(() => t.keys.pressEscape())
+    await until(t, () => t.frame().includes("Unsaved edits"))
+    act(() => t.keys.pressKey("s"))
+    await until(t, () => t.frame().includes("save failed"))
+
+    expect(t.frame()).toContain("● unsaved")
+    expect(t.frame()).not.toContain("Saved →")
+    un()
+  })
+
   run("Ctrl+S saves without activation; Ctrl+U explicitly saves and uses", async () => {
     const un = eikon.register(stub)
     seed("active")

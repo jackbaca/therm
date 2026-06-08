@@ -1,13 +1,13 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { createHash } from "node:crypto"
-import { join } from "node:path"
-import { loadCatalog, searchCatalog, publicCatalogUrl, downloadBytes, type Catalog, type PublicCatalogEntry as CatalogEntry, type CatalogOptions, type DownloadOptions } from "eikon"
+import { basename, extname, join } from "node:path"
+import { loadCatalog, searchCatalog, publicCatalogUrl, downloadBytes, entries as packageEntries, type Catalog, type PublicCatalogEntry as CatalogEntry, type CatalogOptions, type DownloadOptions } from "eikon"
 import { eikon } from "./eikon"
 import * as prefs from "../context/preferences"
 
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
-type EntryState = "available" | "installed" | "active" | "legacy-name-match" | "incompatible" | "mismatch"
+type EntryState = "available" | "installed" | "active" | "active-name-conflict" | "legacy-name-match" | "incompatible" | "mismatch"
 type LoadStatus = "ready" | "empty" | "error"
 
 export type InstalledManifest = {
@@ -151,6 +151,7 @@ type PackageFile = { path?: string; digest?: string; size?: number; role?: strin
 type SourceManifest = { source?: { base?: unknown; states?: unknown }; files?: PackageFile[] }
 type Package = { kind?: string; entrypoints?: { default?: string }; files?: PackageFile[] }
 type SizedPackage = Omit<Package, "files"> & { files?: Array<{ path?: string; digest?: string; size?: number; role?: string }> }
+type SourceRole = keyof eikon.Sources & string
 
 function obj(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
@@ -161,11 +162,31 @@ function rawManifest(entry: CatalogEntry): SourceManifest | undefined {
   return obj(raw.manifest) ? raw.manifest as SourceManifest : undefined
 }
 
+function role(file: PackageFile): SourceRole | undefined {
+  if (file.role === "source.base") return "base"
+  if (file.role?.startsWith("source.")) return file.role.slice("source.".length) as SourceRole
+  if (!file.path) return undefined
+  return (basename(file.path, extname(file.path)).toLowerCase() || "base") as SourceRole
+}
+
+function sourceEntries(man: SourceManifest | undefined, strict = false): Array<[SourceRole, string]> {
+  if (!man) return []
+  try {
+    const xs = packageEntries(man as never).map(([r, rel]) => [r as SourceRole, rel] as [SourceRole, string])
+    if (xs.length) return xs
+    return (man.files ?? []).flatMap(file => {
+      if (typeof file.path !== "string" || !file.role?.startsWith("source")) return []
+      const r = role(file)
+      return r ? [[r, file.path] as [SourceRole, string]] : []
+    })
+  } catch (err) {
+    if (strict) throw err
+    return []
+  }
+}
+
 function sourceDescriptors(man: SourceManifest | undefined) {
-  if (!man) return false
-  if (typeof man.source?.base === "string" && man.source.base.length > 0) return true
-  if (obj(man.source?.states) && Object.values(man.source.states).some(st => obj(st) && typeof st.file === "string" && st.file.length > 0)) return true
-  return (man.files ?? []).some(f => typeof f.role === "string" && f.role.startsWith("source"))
+  return sourceEntries(man).length > 0
 }
 
 function sourceAvailable(entry: CatalogEntry, inst?: InstalledMetadata) {
@@ -187,6 +208,19 @@ function boundTrust(entry: CatalogEntry, raw: Uint8Array): eikon.LifecycleInfo["
   const got = rel ? pkg.files?.find(f => f.path === rel)?.digest : undefined
   if (run && got !== run) throw new Error(`catalog trust mismatch: runtime digest for ${entry.name}`)
   return man && run ? "verified" : "unverified"
+}
+
+function spec(man: SourceManifest, rel: string): PackageFile | undefined {
+  return man.files?.find(f => f.path === rel)
+}
+
+async function sourceBytes(man: SourceManifest, base: string, rel: string, opts: DownloadOptions) {
+  const file = spec(man, rel)
+  if (!file?.digest || typeof file.size !== "number") throw new Error(`source descriptor missing digest or size: ${rel}`)
+  const raw = await downloadBytes(new URL(rel, base).href, opts)
+  if (raw.length !== file.size) throw new Error(`source size mismatch: ${rel}`)
+  if (hash(raw) !== file.digest) throw new Error(`source digest mismatch: ${rel}`)
+  return raw
 }
 
 function target(input: string | URL | Request) {
@@ -214,11 +248,13 @@ function match(entry: CatalogEntry, xs: InstalledMetadata[]) {
 
 function row(entry: CatalogEntry, xs: InstalledMetadata[]): MarketplaceRow {
   const usable = match(entry, xs)
-  const active = usable ? prefs.get("eikon") === usable.inst.name : false
+  const activeName = prefs.get("eikon")
+  const active = usable ? activeName === usable.inst.name : false
   const installed = Boolean(usable)
+  const conflict = !usable && activeName === entry.name
   const blocked = entry.compatibility?.available === false
   const mismatch = usable?.inst.lifecycle.trust === "mismatch"
-  const installState: EntryState = mismatch ? "mismatch" : blocked ? "incompatible" : active ? "active" : !usable ? "available" : usable.legacy ? "legacy-name-match" : "installed"
+  const installState: EntryState = mismatch ? "mismatch" : blocked ? "incompatible" : active ? "active" : conflict ? "active-name-conflict" : !usable ? "available" : usable.legacy ? "legacy-name-match" : "installed"
   const lifecycle = usable?.inst.lifecycle ?? {
     name: entry.name,
     title: entry.title,
@@ -252,7 +288,7 @@ function row(entry: CatalogEntry, xs: InstalledMetadata[]): MarketplaceRow {
     sourcePresent: usable?.inst.hasSource ?? false,
     sourceAvailable: available,
     sourceDownloadable: Boolean(usable && !usable.inst.hasSource && available),
-    reason: blocked ? entry.compatibility?.reason ?? "incompatible" : mismatch ? "trust mismatch" : undefined,
+    reason: blocked ? entry.compatibility?.reason ?? "incompatible" : mismatch ? "trust mismatch" : conflict ? "install would replace the active avatar backing package" : undefined,
     action: active ? "active" : installed ? "use" : "install",
   }
 }
@@ -343,10 +379,11 @@ export class MarketplaceService {
     return sizes(JSON.parse(dec.decode(await downloadBytes(entry.packageUrl, this.dl()))) as SizedPackage)
   }
 
-  async install(id: string, opts: { media?: boolean } = {}): Promise<MarketplaceInstall> {
+  async install(id: string, opts: { media?: boolean; confirmActive?: boolean } = {}): Promise<MarketplaceInstall> {
     const entry = this.entry(id)
     if (!entry) throw new Error(`marketplace: unknown eikon "${id}"`)
     if (entry.compatibility?.available === false) throw new Error(entry.compatibility.reason ?? "eikon is incompatible")
+    if (prefs.get("eikon") === entry.name && !opts.confirmActive) throw new Error(`Installing '${entry.name}' will replace the active avatar's backing package. Pass confirmActive to install it.`)
     const raw = await downloadBytes(entry.packageUrl, this.dl())
     const state = boundTrust(entry, raw)
     const out = await eikon.fetchSource(entry.packageUrl, { name: entry.name, media: opts.media === true, downloader: this.dl(undefined, this.cached(entry.packageUrl, raw)) })
@@ -367,8 +404,26 @@ export class MarketplaceService {
     const entry = this.entry(id)
     if (!entry) throw new Error(`marketplace: unknown eikon "${id}"`)
     const usable = match(entry, installed())
-    if (!sourceAvailable(entry, usable?.inst)) throw new Error(`marketplace: no source media published for "${entry.name}"`)
-    return this.install(id, { media: true })
+    if (!usable) throw new Error(`marketplace: "${entry.name}" is not installed`)
+    if (!sourceAvailable(entry, usable.inst)) throw new Error(`marketplace: no source media published for "${entry.name}"`)
+    const raw = await downloadBytes(entry.packageUrl, this.dl())
+    boundTrust(entry, raw)
+    const man = JSON.parse(dec.decode(raw)) as SourceManifest
+    const xs = sourceEntries(man, true)
+    if (xs.length === 0) throw new Error(`marketplace: no source media published for "${entry.name}"`)
+    const base = new URL(".", entry.packageUrl).href
+    const dir = eikon.ensure(usable.inst.name).source
+    const pairs = await Promise.all(xs.map(async ([r, rel]) => {
+      const data = await sourceBytes(man, base, rel, this.dl())
+      return [r, `${r}${extname(rel).toLowerCase()}`, data] as const
+    }))
+    const sources: eikon.Sources = {}
+    await Promise.all(pairs.map(async ([r, fname, data]) => {
+      await Bun.write(join(dir, fname), data)
+      sources[r] = fname
+    }))
+    eikon.attachSources(usable.inst.name, sources)
+    return { name: usable.inst.name, n: pairs.length, bytes: pairs.reduce((sum, [, , data]) => sum + data.length, 0) }
   }
 
   private enqueue(run: () => Promise<string>) {

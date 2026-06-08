@@ -256,6 +256,32 @@ describe("EikonMarketplace tab", () => {
     fx.srv.stop()
   })
 
+  test("sidebar preview does not claim runtime-only installed packages have source", async () => {
+    const fx = packageCatalog()
+    process.env.EIKON_URL = fx.base
+    eikon.ensure("ares")
+    writeFileSync(eikon.file("ares"), body)
+    writeFileSync(join(eikon.dir("ares"), "manifest.json"), JSON.stringify({
+      kind: "eikon.package", schemaVersion: "1.0", id: "liftaris/ares", name: "ares",
+      compatibility: { eikon: ">=1 <2" }, entrypoints: { default: "ares.eikon" },
+      files: [{ path: "ares.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl", size: body.length, digest: digest(body) }],
+      origin: { sourceKey: `${fx.base}/ares/`, identityKey: `${fx.base}/ares/`, packageUrl: `${fx.base}/ares/manifest.json` },
+    }, null, 2))
+    const seen: SidebarPreview[] = []
+    await using t = await mountNode(
+      group({ sidebarPreview: p => { if (p) seen.push(p) } }),
+      { width: 160, height: 48 },
+    )
+    const status = () => seen.flatMap(p => p.title === "ares" ? p.rows ?? [] : []).find(r => r.label === "Status")?.value
+    await until(t, () => status()?.includes("installed") === true)
+    const got = status()!
+
+    expect(got).toContain("installed")
+    expect(got).not.toContain("source available")
+    expect(got).not.toContain("source downloadable")
+    fx.srv.stop()
+  })
+
   test("source-bearing installed package offers source download action", async () => {
     const fx = packageCatalog()
     process.env.EIKON_URL = fx.base

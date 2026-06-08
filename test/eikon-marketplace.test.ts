@@ -496,6 +496,65 @@ describe("service/eikon-marketplace", () => {
     fx.srv.stop()
   })
 
+  test("downloadSource writes source without replacing active runtime or manifest", async () => {
+    const old = launch.replace("abcd", "OLDX")
+    const next = launch.replace("abcd", "NEWX")
+    const man = pack("live", next)
+    const srv = serve([
+      { path: "/eikons/index.json", body: req => [catalogRow({ name: "live", source: "live/" }, `${new URL(req.url).origin}/eikons/`)] },
+      { path: "/eikons/live/manifest.json", body: man },
+      { path: "/eikons/live/live.eikon", body: next },
+      { path: "/eikons/live/source.png", body: png },
+    ])
+    eikon.ensure("live")
+    writeFileSync(eikon.file("live"), old)
+    const mf = join(eikon.dir("live"), "manifest.json")
+    writeFileSync(mf, JSON.stringify({
+      ...man,
+      origin: { sourceKey: `http://localhost:${srv.port}/eikons/live/`, identityKey: `http://localhost:${srv.port}/eikons/live/`, packageUrl: `http://localhost:${srv.port}/eikons/live/manifest.json` },
+    }, null, 2))
+    prefs.set("eikon", "live")
+    const state = await market.load({ catalog: `http://localhost:${srv.port}/eikons`, allowPrivate: true })
+    const row = state.rows[0]!
+    const before = readFileSync(mf, "utf8")
+
+    expect(row.active).toBe(true)
+    expect(row.sourceDownloadable).toBe(true)
+    const out = await state.service!.downloadSource(row.entry.identityKey)
+
+    expect(out.name).toBe("live")
+    expect(readFileSync(eikon.file("live"), "utf8")).toContain("OLDX")
+    expect(readFileSync(eikon.file("live"), "utf8")).not.toContain("NEWX")
+    expect(readFileSync(mf, "utf8")).toBe(before)
+    expect(existsSync(join(eikon.sourceDir("live"), "base.png"))).toBe(true)
+    expect(prefs.get("eikon")).toBe("live")
+    srv.stop()
+  })
+
+  test("marketplace install requires acknowledgement before replacing active same-name package", async () => {
+    const fx = fixture()
+    const old = launch.replace("abcd", "OLDX")
+    eikon.ensure("ares")
+    writeFileSync(eikon.file("ares"), old)
+    writeFileSync(join(eikon.dir("ares"), "manifest.json"), JSON.stringify({
+      ...pack("ares", old),
+      origin: { sourceKey: `${fx.base}/alt/`, identityKey: `${fx.base}/alt/`, packageUrl: `${fx.base}/alt/manifest.json`, at: "2026-06-07T00:00:00.000Z" },
+    }, null, 2))
+    prefs.set("eikon", "ares")
+    const state = await market.load({ catalog: fx.base, allowPrivate: true })
+    const row = state.rows.find(r => r.entry.poster === "ARES")!
+
+    expect(row.installState).toBe("active-name-conflict")
+    await expect(state.service!.install(row.entry.identityKey)).rejects.toThrow(/replace the active avatar/)
+    expect(readFileSync(eikon.file("ares"), "utf8")).toContain("OLDX")
+
+    await state.service!.install(row.entry.identityKey, { confirmActive: true })
+    expect(readFileSync(eikon.file("ares"), "utf8")).not.toContain("OLDX")
+    expect(readFileSync(eikon.file("ares"), "utf8")).toContain("abcd")
+    expect(prefs.get("eikon")).toBe("ares")
+    fx.srv.stop()
+  })
+
   test("installed source download state follows package source descriptors", async () => {
     const runtime = pack("runtime")
     delete (runtime as { source?: unknown }).source

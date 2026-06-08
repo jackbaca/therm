@@ -147,7 +147,15 @@ export const EikonMarketplace = memo((props: {
       if (pick === "delete") return removeSelected(idx)
       setInstalling(true)
       try {
-        const out = pick === "download" ? await svc.downloadSource(row.entry.identityKey) : await svc.install(row.entry.identityKey, { media: pick === "source" })
+        const confirm = row.installState === "active-name-conflict"
+          ? await openConfirm(dialog, {
+              title: `Replace active '${row.entry.name}'?`, danger: true,
+              body: `Installing this marketplace package will replace the active avatar's backing package for '${row.entry.name}' because another package with the same installed name is active. This cannot be undone.`,
+              yes: "replace active", no: "cancel",
+            })
+          : true
+        if (!confirm) return
+        const out = pick === "download" ? await svc.downloadSource(row.entry.identityKey) : await svc.install(row.entry.identityKey, { media: pick === "source", confirmActive: row.installState === "active-name-conflict" })
         toast.show({ variant: "success", message: pick === "download" ? `Downloaded source for '${out.name}'` : `Installed '${out.name}' (${out.n} files)` })
         refreshMarket(svc, query)
       } catch (err) {
@@ -362,19 +370,20 @@ const trustLabel = (row: MarketplaceRow) => {
 }
 
 const previewStatus = (row: MarketplaceRow) => {
-  const src = row.sourcePresent ? " · source present" : row.sourceAvailable || row.entry.packageUrl ? " · source available" : ""
+  const base = row.installState === "active-name-conflict" ? "active name conflict" : row.active ? "active" : row.installed ? "installed" : "not installed"
+  const src = row.sourcePresent ? " · source present" : row.sourceAvailable ? " · source available" : ""
   const rm = row.removable ? " · removable" : row.installed ? " · not removable" : ""
-  return `${row.active ? "active" : row.installed ? "installed" : "not installed"}${src}${rm}`
+  return `${base}${src}${rm}`
 }
 
 const sourceText = (row: MarketplaceRow) => row.sourceIdentity ?? row.lifecycle.source.packageUrl ?? row.entry.sourceKey ?? row.entry.packageUrl
 
 const compatText = (row: MarketplaceRow) => row.installState === "incompatible"
   ? `Blocked: ${row.reason ?? "requires newer Herm/eikon"}`
-  : "Compatible"
+  : row.installState === "active-name-conflict" ? `Requires confirmation: ${row.reason}` : "Compatible"
 
 const stateLabel = (row: MarketplaceRow, short = false) => {
-  const base = row.active ? "active" : row.installed ? "installed" : "not installed"
+  const base = row.installState === "active-name-conflict" ? "active name conflict" : row.active ? "active" : row.installed ? "installed" : "not installed"
   if (short) return base
   const src = row.sourcePresent ? " · source present" : row.sourceDownloadable ? " · source downloadable" : row.sourceAvailable ? " · source available" : ""
   const rm = row.removable ? " · removable" : row.installed ? " · not removable" : ""

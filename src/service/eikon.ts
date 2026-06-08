@@ -557,15 +557,18 @@ export async function inspectSource(src: string): Promise<InspectInfo> {
  *  URL, local dir, http manifest base) into <profile>/eikons/<name>/.
  *  Seeds studio.json from the returned sources map and bumps the
  *  revision counter so the sidebar + Gallery reload. */
+export function attachSources(name: string, sources: Sources) {
+  const prev = readStudio(name)
+  writeStudio(name, { ...(prev ?? toStudio(fresh(name, pick()))), sources: { ...prev?.sources, ...sources } })
+  bump()
+}
+
 export async function fetchSource(src: string, opts?: { name?: string; media?: boolean;
                                    downloader?: DownloadOptions;
                                    progress?: (d: number, t: number) => void }): Promise<Fetched> {
   const out: Got = await install(src, ROOT(), opts)
   stripManifestTrust(out.name)
-  const prev = readStudio(out.name)
-  writeStudio(out.name, { ...(prev ?? toStudio(fresh(out.name, pick()))),
-                          sources: { ...prev?.sources, ...out.sources } })
-  bump()
+  attachSources(out.name, out.sources)
   return { name: out.name, sources: out.sources, n: out.n, bytes: out.bytes }
 }
 

@@ -1042,7 +1042,10 @@ export const EikonStudio = memo((props: {
       title: "Unsaved edits",
       body: `'${cur.name}' has unsaved changes. Save them, discard them, or keep editing?`,
     })
-    if (pick === "save") { await doSave(); open(cur.name) }
+    if (pick === "save") {
+      if (await doSave()) open(cur.name)
+      return true
+    }
     if (pick === "discard") open(cur.name)
     return true
   }
