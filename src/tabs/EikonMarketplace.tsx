@@ -75,7 +75,6 @@ export const EikonMarketplace = memo((props: {
           body: selected.entry.description ?? "No description.",
           rows: [
             { label: "Status", value: previewStatus(selected), block: true },
-            { label: "Trust", value: trustLabel(selected), block: true },
             { label: "Source", value: sourceText(selected), block: true },
             { label: "Compat", value: compatText(selected) },
             { label: "State", value: st },

@@ -349,6 +349,7 @@ describe("app", () => {
     expect(t.frame()).toContain("market one")
     expect(t.frame()).toContain("not installed")
     expect(t.frame()).not.toContain("not installed · source available")
+    expect(t.frame()).not.toContain("Trust")
     expect(t.frame()).toContain("Digest")
     expect(t.frame()).toContain("unknown")
     expect(t.frame()).not.toMatch(/Profile\s+default/)
