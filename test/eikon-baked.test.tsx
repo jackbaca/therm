@@ -72,7 +72,9 @@ test("gallery badge: ○ available vs ● source", async () => {
   await using t = await mountNode(<EikonGroup focused sub={0} setSub={() => {}} />, { width: 180, height: 50 })
   await until(t, () => t.frame().includes("gal-a") && t.frame().includes("gal-b"))
   const lines = t.frame().split("\n")
-  const sub = (name: string) => lines[lines.findIndex(l => l.includes(name)) + 1]!
-  expect(sub("gal-a")).toContain("○ source available")
-  expect(sub("gal-b")).toContain("● source")
+  const y = lines.findIndex(l => l.includes("gal-a"))
+  expect(y).toBeGreaterThanOrEqual(0)
+  await act(async () => { await t.mouse.click(lines[y]!.indexOf("gal-a"), y) })
+  await until(t, () => t.frame().includes("Preview — gal-a") && t.frame().includes("Source: http://x/"))
+  expect(t.frame()).toContain("○ source available")
 })

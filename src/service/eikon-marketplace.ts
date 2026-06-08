@@ -39,6 +39,9 @@ export type MarketplaceRow = {
   updateAvailable: boolean
   removable: boolean
   sourceIdentity?: string
+  sourcePresent: boolean
+  sourceAvailable: boolean
+  sourceDownloadable: boolean
   reason?: string
   action: "install" | "use" | "active" | "retry"
 }
@@ -63,6 +66,7 @@ export type MarketplaceOptions = CatalogOptions & {
 
 type PreviewOptions = { signal?: AbortSignal; timeoutMs?: number }
 export type MarketplaceInstall = { name: string; n: number; bytes: number }
+export type MarketplaceSizes = { eikon?: number; source?: number }
 
 type Job<T> = {
   run: () => Promise<T>
@@ -143,7 +147,30 @@ function previewTarget(entry: CatalogEntry) {
 }
 
 type Trust = { manifestDigest?: string; runtimeDigest?: string; digest?: string }
-type Package = { kind?: string; entrypoints?: { default?: string }; files?: Array<{ path?: string; digest?: string }> }
+type PackageFile = { path?: string; digest?: string; size?: number; role?: string }
+type SourceManifest = { source?: { base?: unknown; states?: unknown }; files?: PackageFile[] }
+type Package = { kind?: string; entrypoints?: { default?: string }; files?: PackageFile[] }
+type SizedPackage = Omit<Package, "files"> & { files?: Array<{ path?: string; digest?: string; size?: number; role?: string }> }
+
+function obj(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+function rawManifest(entry: CatalogEntry): SourceManifest | undefined {
+  const raw = entry.raw as Record<string, unknown>
+  return obj(raw.manifest) ? raw.manifest as SourceManifest : undefined
+}
+
+function sourceDescriptors(man: SourceManifest | undefined) {
+  if (!man) return false
+  if (typeof man.source?.base === "string" && man.source.base.length > 0) return true
+  if (obj(man.source?.states) && Object.values(man.source.states).some(st => obj(st) && typeof st.file === "string" && st.file.length > 0)) return true
+  return (man.files ?? []).some(f => typeof f.role === "string" && f.role.startsWith("source"))
+}
+
+function sourceAvailable(entry: CatalogEntry, inst?: InstalledMetadata) {
+  return sourceDescriptors(inst?.manifest as SourceManifest | undefined) || sourceDescriptors(rawManifest(entry))
+}
 
 function trust(entry: CatalogEntry): Trust {
   return entry.trust as Trust
@@ -208,6 +235,7 @@ function row(entry: CatalogEntry, xs: InstalledMetadata[]): MarketplaceRow {
     ...(entry.preview ? { preview: entry.preview } : {}),
     compatibility: entry.compatibility as Record<string, unknown>,
   }
+  const available = sourceAvailable(entry, usable?.inst)
   return {
     entry,
     installed,
@@ -221,8 +249,29 @@ function row(entry: CatalogEntry, xs: InstalledMetadata[]): MarketplaceRow {
     updateAvailable: lifecycle.updateAvailable,
     removable: lifecycle.removable,
     sourceIdentity: lifecycle.source.identity,
+    sourcePresent: usable?.inst.hasSource ?? false,
+    sourceAvailable: available,
+    sourceDownloadable: Boolean(usable && !usable.inst.hasSource && available),
     reason: blocked ? entry.compatibility?.reason ?? "incompatible" : mismatch ? "trust mismatch" : undefined,
     action: active ? "active" : installed ? "use" : "install",
+  }
+}
+
+function sizes(man: SizedPackage): MarketplaceSizes {
+  const files = Array.isArray(man.files) ? man.files : []
+  const eikon = files
+    .filter(f => f.role === "runtime" || f.path === man.entrypoints?.default)
+    .map(f => f.size)
+    .filter((n): n is number => typeof n === "number")
+    .reduce((sum, n) => sum + n, 0)
+  const source = files
+    .filter(f => typeof f.role === "string" && f.role.startsWith("source"))
+    .map(f => f.size)
+    .filter((n): n is number => typeof n === "number")
+    .reduce((sum, n) => sum + n, 0)
+  return {
+    ...(eikon > 0 ? { eikon } : {}),
+    ...(source > 0 ? { source } : {}),
   }
 }
 
@@ -288,13 +337,19 @@ export class MarketplaceService {
     return p
   }
 
-  async install(id: string): Promise<MarketplaceInstall> {
+  async packageSizes(id: string): Promise<MarketplaceSizes> {
+    const entry = this.entry(id)
+    if (!entry) throw new Error(`marketplace: unknown eikon "${id}"`)
+    return sizes(JSON.parse(dec.decode(await downloadBytes(entry.packageUrl, this.dl()))) as SizedPackage)
+  }
+
+  async install(id: string, opts: { media?: boolean } = {}): Promise<MarketplaceInstall> {
     const entry = this.entry(id)
     if (!entry) throw new Error(`marketplace: unknown eikon "${id}"`)
     if (entry.compatibility?.available === false) throw new Error(entry.compatibility.reason ?? "eikon is incompatible")
     const raw = await downloadBytes(entry.packageUrl, this.dl())
     const state = boundTrust(entry, raw)
-    const out = await eikon.fetchSource(entry.packageUrl, { name: entry.name, downloader: this.dl(undefined, this.cached(entry.packageUrl, raw)) })
+    const out = await eikon.fetchSource(entry.packageUrl, { name: entry.name, media: opts.media === true, downloader: this.dl(undefined, this.cached(entry.packageUrl, raw)) })
     const ef = eikon.file(out.name)
     if (!existsSync(ef)) {
       const text = await this.preview(entry.identityKey)
@@ -306,6 +361,14 @@ export class MarketplaceService {
     const origin = man.origin && typeof man.origin === "object" && !Array.isArray(man.origin) ? man.origin as Record<string, unknown> : {}
     writeFileSync(mf, JSON.stringify({ ...man, origin: { ...origin, sourceKey: entry.sourceKey, identityKey: entry.identityKey, packageUrl: entry.packageUrl, trust: state } }, null, 2) + "\n")
     return out
+  }
+
+  async downloadSource(id: string): Promise<MarketplaceInstall> {
+    const entry = this.entry(id)
+    if (!entry) throw new Error(`marketplace: unknown eikon "${id}"`)
+    const usable = match(entry, installed())
+    if (!sourceAvailable(entry, usable?.inst)) throw new Error(`marketplace: no source media published for "${entry.name}"`)
+    return this.install(id, { media: true })
   }
 
   private enqueue(run: () => Promise<string>) {

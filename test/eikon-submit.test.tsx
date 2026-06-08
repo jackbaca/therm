@@ -164,7 +164,7 @@ describe("Eikon submit dialog", () => {
     prefs.set("eikon", "default")
     const fn = mock(async () => ({ kind: "submitted" as const, url: "https://github.com/liftaris/eikon/pull/1", request: {} as never }))
     await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 160, height: 48 })
-    await until(t, () => t.frame().includes("(bundled)"))
+    await until(t, () => t.frame().includes("bundled/system"))
     expect(t.frame()).not.toContain("submit")
     act(() => t.keys.pressKey("s"))
     await t.settle()

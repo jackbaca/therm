@@ -316,7 +316,7 @@ describe("service/eikon-marketplace", () => {
 
     expect(out.name).toBe("ares")
     expect(existsSync(eikon.file("ares"))).toBe(true)
-    expect(existsSync(join(eikon.sourceDir("ares"), "base.png"))).toBe(true)
+    expect(existsSync(join(eikon.sourceDir("ares"), "base.png"))).toBe(false)
     expect(prefs.get("eikon")).toBe("old")
     expect(eikon.revision()).toBe(before + 1)
     const man = JSON.parse(readFileSync(join(eikon.dir("ares"), "manifest.json"), "utf8"))
@@ -360,7 +360,7 @@ describe("service/eikon-marketplace", () => {
     ])
     const state = await market.load({ catalog: `http://localhost:${srv.port}/eikons`, allowPrivate: true })
     expect(state.status).toBe("ready")
-    const out = await state.service!.install(state.rows[0]!.entry.identityKey)
+    const out = await state.service!.install(state.rows[0]!.entry.identityKey, { media: true })
 
     expect(out.name).toBe("pkg")
     expect(existsSync(eikon.file("pkg"))).toBe(true)
@@ -494,6 +494,46 @@ describe("service/eikon-marketplace", () => {
     expect(row.removable).toBe(true)
     expect(row.updateable).toBe(true)
     fx.srv.stop()
+  })
+
+  test("installed source download state follows package source descriptors", async () => {
+    const runtime = pack("runtime")
+    delete (runtime as { source?: unknown }).source
+    runtime.files = runtime.files.filter(f => f.role === "runtime")
+    const sourced = pack("sourced")
+    const cat: Catalog = {
+      base: "https://example.com/eikons",
+      entries: [
+        entry({ name: "runtime", packageUrl: "https://example.com/eikons/runtime/manifest.json" }),
+        {
+          ...entry({ name: "sourced", packageUrl: "https://example.com/eikons/sourced/manifest.json" }),
+          raw: { name: "sourced", manifest: sourced, packageUrl: "https://example.com/eikons/sourced/manifest.json" },
+        },
+      ],
+      load: async () => "",
+    }
+    eikon.ensure("runtime")
+    writeFileSync(eikon.file("runtime"), '{"eikon":1,"name":"runtime"}\n')
+    writeFileSync(join(eikon.dir("runtime"), "manifest.json"), JSON.stringify({
+      ...runtime,
+      origin: { sourceKey: "https://example.com/eikons/runtime/", identityKey: "https://example.com/eikons/runtime/", packageUrl: "https://example.com/eikons/runtime/manifest.json" },
+    }, null, 2))
+    eikon.ensure("sourced")
+    writeFileSync(eikon.file("sourced"), '{"eikon":1,"name":"sourced"}\n')
+    writeFileSync(join(eikon.dir("sourced"), "manifest.json"), JSON.stringify({
+      ...sourced,
+      origin: { sourceKey: "https://example.com/eikons/sourced/", identityKey: "https://example.com/eikons/sourced/", packageUrl: "https://example.com/eikons/sourced/manifest.json" },
+    }, null, 2))
+    const svc = new market.MarketplaceService(cat, { fetcher: async () => new Response(JSON.stringify(runtime)) })
+    const rows = svc.rows()
+    const run = rows.find(r => r.entry.name === "runtime")!
+    const src = rows.find(r => r.entry.name === "sourced")!
+
+    expect(run.sourceAvailable).toBe(false)
+    expect(run.sourceDownloadable).toBe(false)
+    expect(src.sourceAvailable).toBe(true)
+    expect(src.sourceDownloadable).toBe(true)
+    await expect(svc.downloadSource(run.entry.identityKey)).rejects.toThrow(/no source media published/)
   })
 
   test("available catalog rows require descriptor digests for verified trust", async () => {

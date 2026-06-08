@@ -16,7 +16,9 @@ export type SidebarPreview = {
   title?: string
   subtitle?: string
   body?: string
-  rows?: readonly { label: string; value: string; strong?: boolean }[]
+  rows?: readonly { label: string; value: string; strong?: boolean; block?: boolean }[]
+  states?: readonly AvatarState[]
+  onState?: (state: AvatarState) => void
 }
 
 // The pillar body carries a compact identity block, the MCP operational
@@ -61,8 +63,14 @@ const Avatar = (props: { state: AvatarState; eikon?: ParsedEikon; id?: string; o
   <AnimatedAvatar key={props.id} state={props.state} eikon={props.eikon} onHold={props.onHold} />
 )
 
-const Row = (props: { label: string; value: string; strong?: boolean }) => {
+const Row = (props: { label: string; value: string; strong?: boolean; block?: boolean }) => {
   const theme = useTheme().theme
+  if (props.block) return (
+    <box flexDirection="column" minHeight={2} marginBottom={1}>
+      <text fg={theme.textMuted}>{`  ${props.label}`}</text>
+      <text fg={theme.text} wrapMode="word">{props.value}</text>
+    </box>
+  )
   return (
     <box height={1}>
       <text>
@@ -82,6 +90,7 @@ const Preview = (props: { preview: SidebarPreview }) => {
     { label: "Author", value: meta.author ?? "—" },
     { label: "State", value: props.preview.state },
   ]
+  const states = props.preview.states?.length ? props.preview.states : undefined
   return (
     <box flexDirection="column">
       <Row label="Eikon" value={props.preview.title ?? meta.name} strong />
@@ -91,7 +100,16 @@ const Preview = (props: { preview: SidebarPreview }) => {
           <text fg={theme.text} wrapMode="word">{props.preview.body}</text>
         </box>
       ) : null}
-      {rows.map((r, i) => <Row key={`${r.label}:${i}`} label={r.label} value={r.value} strong={r.strong} />)}
+      {rows.map((r, i) => <Row key={`${r.label}:${i}`} label={r.label} value={r.value} strong={r.strong} block={r.block} />)}
+      {states ? (
+        <box flexDirection="row" flexWrap="wrap" marginTop={1}>
+          {states.map(s => (
+            <box key={s} height={1} paddingRight={1} onMouseDown={() => { if (props.preview.onState) props.preview.onState(s) }}>
+              <text fg={s === props.preview.state ? theme.primary : theme.textMuted}>{s}</text>
+            </box>
+          ))}
+        </box>
+      ) : null}
     </box>
   )
 }
