@@ -8,6 +8,7 @@ import type { Usage } from "../../types/message"
 import { useGitBranch, rtrunc } from "../../utils/git"
 import { Tail } from "../chat/ThoughtCloud"
 import { ContextGauge } from "./ContextGauge"
+import { FilterChip } from "../../ui/filter-chip"
 
 export type SidebarPreview = {
   key: string
@@ -100,16 +101,16 @@ const Preview = (props: { preview: SidebarPreview }) => {
           <text fg={theme.text} wrapMode="word">{props.preview.body}</text>
         </box>
       ) : null}
-      {rows.map((r, i) => <Row key={`${r.label}:${i}`} label={r.label} value={r.value} strong={r.strong} block={r.block} />)}
       {states ? (
-        <box flexDirection="row" flexWrap="wrap" marginTop={1}>
-          {states.map(s => (
-            <box key={s} height={1} paddingRight={1} onMouseDown={() => { if (props.preview.onState) props.preview.onState(s) }}>
-              <text fg={s === props.preview.state ? theme.primary : theme.textMuted}>{s}</text>
-            </box>
+        <box flexDirection="row" flexWrap="wrap" marginBottom={1}>
+          {states.map((s, i) => (
+            <FilterChip key={s} label={s} state={s === props.preview.state ? "in" : "off"}
+              gap={i === 0 ? 0 : 1} color={theme.primary} textColor={theme.textMuted}
+              onMouseDown={() => { if (props.preview.onState) props.preview.onState(s) }} />
           ))}
         </box>
       ) : null}
+      {rows.map((r, i) => <Row key={`${r.label}:${i}`} label={r.label} value={r.value} strong={r.strong} block={r.block} />)}
     </box>
   )
 }

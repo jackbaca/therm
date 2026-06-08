@@ -472,6 +472,13 @@ describe("EikonMarketplace tab", () => {
     process.env.EIKON_URL = fx.base
     await using t = await mountNode(group(), { width: 100, height: 40 })
     await until(t, () => t.frame().includes("Marketplace (6)") && t.frame().includes("ARES-IDLE"))
+    const lines = t.frame().split("\n")
+    const desc = lines.findIndex(l => l.includes("red warrior"))
+    const chip = lines.findIndex((l, i) => i > desc && l.includes("idle") && l.includes("thinking"))
+    const status = lines.findIndex(l => l.includes("Status"))
+    expect(desc).toBeGreaterThan(-1)
+    expect(chip).toBeGreaterThan(desc)
+    expect(chip).toBeLessThan(status)
     await act(async () => { await t.keys.pressKey(" ") })
     await until(t, () => t.frame().includes("ARES-THINKING"))
     fx.srv.stop()

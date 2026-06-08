@@ -353,6 +353,13 @@ describe("app", () => {
     expect(t.frame()).toContain("Digest")
     expect(t.frame()).toContain("unknown")
     expect(t.frame()).not.toMatch(/Profile\s+default/)
+    const lines = t.frame().split("\n")
+    const desc = lines.findIndex(l => l.includes("market one"))
+    const chip = lines.findIndex((l, i) => i > desc && l.includes("idle"))
+    const status = lines.findIndex(l => l.includes("Status"))
+    expect(desc).toBeGreaterThan(-1)
+    expect(chip).toBeGreaterThan(desc)
+    expect(chip).toBeLessThan(status)
 
     expect(prefs.get("eikon")).toBe("activeone")
     expect(t.frame()).not.toContain("ACTIVE-EIKON-LINE")

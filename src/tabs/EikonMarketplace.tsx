@@ -5,6 +5,7 @@ import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
 import { TabShell } from "../ui/shell"
 import { HintBar } from "../ui/hint"
+import { FilterChip } from "../ui/filter-chip"
 import { openConfirm } from "../dialogs/confirm"
 import { openEikonMarketplaceAction } from "../dialogs/eikon-marketplace-action"
 import { VBAR } from "../ui/table"
@@ -320,18 +321,18 @@ const MarketplaceDetail = (props: {
       <text fg={r.active ? theme.accent : theme.text}><strong>{r.active ? "● " : ""}{r.entry.name}</strong></text>
       <text fg={theme.textMuted}>by {r.entry.author ?? "unknown"}</text>
       <text fg={theme.text} wrapMode="word">{r.entry.description ?? "No description."}</text>
+      <box flexDirection="row" height={1}>
+        {states.map((s, i) => (
+          <FilterChip key={s} label={s} state={s === previewState ? "in" : "off"}
+            gap={i === 0 ? 0 : 1} color={theme.primary} textColor={theme.textMuted}
+            onMouseDown={() => props.onState(s)} />
+        ))}
+      </box>
       <DetailRow label="Status" value={stateLabel(r)} block />
       <DetailRow label="Trust" value={trustLabel(r)} block />
       <DetailRow label="Source" value={sourceText(r)} block />
       <DetailRow label="Compat" value={compatText(r)} />
       <DetailRow label="Digest" value={digest(r) ?? "unknown"} block />
-      <box flexDirection="row" height={1}>
-        {states.map(s => (
-          <box key={s} height={1} paddingRight={1} onMouseDown={() => props.onState(s)}>
-            <text fg={s === previewState ? theme.primary : theme.textMuted}>{s}</text>
-          </box>
-        ))}
-      </box>
       <box height={1} onMouseDown={props.onUse}>
         <text fg={r.action === "active" ? theme.textMuted : theme.primary}>{props.installing ? "Installing…" : "Open actions"}</text>
       </box>
