@@ -38,7 +38,7 @@ async function selectDraft(t: Harness) {
 
 async function open(t: Harness) {
   await selectDraft(t)
-  act(() => t.keys.pressKey("u"))
+  act(() => t.keys.pressKey("s"))
   await until(t, () => t.frame().includes("Submit eikon"))
 }
 
@@ -64,7 +64,7 @@ describe("Eikon submit dialog", () => {
     const fn = mock(async () => ({ kind: "submitted" as const, url: "https://github.com/liftaris/eikon/pull/1", request: {} as never }))
     await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 160, height: 48 })
     await selectDraft(t)
-    act(() => t.keys.pressKey("u"))
+    act(() => t.keys.pressKey("s"))
     await until(t, () => t.frame().includes("Create a local draft before submitting"))
     expect(t.frame()).not.toContain("Submit eikon")
     expect(fn).not.toHaveBeenCalled()
@@ -166,7 +166,7 @@ describe("Eikon submit dialog", () => {
     await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 160, height: 48 })
     await until(t, () => t.frame().includes("(bundled)"))
     expect(t.frame()).not.toContain("submit")
-    act(() => t.keys.pressKey("u"))
+    act(() => t.keys.pressKey("s"))
     await t.settle()
     expect(t.frame()).not.toContain("Submit eikon")
     expect(fn).not.toHaveBeenCalled()

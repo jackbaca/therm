@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
+import { createHash } from "node:crypto"
 import { join } from "node:path"
-import { loadCatalog, searchCatalog, publicCatalogUrl, type Catalog, type PublicCatalogEntry as CatalogEntry, type CatalogOptions } from "eikon"
+import { loadCatalog, searchCatalog, publicCatalogUrl, downloadBytes, type Catalog, type PublicCatalogEntry as CatalogEntry, type CatalogOptions, type DownloadOptions } from "eikon"
 import { eikon } from "./eikon"
 import * as prefs from "../context/preferences"
 
@@ -30,6 +31,7 @@ export type MarketplaceRow = {
   installState: EntryState
   preview?: string
   installedManifest?: InstalledManifest
+  installedName?: string
   installedPath?: string
   lifecycle: eikon.LifecycleInfo
   trust: eikon.LifecycleInfo["trust"]
@@ -70,6 +72,11 @@ type Job<T> = {
 
 const DEFAULT_TIMEOUT = 5000
 const DEFAULT_CACHE_LIMIT = 24
+const dec = new TextDecoder()
+
+function hash(data: Uint8Array) {
+  return `sha256:${createHash("sha256").update(data).digest("hex")}`
+}
 
 function keyIdentity(s: string) {
   try {
@@ -135,10 +142,34 @@ function previewTarget(entry: CatalogEntry) {
   return entry.preview || entry.runtimeUrl
 }
 
+type Trust = { manifestDigest?: string; runtimeDigest?: string; digest?: string }
+type Package = { kind?: string; entrypoints?: { default?: string }; files?: Array<{ path?: string; digest?: string }> }
+
+function trust(entry: CatalogEntry): Trust {
+  return entry.trust as Trust
+}
+
+function boundTrust(entry: CatalogEntry, raw: Uint8Array): eikon.LifecycleInfo["trust"] {
+  const t = trust(entry)
+  const man = t.manifestDigest
+  const run = t.runtimeDigest
+  if (!man && !run) return "unverified"
+  if (man && hash(raw) !== man) throw new Error(`catalog trust mismatch: manifest digest for ${entry.name}`)
+  const pkg = JSON.parse(dec.decode(raw)) as Package
+  const rel = pkg.entrypoints?.default
+  const got = rel ? pkg.files?.find(f => f.path === rel)?.digest : undefined
+  if (run && got !== run) throw new Error(`catalog trust mismatch: runtime digest for ${entry.name}`)
+  return man && run ? "verified" : "unverified"
+}
+
+function target(input: string | URL | Request) {
+  return typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+}
+
 function verifiedCatalogTrust(entry: CatalogEntry) {
-  const trust = entry.trust
-  return typeof trust.manifestDigest === "string" && trust.manifestDigest.length > 0
-    && typeof trust.runtimeDigest === "string" && trust.runtimeDigest.length > 0
+  const t = trust(entry)
+  return typeof t.manifestDigest === "string" && t.manifestDigest.length > 0
+    && typeof t.runtimeDigest === "string" && t.runtimeDigest.length > 0
 }
 
 export function installed(): InstalledMetadata[] {
@@ -182,7 +213,7 @@ function row(entry: CatalogEntry, xs: InstalledMetadata[]): MarketplaceRow {
     installed,
     active,
     installState,
-    ...(usable?.inst.file ? { installedPath: usable.inst.file } : {}),
+    ...(usable?.inst.file ? { installedPath: usable.inst.file, installedName: usable.inst.name } : {}),
     ...(usable?.inst.manifest ? { installedManifest: usable.inst.manifest } : {}),
     lifecycle,
     trust: lifecycle.trust,
@@ -205,6 +236,7 @@ export class MarketplaceService {
   private timeoutMs: number
   private previewCacheLimit: number
   private concurrency: number
+  private allowPrivate: boolean
   private activeLoads = 0
   private queue: Job<string>[] = []
   private cache = new Map<string, string>()
@@ -216,6 +248,7 @@ export class MarketplaceService {
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT
     this.previewCacheLimit = opts.previewCacheLimit ?? DEFAULT_CACHE_LIMIT
     this.concurrency = Math.max(1, Math.floor(opts.concurrency ?? 4))
+    this.allowPrivate = opts.allowPrivate === true
   }
 
   rows(query = ""): MarketplaceRow[] {
@@ -227,6 +260,18 @@ export class MarketplaceService {
   entry(id: string): CatalogEntry | undefined {
     const key = keyIdentity(id)
     return this.catalog.entries.find(e => keyIdentity(e.identityKey) === key || keyIdentity(e.sourceKey) === key || e.id === id || e.name === id)
+  }
+
+  private dl(signal?: AbortSignal, fetcher = this.fetcher): DownloadOptions {
+    return { allowPrivate: this.allowPrivate, fetcher: (input, init) => fetcher(input, signal ? { ...init, signal } : init) }
+  }
+
+  private cached(url: string, raw: Uint8Array): Fetcher {
+    const key = keyIdentity(url)
+    return async (input, init) => {
+      if (keyIdentity(target(input)) === key) return new Response(raw.slice(), { headers: { "content-length": String(raw.length) } })
+      return this.fetcher(input, init)
+    }
   }
 
   async preview(id: string, opts: PreviewOptions = {}): Promise<string> {
@@ -247,7 +292,9 @@ export class MarketplaceService {
     const entry = this.entry(id)
     if (!entry) throw new Error(`marketplace: unknown eikon "${id}"`)
     if (entry.compatibility?.available === false) throw new Error(entry.compatibility.reason ?? "eikon is incompatible")
-    const out = await eikon.fetchSource(entry.packageUrl, { name: entry.name })
+    const raw = await downloadBytes(entry.packageUrl, this.dl())
+    const state = boundTrust(entry, raw)
+    const out = await eikon.fetchSource(entry.packageUrl, { name: entry.name, downloader: this.dl(undefined, this.cached(entry.packageUrl, raw)) })
     const ef = eikon.file(out.name)
     if (!existsSync(ef)) {
       const text = await this.preview(entry.identityKey)
@@ -257,7 +304,7 @@ export class MarketplaceService {
     const mf = join(eikon.dir(out.name), "manifest.json")
     const man = JSON.parse(readFileSync(mf, "utf8")) as Record<string, unknown>
     const origin = man.origin && typeof man.origin === "object" && !Array.isArray(man.origin) ? man.origin as Record<string, unknown> : {}
-    writeFileSync(mf, JSON.stringify({ ...man, origin: { ...origin, sourceKey: entry.sourceKey, identityKey: entry.identityKey, packageUrl: entry.packageUrl } }, null, 2) + "\n")
+    writeFileSync(mf, JSON.stringify({ ...man, origin: { ...origin, sourceKey: entry.sourceKey, identityKey: entry.identityKey, packageUrl: entry.packageUrl, trust: state } }, null, 2) + "\n")
     return out
   }
 
@@ -287,9 +334,7 @@ export class MarketplaceService {
     const off = () => ctl.abort()
     opts.signal?.addEventListener("abort", off, { once: true })
     try {
-      const res = await this.fetcher(previewTarget(entry), { signal: ctl.signal })
-      if (!res.ok) throw new Error(`catalog: HTTP ${res.status}`)
-      const text = await res.text()
+      const text = dec.decode(await downloadBytes(previewTarget(entry), this.dl(ctl.signal)))
       this.cache.set(cacheKey(entry), text)
       while (this.cache.size > this.previewCacheLimit) this.cache.delete(this.cache.keys().next().value!)
       return text

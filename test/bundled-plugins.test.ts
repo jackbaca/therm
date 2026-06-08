@@ -19,6 +19,10 @@ describe("bundled-plugins", () => {
     expect(plugins.sync()).toEqual(["eikon"])
     expect(existsSync(join(ROOT, "eikon/plugin.yaml"))).toBe(true)
     expect(existsSync(join(ROOT, "eikon/__init__.py"))).toBe(true)
+    expect(parse(readFileSync(join(ROOT, "eikon/plugin.yaml"), "utf8"))?.provides_tools).toEqual([
+      "eikon_install", "eikon_search", "eikon_list", "eikon_use", "eikon_update", "eikon_remove",
+    ])
+    expect(readFileSync(join(ROOT, "eikon/schemas.py"), "utf8")).toContain("EIKON_SEARCH_SCHEMA")
     expect(enabled()).toEqual(["eikon"])
     expect(plugins.sync()).toEqual([])
     expect(enabled()).toEqual(["eikon"])

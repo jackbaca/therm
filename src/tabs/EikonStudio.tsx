@@ -689,21 +689,33 @@ export const EikonStudio = memo((props: {
   }
 
   // Knob-row actions.
-  const doSave = useCallback(async () => {
-    if (!s) return
-    if (!s.dirty) return toast.show({ variant: "info", message: "Nothing to save" })
-    if (!live) return toast.show({ variant: "warning",
-      message: "No source — fetch or attach before saving" })
+  const doSave = useCallback(async (): Promise<boolean> => {
+    if (!s) return false
+    if (!s.dirty) {
+      toast.show({ variant: "info", message: "Nothing to save" })
+      return true
+    }
+    if (!live) {
+      toast.show({ variant: "warning", message: "No source — fetch or attach before saving" })
+      return false
+    }
     setSaving(true)
-    await eikon.save({ ...s, dirty: false })
-      .then(f => { mutate(p => ({ ...p, dirty: false })); toast.show({ variant: "success", message: `Saved → ${basename(f)}` }) })
-      .catch(e => toast.error(e instanceof Error ? e : new Error(String(e))))
-      .finally(() => setSaving(false))
+    try {
+      const f = await eikon.save({ ...s, dirty: false })
+      mutate(p => ({ ...p, dirty: false }))
+      toast.show({ variant: "success", message: `Saved → ${basename(f)}` })
+      return true
+    } catch (e) {
+      toast.error(e instanceof Error ? e : new Error(String(e)))
+      return false
+    } finally {
+      setSaving(false)
+    }
   }, [s, live, toast])
 
   const doSaveUse = useCallback(async () => {
     if (!s) return
-    await doSave()
+    if (!await doSave()) return
     eikon.useInstalled(s.name)
     toast.show({ variant: "success", message: `Avatar → ${s.name}` })
   }, [doSave, s, toast])

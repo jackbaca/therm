@@ -234,7 +234,7 @@ describe("EikonMarketplace tab", () => {
     process.env.EIKON_URL = fx.base
     await using t = await mountNode(group(), { width: 120, height: 28 })
     await until(t, () => t.frame().includes("Marketplace (6)") && /▸ .*ares/.test(t.frame()))
-    expect(t.frame()).toContain("[Space] preview state")
+    expect(t.frame()).toContain("[Space] preview")
 
     act(() => t.keys.pressArrow("right"))
     await until(t, () => /▸ .*mono/.test(t.frame()))
@@ -270,7 +270,7 @@ describe("EikonMarketplace tab", () => {
 
     await act(async () => { await t.keys.pressKey(" ") })
     await until(t, () => previews.includes("ares:thinking"))
-    expect(t.frame()).toContain("[Space] preview state")
+    expect(t.frame()).toContain("[Space] preview")
 
     act(() => t.keys.pressArrow("right"))
     await until(t, () => previews.includes("mono:idle"))

@@ -1,7 +1,12 @@
 name: eikon
 version: 1.0.0
-description: "Herm eikon installer tool. Lets Hermes chat install terminal avatars through the existing `herm eikon install` CLI path."
+description: "Herm eikon lifecycle tools. Lets Hermes chat search, install, activate, update, and remove terminal avatars through the existing `herm eikon` CLI path."
 author: Liftaris
 kind: standalone
 provides_tools:
   - eikon_install
+  - eikon_search
+  - eikon_list
+  - eikon_use
+  - eikon_update
+  - eikon_remove

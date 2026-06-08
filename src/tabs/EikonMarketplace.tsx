@@ -18,6 +18,15 @@ import type { AvatarState } from "../components/avatar/states"
 
 const NO_MARKET: MarketplaceState = { status: "empty", query: "", rows: [] }
 
+function localCatalog(raw?: string) {
+  if (!raw) return false
+  try {
+    const url = new URL(raw)
+    const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "")
+    return url.protocol === "file:" || host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0" || host === "::1" || host.endsWith(".localhost")
+  } catch { return false }
+}
+
 export const EikonMarketplace = memo((props: {
   focused: boolean
   sidebarPreview?: (preview?: SidebarPreview) => void
@@ -83,7 +92,7 @@ export const EikonMarketplace = memo((props: {
         props.sidebarPreview?.(undefined)
         perf.count("market:preview:error")
       })
-  }, [selected?.entry.identityKey, state.service, previewState, props.sidebarPreview, props.sidebarHidden])
+  }, [selected, state.service, previewState, props.sidebarPreview, props.sidebarHidden])
 
   useEffect(() => () => {
     previewSeq.current++
@@ -94,7 +103,8 @@ export const EikonMarketplace = memo((props: {
   const loadMarket = useCallback((q = query) => {
     setLoading(true)
     const end = perf.mark("market:list:load")
-    void market.load({ catalog: process.env.EIKON_URL, allowPrivate: true, query: q })
+    const catalog = process.env.EIKON_URL
+    void market.load({ catalog, allowPrivate: localCatalog(catalog), query: q })
       .then(next => {
         perf.count("market:list:rows", next.rows.length)
         setState(next)
@@ -127,7 +137,7 @@ export const EikonMarketplace = memo((props: {
       return
     }
     if (row.action === "use") {
-      const name = row.installedManifest?.name ?? row.entry.name
+      const name = row.installedName ?? row.entry.name
       eikon.useInstalled(name)
       toast.show({ variant: "success", message: `Avatar → ${name}` })
       refreshMarket(svc, query)
@@ -147,10 +157,10 @@ export const EikonMarketplace = memo((props: {
       .finally(() => setInstalling(false))
   }, [state.rows, state.service, sel, installing, toast, loadMarket, refreshMarket, query])
 
-  const updateSelected = useCallback(async () => {
-    const row = state.rows[sel]
+  const updateSelected = useCallback(async (idx?: number) => {
+    const row = state.rows[idx ?? sel]
     const svc = state.service
-    const name = row?.installedManifest?.name ?? row?.entry.name
+    const name = row?.installedName ?? row?.entry.name
     if (!row || !svc || !name || !row.updateable) return toast.show({ variant: "warning", message: "No recorded source to update" })
     const run = async (confirmActive = false) => eikon.update(name, { confirmActive })
     try {
@@ -171,10 +181,10 @@ export const EikonMarketplace = memo((props: {
     }
   }, [dialog, query, refreshMarket, sel, state.rows, state.service, toast])
 
-  const removeSelected = useCallback(async () => {
-    const row = state.rows[sel]
+  const removeSelected = useCallback(async (idx?: number) => {
+    const row = state.rows[idx ?? sel]
     const svc = state.service
-    const name = row?.installedManifest?.name ?? row?.entry.name
+    const name = row?.installedName ?? row?.entry.name
     if (!row || !svc || !name || !row.removable) return toast.show({ variant: "warning", message: "This eikon is not removable" })
     const active = row.active
     const ok = await openConfirm(dialog, {
@@ -216,9 +226,9 @@ export const EikonMarketplace = memo((props: {
       onToggle: () => setPreviewState(s => s === "idle" ? "thinking" : "idle"),
       onSearch: () => setSearching(true),
       onRefresh: () => loadMarket(query),
+      onDelete: () => void removeSelected(),
     })) return
     if (plain && key.name === "u") return void updateSelected()
-    if (plain && key.name === "d") return void removeSelected()
   })
 
   perf.count("market:render")
@@ -228,20 +238,20 @@ export const EikonMarketplace = memo((props: {
       <box flexDirection="row" flexGrow={1} minWidth={0} minHeight={0}>
         <TabShell title={`Marketplace (${state.rows.length})${searching ? ` Search: ${query}` : ""}`} focus={props.focused} grow={fallback ? 3 : 1}>
           <MarketplaceGrid rows={state.rows} sel={sel} follow={follow}
-            loading={loading} error={state.error} onSel={setSel} onUse={primary} />
+            loading={loading} error={state.error} onSel={setSel} onUse={primary}
+            onUpdate={i => { setSel(i); void updateSelected(i) }} onRemove={i => { setSel(i); void removeSelected(i) }} />
         </TabShell>
         {fallback ? (
           <TabShell title={selected ? `Details — ${selected.entry.name}` : "Details"} grow={2}>
             <MarketplaceDetail row={selected} loading={loading} installing={installing} onUse={() => primary()}
-              onState={setPreviewState} preview={detailPreview} />
+              onState={setPreviewState} onUpdate={() => void updateSelected()} onRemove={() => void removeSelected()} preview={detailPreview} />
           </TabShell>
         ) : null}
       </box>
       <HintBar pairs={[
-        ["↑↓←→/Pg/Home/End", "select"], [keys.print("list.activate"), actionLabel(selected)],
+        [keys.print("list.activate"), actionLabel(selected)], ["↑↓←→/Pg", "select"],
         [keys.print("list.search"), searching ? "typing search" : "search"], [keys.print("list.refresh"), "reload"],
-        ["u", "update"], ["d", "remove"], ["Space", "preview state"],
-        ["Esc", searching ? "exit search" : props.sidebarPreview ? "restore sidebar" : "clear preview"],
+        ["u/d", "update/remove"], ["Space", "preview"],
       ]} />
     </box>
   )
@@ -250,6 +260,7 @@ export const EikonMarketplace = memo((props: {
 const MarketplaceGrid = (props: {
   rows: MarketplaceRow[]; sel: number; follow: ReturnType<typeof useFollow>
   loading: boolean; error?: string; onSel: (i: number) => void; onUse: (i: number) => void
+  onUpdate: (i: number) => void; onRemove: (i: number) => void
 }) => {
   const theme = useTheme().theme
   if (props.error) return <box key="error" padding={1}><text fg={theme.error} wrapMode="word">Marketplace unavailable: {props.error}</text></box>
@@ -273,6 +284,12 @@ const MarketplaceGrid = (props: {
                     <box width={2}><text fg={on ? theme.primary : theme.textMuted}>{on ? "▸ " : "  "}</text></box>
                     <box flexGrow={1} minWidth={0} height={1} overflow="hidden"><text fg={r.active ? theme.accent : theme.text} wrapMode="none">{r.active ? "● " : "  "}<strong>{r.entry.name}</strong></text></box>
                     <box width={10}><text fg={actionColor(r, theme)}>{actionLabel(r)}</text></box>
+                    <box width={3} onMouseDown={e => { e.stopPropagation(); props.onUpdate(i) }}>
+                      <text fg={r.updateable ? theme.primary : theme.textMuted}>{r.updateable ? " u" : "  "}</text>
+                    </box>
+                    <box width={3} onMouseDown={e => { e.stopPropagation(); props.onRemove(i) }}>
+                      <text fg={r.removable ? theme.error : theme.textMuted}>{r.removable ? " d" : "  "}</text>
+                    </box>
                   </box>
                   <box height={lines.length} paddingLeft={2} overflow="hidden" flexDirection="column">
                     {lines.map((line, j) => (
@@ -312,6 +329,8 @@ const MarketplaceDetail = (props: {
   installing: boolean
   onUse: () => void
   onState: (state: AvatarState) => void
+  onUpdate: () => void
+  onRemove: () => void
   preview?: SidebarPreview
 }) => {
   const theme = useTheme().theme
@@ -345,6 +364,8 @@ const MarketplaceDetail = (props: {
       <box height={1} onMouseDown={props.onUse}>
         <text fg={r.action === "active" ? theme.textMuted : theme.primary}>{props.installing ? "Installing…" : actionLabel(r)}</text>
       </box>
+      {r.updateable ? <box height={1} onMouseDown={props.onUpdate}><text fg={theme.primary}>Update [u]</text></box> : null}
+      {r.removable ? <box height={1} onMouseDown={props.onRemove}><text fg={theme.error}>Remove [d]</text></box> : null}
     </box>
   )
 }
@@ -364,8 +385,10 @@ const shortDigest = (value?: string) => {
   return algo ? `${algo}:${hash.slice(0, 12)}…` : `${hash.slice(0, 12)}…`
 }
 
-const digest = (row: MarketplaceRow) =>
-  shortDigest(row.entry.trust.manifestDigest ?? row.entry.trust.runtimeDigest ?? row.entry.trust.digest)
+const digest = (row: MarketplaceRow) => {
+  const t = row.entry.trust as { manifestDigest?: string; runtimeDigest?: string; digest?: string }
+  return shortDigest(t.manifestDigest ?? t.runtimeDigest ?? t.digest)
+}
 
 const meta = (row: MarketplaceRow) => {
   const hash = digest(row)

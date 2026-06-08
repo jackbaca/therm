@@ -112,7 +112,7 @@ test("Eikon visual E2E: duplicate Nous draft, studio preview, submit, delete rel
     expect(frames.studio).toContain("States")
     expect(frames.studio).toContain("e2e-stub")
 
-    act(() => gallery.keys.pressKey("u"))
+    act(() => gallery.keys.pressKey("s"))
     await until(gallery, () => gallery.frame().includes("Submit eikon"))
     snap("submit-open", gallery, frames)
     act(() => gallery.keys.pressEnter())

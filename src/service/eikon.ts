@@ -16,15 +16,15 @@
 // (scope-tracked — deactivate unregisters). Studio reads the registry
 // live on every open of the rasterizer picker.
 
-import { existsSync, mkdirSync, readdirSync, copyFileSync, readFileSync, writeFileSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, copyFileSync, readFileSync, writeFileSync, rmSync, statSync } from "node:fs"
 import { join, extname, basename, dirname } from "node:path"
-import { install, resolve, peek, dirty, header as peekHeader, serializeLaunchStream, defaultSignalMappings,
-         type LaunchStreamRecord, type Installed as Got, type Resolved as ResolvedEikon, type Origin as EikonOrigin, type TrustState, type SourceKind } from "eikon"
+import { install, resolve, peek, entries as packageEntries, dirty, header as peekHeader, serializeLaunchStream, defaultSignalMappings,
+         type LaunchStreamRecord, type Installed as Got, type Resolved as ResolvedEikon, type Origin as EikonOrigin, type TrustState, type SourceKind, type DownloadOptions } from "eikon"
 import { DEFAULT_PUBLIC_CATALOG } from "eikon/catalog"
 import { hermesPath } from "./hermes-home"
 import * as prefs from "../context/preferences"
 import { parseEikon, listEikons } from "../components/avatar/eikon"
-import { BUNDLED_EIKON_DIR, bundledEikonPath } from "../components/avatar/bundled"
+import { BUNDLED_EIKON_DIR } from "../components/avatar/bundled"
 import type { AvatarState } from "../components/avatar/states"
 import { BUILTIN, cached, probe, W, H, type Rasterizer, type Frame } from "../utils/eikon-render"
 import { STATES, eff, toStudio, fresh, type Session, type Studio } from "../utils/eikon-knobs"
@@ -201,7 +201,11 @@ function inspectResolved(src: string, r: ResolvedEikon, stat?: { n: number; byte
   return out
 }
 
-export function lifecycle(name: string): LifecycleInfo {
+function changed(name: string) {
+  try { return dirty(dir(name)) } catch { return false }
+}
+
+export function lifecycle(name: string, opts: { dirty?: boolean } = {}): LifecycleInfo {
   const man = manifest(name)
   const head = header(file(name))
   const src = sourceInfo(man, head)
@@ -210,8 +214,8 @@ export function lifecycle(name: string): LifecycleInfo {
   const version = typeof man?.version === "string" ? man.version : undefined
   const compatibility = OBJ(man?.compatibility) ? man.compatibility : undefined
   const installedAt = originObject(man)?.at
-  const hasOrigin = src.kind !== "unknown" && src.kind !== "legacy"
-  const isDirty = existsSync(dir(name)) ? dirty(dir(name)) : false
+  const hasOrigin = Boolean(src.origin ?? src.packageUrl)
+  const isDirty = opts.dirty !== false && existsSync(dir(name)) ? changed(name) : false
   return {
     name,
     ...(title ? { title } : {}),
@@ -250,7 +254,7 @@ export function list(): Installed[] {
         source: src, hasSource: has,
         sourceUrl: origin(man) ?? legacySource(head),
         manifest: man,
-        lifecycle: lifecycle(name),
+        lifecycle: lifecycle(name, { dirty: false }),
       }
     })
 }
@@ -323,7 +327,7 @@ export function baked(name: string): string | undefined {
     const slug = basename(dirname(e.path)).toLowerCase()
     if (slug === target || e.meta.name.toLowerCase() === target) return e.path
   }
-  return bundledEikonPath("default")
+  return undefined
 }
 
 // ── Rasterizer registry ──────────────────────────────────────────────
@@ -461,7 +465,7 @@ export async function update(name: string, opts: { confirmActive?: boolean } = {
     message: `Updating '${name}' will change the active avatar's backing package. Pass confirmActive to update it.`,
   }
   const info = lifecycle(name)
-  const src = info.source.origin
+  const src = info.source.origin ?? info.source.packageUrl
   if (!src) throw new Error(`eikon '${name}' has no recorded source`)
   return fetchSource(src, { name })
 }
@@ -529,11 +533,24 @@ function stripManifestTrust(name: string) {
   writeFileSync(p, JSON.stringify(man, null, 2) + "\n", "utf8")
 }
 
+function statResolved(r: ResolvedEikon): { n: number; bytes: number } | undefined {
+  const xs = packageEntries(r.manifest)
+  const files = Array.isArray((r.manifest as { files?: unknown }).files)
+    ? (r.manifest as { files: Array<{ path?: string; size?: number }> }).files
+    : []
+  const sizes = xs.map(([, rel]) => files.find(f => f.path === rel)?.size)
+  if (sizes.every((n): n is number => typeof n === "number")) return { n: xs.length, bytes: sizes.reduce((a, b) => a + b, 0) }
+  if (r.staged) return { n: xs.length, bytes: xs.reduce((sum, [, rel]) => {
+    const p = join(r.staged, rel)
+    return existsSync(p) ? sum + statSync(p).size : sum
+  }, 0) }
+  return undefined
+}
+
 export async function inspectSource(src: string): Promise<InspectInfo> {
   const dl = /^http:\/\/localhost[:/]/.test(src) ? { allowPrivate: true } : undefined
   const r = await resolve(src, { downloader: dl })
-  const stat = await peek(src, { downloader: dl })
-  return inspectResolved(src, r, stat)
+  return inspectResolved(src, r, statResolved(r))
 }
 
 /** Install an eikon from any resolvable source (catalog name, git
@@ -541,10 +558,9 @@ export async function inspectSource(src: string): Promise<InspectInfo> {
  *  Seeds studio.json from the returned sources map and bumps the
  *  revision counter so the sidebar + Gallery reload. */
 export async function fetchSource(src: string, opts?: { name?: string; media?: boolean;
+                                   downloader?: DownloadOptions;
                                    progress?: (d: number, t: number) => void }): Promise<Fetched> {
-  const before = prefs.get("eikon")
   const out: Got = await install(src, ROOT(), opts)
-  if (prefs.get("eikon") !== before) prefs.set("eikon", before)
   stripManifestTrust(out.name)
   const prev = readStudio(out.name)
   writeStudio(out.name, { ...(prev ?? toStudio(fresh(out.name, pick()))),
@@ -709,9 +725,9 @@ async function installLaunch(url: string, opts: { name?: string; fetcher?: typeo
   return { name, sources: {}, n: 1, bytes: text.length }
 }
 
-export async function installPackage(src: string | CatalogPackage, opts: { name?: string; fetcher?: typeof fetch } = {}): Promise<Fetched> {
+export async function installPackage(src: string | CatalogPackage, opts: { name?: string; fetcher?: DownloadOptions["fetcher"] } = {}): Promise<Fetched> {
   const url = typeof src === "string" ? src : src.packageUrl
-  return fetchSource(url, { name: opts.name })
+  return fetchSource(url, { name: opts.name, downloader: opts.fetcher ? { fetcher: opts.fetcher } : undefined })
 }
 
 export { parseEikon, probe }

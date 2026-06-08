@@ -99,18 +99,22 @@ export const EikonGallery = memo((props: Props) => {
 
   const updateLocal = useCallback(async () => {
     if (!cur || cur.bundled) return
-    const out = await eikon.update(cur.slug).catch(e => { toast.error(e instanceof Error ? e : new Error(String(e))); return undefined })
-    if (!out) return
-    if ("type" in out) {
-      const ok = await openConfirm(dialog, {
-        title: `Update active '${cur.name}'?`, danger: true,
-        body: `${out.message} The active avatar's backing package will change even though the selected name stays '${cur.slug}'.`,
-        yes: "update active", no: "cancel",
-      })
-      if (!ok) return
-      await eikon.update(cur.slug, { confirmActive: true }).catch(e => toast.error(e instanceof Error ? e : new Error(String(e))))
+    try {
+      const out = await eikon.update(cur.slug)
+      if ("type" in out) {
+        const ok = await openConfirm(dialog, {
+          title: `Update active '${cur.name}'?`, danger: true,
+          body: `${out.message} The active avatar's backing package will change even though the selected name stays '${cur.slug}'.`,
+          yes: "update active", no: "cancel",
+        })
+        if (!ok) return
+        const done = await eikon.update(cur.slug, { confirmActive: true })
+        if ("type" in done) return toast.show({ variant: "warning", message: done.message })
+      }
+      toast.show({ variant: "success", message: `Updated ${cur.name}` })
+    } catch (e) {
+      toast.error(e instanceof Error ? e : new Error(String(e)))
     }
-    toast.show({ variant: "success", message: `Updated ${cur.name}` })
   }, [cur, dialog, toast])
 
   const submitLocal = useCallback(async () => {
@@ -154,9 +158,10 @@ export const EikonGallery = memo((props: Props) => {
       onActivate: () => activate(),
       onDelete: () => void del(),
       onNew: doNew,
+      onRefresh: () => { eikon.notifyRevision(); toast.show({ variant: "info", message: "Reloaded", duration: 1000 }) },
     })) return
-    if (key.name === "r" && cur && !cur.bundled) return void updateLocal()
-    if (key.name === "u" && cur && !cur.bundled) return void submitLocal()
+    if (key.name === "u" && cur && !cur.bundled) return void updateLocal()
+    if (key.name === "s" && cur && !cur.bundled) return void submitLocal()
     if (key.name === "e" && cur && props.onEdit) props.onEdit(cur.slug)
   })
 
@@ -198,11 +203,10 @@ export const EikonGallery = memo((props: Props) => {
         </TabShell>
       </box>
       <HintBar pairs={[
-        ["↑↓", "select"], [keys.print("list.activate"), "use"],
-        ...(cur && props.onEdit ? [["e", "edit in studio"] as const] : []),
-        ...(cur && !cur.bundled ? [["r", "update"] as const, ["u", "submit"] as const] : []),
-        [keys.print("list.new"), "new / install"],
-        ...(cur && !cur.bundled ? [[keys.print("list.delete"), "remove"] as const] : []),
+        [keys.print("list.activate"), "use"], ["↑↓", "select"],
+        [keys.print("list.new"), "new / install"], [keys.print("list.refresh"), "reload"],
+        ...(cur && props.onEdit ? [["e", "edit"] as const] : []),
+        ...(cur && !cur.bundled ? [["u/s/d", "manage"] as const] : []),
       ]} />
     </box>
   )

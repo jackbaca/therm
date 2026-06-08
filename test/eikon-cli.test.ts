@@ -120,6 +120,30 @@ describe("eikon headless CLI", () => {
     expect(JSON.parse(c.stdout()).active).toBeNull()
   })
 
+  test("install refuses to replace active backing without acknowledgement", async () => {
+    const calls: string[] = []
+    const c = capture()
+    const d = deps({
+      getActive: () => "ares",
+      fetchSource: async source => { calls.push(source); return { name: "ares", sources: {}, n: 1, bytes: 42 } },
+    })
+
+    expect(await handleEikonCli(["eikon", "install", "ares", "--json"], d, c.io)).toBe(1)
+
+    expect(calls).toEqual([])
+    expect(JSON.parse(c.stderr())).toEqual({
+      ok: false,
+      error: "Installing 'ares' will replace the active avatar's backing package. Pass --active-ok to install it.",
+      consequence: "active",
+      action: "install",
+      name: "ares",
+    })
+
+    const ok = capture()
+    expect(await handleEikonCli(["eikon", "install", "ares", "--active-ok", "--json"], d, ok.io)).toBe(0)
+    expect(calls).toEqual(["ares"])
+  })
+
   test("search and browse expose catalog lifecycle rows as json", async () => {
     const s = capture()
     expect(await handleEikonCli(["eikon", "search", "ar", "--json"], deps(), s.io)).toBe(0)
@@ -214,6 +238,19 @@ describe("eikon headless CLI", () => {
     expect(await handleEikonCli(["eikon", "use", "missing", "--json"], deps(), c.io)).toBe(1)
 
     expect(JSON.parse(c.stderr())).toEqual({ ok: false, error: "No installed or bundled eikon named 'missing'" })
+  })
+
+  test("info rejects unknown eikons", async () => {
+    const c = capture()
+    const seen: string[] = []
+
+    expect(await handleEikonCli(["eikon", "info", "missing", "--json"], deps({
+      has: () => false,
+      info: name => { seen.push(name); return item(name).lifecycle },
+    }), c.io)).toBe(1)
+
+    expect(seen).toEqual([])
+    expect(JSON.parse(c.stderr())).toEqual({ ok: false, error: "No installed eikon named 'missing'" })
   })
 
   test("remove and update require active acknowledgement before mutation", async () => {

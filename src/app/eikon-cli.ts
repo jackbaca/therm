@@ -11,7 +11,7 @@ Usage:
   herm eikon browse [query] [--json]
   herm eikon inspect <name|url|dir> [--json]
   herm eikon info <name> [--json]
-  herm eikon install <name|url|dir> [--name N] [--no-source] [--json]
+  herm eikon install <name|url|dir> [--name N] [--no-source] [--active-ok] [--json]
   herm eikon list [--json]
   herm eikon use <name> [--json]
   herm eikon update <name> [--active-ok] [--json]
@@ -177,6 +177,10 @@ function activeMessage(x: svc.ActiveConsequence) {
   return `Updating '${x.name}' will change the active avatar's backing package. Pass --active-ok to update it.`
 }
 
+function installMessage(name: string) {
+  return `Installing '${name}' will replace the active avatar's backing package. Pass --active-ok to install it.`
+}
+
 function emitError(io: EikonCliIO, msg: string, json: boolean, extra?: Record<string, unknown>): 1 {
   io.stderr(json ? JSON.stringify({ ok: false, error: msg, ...extra }) + "\n" : `error: ${msg}\n`)
   return 1
@@ -207,6 +211,9 @@ export async function handleEikonCli(
     if (cmd === "install") {
       const source = p.values[0]
       if (!source) return emitError(io, "usage: herm eikon install <name|url|dir>", p.json)
+      const name = p.name ?? (await deps.inspect(source)).name
+      if (deps.getActive() === name && !p.activeOk)
+        return emitError(io, installMessage(name), p.json, { consequence: "active", action: "install", name })
       const out = await deps.fetchSource(source, { name: p.name, media: p.media })
       const active = deps.getActive() ?? null
       if (p.json) return emit(io, JSON.stringify({ ok: true, name: out.name, n: out.n, bytes: out.bytes, sources: out.sources, active }))
@@ -237,6 +244,7 @@ export async function handleEikonCli(
     if (cmd === "info") {
       const name = p.values[0]
       if (!name) return emitError(io, "usage: herm eikon info <name>", p.json)
+      if (!deps.has(name)) return emitError(io, `No installed eikon named '${name}'`, p.json)
       const out = deps.info(name)
       if (p.json) return emit(io, JSON.stringify({ ok: true, ...out }))
       return emit(io, `${out.name}${out.version ? ` v${out.version}` : ""}${out.active ? " active" : " installed"}\n  source: ${out.source.kind} ${out.source.identity ?? out.source.origin ?? "unknown"}\n  trust: ${out.trust}`)
@@ -252,7 +260,7 @@ export async function handleEikonCli(
     if (cmd === "use") {
       const name = p.values[0]
       if (!name) return emitError(io, "usage: herm eikon use <name>", p.json)
-      if (!deps.baked(name)) return emitError(io, `No installed or bundled eikon named '${name}'`, p.json)
+      if (!deps.has(name) && !deps.baked(name)) return emitError(io, `No installed or bundled eikon named '${name}'`, p.json)
       deps.setActive(name)
       if (p.json) return emit(io, JSON.stringify({ ok: true, active: name }))
       return emit(io, `Avatar → ${name}`)

@@ -187,6 +187,22 @@ describe("service/eikon: fetchSource", () => {
     expect(out.sources).toEqual({ base: "base.png", thinking: "thinking.png" })
     srv.stop()
   })
+
+  test("installPackage honors the supplied fetcher instead of global fetch", async () => {
+    const seen: string[] = []
+    const fetcher = async (input: string | URL | Request) => {
+      const u = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url)
+      seen.push(u.pathname)
+      return body(u.pathname.split("/").pop()!)
+    }
+
+    const out = await eikon.installPackage("https://example.com/pkg/manifest.json", { fetcher })
+
+    expect(out.name).toBe("ares")
+    expect(seen).toContain("/pkg/manifest.json")
+    expect(seen).toContain("/pkg/ares.eikon")
+    expect(existsSync(eikon.file("ares"))).toBe(true)
+  })
 })
 
 describe("service/eikon: lifecycle", () => {
@@ -237,6 +253,63 @@ describe("service/eikon: lifecycle", () => {
     expect(info.source.kind).toBe("legacy")
     expect(info.source.origin).toBe("http://x/legacy/")
     expect(info.trust).toBe("unverified")
+  })
+
+  test("list tolerates corrupt installed manifests", () => {
+    eikon.ensure("corrupt")
+    writeFileSync(eikon.file("corrupt"), '{"eikon":1,"name":"corrupt"}\n')
+    writeFileSync(join(eikon.dir("corrupt"), "manifest.json"), "{")
+
+    const row = eikon.list().find(x => x.name === "corrupt")!
+
+    expect(row.name).toBe("corrupt")
+    expect(row.manifest).toBeUndefined()
+    expect(row.lifecycle.source.kind).toBe("unknown")
+  })
+
+  test("packageUrl-only origins are advertised and updateable", async () => {
+    const text = [
+      JSON.stringify({ type: "header", eikon: 1, size: { cols: 4, rows: 2 }, defaultSignal: "state.idle", signals: { "state.idle": { clip: "idle" } } }),
+      JSON.stringify({ type: "clip", name: "idle", fps: 12, frameCount: 1 }),
+      JSON.stringify({ type: "frame", clip: "idle", index: 0, rows: ["abcd", "efgh"] }),
+    ].join("\n") + "\n"
+    const data = new Uint8Array([137, 80, 78, 71])
+    const srv = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const name = new URL(req.url).pathname.split("/").pop()!
+        if (name === "manifest.json") return Response.json({
+          kind: "eikon.package",
+          schemaVersion: "1.0",
+          id: "liftaris/pkgonly",
+          name: "pkgonly",
+          compatibility: { eikon: ">=1 <2" },
+          entrypoints: { default: "pkgonly.eikon" },
+          files: [
+            { path: "pkgonly.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl", size: text.length, digest: digest(text) },
+            { path: "source.png", role: "source.base", mediaType: "image/png", size: data.length, digest: digest(data) },
+          ],
+          source: { base: "source.png" },
+        })
+        if (name === "pkgonly.eikon") return new Response(text)
+        if (name === "source.png") return new Response(data)
+        return new Response("404", { status: 404 })
+      },
+    })
+    const url = `http://localhost:${srv.port}/pkg/manifest.json`
+    eikon.ensure("pkgonly")
+    writeFileSync(eikon.file("pkgonly"), '{"eikon":1,"name":"pkgonly"}\n')
+    writeFileSync(join(eikon.dir("pkgonly"), "manifest.json"), JSON.stringify({
+      name: "pkgonly",
+      origin: { packageUrl: url, kind: "catalog-package" },
+    }))
+
+    expect(eikon.lifecycle("pkgonly").updateable).toBe(true)
+    const out = await eikon.update("pkgonly")
+
+    expect("type" in out).toBe(false)
+    expect(out.name).toBe("pkgonly")
+    srv.stop()
   })
 
   test("active remove/update require explicit acknowledgement before mutation", async () => {
