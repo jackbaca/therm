@@ -42,12 +42,15 @@ export const EikonGallery = memo((props: Props) => {
 
   const rows = useMemo<Row[]>(() => {
     const user = hermesPath("eikons")
-    const own = new Map(eikon.list().map(x => [x.name.toLowerCase(), x]))
+    const own = eikon.list()
+    const map = new Map(own.map(x => [x.name.toLowerCase(), x]))
+    const meta = own.map(x => ({ inst: x, ids: ids(x.manifest as Record<string, unknown> | undefined, x.name, x.sourceUrl) }))
     return listEikons([BUNDLED_EIKON_DIR, user]).map(e => {
       const slug = e.path.startsWith(BUNDLED_EIKON_DIR)
         ? e.meta.name.toLowerCase() : basename(dirname(e.path))
-      const mine = own.get(slug)
       const man = manifest(dirname(e.path))
+      const keys = ids(man, slug)
+      const mine = meta.find(x => x.ids.some(k => keys.includes(k)))?.inst ?? map.get(slug)
       return {
         path: e.path, name: e.meta.name, slug, author: e.meta.author,
         bundled: e.path.startsWith(BUNDLED_EIKON_DIR),
@@ -57,7 +60,7 @@ export const EikonGallery = memo((props: Props) => {
         lifecycle: mine?.lifecycle,
         ...(man ? { manifest: man } : {}),
       }
-    })
+    }).filter(r => !(r.bundled && r.lifecycle))
   }, [rev])
 
   const active = prefs.usePref("eikon")
@@ -141,8 +144,8 @@ export const EikonGallery = memo((props: Props) => {
     if (!cur || cur.bundled) return
     const here = current(cur)
     const body = here
-      ? `Removes ${dirname(cur.path)} and all its sources. This is the active avatar; deleting it will clear the active avatar selection. This cannot be undone.`
-      : `Removes ${dirname(cur.path)} and all its sources. This cannot be undone.`
+      ? `Removes ${dirname(cur.path)} and all its sources. This is the active avatar; deleting it will clear the active avatar selection.`
+      : `Removes ${dirname(cur.path)} and all its sources.`
     const ok = await openConfirm(dialog, {
       title: `Delete '${cur.name}'?`, danger: true,
       body,
@@ -251,3 +254,25 @@ const manifest = (dir: string) => {
 }
 
 const sourceBadge = (row: Row) => row.hasSource ? "● source" : row.url || row.bundled ? "○ source available" : "— no source"
+
+const key = (value: string) => {
+  try {
+    const url = new URL(value)
+    if (url.protocol === "http:" || url.protocol === "https:" || url.protocol === "file:") return url.href.replace(/\/?$/, "/").toLowerCase()
+  } catch {}
+  return value.toLowerCase()
+}
+
+const ids = (man?: Record<string, unknown>, name?: string, url?: string) => {
+  const origin = man?.origin && typeof man.origin === "object" && !Array.isArray(man.origin)
+    ? man.origin as Record<string, unknown> : undefined
+  return [...new Set([
+    typeof man?.id === "string" ? man.id : undefined,
+    typeof origin?.sourceKey === "string" ? origin.sourceKey : undefined,
+    typeof origin?.identityKey === "string" ? origin.identityKey : undefined,
+    typeof origin?.packageUrl === "string" ? origin.packageUrl : undefined,
+    typeof origin?.source === "string" ? origin.source : undefined,
+    url,
+    name,
+  ].filter((x): x is string => !!x).map(key))]
+}

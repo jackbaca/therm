@@ -1,8 +1,8 @@
 {
   "kind": "eikon.package",
   "schemaVersion": "1.0",
-  "id": "liftaris/default",
-  "name": "default",
+  "id": "liftaris/nous",
+  "name": "nous",
   "display": {
     "title": "Nous",
     "author": "kaio"
@@ -11,11 +11,11 @@
     "eikon": ">=1 <2"
   },
   "entrypoints": {
-    "default": "default.eikon"
+    "default": "nous.eikon"
   },
   "files": [
     {
-      "path": "default.eikon",
+      "path": "nous.eikon",
       "mediaType": "application/vnd.eikon.stream+jsonl",
       "role": "runtime"
     }
@@ -24,5 +24,11 @@
     "used": [
       "eikon.signals.v1"
     ]
+  },
+  "origin": {
+    "kind": "default-catalog",
+    "sourceKey": "registry:eikon.liftaris.dev:liftaris/nous",
+    "identityKey": "registry:eikon.liftaris.dev:liftaris/nous",
+    "packageUrl": "https://eikon.liftaris.dev/eikons/nous/manifest.json"
   }
 }

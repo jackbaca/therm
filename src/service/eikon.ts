@@ -322,7 +322,7 @@ export function baked(name: string): string | undefined {
   const local = file(name)
   if (existsSync(local)) return local
 
-  const target = name.toLowerCase()
+  const target = (name === "default" ? "nous" : name).toLowerCase()
   for (const e of listEikons([BUNDLED_EIKON_DIR])) {
     const slug = basename(dirname(e.path)).toLowerCase()
     if (slug === target || e.meta.name.toLowerCase() === target) return e.path

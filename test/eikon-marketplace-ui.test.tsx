@@ -248,9 +248,12 @@ describe("EikonMarketplace tab", () => {
     await until(t, () => t.frame().includes("set as active avatar"))
     expect(t.frame()).not.toContain("Download Source")
 
-    act(() => t.keys.pressKey("d"))
+    act(() => t.keys.pressArrow("down"))
+    act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Remove 'ares'?"))
+    expect(t.frame()).toContain("This does not")
     expect(t.frame()).toContain("change the active avatar")
+    expect(t.frame()).not.toContain("This cannot be undone")
     act(() => t.keys.pressKey("y"))
     await until(t, () => t.frame().includes("Install") && !eikon.list().some(x => x.name === "ares"))
     fx.srv.stop()
@@ -297,12 +300,13 @@ describe("EikonMarketplace tab", () => {
 
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Download Source"))
-    act(() => t.keys.pressKey("2"))
+    act(() => t.keys.pressArrow("down"))
+    act(() => t.keys.pressKey(" "))
     await until(t, () => eikon.list().find(x => x.name === "mono")!.hasSource)
     fx.srv.stop()
   })
 
-  test("active package key 2 downloads source instead of deleting", async () => {
+  test("active package modal omits already-active and can download source", async () => {
     const fx = packageCatalog()
     process.env.EIKON_URL = fx.base
     await using t = await mountNode(group(), { width: 160, height: 40 })
@@ -319,8 +323,10 @@ describe("EikonMarketplace tab", () => {
     await until(t, () => prefs.get("eikon") === "mono" && t.frame().includes("▸ ● mono"))
 
     act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("Active") && t.frame().includes("Download Source") && t.frame().includes("Delete"))
-    act(() => t.keys.pressKey("2"))
+    await until(t, () => t.frame().includes("Download Source") && t.frame().includes("Delete"))
+    expect(t.frame()).not.toContain("already active")
+    expect(t.frame()).not.toContain("asks before removing")
+    act(() => t.keys.pressEnter())
     await until(t, () => eikon.list().find(x => x.name === "mono")!.hasSource)
     expect(eikon.list().some(x => x.name === "mono")).toBe(true)
     expect(prefs.get("eikon")).toBe("mono")

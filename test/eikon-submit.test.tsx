@@ -12,7 +12,7 @@ const HH = process.env.HERMES_HOME!
 
 function seed(name: string, opts: { published?: boolean } = {}) {
   const p = eikon.ensure(name)
-  const src = Bun.file(join(import.meta.dir, "../assets/eikons/default/default.eikon")).text()
+  const src = Bun.file(join(import.meta.dir, "../assets/eikons/nous/nous.eikon")).text()
   return src.then(raw => {
     const lines = raw.trimEnd().split("\n")
     const baseHead = JSON.parse(lines[0]!)
@@ -161,7 +161,7 @@ describe("Eikon submit dialog", () => {
   })
 
   test("Submit entry is hidden for bundled eikons", async () => {
-    prefs.set("eikon", "default")
+    prefs.set("eikon", "nous")
     const fn = mock(async () => ({ kind: "submitted" as const, url: "https://github.com/liftaris/eikon/pull/1", request: {} as never }))
     await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 160, height: 48 })
     await until(t, () => t.frame().includes("bundled/system"))

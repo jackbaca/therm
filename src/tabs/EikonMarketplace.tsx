@@ -150,7 +150,7 @@ export const EikonMarketplace = memo((props: {
         const confirm = row.installState === "active-name-conflict"
           ? await openConfirm(dialog, {
               title: `Replace active '${row.entry.name}'?`, danger: true,
-              body: `Installing this marketplace package will replace the active avatar's backing package for '${row.entry.name}' because another package with the same installed name is active. This cannot be undone.`,
+              body: `Installing this marketplace package will replace the active avatar's backing package for '${row.entry.name}' because another package with the same installed name is active.`,
               yes: "replace active", no: "cancel",
             })
           : true
@@ -177,8 +177,8 @@ export const EikonMarketplace = memo((props: {
     const ok = await openConfirm(dialog, {
       title: `Remove '${name}'?`, danger: true,
       body: active
-        ? `Remove the local package for '${name}'. This is the active avatar; removal will clear the active avatar selection. This cannot be undone.`
-        : `Remove the local package for '${name}'. This does not change the active avatar. This cannot be undone.`,
+        ? `Remove the local package for '${name}'. This is the active avatar; removal will clear the active avatar selection.`
+        : `Remove the local package for '${name}'. This does not change the active avatar.`,
       yes: "remove", no: "cancel",
     })
     if (!ok) return

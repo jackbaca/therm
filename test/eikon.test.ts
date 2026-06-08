@@ -154,14 +154,20 @@ describe("listEikons", () => {
     expect(paths.some(p => p.endsWith("extra.eikon"))).toBe(false)
   })
 
-  test("bundled eikons ship as package runtime streams and list once", () => {
-    const p = bundledEikonPath("default")!
-    expect(p).toEndWith("default.eikon")
+  test("bundled eikons ship only Nous as a package runtime stream", () => {
+    const p = bundledEikonPath("nous")!
+    expect(bundledEikonPath("default")).toBe(p)
+    expect(p).toEndWith("nous.eikon")
     expect(existsSync(join(dirname(p), "manifest.json"))).toBe(true)
+    const man = JSON.parse(readFileSync(join(dirname(p), "manifest.json"), "utf8"))
+    expect(man.id).toBe("liftaris/nous")
+    expect(man.name).toBe("nous")
+    expect(man.origin.identityKey).toBe("registry:eikon.liftaris.dev:liftaris/nous")
     const e = parseEikon(readFileSync(p, "utf8"))
     expect(e.meta.width).toBe(48)
     expect(e.states.has("idle")).toBe(true)
     const found = listEikons([join(import.meta.dir, "../assets/eikons")])
+    expect(found).toHaveLength(1)
     expect(found.filter(e => e.meta.name.toLowerCase() === "nous")).toHaveLength(1)
     expect(found.every(e => e.path.endsWith(".eikon"))).toBe(true)
   })

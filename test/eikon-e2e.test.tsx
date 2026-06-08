@@ -30,7 +30,7 @@ function seedNousDraft(name: string) {
   const source = join(p.source, "base.png")
   writeFileSync(source, PX)
 
-  const lines = readFileSync(join(import.meta.dir, "../assets/eikons/default/default.eikon"), "utf8").trimEnd().split("\n")
+  const lines = readFileSync(join(import.meta.dir, "../assets/eikons/nous/nous.eikon"), "utf8").trimEnd().split("\n")
   const head = JSON.parse(lines[0]!)
   head.id = `liftaris/${name}`
   head.title = name

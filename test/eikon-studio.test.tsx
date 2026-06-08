@@ -520,13 +520,14 @@ describe("EikonStudio tab", () => {
 })
 
 describe("EikonGallery tab", () => {
-  test("marks only the resolved active row when installed eikon shadows bundled", async () => {
+  test("shows installed Nous once when it shadows bundled Nous", async () => {
     mkdirSync(join(HH, "eikons"), { recursive: true })
-    seed("mono")
-    prefs.set("eikon", "mono")
+    seed("nous")
+    prefs.set("eikon", "nous")
     await using t = await mountNode(<EikonGallery focused />, { width: 160, height: 48 })
-    await until(t, () => t.frame().includes("Gallery (") && t.frame().includes("mono"))
-    expect(t.frame().match(/●\s+mono/g)?.length ?? 0).toBe(1)
+    await until(t, () => t.frame().includes("Gallery (") && t.frame().includes("nous"))
+    expect(t.frame().split("\n").filter(l => /\b[Nn]ous\b/.test(l))).toHaveLength(1)
+    expect(t.frame().match(/●\s+nous/g)?.length ?? 0).toBe(1)
   })
 
   test("lists bundled + installed; Enter sets active eikon", async () => {
@@ -539,7 +540,7 @@ describe("EikonGallery tab", () => {
     )
     await until(t, () => t.frame().includes("Gallery ("))
     expect(t.frame()).toContain("galone")
-    // Bundled dir also shows (at least default/mono/ares ship).
+    // Bundled Nous also shows when no installed eikon shadows it.
     // Move to galone and activate.
     const rows = t.frame()
     const target = rows.split("\n").findIndex(l => l.includes("galone"))
