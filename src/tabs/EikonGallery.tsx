@@ -61,6 +61,8 @@ export const EikonGallery = memo((props: Props) => {
   }, [rev])
 
   const active = prefs.usePref("eikon")
+  const path = useMemo(() => active ? eikon.baked(active) : undefined, [active, rev])
+  const current = (row: Row) => path === row.path
   const [sel, setSel] = useState(0)
   const galleryFollow = useFollow("gal", i => rows[i]?.slug ?? i)
 
@@ -137,7 +139,7 @@ export const EikonGallery = memo((props: Props) => {
 
   const del = async () => {
     if (!cur || cur.bundled) return
-    const here = cur.slug === active
+    const here = current(cur)
     const body = here
       ? `Removes ${dirname(cur.path)} and all its sources. This is the active avatar; deleting it will clear the active avatar selection. This cannot be undone.`
       : `Removes ${dirname(cur.path)} and all its sources. This cannot be undone.`
@@ -177,7 +179,7 @@ export const EikonGallery = memo((props: Props) => {
               ? <text fg={theme.textMuted}>No eikons found.</text>
               : rows.map((r, i) => {
                   const on = i === sel
-                  const here = r.slug === active
+                  const here = current(r)
                   return (
                     <box key={r.path} id={galleryFollow.id(i)} flexDirection="row" height={1}
                          backgroundColor={on ? theme.backgroundElement : undefined}
@@ -202,7 +204,7 @@ export const EikonGallery = memo((props: Props) => {
               <box flexDirection="column" gap={1}>
                 <text fg={theme.text}><strong>{cur.name}</strong></text>
                 <text fg={theme.textMuted}>Author: {cur.author ?? "—"}</text>
-                <text fg={theme.textMuted}>Status: {cur.slug === active ? "active" : cur.bundled ? "bundled/system" : "installed"}</text>
+                <text fg={theme.textMuted}>Status: {current(cur) ? "active" : cur.bundled ? "bundled/system" : "installed"}</text>
                 <text fg={theme.textMuted} wrapMode="word">Source: {gallerySource(cur)}</text>
                 <text fg={theme.textMuted} wrapMode="word">Trust: {galleryTrust(cur)}</text>
                 <text fg={theme.textMuted} wrapMode="word">Package: {packageId(cur)}</text>

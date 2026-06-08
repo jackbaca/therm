@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { mountNode, until } from "./harness"
 import { EikonGroup } from "../src/tabs/EikonGroup"
+import { EikonGallery } from "../src/tabs/EikonGallery"
 import { EikonStudio, resetToolsetsCache } from "../src/tabs/EikonStudio"
 import { gen } from "../src/service/eikon-gen"
 import { eikon } from "../src/service/eikon"
@@ -519,6 +520,15 @@ describe("EikonStudio tab", () => {
 })
 
 describe("EikonGallery tab", () => {
+  test("marks only the resolved active row when installed eikon shadows bundled", async () => {
+    mkdirSync(join(HH, "eikons"), { recursive: true })
+    seed("mono")
+    prefs.set("eikon", "mono")
+    await using t = await mountNode(<EikonGallery focused />, { width: 160, height: 48 })
+    await until(t, () => t.frame().includes("Gallery (") && t.frame().includes("mono"))
+    expect(t.frame().match(/●\s+mono/g)?.length ?? 0).toBe(1)
+  })
+
   test("lists bundled + installed; Enter sets active eikon", async () => {
     mkdirSync(join(HH, "eikons"), { recursive: true })
     seed("galone")
