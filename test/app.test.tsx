@@ -606,6 +606,7 @@ describe("app", () => {
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Title: my overnight run")) // system line
 
+    expect(t.frame()).toMatch(/Title\s+my overnight run/)
     expect(t.gw.last("session.title")?.params.title).toBe("my overnight run")
     expect(t.gw.last("prompt.submit")).toBeUndefined() // intercepted
     t.destroy()
@@ -636,6 +637,19 @@ describe("app", () => {
     expect(t.gw.last("session.resume")).toBeUndefined()
     expect(t.frame()).toContain("branch seed")
     expect(t.frame()).not.toContain("Failed to resume")
+    t.destroy()
+  })
+
+  test("sidebar title stays unset until a session title exists", async () => {
+    const t = await mount()
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("quick title seed") })
+    act(() => t.keys.pressEnter())
+    await t.settle()
+
+    expect(t.frame()).toMatch(/Title\s+—/)
+    expect(t.frame()).not.toMatch(/Title\s+quick title seed/)
     t.destroy()
   })
 

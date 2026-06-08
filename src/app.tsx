@@ -116,7 +116,8 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const [usage, setUsage] = useState<Usage | undefined>(undefined)
   const [info, setInfo] = useState<SessionInfo | null>(null)
   const [title, setTitle] = useState("")
-  const titleRef = useRef(title); titleRef.current = title
+  const caption = title.trim()
+  const titleRef = useRef(caption); titleRef.current = caption
   // Real SIGINT (terminal multiplexer, focus-stolen widget, kernel-delivered
   // ctrl+c that bypasses the React keyboard tree) goes through the same
   // quit() path as /quit so the resume banner always lands. Replaces the
@@ -555,7 +556,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const sendRef = useRef<(raw: string) => void>(() => {})
   const slash = useSlash({
     dispatch, session, turnRef, queueRef, sendRef, composer, summoned, undone,
-    capabilities, info, sid, title, skin,
+    capabilities, info, sid, title: caption, skin,
     setQueue, setFocusRegion, setSplash, setAttachments, setInfo, setUsage, setTitle,
     newSession, switchSession, activateSession, rewind, goTo, attachClipboard, voiceToggle: voice.toggle,
   })
@@ -563,7 +564,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     // Bare exit/quit/:q — pass through as literals so a
     // reflex `exit⏎` works without the leading slash.
     if (["exit", "quit", ":q", ":q!", ":wq"].includes(raw.trim()))
-      return quit(renderer, sid, title, gw)
+      return quit(renderer, sidRef.current, titleRef.current, gw)
     // Slash-shaped input resolves against the merged catalog: exact
     // name/alias wins, else unique prefix. This covers the "typed with
     // arg" path the popover can't — e.g. `/mod gpt-4`, `/q follow-up`.
@@ -715,7 +716,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     // the head once turn.streaming flips false.
     queued: queue.length,
     onFlushQueue: stream.doInterrupt,
-    onQuit: () => quit(renderer, sid, title, gw),
+    onQuit: () => quit(renderer, sid, caption, gw),
     onQuitArm: (label) =>
       toast.show({ variant: "info", message: `${label} again to quit` }),
     onInterruptNotice: () => {
@@ -867,7 +868,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
           {sidebarVisible ? (
             <Profiler id="sidebar" onRender={perf.onRender}>
               <Sidebar agentState={agentState} info={info} usage={usage} eikon={eikon} profile={activeProfileName()}
-                       title={title}
+                       title={caption}
                        preview={sidebarPreview}
                        cloud={tab === 0 && cloud} pulse={turn.streaming}
                        onAvatar={onAvatar} onAvatarHold={onAvatarHold} />

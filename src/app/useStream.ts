@@ -3,7 +3,7 @@
 // calls out to. Pulled from AppInner so the shell only wires setters.
 
 import type React from "react"
-import { useCallback, useRef, type RefObject } from "react"
+import { useCallback, useEffect, useRef, type RefObject } from "react"
 import * as spawnHistory from "./spawnHistory"
 import * as preferences from "../context/preferences"
 import { useGateway, useGatewayEvent } from "../context/gateway"
@@ -46,6 +46,7 @@ const STREAM_EVENTS = new Set<GatewayEvent["type"]>([
   "message.delta", "reasoning.delta", "reasoning.available", "thinking.delta",
   "tool.start", "tool.progress", "tool.generating",
 ])
+const TITLE_DELAYS = [1200, 5000, 15000, 30000] as const
 
 export function useStream(c: Ctx) {
   const gw = useGateway()
@@ -53,6 +54,12 @@ export function useStream(c: Ctx) {
   const toast = useToast()
   const bg = useBackground()
   const ctx = useRef(c); ctx.current = c
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([])
+
+  useEffect(() => () => {
+    timers.current.forEach(clearTimeout)
+    timers.current = []
+  }, [])
 
   // Client-side interrupt latch: flipped on Esc×2 before the gateway
   // has confirmed the stop. Stream-mutation events still in the stdio
@@ -102,6 +109,21 @@ export function useStream(c: Ctx) {
     })
   }, [])
 
+  const sync = useCallback((ms = 0) => {
+    const run = () => gw.request<{ title?: string; session_key?: string }>("session.title")
+      .then(r => {
+        ctx.current.setTitle(r.title ?? "")
+        if (r.session_key) preferences.set("lastSessionId", r.session_key)
+      })
+      .catch(() => {})
+    if (ms <= 0) return run()
+    const id = setTimeout(() => {
+      timers.current = timers.current.filter(t => t !== id)
+      run()
+    }, ms)
+    timers.current.push(id)
+  }, [gw])
+
   const handle = useCallback((ev: GatewayEvent) => {
     const x = ctx.current
     if (ev.type === "gateway.ready") info.current = false
@@ -136,10 +158,7 @@ export function useStream(c: Ctx) {
           kind: "system",
           text: `MCP: ${bad.length} server(s) failed to connect — ${bad.map(s => s.name + (s.error ? ` (${s.error})` : "")).join(", ")}`,
         })
-        gw.request<{ title: string; session_key?: string }>("session.title").then(r => {
-          x.setTitle(r.title ?? "")
-          if (r.session_key) preferences.set("lastSessionId", r.session_key)
-        }).catch(() => {})
+        sync()
         gw.request<{ value?: string }>("config.get", { key: "busy" }).then(r => {
           const m = r.value
           if (m === "queue" || m === "steer" || m === "interrupt") x.setBusy(m)
@@ -150,6 +169,7 @@ export function useStream(c: Ctx) {
         x.setStatus("")
         spawnHistory.flush(gw, x.sidRef.current)
         x.goalHook.check(x.sidRef.current)
+        TITLE_DELAYS.forEach(sync)
       },
       onBackground: (tid, text) => {
         bg.unregister(tid)
