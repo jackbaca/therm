@@ -525,8 +525,8 @@ describe("EikonGallery tab", () => {
     seed("nous")
     prefs.set("eikon", "nous")
     await using t = await mountNode(<EikonGallery focused />, { width: 160, height: 48 })
-    await until(t, () => t.frame().includes("Gallery (") && t.frame().includes("nous"))
-    expect(t.frame().split("\n").filter(l => /\b[Nn]ous\b/.test(l))).toHaveLength(1)
+    await until(t, () => t.frame().includes("Gallery (") && /●\s+nous/.test(t.frame()))
+    expect(t.frame().split("\n").filter(l => /^│\s*(?:▸\s*)?(?:●\s*)?nous\s+[█│]/i.test(l))).toHaveLength(1)
     expect(t.frame().match(/●\s+nous/g)?.length ?? 0).toBe(1)
   })
 
