@@ -832,17 +832,24 @@ export const Sessions = memo((props: Props) => {
     })
     if (name === null) return
     Promise.resolve()
-      .then(() => {
-        if (!io.rename(r.id, name)) throw new Error("not found")
+      .then(async () => {
+        const title = r.live
+          ? (await gw.request<{ title?: string }>("session.title", { session_id: r.id, title: name })).title ?? name
+          : name
+        if (!r.live && !io.rename(r.id, title)) throw new Error("not found")
+        const ids = [r.id, r.live?.session_key].filter((id): id is string => Boolean(id))
         home.invalidate("recentSessions")
         // Patch in place so the row updates without a full RPC reload
         // (session.list is the slow path). reload still happens next r.
-        setRows(prev => prev.map(row => row.id === r.id ? { ...row, title: name } : row))
+        setRows(prev => prev.map(row => ids.includes(row.id) ? { ...row, title } : row))
+        setLiveRows(prev => prev.map(row => row.id === r.id
+          ? { ...row, title, live: row.live ? { ...row.live, title } : row.live }
+          : row))
         toast.show({ variant: "success", message: "Renamed" })
       })
       .catch((e: Error) =>
         toast.show({ variant: "error", message: `Rename failed: ${e.message}` }))
-  }, [dialog, toast, sel])
+  }, [gw, dialog, toast, sel])
 
   const count = searching ? results.length : visible.length
   // Stable ids — include row.id + indent flag so a row moving between
