@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react"
-import { readFileSync } from "node:fs"
-import { basename, dirname } from "node:path"
+import { existsSync, readFileSync } from "node:fs"
+import { basename, dirname, join } from "node:path"
 import { useTheme } from "../theme"
 import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
@@ -24,6 +24,7 @@ type Row = {
   path: string; name: string; slug: string; author?: string; bundled: boolean
   w: number; h: number; url?: string; hasSource: boolean
   lifecycle?: eikon.LifecycleInfo
+  manifest?: Record<string, unknown>
 }
 
 type Props = {
@@ -46,6 +47,7 @@ export const EikonGallery = memo((props: Props) => {
       const slug = e.path.startsWith(BUNDLED_EIKON_DIR)
         ? e.meta.name.toLowerCase() : basename(dirname(e.path))
       const mine = own.get(slug)
+      const man = manifest(dirname(e.path))
       return {
         path: e.path, name: e.meta.name, slug, author: e.meta.author,
         bundled: e.path.startsWith(BUNDLED_EIKON_DIR),
@@ -53,6 +55,7 @@ export const EikonGallery = memo((props: Props) => {
         url: mine?.sourceUrl,
         hasSource: mine?.hasSource ?? !!eikon.findSource(slug),
         lifecycle: mine?.lifecycle,
+        ...(man ? { manifest: man } : {}),
       }
     })
   }, [rev])
@@ -176,29 +179,36 @@ export const EikonGallery = memo((props: Props) => {
                   const on = i === sel
                   const here = r.slug === active
                   return (
-                    <box key={r.path} id={galleryFollow.id(i)} flexDirection="row" height={2}
+                    <box key={r.path} id={galleryFollow.id(i)} flexDirection="row" height={1}
                          backgroundColor={on ? theme.backgroundElement : undefined}
                          onMouseMove={() => setSel(i)} onMouseDown={() => { setSel(i); activate(r) }}>
                       <box width={2}><text fg={on ? theme.primary : theme.textMuted}>{on ? "▸ " : "  "}</text></box>
-                      <box flexDirection="column" flexGrow={1} minWidth={0}>
-                        <box height={1}><text fg={here ? theme.accent : theme.text}>
-                          {here ? "● " : "  "}<strong>{r.name}</strong>
-                          <span fg={theme.textMuted}>{r.bundled ? "  (bundled)" : ""}</span>
-                        </text></box>
-                        <box height={1}><text fg={theme.textMuted}>
-                          {`  ${r.author ?? "—"} · ${sourceBadge(r)} · ${galleryTrust(r)} · ${gallerySource(r)}`}
-                        </text></box>
-                      </box>
+                      <box flexGrow={1} minWidth={0} height={1} overflow="hidden"><text fg={here ? theme.accent : theme.text}>
+                        {here ? "● " : "  "}<strong>{r.name}</strong>
+                      </text></box>
                     </box>
                   )
                 })}
           </scrollbox>
         </TabShell>
         <TabShell title={cur ? `Preview — ${cur.name}` : "Preview"} grow={3}>
-          <box alignItems="center" justifyContent="center" flexGrow={1}>
-            {parsed
-              ? <AnimatedAvatar key={cur!.path} state="idle" eikon={parsed} />
-              : <text fg={theme.textMuted}>No preview.</text>}
+          <box flexDirection="column" flexGrow={1} padding={1}>
+            <box alignItems="center" justifyContent="center" flexGrow={1}>
+              {parsed
+                ? <AnimatedAvatar key={cur!.path} state="idle" eikon={parsed} />
+                : <text fg={theme.textMuted}>No preview.</text>}
+            </box>
+            {cur ? (
+              <box flexDirection="column" gap={1}>
+                <text fg={theme.text}><strong>{cur.name}</strong></text>
+                <text fg={theme.textMuted}>Author: {cur.author ?? "—"}</text>
+                <text fg={theme.textMuted}>Status: {cur.slug === active ? "active" : cur.bundled ? "bundled/system" : "installed"}</text>
+                <text fg={theme.textMuted} wrapMode="word">Source: {gallerySource(cur)}</text>
+                <text fg={theme.textMuted} wrapMode="word">Trust: {galleryTrust(cur)}</text>
+                <text fg={theme.textMuted} wrapMode="word">Package: {packageId(cur)}</text>
+                <text fg={theme.textMuted}>{sourceBadge(cur)}</text>
+              </box>
+            ) : null}
           </box>
         </TabShell>
       </box>
@@ -222,8 +232,20 @@ const galleryTrust = (row: Row) => {
 
 const gallerySource = (row: Row) => {
   const src = row.lifecycle?.source
-  if (!src) return row.bundled ? "system" : "local"
-  return src.identity ?? src.repo ?? src.origin ?? src.kind
+  if (src) return src.identity ?? src.repo ?? src.origin ?? src.kind
+  if (row.bundled) return "bundled/system"
+  return "local"
 }
 
-const sourceBadge = (row: Row) => row.hasSource ? "● source" : row.url ? "○ source available" : "— no source"
+const packageId = (row: Row) => typeof row.manifest?.id === "string" ? row.manifest.id : row.bundled ? "bundled/system" : "—"
+
+const manifest = (dir: string) => {
+  const file = join(dir, "manifest.json")
+  if (!existsSync(file)) return undefined
+  try {
+    const raw = JSON.parse(readFileSync(file, "utf8"))
+    return raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : undefined
+  } catch { return undefined }
+}
+
+const sourceBadge = (row: Row) => row.hasSource ? "● source" : row.url || row.bundled ? "○ source available" : "— no source"

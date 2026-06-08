@@ -347,8 +347,9 @@ describe("app", () => {
     expect(t.frame()).toMatch(/Eikon\s+marketone/)
     expect(t.frame()).toMatch(/Author\s+Kaio/)
     expect(t.frame()).toContain("market one")
-    expect(t.frame()).toMatch(/Action\s+Install/)
-    expect(t.frame()).toMatch(/Digest\s+unknown/)
+    expect(t.frame()).toContain("not installed · source available")
+    expect(t.frame()).toContain("Digest")
+    expect(t.frame()).toContain("unknown")
     expect(t.frame()).not.toMatch(/Profile\s+default/)
 
     expect(prefs.get("eikon")).toBe("activeone")

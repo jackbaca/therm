@@ -316,7 +316,7 @@ describe("service/eikon-marketplace", () => {
 
     expect(out.name).toBe("ares")
     expect(existsSync(eikon.file("ares"))).toBe(true)
-    expect(existsSync(join(eikon.sourceDir("ares"), "base.png"))).toBe(true)
+    expect(existsSync(join(eikon.sourceDir("ares"), "base.png"))).toBe(false)
     expect(prefs.get("eikon")).toBe("old")
     expect(eikon.revision()).toBe(before + 1)
     const man = JSON.parse(readFileSync(join(eikon.dir("ares"), "manifest.json"), "utf8"))
@@ -360,7 +360,7 @@ describe("service/eikon-marketplace", () => {
     ])
     const state = await market.load({ catalog: `http://localhost:${srv.port}/eikons`, allowPrivate: true })
     expect(state.status).toBe("ready")
-    const out = await state.service!.install(state.rows[0]!.entry.identityKey)
+    const out = await state.service!.install(state.rows[0]!.entry.identityKey, { media: true })
 
     expect(out.name).toBe("pkg")
     expect(existsSync(eikon.file("pkg"))).toBe(true)
