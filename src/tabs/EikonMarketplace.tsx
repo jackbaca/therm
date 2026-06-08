@@ -380,4 +380,3 @@ const stateLabel = (row: MarketplaceRow, short = false) => {
   const rm = row.removable ? " · removable" : row.installed ? " · not removable" : ""
   return `${base}${src}${rm}`
 }
-
