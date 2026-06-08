@@ -6,7 +6,7 @@
  *   <ThemeProvider><App /></ThemeProvider>
  *
  *   // In any component:
- *   const { theme, name, set, names } = useTheme();
+ *   const { theme, name, mode, set, setMode, names } = useTheme();
  *   <box backgroundColor={theme.backgroundPanel}>
  *   <text fg={theme.text}>
  */
@@ -33,6 +33,8 @@ interface ThemeContext {
   mode: "dark" | "light"
   /** Switch to a theme by name. Returns false if not found. */
   set: (name: string) => boolean
+  /** Switch between dark and light variants. */
+  setMode: (mode: "dark" | "light") => void
   /** All available theme names, sorted */
   names: readonly string[]
   /** Check if a theme exists */
@@ -60,8 +62,9 @@ export const ThemeProvider = ({
   // install); production passes initial=prefs.theme so they agree at
   // boot and the pref drives thereafter.
   const pref = preferences.usePref("theme")
+  const modePref = preferences.usePref("themeMode")
   const active = pref ?? initial ?? DEFAULT_THEME
-  const [mode] = useState(initialMode)
+  const mode = modePref === "light" || modePref === "dark" ? modePref : initialMode
   const [tick, force] = useState(0)
 
   // Theme bodies load lazily — each call to `set(name)` triggers an
@@ -99,6 +102,10 @@ export const ThemeProvider = ({
     return true
   }, [])
 
+  const setMode = useCallback((mode: "dark" | "light") => {
+    preferences.set("themeMode", mode)
+  }, [])
+
   const has = useCallback((name: string) => THEMES_SET.has(name), [])
 
   const syntaxStyle = useMemo(
@@ -114,10 +121,11 @@ export const ThemeProvider = ({
       name: active,
       mode,
       set,
+      setMode,
       names: THEME_NAMES,
       has,
     }
-  }, [resolved, syntaxStyle, active, mode, set, has])
+  }, [resolved, syntaxStyle, active, mode, set, setMode, has])
 
   if (!value) return null
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

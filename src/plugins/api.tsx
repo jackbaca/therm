@@ -24,6 +24,7 @@ type ThemeSnap = {
   name: string
   mode: "dark" | "light"
   set: (name: string) => boolean
+  setMode: (mode: "dark" | "light") => void
   has: (name: string) => boolean
 }
 
@@ -74,6 +75,7 @@ export function createApi(input: ApiInput): HermPluginApi {
       get name() { return input.theme.current.name },
       get mode() { return input.theme.current.mode },
       set: name => input.theme.current.set(name),
+      setMode: mode => input.theme.current.setMode(mode),
       has: name => input.theme.current.has(name),
     },
     get keys() { return input.keys.current },

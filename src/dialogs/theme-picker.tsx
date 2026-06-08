@@ -27,6 +27,26 @@ const ThemePickerDialog = ({ onConfirm }: { onConfirm: () => void }) => {
     dialog.clear()
   }, [ctx, dialog, onConfirm])
 
+  const flip = useCallback(() => {
+    ctx.setMode(ctx.mode === "dark" ? "light" : "dark")
+  }, [ctx])
+
+  const onKey = useCallback((key: { name: string }) => {
+    if (key.name !== "tab") return false
+    flip()
+    return true
+  }, [flip])
+
+  const footer = (
+    <box height={1} onMouseDown={flip}>
+      <text fg={ctx.theme.textMuted}>
+        <span>Mode: </span>
+        <span fg={ctx.mode === "light" ? ctx.theme.warning : ctx.theme.accent}>{ctx.mode}</span>
+        <span> · Tab/click: toggle</span>
+      </text>
+    </box>
+  )
+
   return (
     <DialogSelect
       title="Switch Theme"
@@ -34,7 +54,9 @@ const ThemePickerDialog = ({ onConfirm }: { onConfirm: () => void }) => {
       current={ctx.name}
       onSelect={onSelect}
       onMove={onMove}
+      onKey={onKey}
       placeholder="Search themes..."
+      footer={footer}
     />
   )
 }
@@ -42,9 +64,14 @@ const ThemePickerDialog = ({ onConfirm }: { onConfirm: () => void }) => {
 /** Open the theme picker, reverting on close without selection */
 export const openThemePicker = (dialog: ReturnType<typeof useDialog>, ctx: ReturnType<typeof useTheme>) => {
   const saved = ctx.name
+  const mode = ctx.mode
   let confirmed = false
   dialog.replace(
     <ThemePickerDialog onConfirm={() => { confirmed = true }} />,
-    () => { if (!confirmed) ctx.set(saved) }
+    () => {
+      if (confirmed) return
+      ctx.set(saved)
+      ctx.setMode(mode)
+    }
   )
 }

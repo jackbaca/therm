@@ -198,7 +198,17 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
             { title: "Start a new session?", body: "Ends the current session and starts a fresh one. The existing session remains saved and resumable.", yes: "new session" },
             () => { void x.newSession() })
           return
-        case "theme": openThemePicker(dialog, themeCtx); return
+        case "theme": {
+          const mode = arg.trim().toLowerCase()
+          if (!mode) { openThemePicker(dialog, themeCtx); return }
+          if (mode === "light" || mode === "dark") {
+            themeCtx.setMode(mode)
+            x.dispatch({ kind: "system", text: `theme mode → ${mode}` })
+            return
+          }
+          toast.show({ variant: "error", message: "usage: /theme [light|dark]" })
+          return
+        }
         case "help": dialog.replace(<HelpDialog />); return
         case "keys": openKeys(dialog); return
         case "logs": openLogs(dialog); return

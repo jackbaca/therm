@@ -3,6 +3,7 @@ import { act } from "react"
 import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { mount as mountApp, until, MockGateway } from "./harness"
+import { tmpHome } from "./fixture/home"
 import * as prefs from "../src/context/preferences"
 import * as exit from "../src/app/exit"
 import { DOUBLE_TAB_MS, QUIT_MS } from "../src/app/useAppKeys"
@@ -610,6 +611,23 @@ describe("app", () => {
     expect(t.gw.last("session.title")?.params.title).toBe("my overnight run")
     expect(t.gw.last("prompt.submit")).toBeUndefined() // intercepted
     t.destroy()
+  })
+
+  test("/theme light|dark sets theme mode locally", async () => {
+    await using h = await tmpHome({ prefs: { theme: "tokyonight", themeMode: "dark" } })
+    await using t = await mount()
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("/theme light") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("theme mode → light"))
+    expect(prefs.get("themeMode")).toBe("light")
+    expect(t.gw.last("prompt.submit")).toBeUndefined()
+
+    await act(async () => { await t.keys.typeText("/theme dark") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("theme mode → dark"))
+    expect(prefs.get("themeMode")).toBe("dark")
   })
 
   test("/branch activates the live branch session id", async () => {
