@@ -28,15 +28,18 @@ const choices = (row: MarketplaceRow, sizes?: MarketplaceSizes): Opt[] => {
   ]
 }
 
+const byKey = (opts: Opt[], key: string) => opts.find(o => o.key.toLowerCase().split("/").includes(key))?.value
+
 const Action = (props: Props) => {
   const theme = useTheme().theme
   const keys = useKeys()
   const opts = choices(props.row, props.sizes)
   useKeyboard(key => {
     const pick = (v: Choice | undefined) => { if (v) props.onPick(v) }
-    if (keys.match("dialog.accept", key) || key.name === "1") return pick(opts.find(o => o.value)?.value)
-    if (key.name === "2") return pick(opts.filter(o => o.value)[1]?.value)
-    if (key.name === "d") return pick("delete")
+    if (keys.match("dialog.accept", key)) return pick(byKey(opts, "enter"))
+    if (key.name === "1") return pick(byKey(opts, "1"))
+    if (key.name === "2") return pick(byKey(opts, "2"))
+    if (key.name === "d") return pick(byKey(opts, "d"))
   })
   return (
     <box flexDirection="column" width={64}>

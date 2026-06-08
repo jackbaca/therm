@@ -276,6 +276,52 @@ describe("EikonMarketplace tab", () => {
     fx.srv.stop()
   })
 
+  test("active package key 2 downloads source instead of deleting", async () => {
+    const fx = packageCatalog()
+    process.env.EIKON_URL = fx.base
+    await using t = await mountNode(group(), { width: 160, height: 40 })
+    await until(t, () => t.frame().includes("Marketplace (2)") && t.frame().includes("mono"))
+    act(() => t.keys.pressArrow("right"))
+    await until(t, () => /▸ .*mono/.test(t.frame()))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Eikon only"))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("source downloadable") && t.frame().includes("removable"))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("set as active avatar"))
+    act(() => t.keys.pressEnter())
+    await until(t, () => prefs.get("eikon") === "mono" && t.frame().includes("▸ ● mono"))
+
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Active") && t.frame().includes("Download Source") && t.frame().includes("Delete"))
+    act(() => t.keys.pressKey("2"))
+    await until(t, () => eikon.list().find(x => x.name === "mono")!.hasSource)
+    expect(eikon.list().some(x => x.name === "mono")).toBe(true)
+    expect(prefs.get("eikon")).toBe("mono")
+    fx.srv.stop()
+  })
+
+  test("installed package without source has no hidden key 2 delete route", async () => {
+    const fx = packageCatalog()
+    process.env.EIKON_URL = fx.base
+    await using t = await mountNode(group(), { width: 160, height: 40 })
+    await until(t, () => t.frame().includes("Marketplace (2)") && t.frame().includes("Open actions"))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Eikon only"))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("installed") && t.frame().includes("removable"))
+
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Use") && t.frame().includes("Delete"))
+    expect(t.frame()).not.toContain("Download Source")
+    act(() => t.keys.pressKey("2"))
+    await t.settle()
+    expect(t.frame()).toContain("Delete")
+    expect(t.frame()).not.toContain("Remove 'ares'?")
+    expect(eikon.list().some(x => x.name === "ares")).toBe(true)
+    fx.srv.stop()
+  })
+
   test("grid navigation clamps and Space does not install", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
@@ -323,6 +369,21 @@ describe("EikonMarketplace tab", () => {
     await until(t, () => previews.includes("mono:idle"))
     expect(previews).not.toContain("mono:thinking")
     expect(prefs.get("eikon")).toBeUndefined()
+    fx.srv.stop()
+  })
+
+  test("visible sidebar preview exposes clickable state controls", async () => {
+    const fx = catalog()
+    process.env.EIKON_URL = fx.base
+    const seen: SidebarPreview[] = []
+    await using t = await mountNode(
+      group({ sidebarPreview: p => { if (p) seen.push(p) } }),
+      { width: 160, height: 48 },
+    )
+    await until(t, () => !!seen.find(p => p.eikon.meta.name === "ares" && p.state === "idle" && p.states?.includes("thinking") && p.onState))
+    const p = seen.find(x => x.eikon.meta.name === "ares")!
+    act(() => p.onState!("thinking"))
+    await until(t, () => seen.some(x => x.eikon.meta.name === "ares" && x.state === "thinking"))
     fx.srv.stop()
   })
 

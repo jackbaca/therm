@@ -17,6 +17,8 @@ export type SidebarPreview = {
   subtitle?: string
   body?: string
   rows?: readonly { label: string; value: string; strong?: boolean; block?: boolean }[]
+  states?: readonly AvatarState[]
+  onState?: (state: AvatarState) => void
 }
 
 // The pillar body carries a compact identity block, the MCP operational
@@ -88,6 +90,7 @@ const Preview = (props: { preview: SidebarPreview }) => {
     { label: "Author", value: meta.author ?? "—" },
     { label: "State", value: props.preview.state },
   ]
+  const states = props.preview.states?.length ? props.preview.states : undefined
   return (
     <box flexDirection="column">
       <Row label="Eikon" value={props.preview.title ?? meta.name} strong />
@@ -98,6 +101,15 @@ const Preview = (props: { preview: SidebarPreview }) => {
         </box>
       ) : null}
       {rows.map((r, i) => <Row key={`${r.label}:${i}`} label={r.label} value={r.value} strong={r.strong} block={r.block} />)}
+      {states ? (
+        <box flexDirection="row" flexWrap="wrap" marginTop={1}>
+          {states.map(s => (
+            <box key={s} height={1} paddingRight={1} onMouseDown={() => { if (props.preview.onState) props.preview.onState(s) }}>
+              <text fg={s === props.preview.state ? theme.primary : theme.textMuted}>{s}</text>
+            </box>
+          ))}
+        </box>
+      ) : null}
     </box>
   )
 }

@@ -74,13 +74,15 @@ export const EikonMarketplace = memo((props: {
           subtitle: selected.entry.author ?? "unknown",
           body: selected.entry.description ?? "No description.",
           rows: [
-            { label: "Status", value: stateLabel(selected), block: true },
+            { label: "Status", value: previewStatus(selected), block: true },
             { label: "Trust", value: trustLabel(selected), block: true },
             { label: "Source", value: sourceText(selected), block: true },
             { label: "Compat", value: compatText(selected) },
             { label: "State", value: st },
             { label: "Digest", value: digest(selected) ?? "unknown", block: true },
           ],
+          states: [...e.states.keys()] as AvatarState[],
+          onState: setPreviewState,
         }
         if (props.sidebarPreview) props.sidebarPreview(preview)
         setDetailPreview(preview)
@@ -357,6 +359,12 @@ const digest = (row: MarketplaceRow) => {
 const trustLabel = (row: MarketplaceRow) => {
   const t = row.trust === "mismatch" ? "Mismatch" : row.trust === "verified" ? "Verified" : row.trust === "unverified" ? "Unverified" : "Trust unknown"
   return row.reason && row.trust === "mismatch" ? `${t}: ${row.reason}` : t
+}
+
+const previewStatus = (row: MarketplaceRow) => {
+  const src = row.sourcePresent ? " · source present" : row.sourceAvailable || row.entry.packageUrl ? " · source available" : ""
+  const rm = row.removable ? " · removable" : row.installed ? " · not removable" : ""
+  return `${row.active ? "active" : row.installed ? "installed" : "not installed"}${src}${rm}`
 }
 
 const sourceText = (row: MarketplaceRow) => row.sourceIdentity ?? row.lifecycle.source.packageUrl ?? row.entry.sourceKey ?? row.entry.packageUrl
