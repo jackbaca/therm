@@ -8,7 +8,7 @@ import * as prefs from "../src/context/preferences"
 
 // A minimal 2-frame 4×2 .eikon with source_url in the header. Studio
 // has no source/ for it, so it must open in baked mode: playing the
-// packed frames, PanBars/SpatialBar hidden, fetch row visible.
+// packed frames, PanBars/SpatialBar hidden, download row visible.
 const make = (name: string, url?: string) => {
   const head = { eikon: 1, name, width: 4, height: 2, ...(url ? { source_url: url } : {}) }
   const st = { state: "idle", fps: 12, frame_count: 2, loop_from: 0 }
@@ -16,7 +16,7 @@ const make = (name: string, url?: string) => {
   return [head, st, f0, f1].map(x => JSON.stringify(x)).join("\n") + "\n"
 }
 
-test("baked mode: plays packed frames, hides spatial, shows fetch row", async () => {
+test("baked mode: plays packed frames, hides spatial, shows download row", async () => {
   // Served manifest so peekSource resolves → size hint on the row.
   const srv = Bun.serve({
     port: 0,
@@ -35,10 +35,10 @@ test("baked mode: plays packed frames, hides spatial, shows fetch row", async ()
   // Baked frame content is on screen; spatial rows are not.
   expect(f).toContain("AB@@")
   expect(f).not.toContain("zoom")
-  // Knob panel collapsed: fetch row present, rasterizer-declared
+  // Knob panel collapsed: download row present, rasterizer-declared
   // knobs absent, fork/reset hidden.
-  expect(f).toContain("fetch source")
-  expect(f).toContain("download to edit")
+  expect(f).toContain("Download source")
+  expect(f).toContain("1 files")
   // Live-only action rows absent in baked mode.
   expect(f).not.toMatch(/▸?\s+tune\s+◂/)
   expect(f).not.toMatch(/▸?\s+reset\s+▸ defaults/)
@@ -51,14 +51,14 @@ test("baked mode: plays packed frames, hides spatial, shows fetch row", async ()
   srv.stop()
 })
 
-test("baked mode: no url → 'attach' hint, no fetch row", async () => {
+test("baked mode: no url → 'attach' hint, no download row", async () => {
   eikon.ensure("noburl")
   writeFileSync(eikon.file("noburl"), make("noburl"))
   prefs.set("eikon", "noburl")
   await using t = await mountNode(<EikonGroup focused sub={1} setSub={() => {}} />, { width: 180, height: 50 })
   await until(t, () => t.frame().includes("(baked)"))
   const f = t.frame()
-  expect(f).not.toContain("fetch source")
+  expect(f).not.toContain("download source")
   expect(f).toContain("AB@@")
 })
 
