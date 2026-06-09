@@ -35,8 +35,8 @@ export const Subagent = memo(({ branch = "last", tool }: { branch?: Branch; tool
 
   return (
     <box flexDirection="column" onMouseDown={trail.length ? () => setOpen(o => !o) : undefined}>
-      <box height={1}>
-        <text>
+      <box minHeight={1}>
+        <text wrapMode="word">
           <span fg={theme.textMuted}>{lead(branch)}</span>
           <span fg={running ? theme.warning : fg}>{running ? spin : "●"} </span>
           <span fg={fg}>Task — {goal || "delegating…"}</span>
@@ -63,8 +63,8 @@ export const Subagent = memo(({ branch = "last", tool }: { branch?: Branch; tool
           ) : null}
         </box>
       ) : sub ? (
-        <box height={1}>
-          <text fg={theme.textMuted}>{stem}{sub}</text>
+        <box minHeight={1}>
+          <text fg={theme.textMuted} wrapMode="word">{stem}{sub}</text>
         </box>
       ) : null}
     </box>
