@@ -89,8 +89,8 @@ describe("EikonStudio tab", () => {
 
     await using t = await mountNode(<EikonStudio focused />, { width: 160, height: 48 })
 
-    await until(t, () => t.frame().includes("fetch source"))
-    expect(t.frame()).toContain("download to edit")
+    await until(t, () => t.frame().includes("Download source"))
+    expect(t.frame()).toContain("1 files")
     srv.stop()
   })
 
@@ -365,6 +365,51 @@ describe("EikonStudio tab", () => {
     un()
   })
 
+  run("reload refreshes clean source metadata and preserves dirty drafts", async () => {
+    const un = eikon.register(stub)
+    seed("refresh")
+    prefs.set("eikon", "refresh")
+    await using t = await mountNode(<EikonGroup focused sub={1} setSub={() => {}} />, { width: 160, height: 48 })
+    await until(t, () => t.frame().includes("base.png · 1×1 · 67 B"))
+
+    writeFileSync(join(eikon.sourceDir("refresh"), "base.png"), new Uint8Array([...PX, 0]))
+    act(() => t.keys.pressKey("r"))
+    await until(t, () => t.frame().includes("base.png · 1×1 · 68 B"))
+
+    for (let i = 0; i < 5; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
+    act(() => t.keys.pressArrow("right"))
+    await until(t, () => t.frame().includes("● unsaved"))
+    writeFileSync(join(eikon.sourceDir("refresh"), "base.png"), new Uint8Array([...PX, 0, 0]))
+    act(() => t.keys.pressKey("r"))
+    await until(t, () => t.frame().includes("● unsaved") && t.frame().includes("Reload skipped"))
+    un()
+  })
+
+  run("download source action fetches published media without local path entry", async () => {
+    const srv = Bun.serve({
+      port: 0,
+      fetch(req) {
+        return new URL(req.url).pathname.endsWith("manifest.json")
+          ? Response.json({ files: ["base.png"] })
+          : new Response(PX)
+      },
+    })
+    const un = eikon.register(stub)
+    eikon.ensure("remote")
+    writeFileSync(eikon.file("remote"), JSON.stringify({ eikon: 1, name: "remote", width: 48, height: 24, source_url: `http://localhost:${srv.port}/remote/` }) + "\n")
+    eikon.writeStudio("remote", { rasterizer: "stub", spatial: { zoom: 1, ox: 0.5, oy: 0.5 }, tone: { contrast: 1, invert: true, flip: "none" }, fps: 16, base: {}, per: {}, glyph: "◆", sources: {} })
+    prefs.set("eikon", "remote")
+    await using t = await mountNode(<EikonGroup focused sub={1} setSub={() => {}} />, { width: 160, height: 48 })
+    await until(t, () => t.frame().includes("Download source"))
+
+    for (let i = 0; i < 3; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
+    act(() => t.keys.pressEnter())
+    await until(t, () => Bun.file(join(eikon.sourceDir("remote"), "base.png")).size > 0)
+    expect(eikon.readStudio("remote")!.sources.base).toBe("base.png")
+    srv.stop()
+    un()
+  })
+
   run("Enter on source row → menu with Local file…; pick + path + Enter adopts source", async () => {
     const un = eikon.register(stub)
     seed("fox")
@@ -372,6 +417,8 @@ describe("EikonStudio tab", () => {
     // Pre-create a file we can adopt.
     const extPath = join(HH, "extra.png")
     writeFileSync(extPath, PX)
+    resetToolsetsCache()
+    gen.setProbe(async () => ({ image: false, video: false }))
     let sub = 1
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
@@ -389,7 +436,9 @@ describe("EikonStudio tab", () => {
     await until(t, () => t.frame().includes("Local file"))
     expect(t.frame()).toContain("Source for 'idle'")
 
-    // Pick "Local file…" (first/only-when-empty option).
+    // Pick fallback "Local file…" after the detected base source.
+    act(() => t.keys.pressArrow("down"))
+    await t.settle()
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Tab complete"))
 
@@ -402,6 +451,7 @@ describe("EikonStudio tab", () => {
     const adoptedDir = eikon.ensure("fox").source
     const f = Bun.file(join(adoptedDir, "idle.png"))
     expect(await f.exists()).toBe(true)
+    gen.setProbe(null)
     un()
   })
 
@@ -503,10 +553,7 @@ describe("EikonStudio tab", () => {
     expect(t.frame()).toContain("engine that turns your source")
     // ↓ to source.
     act(() => t.keys.pressArrow("down")); await t.settle()
-    expect(t.frame()).toContain("image or video file the avatar is rendered from")
-    // Bold /eikon-create recommendation may hyphen-wrap; match a run
-    // that's guaranteed contiguous.
-    expect(t.frame()).toContain("interactively (recommended)")
+    expect(t.frame()).toContain("Pick, generate, or clear source")
     // ↓↓↓ → contrast (studio-owned tone row, has a KnobDef.hint).
     for (let i = 0; i < 3; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
     expect(t.frame()).toContain("Spread pixel values around their mean")

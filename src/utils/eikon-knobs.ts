@@ -25,7 +25,7 @@ export type Studio = {
   base: KnobValues
   per: Partial<Record<AvatarState, KnobValues>>
   glyph: string
-  sources: Partial<Record<AvatarState | "base", string>>
+  sources: Partial<Record<AvatarState | "base", string | null>>
   /** Per-state last generation prompt — pre-fills the generate dialog
    *  on a state's next open so users can iterate without retyping. */
   prompts?: Partial<Record<AvatarState, string>>

@@ -17,8 +17,9 @@
 // live on every open of the rasterizer picker.
 
 import { existsSync, mkdirSync, readdirSync, copyFileSync, readFileSync, writeFileSync, rmSync, statSync, renameSync } from "node:fs"
+import { createHash } from "node:crypto"
 import { join, extname, basename, dirname } from "node:path"
-import { install, resolve, peek, entries as packageEntries, dirty, header as peekHeader, serializeLaunchStream, defaultSignalMappings, decodeRuntimeBytes,
+import { install, resolve, peek, entries as packageEntries, downloadBytes, dirty, header as peekHeader, serializeLaunchStream, defaultSignalMappings, decodeRuntimeBytes,
          type LaunchStreamRecord, type Installed as Got, type Resolved as ResolvedEikon, type Origin as EikonOrigin, type TrustState, type SourceKind, type DownloadOptions, type RuntimeDescriptor } from "eikon"
 import { DEFAULT_PUBLIC_CATALOG } from "eikon/catalog"
 import { hermesPath } from "./hermes-home"
@@ -235,13 +236,6 @@ export function lifecycle(name: string, opts: { dirty?: boolean } = {}): Lifecyc
   }
 }
 
-export function sourceFetchUrl(name: string): string | undefined {
-  const man = manifest(name)
-  const head = header(file(name))
-  const info = sourceInfo(man, head)
-  return info.packageUrl ?? info.origin
-}
-
 /** List folder-form eikons under ~/.hermes/eikons/. Flat legacy
  *  <name>.eikon at the root is still readable by listEikons() in
  *  components/avatar/eikon.ts but doesn't appear here (no studio). */
@@ -253,14 +247,12 @@ export function list(): Installed[] {
     .map(e => {
       const name = e.name
       normalizeStoredSources(name)
-      const src = join(root, e.name, "source")
-      const has = !!findSource(name)
       const man = manifest(name)
-      const head = header(join(root, name, `${name}.eikon`))
+      const path = join(root, name, `${name}.eikon`)
       return {
-        name, file: join(root, name, `${name}.eikon`),
-        source: src, hasSource: has,
-        sourceUrl: origin(man) ?? legacySource(head),
+        name, file: path,
+        source: join(root, name, "source"), hasSource: hasLocalSource(name),
+        sourceUrl: sourceUrl(man, header(path)),
         manifest: man,
         lifecycle: lifecycle(name, { dirty: false }),
       }
@@ -295,7 +287,7 @@ const MEDIA_EXT: Record<string, string> = {
 type SourceFile = { path?: string; mediaType?: string }
 type SourceManifest = { files?: SourceFile[] }
 
-function sourceRole(role: string): role is keyof Sources & string {
+function slot(role: string): role is keyof Sources & string {
   return role === "base" || STATES.includes(role as AvatarState)
 }
 
@@ -314,7 +306,7 @@ function sourceRefs(man: SourceManifest | undefined): Map<string, string> {
   if (!man) return new Map()
   try {
     return new Map(packageEntries(man as never)
-      .filter(([role]) => sourceRole(String(role)))
+      .filter(([role]) => slot(String(role)))
       .map(([role, rel]) => [String(role), rel]))
   } catch {
     return new Map()
@@ -354,17 +346,163 @@ function normalizeStoredSources(name: string): void {
   try { readStudio(name) } catch {}
 }
 
-/** Resolve the effective source path for a state: per-state file →
- *  base.* → idle.* → first image → first video. Returns absolute path. */
-export function findSource(name: string, state?: AvatarState): string | undefined {
+export type Sources = Partial<Record<AvatarState | "base", string | null>>
+export type SourceRole = AvatarState | "base"
+export type SourceStatus = {
+  name: string
+  state: AvatarState
+  kind: "local" | "downloadable" | "baked" | "missing"
+  path?: string
+  file?: string
+  size?: number
+  role?: SourceRole
+  origin?: "draft" | "studio" | "discovered" | "fallback"
+  own: boolean
+  inherited: boolean
+  removed: boolean
+  downloadable: boolean
+  sourceUrl?: string
+}
+
+function fileOk(name: string): boolean {
+  return IMG.test(name) || VID.test(name)
+}
+
+function roleOf(name: string): SourceRole | undefined {
+  const stem = basename(name, extname(name)).toLowerCase()
+  if (stem === "base") return "base"
+  return (STATES as readonly string[]).includes(stem) ? stem as AvatarState : undefined
+}
+
+function sourcePath(name: string, value: string): string {
+  return value.includes("/") ? value : join(sourceDir(name), value)
+}
+
+function storedName(value: string): string {
+  return value.includes("/") ? basename(value) : value
+}
+
+function sourceFiles(name: string) {
   const src = sourceDir(name)
-  if (!existsSync(src)) return undefined
-  const files = readdirSync(src).filter(f => IMG.test(f) || VID.test(f))
-  if (files.length === 0) return undefined
-  const by = (stem: string) => files.find(f => basename(f, extname(f)).toLowerCase() === stem)
-  const pick = (state && by(state)) ?? by("base") ?? by("idle") ?? by(name)
-    ?? files.find(f => IMG.test(f)) ?? files[0]!
-  return join(src, pick)
+  if (!existsSync(src)) return []
+  return readdirSync(src).filter(fileOk)
+}
+
+function byRole(files: string[], role: SourceRole): string | undefined {
+  return files.find(f => roleOf(f) === role)
+}
+
+function roles(state?: AvatarState): SourceRole[] {
+  if (!state) return ["base", "idle"]
+  return state === "idle" ? ["idle", "base"] : [state, "base", "idle"]
+}
+
+function entryRole(value: string | undefined, path: string): SourceRole | undefined {
+  if (value === "source.base") return "base"
+  if (value?.startsWith("source.")) {
+    const role = value.slice("source.".length)
+    if (role === "base") return "base"
+    if ((STATES as readonly string[]).includes(role)) return role as AvatarState
+  }
+  return roleOf(path) ?? "base"
+}
+
+function sourceEntries(man: Record<string, unknown> | undefined, strict = false): Array<[SourceRole, string]> {
+  if (!man) return []
+  try {
+    const xs = packageEntries(man as never).map(([role, path]) => [role as SourceRole, path] as [SourceRole, string])
+    if (xs.length) return xs
+  } catch (err) {
+    if (strict) throw err
+  }
+  const files = Array.isArray(man.files) ? man.files : []
+  return files.flatMap(file => {
+    if (typeof file === "string") return [[entryRole(undefined, file) ?? "base", file] as [SourceRole, string]]
+    if (!OBJ(file) || typeof file.path !== "string" || !String(file.role ?? "").startsWith("source")) return []
+    const role = entryRole(typeof file.role === "string" ? file.role : undefined, file.path)
+    return role ? [[role, file.path] as [SourceRole, string]] : []
+  })
+}
+
+function sourceUrl(man: Record<string, unknown> | undefined, head: Record<string, unknown> | undefined): string | undefined {
+  const src = sourceInfo(man, head)
+  return src.packageUrl ?? src.origin
+}
+
+export function sourceFetchUrl(name: string): string | undefined {
+  return sourceUrl(manifest(name), header(file(name)))
+}
+
+export function sourceStatus(name: string, state?: AvatarState, opts: { sources?: Sources } = {}): SourceStatus {
+  const seed = opts.sources ?? readStudio(name)?.sources
+  const files = sourceFiles(name)
+  const removed = new Set(Object.entries(seed ?? {}).flatMap(([role, value]) => value === null ? [role] : []))
+  const visible = files.filter(f => {
+    const role = roleOf(f)
+    return !role || !removed.has(role)
+  })
+  const hit = (role: SourceRole): Pick<SourceStatus, "path" | "file" | "role" | "origin"> | undefined => {
+    if (removed.has(role)) return undefined
+    const value = seed?.[role]
+    if (typeof value === "string" && value) {
+      const path = sourcePath(name, value)
+      if (existsSync(path) && fileOk(path)) return { path, file: storedName(value), role, origin: opts.sources ? "draft" : "studio" }
+    }
+    const file = byRole(visible, role)
+    return file ? { path: join(sourceDir(name), file), file, role, origin: "discovered" } : undefined
+  }
+  const found = roles(state).map(hit).find(Boolean)
+  const first = removed.size ? undefined : visible.find(f => IMG.test(f)) ?? visible.find(f => VID.test(f))
+  const src = found ?? (first ? { path: join(sourceDir(name), first), file: first, role: roleOf(first), origin: "fallback" as const } : undefined)
+  const st = state ?? "idle"
+  const own = Boolean(src?.role && (src.role === st || (st === "idle" && src.role === "base")))
+  const man = manifest(name)
+  const pack = baked(name)
+  const head = header(file(name)) ?? (pack ? header(pack) : undefined)
+  const url = sourceUrl(man, head)
+  const downloadable = !src && Boolean(url)
+  const size = src?.path ? (() => { try { return statSync(src.path).size } catch { return undefined } })() : undefined
+  return {
+    name,
+    state: st,
+    kind: src ? "local" : downloadable ? "downloadable" : pack ? "baked" : "missing",
+    ...(src?.path ? { path: src.path } : {}),
+    ...(src?.file ? { file: src.file } : {}),
+    ...(size !== undefined ? { size } : {}),
+    ...(src?.role ? { role: src.role } : {}),
+    ...(src?.origin ? { origin: src.origin } : {}),
+    own,
+    inherited: Boolean(src && !own),
+    removed: roles(state).some(role => removed.has(role)),
+    downloadable,
+    ...(url ? { sourceUrl: url } : {}),
+  }
+}
+
+export function localSources(name: string): Array<{ role?: SourceRole; file: string; path: string }> {
+  return sourceFiles(name).map(file => ({ file, path: join(sourceDir(name), file), ...(roleOf(file) ? { role: roleOf(file) } : {}) }))
+}
+
+export function hasLocalSource(name: string): boolean {
+  if (sourceFiles(name).length > 0) return true
+  return Object.values(readStudio(name)?.sources ?? {}).some(value =>
+    typeof value === "string" && fileOk(value) && existsSync(sourcePath(name, value)))
+}
+
+export function sourceStamp(name: string): string {
+  const src = sourceDir(name)
+  const stats = [studioFile(name), existsSync(file(name)) ? file(name) : ""].filter(Boolean).map(path => {
+    try { const st = statSync(path); return `${basename(path)}:${st.mtimeMs}:${st.size}` } catch { return `${basename(path)}:missing` }
+  })
+  const media = sourceFiles(name).sort().map(f => {
+    try { const st = statSync(join(src, f)); return `${f}:${st.mtimeMs}:${st.size}` } catch { return `${f}:missing` }
+  })
+  return [...stats, ...media].join("|")
+}
+
+/** Resolve the effective source path for a state. Returns absolute path. */
+export function findSource(name: string, state?: AvatarState): string | undefined {
+  return sourceStatus(name, state).path
 }
 
 /** Copy an external file into <name>/source/ as <role>.<ext>. No-op if
@@ -486,7 +624,8 @@ export async function save(s: Session): Promise<string> {
   const paths = ensure(s.name)
   // Adopt any external-path sources into source/.
   const sources: Session["sources"] = {}
-  for (const [role, p] of Object.entries(s.sources) as Array<[AvatarState | "base", string]>) {
+  for (const [role, p] of Object.entries(s.sources) as Array<[AvatarState | "base", string | null]>) {
+    if (p === null) { sources[role] = null; continue }
     if (!p) continue
     const abs = p.includes("/") ? p : join(paths.source, p)
     sources[role] = existsSync(abs) ? adopt(s.name, abs, role) : p
@@ -496,7 +635,7 @@ export async function save(s: Session): Promise<string> {
   const clips = new Map<AvatarState, Frame[]>()
   const blank = [Array.from({ length: H }, (_, i) => (i === H >> 1 ? s.glyph.padStart(W >> 1) : "").padEnd(W))]
   for (const st of STATES) {
-    const src = findSource(s.name, st)
+    const src = sourceStatus(s.name, st, { sources }).path
     const k = eff(s, st)
     const key = `${src ?? ""}|${JSON.stringify(k)}`
     let fs = seen.get(key)
@@ -554,7 +693,6 @@ export async function update(name: string, opts: { confirmActive?: boolean } = {
 
 // ── Install / fetch ──────────────────────────────────────────────────
 
-export type Sources = Partial<Record<AvatarState | "base", string>>
 export type Fetched = { name: string; sources: Sources; n: number; bytes: number }
 export type LifecycleState = AvatarState
 export type PackageState = "available" | "invalid" | "installed" | "active" | "update-available" | "incompatible"
@@ -643,6 +781,64 @@ export function attachSources(name: string, sources: Sources) {
   const prev = readStudio(name)
   writeStudio(name, { ...(prev ?? toStudio(fresh(name, pick()))), sources: { ...prev?.sources, ...sources } })
   bump()
+}
+
+function digest(data: Uint8Array) {
+  return `sha256:${createHash("sha256").update(data).digest("hex")}`
+}
+
+function dlOpts(url: string, opts: DownloadOptions = {}): DownloadOptions {
+  return /^http:\/\/localhost[:/]/.test(url) ? { allowPrivate: true, ...opts } : opts
+}
+
+function manUrl(url: string): string {
+  if (url.endsWith("manifest.json")) return url
+  return new URL("manifest.json", url.endsWith("/") ? url : `${url}/`).toString()
+}
+
+function specOf(man: Record<string, unknown>, rel: string): Record<string, unknown> | undefined {
+  const files = Array.isArray(man.files) ? man.files : []
+  return files.find(f => OBJ(f) && f.path === rel) as Record<string, unknown> | undefined
+}
+
+async function readManifest(url: string, opts: DownloadOptions): Promise<Record<string, unknown>> {
+  const raw = await downloadBytes(url, opts)
+  const man = JSON.parse(Buffer.from(raw).toString("utf8")) as unknown
+  if (!OBJ(man)) throw new Error("source manifest: object required")
+  return man
+}
+
+async function readSource(file: Record<string, unknown> | undefined, base: string, rel: string, opts: DownloadOptions) {
+  const raw = await downloadBytes(new URL(rel, base).toString(), opts)
+  const size = file?.size
+  if (typeof size === "number" && raw.length !== size) throw new Error(`source size mismatch: ${rel}`)
+  if (typeof file?.digest === "string" && digest(raw) !== file.digest) throw new Error(`source digest mismatch: ${rel}`)
+  return raw
+}
+
+export async function downloadSource(name: string, opts: { downloader?: DownloadOptions } = {}): Promise<Fetched> {
+  const url = sourceFetchUrl(name)
+  if (!url) throw new Error(`eikon '${name}' has no published source`)
+  const href = manUrl(url)
+  const root = href.slice(0, href.lastIndexOf("/") + 1)
+  const dl = dlOpts(url, opts.downloader)
+  const man = await readManifest(href, dl)
+  const xs = sourceEntries(man, true)
+  if (xs.length === 0) throw new Error(`eikon '${name}' has no published source media`)
+  const dir = ensure(name).source
+  const pairs = await Promise.all(xs.map(async ([role, rel]) => {
+    const file = specOf(man, rel)
+    const fname = sourceName(man as SourceManifest, role, rel)
+    if (!fileOk(fname)) throw new Error(`source media type unsupported: ${rel}`)
+    return [role, fname, await readSource(file, root, rel, dl)] as const
+  }))
+  const sources: Sources = {}
+  await Promise.all(pairs.map(async ([role, fname, data]) => {
+    await Bun.write(join(dir, fname), data)
+    sources[role] = fname
+  }))
+  attachSources(name, sources)
+  return { name, sources, n: pairs.length, bytes: pairs.reduce((sum, [, , data]) => sum + data.length, 0) }
 }
 
 export async function fetchSource(src: string, opts?: { name?: string; media?: boolean;

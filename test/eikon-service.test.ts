@@ -32,6 +32,40 @@ describe("service/eikon: layout", () => {
     expect(eikon.findSource("foo", "idle")).toMatch(/base\.png$/)
   })
 
+  test("sourceStatus discovers media and honors draft tombstones", () => {
+    eikon.ensure("status")
+    writeFileSync(eikon.file("status"), JSON.stringify({ eikon: 1, name: "status", source_url: "http://x/status/" }) + "\n")
+    writeFileSync(join(eikon.sourceDir("status"), "base.png"), "b")
+    writeFileSync(join(eikon.sourceDir("status"), "thinking.png"), "t")
+
+    const own = eikon.sourceStatus("status", "thinking")
+    expect(own.kind).toBe("local")
+    expect(own.role).toBe("thinking")
+    expect(own.origin).toBe("discovered")
+    const inherited = eikon.sourceStatus("status", "thinking", { sources: { thinking: null, base: "base.png" } })
+    expect(inherited.kind).toBe("local")
+    expect(inherited.role).toBe("base")
+    expect(inherited.inherited).toBe(true)
+    expect(inherited.removed).toBe(true)
+    const removed = eikon.sourceStatus("status", "thinking", { sources: { thinking: null, base: null } })
+    expect(removed.kind).toBe("downloadable")
+    expect(removed.path).toBeUndefined()
+  })
+
+  test("sourceStatus advertises packageUrl-only downloads", () => {
+    eikon.ensure("pkgstatus")
+    writeFileSync(eikon.file("pkgstatus"), '{"eikon":1,"name":"pkgstatus"}\n')
+    writeFileSync(join(eikon.dir("pkgstatus"), "manifest.json"), JSON.stringify({
+      name: "pkgstatus",
+      origin: { packageUrl: "http://x/pkgstatus/manifest.json", kind: "catalog-package" },
+    }))
+
+    const status = eikon.sourceStatus("pkgstatus")
+    expect(status.kind).toBe("downloadable")
+    expect(status.sourceUrl).toBe("http://x/pkgstatus/manifest.json")
+    expect(eikon.list().find(x => x.name === "pkgstatus")!.sourceUrl).toBe("http://x/pkgstatus/manifest.json")
+  })
+
   test("studio.json round-trip", () => {
     const s = knobs.fresh("foo", native)
     eikon.writeStudio("foo", knobs.toStudio(s))
@@ -168,6 +202,27 @@ describe("service/eikon: fetchSource", () => {
     expect(man.provenance).toBeUndefined()
     // peekSource memoized — second call same Promise.
     expect(eikon.peekSource(url)).toBe(eikon.peekSource(url))
+    srv.stop()
+  })
+
+  test("downloadSource writes source without replacing runtime or manifest", async () => {
+    const srv = Bun.serve({ port: 0, fetch: r => body(new URL(r.url).pathname.split("/").pop()!) })
+    const url = `http://localhost:${srv.port}/source-only/manifest.json`
+    eikon.ensure("sourceonly")
+    writeFileSync(eikon.file("sourceonly"), "OLD-RUNTIME\n")
+    const mf = join(eikon.dir("sourceonly"), "manifest.json")
+    writeFileSync(mf, JSON.stringify({ name: "sourceonly", origin: { packageUrl: url, kind: "catalog-package" } }, null, 2))
+    const before = readFileSync(mf, "utf8")
+
+    const out = await eikon.downloadSource("sourceonly")
+
+    expect(out.name).toBe("sourceonly")
+    expect(out.sources.base).toBe("base.png")
+    expect(readFileSync(eikon.file("sourceonly"), "utf8")).toBe("OLD-RUNTIME\n")
+    expect(readFileSync(mf, "utf8")).toBe(before)
+    expect(existsSync(join(eikon.sourceDir("sourceonly"), "base.png"))).toBe(true)
+    expect(eikon.readStudio("sourceonly")!.sources.base).toBe("base.png")
+    expect(eikon.sourceStatus("sourceonly").kind).toBe("local")
     srv.stop()
   })
 
