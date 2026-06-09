@@ -565,6 +565,8 @@ export const EikonStudio = memo((props: {
   }, [live, s?.name])
   const url = useMemo(() => {
     if (!s) return undefined
+    const src = eikon.sourceFetchUrl(s.name)
+    if (src) return src
     const p = eikon.baked(s.name)
     return p ? eikon.header(p)?.source_url as string | undefined : undefined
   }, [s?.name])
