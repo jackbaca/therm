@@ -1,8 +1,9 @@
 import { describe, test, expect } from "bun:test"
 import { act } from "react"
 import { useState } from "react"
-import { mountNode } from "./harness"
+import { mountNode, until } from "./harness"
 import { Tail, ThoughtCloud } from "../src/components/chat/ThoughtCloud"
+import * as prefs from "../src/context/preferences"
 import type { Message } from "../src/types/message"
 
 // Tail animates by mutating span .children out of React's view. The
@@ -60,5 +61,64 @@ describe("ThoughtCloud reasoning", () => {
     expect(f).not.toContain("**verify**")
     expect(f).not.toContain("Write src/x.ts")
     t.destroy()
+  })
+})
+
+describe("ThoughtCloud tools", () => {
+  test("renders expanded tool details as nested trail rows while keeping diffs out", async () => {
+    prefs.reset()
+    prefs.set("toolDetails", "expanded")
+    const diff = "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new\n"
+    const messages: Message[] = [{
+      id: "a1", role: "assistant", timestamp: 0,
+      parts: [{
+        type: "tool", id: "tw", name: "patch", args: "",
+        preview: "src/x.ts", status: "done", duration: 9,
+        diff, verboseArgs: "{\"path\":\"src/x.ts\"}", verboseResult: "patched result",
+      }],
+    }]
+    const t = await mountNode(
+      <box flexDirection="column" width="100%" height="100%">
+        <ThoughtCloud height={12} messages={messages} onResize={() => {}} />
+      </box>,
+      { width: 100, height: 20 },
+    )
+    await until(t, () => t.frame().includes("● Edit src/x.ts"))
+    const f = t.frame()
+    expect(f).toContain("└─ ● Edit src/x.ts")
+    expect(f).toContain("Args")
+    expect(f).toContain("Result")
+    expect(f).toContain("patched result")
+    expect(f).not.toContain("@@")
+    expect(f).not.toContain("+new")
+    t.destroy()
+    prefs.reset()
+  })
+
+  test("hidden mode counts and branches only visible running tools", async () => {
+    prefs.reset()
+    prefs.set("toolDetails", "hidden")
+    const messages: Message[] = [{
+      id: "a1", role: "assistant", timestamp: 0,
+      parts: [
+        { type: "tool", id: "a", name: "read_file", args: "", preview: "src/a.ts", status: "done" },
+        { type: "tool", id: "b", name: "search_files", args: "", preview: "needle", status: "running" },
+        { type: "tool", id: "c", name: "terminal", args: "", preview: "bun test", status: "done" },
+      ],
+    }]
+    const t = await mountNode(
+      <box flexDirection="column" width="100%" height="100%">
+        <ThoughtCloud height={12} messages={messages} onResize={() => {}} />
+      </box>,
+      { width: 100, height: 20 },
+    )
+    await until(t, () => t.frame().includes("tools 1"))
+    const f = t.frame()
+    expect(f).toContain("└─")
+    expect(f).toContain("needle")
+    expect(f).not.toContain("src/a.ts")
+    expect(f).not.toContain("bun test")
+    t.destroy()
+    prefs.reset()
   })
 })

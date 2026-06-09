@@ -1,6 +1,5 @@
-// InlineTool — the single shape every tool renders into in the
-// ThoughtCloud. Diffs that warrant a body render as InlineDiff chips
-// in the assistant message body (MessageItem), not here.
+// InlineTool — one terse ThoughtCloud trail row with optional nested
+// details. Diff bodies stay in MessageItem/DiffTabs, never here.
 
 import { memo, useState, type ReactNode } from "react"
 import type { RGBA } from "@opentui/core"
@@ -16,10 +15,12 @@ function ms(d?: number): string {
   return `${Math.floor(d / 60000)}m${Math.round((d % 60000) / 1000)}s`
 }
 
-export type Detail = { label: string; text: string }
+export type Branch = "mid" | "last"
+export type Detail = { label: string; text: string; tone?: "error" | "muted" }
 
 type InlineProps = {
   part: ToolPart
+  branch?: Branch
   /** Content for the collapsed row; usually preview text. */
   children: ReactNode
   /** True once enough input exists to show `children` instead of pending. */
@@ -29,10 +30,39 @@ type InlineProps = {
   onClick?: () => void
 }
 
+export const lead = (branch: Branch) => branch === "mid" ? "├─ " : "└─ "
+export const rail = (branch: Branch) => branch === "mid" ? "│  " : "   "
+
+const DetailRow = memo((p: { branch: Branch; detail: Detail; last: boolean }) => {
+  const theme = useTheme().theme
+  const fg = p.detail.tone === "error" ? theme.error : theme.textMuted
+  const stem = rail(p.branch)
+  const fork = p.last ? "└─ " : "├─ "
+  const pad = p.last ? "   " : "│  "
+  const lines = p.detail.text.replace(/\t/g, "  ").split("\n")
+
+  return (
+    <box flexDirection="column">
+      <box height={1}>
+        <text>
+          <span fg={theme.textMuted}>{stem}{fork}</span>
+          <span fg={fg}>{p.detail.label}</span>
+        </text>
+      </box>
+      {lines.map((line, i) => (
+        <box key={i} minHeight={1}>
+          <text fg={fg} wrapMode="word">{stem}{pad}{line || " "}</text>
+        </box>
+      ))}
+    </box>
+  )
+})
+
 export const InlineTool = memo((p: InlineProps) => {
   const theme = useTheme().theme
   const [hover, setHover] = useState(false)
   const s = spec(p.part.name)
+  const branch = p.branch ?? "last"
   const running = p.part.status === "running"
   const failed = p.part.status === "error"
   const spin = useSpinnerGlyph(running)
@@ -45,14 +75,14 @@ export const InlineTool = memo((p: InlineProps) => {
   return (
     <box
       flexDirection="column"
-      paddingLeft={3}
       onMouseOver={p.onClick ? () => setHover(true) : undefined}
       onMouseOut={p.onClick ? () => setHover(false) : undefined}
       onMouseDown={p.onClick}
     >
       <box height={1}>
         <text>
-          <span fg={running ? theme.warning : p.iconColor ?? fg}>{running ? spin : s.icon} </span>
+          <span fg={theme.textMuted}>{lead(branch)}</span>
+          <span fg={running ? theme.warning : p.iconColor ?? fg}>{running ? spin : "●"} </span>
           {p.complete ?? true
             ? <span fg={fg}>{p.children}</span>
             : <span fg={fg}>~ {s.pending}</span>}
@@ -61,18 +91,9 @@ export const InlineTool = memo((p: InlineProps) => {
             : null}
         </text>
       </box>
-      {failed && p.part.result ? (
-        <box minHeight={1} paddingLeft={2}>
-          <text fg={theme.error} wrapMode="word">{p.part.result}</text>
-        </box>
-      ) : null}
-      {p.details?.map(d => (
-        <box key={d.label} flexDirection="column" paddingLeft={2} marginTop={1}>
-          <box height={1}><text fg={theme.textMuted}>{d.label}</text></box>
-          <box minHeight={1}><text fg={theme.textMuted} wrapMode="word">{d.text}</text></box>
-        </box>
+      {p.details?.map((detail, i, list) => (
+        <DetailRow key={detail.label} branch={branch} detail={detail} last={i === list.length - 1} />
       ))}
     </box>
   )
 })
-

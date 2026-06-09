@@ -80,11 +80,11 @@ describe("Subagent renderer", () => {
     return t
   }
 
-  test("collapsed: goal + footer row (└ N toolcalls · dur)", async () => {
+  test("collapsed: goal + footer row (└─ N toolcalls · dur)", async () => {
     const t = await setup({})
-    await until(t, () => t.frame().includes("⊙ Task — refactor foo"))
+    await until(t, () => t.frame().includes("● Task — refactor foo"))
     const f = t.frame()
-    expect(f).toContain("└ 3 toolcalls · 4.2s")
+    expect(f).toContain("└─ 3 toolcalls · 4.2s")
     expect(f).not.toContain("├─")
     expect(f).not.toContain("bun test")
     t.destroy()
@@ -101,8 +101,8 @@ describe("Subagent renderer", () => {
 
   test("click expands to ├─/└─ trail with per-child glyphs + summary", async () => {
     const t = await setup({})
-    await until(t, () => t.frame().includes("⊙ Task — refactor foo"))
-    const p = locate(t, "⊙ Task")
+    await until(t, () => t.frame().includes("● Task — refactor foo"))
+    const p = locate(t, "● Task")
     await act(async () => { await t.mouse.pressDown(p.x, p.y) })
     await until(t, () => t.frame().includes("├─"))
 
@@ -111,7 +111,7 @@ describe("Subagent renderer", () => {
     expect(f).toContain("├─ $ bun test")
     expect(f).toContain("└─ ← Edit src/a.ts")
     expect(f).toContain("3 files changed")
-    expect(f).not.toContain("└ 3 toolcalls")
+    expect(f).not.toContain("└─ 3 toolcalls")
     t.destroy()
   })
 })
