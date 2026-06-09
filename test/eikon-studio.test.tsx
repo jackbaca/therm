@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { act, useState } from "react"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+import { createHash } from "node:crypto"
 import { mountNode, until } from "./harness"
 import { EikonGroup } from "../src/tabs/EikonGroup"
 import { EikonGallery } from "../src/tabs/EikonGallery"
@@ -13,6 +14,12 @@ import * as prefs from "../src/context/preferences"
 
 const HH = process.env.HERMES_HOME!
 const PX = new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,0,0,0,0,58,126,155,85,0,0,0,10,73,68,65,84,120,156,99,104,0,0,0,130,0,129,119,205,114,182,0,0,0,0,73,69,78,68,174,66,96,130])
+const STREAM = [
+  JSON.stringify({ type: "header", eikon: 1, size: { cols: 4, rows: 2 }, defaultSignal: "state.idle", signals: { "state.idle": { clip: "idle" } } }),
+  JSON.stringify({ type: "clip", name: "idle", fps: 12, frameCount: 1 }),
+  JSON.stringify({ type: "frame", clip: "idle", index: 0, rows: ["abcd", "efgh"] }),
+].join("\n") + "\n"
+const digest = (data: string | Uint8Array) => `sha256:${createHash("sha256").update(data).digest("hex")}`
 const run = caps.ffmpeg ? test : test.skip
 
 // Stub rasterizer — deterministic, no binaries.
@@ -51,6 +58,40 @@ describe("EikonStudio tab", () => {
     await until(t, () => t.frame().includes("Create a local draft before submitting"))
     expect(t.frame()).not.toContain("Submit eikon")
     un()
+  })
+
+  test("runtime-only package installs expose Studio fetch from manifest origin", async () => {
+    const srv = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const path = new URL(req.url).pathname
+        if (path.endsWith("manifest.json")) return Response.json({
+          kind: "eikon.package",
+          schemaVersion: "1.0",
+          id: "liftaris/bare",
+          name: "bare",
+          version: "1.0.0",
+          compatibility: { eikon: ">=1 <2" },
+          entrypoints: { default: "bare.eikon" },
+          files: [
+            { path: "bare.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl", size: STREAM.length, digest: digest(STREAM) },
+            { path: "source.png", role: "source.base", mediaType: "image/png", size: PX.length, digest: digest(PX) },
+          ],
+          source: { base: "source.png" },
+        })
+        if (path.endsWith("bare.eikon")) return new Response(STREAM)
+        if (path.endsWith("source.png")) return new Response(PX)
+        return new Response("404", { status: 404 })
+      },
+    })
+    await eikon.fetchSource(`http://localhost:${srv.port}/pkg/manifest.json`, { media: false })
+    prefs.set("eikon", "bare")
+
+    await using t = await mountNode(<EikonStudio focused />, { width: 160, height: 48 })
+
+    await until(t, () => t.frame().includes("fetch source"))
+    expect(t.frame()).toContain("download to edit")
+    srv.stop()
   })
 
   run("renders three panes; knob nav via handleListKey; ←→ adjusts cycle knob", async () => {

@@ -16,7 +16,7 @@
 // (scope-tracked — deactivate unregisters). Studio reads the registry
 // live on every open of the rasterizer picker.
 
-import { existsSync, mkdirSync, readdirSync, copyFileSync, readFileSync, writeFileSync, rmSync, statSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, copyFileSync, readFileSync, writeFileSync, rmSync, statSync, renameSync } from "node:fs"
 import { join, extname, basename, dirname } from "node:path"
 import { install, resolve, peek, entries as packageEntries, dirty, header as peekHeader, serializeLaunchStream, defaultSignalMappings, decodeRuntimeBytes,
          type LaunchStreamRecord, type Installed as Got, type Resolved as ResolvedEikon, type Origin as EikonOrigin, type TrustState, type SourceKind, type DownloadOptions, type RuntimeDescriptor } from "eikon"
@@ -235,6 +235,13 @@ export function lifecycle(name: string, opts: { dirty?: boolean } = {}): Lifecyc
   }
 }
 
+export function sourceFetchUrl(name: string): string | undefined {
+  const man = manifest(name)
+  const head = header(file(name))
+  const info = sourceInfo(man, head)
+  return info.packageUrl ?? info.origin
+}
+
 /** List folder-form eikons under ~/.hermes/eikons/. Flat legacy
  *  <name>.eikon at the root is still readable by listEikons() in
  *  components/avatar/eikon.ts but doesn't appear here (no studio). */
@@ -244,11 +251,12 @@ export function list(): Installed[] {
   return readdirSync(root, { withFileTypes: true })
     .filter(e => e.isDirectory() && existsSync(join(root, e.name, `${e.name}.eikon`)))
     .map(e => {
-      const src = join(root, e.name, "source")
-      const has = existsSync(src) && readdirSync(src).length > 0
-      const man = manifest(e.name)
-      const head = header(join(root, e.name, `${e.name}.eikon`))
       const name = e.name
+      normalizeStoredSources(name)
+      const src = join(root, e.name, "source")
+      const has = !!findSource(name)
+      const man = manifest(name)
+      const head = header(join(root, name, `${name}.eikon`))
       return {
         name, file: join(root, name, `${name}.eikon`),
         source: src, hasSource: has,
@@ -271,6 +279,80 @@ export function raw(): string[] {
 
 const IMG = /\.(png|jpe?g|webp|gif|bmp)$/i
 const VID = /\.(mp4|webm|mov|mkv)$/i
+const MEDIA_EXT: Record<string, string> = {
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/jpg": ".jpg",
+  "image/webp": ".webp",
+  "image/gif": ".gif",
+  "image/bmp": ".bmp",
+  "video/mp4": ".mp4",
+  "video/webm": ".webm",
+  "video/quicktime": ".mov",
+  "video/x-matroska": ".mkv",
+}
+
+type SourceFile = { path?: string; mediaType?: string }
+type SourceManifest = { files?: SourceFile[] }
+
+function sourceRole(role: string): role is keyof Sources & string {
+  return role === "base" || STATES.includes(role as AvatarState)
+}
+
+export function sourceExt(man: SourceManifest | undefined, rel: string): string {
+  const ext = extname(rel).toLowerCase()
+  if (ext) return ext
+  const type = man?.files?.find(f => f.path === rel)?.mediaType?.split(";")[0]?.trim().toLowerCase()
+  return type ? MEDIA_EXT[type] ?? "" : ""
+}
+
+export function sourceName(man: SourceManifest | undefined, role: string, rel: string): string {
+  return `${role}${sourceExt(man, rel)}`
+}
+
+function sourceRefs(man: SourceManifest | undefined): Map<string, string> {
+  if (!man) return new Map()
+  try {
+    return new Map(packageEntries(man as never)
+      .filter(([role]) => sourceRole(String(role)))
+      .map(([role, rel]) => [String(role), rel]))
+  } catch {
+    return new Map()
+  }
+}
+
+function normalizeSources(name: string, sources: Sources): Sources {
+  const man = manifest(name) as SourceManifest | undefined
+  const refs = sourceRefs(man)
+  const root = sourceDir(name)
+  return Object.fromEntries(Object.entries(sources).map(([role, fname]) => {
+    if (!fname) return [role, fname]
+    const rel = refs.get(role)
+    const next = rel ? sourceName(man, role, rel) : fname
+    if (next === fname) return [role, fname]
+    const from = join(root, fname)
+    const to = join(root, next)
+    if (existsSync(from) && !existsSync(to)) renameSync(from, to)
+    return [role, existsSync(to) ? next : fname]
+  })) as Sources
+}
+
+function sameSources(a: Sources, b: Sources): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+function normalizeStudioSources(name: string, s: Studio): Studio {
+  const prev = s.sources ?? {}
+  const sources = normalizeSources(name, prev)
+  if (sameSources(prev, sources)) return s
+  const next = { ...s, sources }
+  writeFileSync(studioFile(name), JSON.stringify(next, null, 2) + "\n", "utf8")
+  return next
+}
+
+function normalizeStoredSources(name: string): void {
+  try { readStudio(name) } catch {}
+}
 
 /** Resolve the effective source path for a state: per-state file →
  *  base.* → idle.* → first image → first video. Returns absolute path. */
@@ -301,7 +383,7 @@ export function readStudio(name: string): Studio | undefined {
   const raw = JSON.parse(readFileSync(p, "utf8")) as Partial<Studio>
   // Minimal shape-check; absent fields fall back at fresh() time.
   if (!raw || typeof raw !== "object") return undefined
-  return raw as Studio
+  return normalizeStudioSources(name, raw as Studio)
 }
 
 export function writeStudio(name: string, s: Studio) {
@@ -568,8 +650,9 @@ export async function fetchSource(src: string, opts?: { name?: string; media?: b
                                    progress?: (d: number, t: number) => void }): Promise<Fetched> {
   const out: Got = await install(src, ROOT(), opts)
   stripManifestTrust(out.name)
-  attachSources(out.name, out.sources)
-  return { name: out.name, sources: out.sources, n: out.n, bytes: out.bytes }
+  const sources = normalizeSources(out.name, out.sources)
+  attachSources(out.name, sources)
+  return { name: out.name, sources, n: out.n, bytes: out.bytes }
 }
 
 const SAFE = /^[a-zA-Z0-9._/-]+$/

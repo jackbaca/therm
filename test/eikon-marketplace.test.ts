@@ -634,6 +634,45 @@ describe("service/eikon-marketplace", () => {
     srv.stop()
   })
 
+  test("downloadSource preserves extensions for content-addressed source blobs", async () => {
+    const old = launch.replace("abcd", "OLDX")
+    const next = launch.replace("abcd", "NEWX")
+    const mp4 = new Uint8Array(1024)
+    const man = {
+      ...pack("blob", next),
+      files: [
+        { path: "blob.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl", size: next.length, digest: digest(next) },
+        { path: "blobs/sha256/base", role: "source.base", mediaType: "image/png", size: png.length, digest: digest(png) },
+        { path: "blobs/sha256/idle", role: "source.idle", mediaType: "video/mp4", size: mp4.length, digest: digest(mp4) },
+      ],
+      source: { base: "blobs/sha256/base", states: { idle: { file: "blobs/sha256/idle" } } },
+    }
+    const srv = serve([
+      { path: "/eikons/index.json", body: req => [catalogRow({ name: "blob", source: "blob/" }, `${new URL(req.url).origin}/eikons/`)] },
+      { path: "/eikons/blob/manifest.json", body: man },
+      { path: "/eikons/blob/blob.eikon", body: next },
+      { path: "/eikons/blob/blobs/sha256/base", body: png },
+      { path: "/eikons/blob/blobs/sha256/idle", body: mp4 },
+    ])
+    eikon.ensure("blob")
+    writeFileSync(eikon.file("blob"), old)
+    writeFileSync(join(eikon.dir("blob"), "manifest.json"), JSON.stringify({
+      ...man,
+      origin: { sourceKey: `http://localhost:${srv.port}/eikons/blob/`, identityKey: `http://localhost:${srv.port}/eikons/blob/`, packageUrl: `http://localhost:${srv.port}/eikons/blob/manifest.json` },
+    }, null, 2))
+
+    const state = await market.load({ catalog: `http://localhost:${srv.port}/eikons`, allowPrivate: true })
+    const out = await state.service!.downloadSource(state.rows[0]!.entry.identityKey)
+
+    expect(out.name).toBe("blob")
+    expect(existsSync(join(eikon.sourceDir("blob"), "base.png"))).toBe(true)
+    expect(existsSync(join(eikon.sourceDir("blob"), "idle.mp4"))).toBe(true)
+    expect(eikon.findSource("blob")).toEndWith("base.png")
+    expect(eikon.findSource("blob", "idle")).toEndWith("idle.mp4")
+    expect(eikon.readStudio("blob")!.sources).toEqual({ base: "base.png", idle: "idle.mp4" })
+    srv.stop()
+  })
+
   test("bundled Nous satisfies the registry package identity", () => {
     prefs.set("eikon", "nous")
     const cat: Catalog = {

@@ -184,6 +184,46 @@ describe("service/eikon: fetchSource", () => {
     srv.stop()
   })
 
+  test("fetchSource preserves media extensions for content-addressed source blobs", async () => {
+    const mp4 = new Uint8Array(1024)
+    const srv = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const path = new URL(req.url).pathname
+        if (path.endsWith("manifest.json")) return Response.json({
+          kind: "eikon.package",
+          schemaVersion: "1.0",
+          id: "liftaris/blobbed",
+          name: "blobbed",
+          version: "1.0.0",
+          compatibility: { eikon: ">=1 <2" },
+          entrypoints: { default: "blobbed.eikon" },
+          files: [
+            { path: "blobbed.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl", size: launch.length, digest: digest(launch) },
+            { path: "blobs/sha256/base", role: "source.base", mediaType: "image/png", size: png.length, digest: digest(png) },
+            { path: "blobs/sha256/idle", role: "source.idle", mediaType: "video/mp4", size: mp4.length, digest: digest(mp4) },
+          ],
+          source: { base: "blobs/sha256/base", states: { idle: { file: "blobs/sha256/idle" } } },
+        })
+        if (path.endsWith("blobbed.eikon")) return new Response(launch)
+        if (path.endsWith("/base")) return new Response(png)
+        if (path.endsWith("/idle")) return new Response(mp4)
+        return new Response("404", { status: 404 })
+      },
+    })
+
+    const out = await eikon.fetchSource(`http://localhost:${srv.port}/pkg/manifest.json`)
+
+    expect(out.sources.base).toBe("base.png")
+    expect(out.sources.idle).toBe("idle.mp4")
+    expect(existsSync(join(eikon.sourceDir("blobbed"), "base.png"))).toBe(true)
+    expect(existsSync(join(eikon.sourceDir("blobbed"), "idle.mp4"))).toBe(true)
+    expect(eikon.findSource("blobbed")).toEndWith("base.png")
+    expect(eikon.findSource("blobbed", "idle")).toEndWith("idle.mp4")
+    expect(eikon.readStudio("blobbed")!.sources).toEqual({ base: "base.png", idle: "idle.mp4" })
+    srv.stop()
+  })
+
   test("legacy {files:[]} manifest: role from basename", async () => {
     const srv = Bun.serve({
       port: 0,

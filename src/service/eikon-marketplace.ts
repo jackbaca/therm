@@ -511,7 +511,7 @@ export class MarketplaceService {
     const dir = eikon.ensure(usable.inst.name).source
     const pairs = await Promise.all(xs.map(async ([r, rel]) => {
       const data = await sourceBytes(man, base, rel, this.dl())
-      return [r, `${r}${extname(rel).toLowerCase()}`, data] as const
+      return [r, eikon.sourceName(man, r, rel), data] as const
     }))
     const sources: eikon.Sources = {}
     await Promise.all(pairs.map(async ([r, fname, data]) => {
