@@ -2,7 +2,7 @@ import { describe, expect, test, beforeEach } from "bun:test"
 import { act } from "react"
 import { mountNode, until } from "./harness"
 import * as prefs from "../src/context/preferences"
-import { Tool } from "../src/components/chat/tool"
+import { Tool, cost } from "../src/components/chat/tool"
 import type { ToolPart } from "../src/types/message"
 
 describe("preferences > usePref", () => {
@@ -110,5 +110,20 @@ describe("Tool > detail mode", () => {
     await until(t, () => t.frame().includes("Edit src/z.ts"))
     expect(t.frame()).not.toContain("patched result")
     t.destroy()
+  })
+
+  test("cost counts capped trail rows by shape", () => {
+    const trail = Array.from({ length: 20 }, (_, i) => ({ name: "read_file", preview: `src/${i}.ts` }))
+    const tool: ToolPart = {
+      type: "tool", id: "sub", name: "custom_parent", args: "",
+      preview: "parent", status: "running", trail,
+    }
+    const task: ToolPart = {
+      type: "tool", id: "task", name: "delegate_task", args: "",
+      preview: "delegate", status: "running",
+    }
+
+    expect(cost(tool, "expanded")).toBe(10)
+    expect(cost(task, "expanded")).toBe(2)
   })
 })

@@ -11,6 +11,7 @@ import { spec } from "./preview"
 
 const CHARS = 800
 const LINES = 12
+const TRAIL = 8
 
 function short(s: string | undefined, n = 120): string {
   if (!s) return ""
@@ -71,7 +72,8 @@ export function details(tool: Part, mode: DetailMode): Detail[] {
 
 export function cost(tool: Part, mode: DetailMode): number {
   if (!visible(tool, mode)) return 0
-  if (tool.trail || tool.name === "delegate_task") return 2
+  if (tool.trail) return 2 + Math.min(tool.trail.length, TRAIL)
+  if (tool.name === "delegate_task") return 2
   return 1 + details(tool, mode).reduce((n, d) => n + lines(d.text), 0)
 }
 

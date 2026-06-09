@@ -99,6 +99,19 @@ describe("Subagent renderer", () => {
     t.destroy()
   })
 
+  test("wraps long running goals without hiding continuation text", async () => {
+    const goal = "Independently inspect Herm's ThoughtCloud tool rendering path, especially delegate_task/subagent rows. Return concise findings: relevant files/components, how delegate_task is dispatched, and any focused tests that cover it. Do not modify files"
+    const t = await mountNode(
+      <box flexDirection="column" width="100%" height="100%"><Tool tool={part({ status: "running", duration: undefined, goal, preview: goal, trail: [] })} /></box>,
+      { width: 90, height: 20 },
+    )
+    await until(t, () => t.frame().includes("Task — Independently inspect"))
+    const f = t.frame()
+    expect(f).toContain("delegate_task is")
+    expect(f).toContain("dispatched, and any focused tests")
+    t.destroy()
+  })
+
   test("click expands to ├─/└─ trail with per-child glyphs + summary", async () => {
     const t = await setup({})
     await until(t, () => t.frame().includes("● Task — refactor foo"))
