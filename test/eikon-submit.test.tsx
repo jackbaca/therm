@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from "bun:test"
 import { act } from "react"
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { runtimeDescriptor } from "eikon"
+import { decodeRuntimeFile, runtimeDescriptor } from "eikon"
 import { mountNode, until, type Harness } from "./harness"
 import { EikonGallery } from "../src/tabs/EikonGallery"
 import { eikon } from "../src/service/eikon"
@@ -13,9 +13,9 @@ const HH = process.env.HERMES_HOME!
 
 function seed(name: string, opts: { published?: boolean } = {}) {
   const p = eikon.ensure(name)
-  const src = Bun.file(join(import.meta.dir, "../assets/eikons/nous/nous.eikon")).text()
-  return src.then(raw => {
-    const lines = raw.trimEnd().split("\n")
+  const raw = decodeRuntimeFile(join(import.meta.dir, "../assets/eikons/nous/nous.eikon"))
+  const lines = raw.trimEnd().split("\n")
+  return Promise.resolve().then(() => {
     const baseHead = JSON.parse(lines[0]!)
     const head = { ...baseHead, id: `liftaris/${name}`, title: name, author: { name: "kaio" } }
     writeFileSync(eikon.file(name), JSON.stringify(head) + "\n" + lines.slice(1).join("\n") + "\n")

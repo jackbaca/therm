@@ -1,13 +1,13 @@
 import { afterEach, expect, test } from "bun:test"
 import { act } from "react"
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { mountNode, until, type Harness } from "./harness"
 import { EikonGallery } from "../src/tabs/EikonGallery"
 import { EikonStudio } from "../src/tabs/EikonStudio"
 import { eikon } from "../src/service/eikon"
 import * as prefs from "../src/context/preferences"
-import { submit as eikonSubmit, type SubmitBackend, type SubmitRequest } from "eikon"
+import { decodeRuntimeFile, submit as eikonSubmit, type SubmitBackend, type SubmitRequest } from "eikon"
 import { caps, type Rasterizer } from "../src/utils/eikon-render"
 
 const HH = process.env.HERMES_HOME!
@@ -30,7 +30,7 @@ function seedNousDraft(name: string) {
   const source = join(p.source, "base.png")
   writeFileSync(source, PX)
 
-  const lines = readFileSync(join(import.meta.dir, "../assets/eikons/nous/nous.eikon"), "utf8").trimEnd().split("\n")
+  const lines = decodeRuntimeFile(join(import.meta.dir, "../assets/eikons/nous/nous.eikon")).trimEnd().split("\n")
   const head = JSON.parse(lines[0]!)
   head.id = `liftaris/${name}`
   head.title = name
