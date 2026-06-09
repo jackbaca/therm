@@ -7,8 +7,8 @@
 import { memo, useEffect, useRef, useState } from "react"
 import type { BorderCharacters, MouseEvent } from "@opentui/core"
 import type { Message, Part, ThinkingPart, ToolPart } from "../../types/message"
-import { Tool } from "./tool"
-import { usePref } from "../../context/preferences"
+import { Tool, cost, visible } from "./tool"
+import { usePref, type DetailMode } from "../../context/preferences"
 import { useTheme } from "../../theme"
 
 export const CLOUD_MIN = 12
@@ -81,10 +81,10 @@ function latest(messages: Message[]): Message | undefined {
 }
 
 // Rough row cost — enough for auto-grow between MIN and MAX.
-function rows(list: Part[]): number {
+function rows(list: Part[], detail: DetailMode): number {
   return list.reduce((n, p) =>
     n + (p.type === "thinking" ? Math.ceil(p.content.length / 80) || 1
-       : p.type === "tool" && p.diff ? 6
+       : p.type === "tool" ? cost(p, detail)
        : 1), 0)
 }
 
@@ -101,18 +101,19 @@ export const ThoughtCloud = memo((props: {
   const all = parts(src)
   const think = all.filter((p): p is ThinkingPart => p.type === "thinking")
   const tools = all.filter((p): p is ToolPart => p.type === "tool")
+  const seen = tools.filter(t => visible(t, detail))
   const [pane, setPane] = useState<Pane>("reasoning")
   useEffect(() => {
-    if (pane === "reasoning" && think.length === 0 && tools.length > 0) setPane("tools")
-    if (pane === "tools" && tools.length === 0 && think.length > 0) setPane("reasoning")
-  }, [pane, think.length, tools.length])
-  const body = pane === "reasoning" ? think : tools
+    if (pane === "reasoning" && think.length === 0 && seen.length > 0) setPane("tools")
+    if (pane === "tools" && seen.length === 0 && think.length > 0) setPane("reasoning")
+  }, [pane, think.length, seen.length])
+  const body = pane === "reasoning" ? think : seen
 
   // Auto-grow: track content until the user drags; then their size
   // sticks. `want` is the dep so growth follows streamed thinking text,
   // not just part count.
   const manual = useRef(false)
-  const want = Math.min(CLOUD_MAX, Math.max(CLOUD_MIN, rows(body) + 3))
+  const want = Math.min(CLOUD_MAX, Math.max(CLOUD_MIN, rows(body, detail) + 3))
   const resize = props.onResize
   useEffect(() => {
     if (!manual.current) resize(want)
@@ -156,7 +157,7 @@ export const ThoughtCloud = memo((props: {
     >
       <box height={1} flexShrink={0} flexDirection="row">
         {pill("reasoning", "reasoning", null)}
-        {pill("tools", "tools", tools.length)}
+        {pill("tools", "tools", seen.length)}
         <box flexGrow={1} />
         {detail !== "expanded" ? (
           <box marginRight={1}><text fg={theme.textMuted}>⟨{detail}⟩</text></box>
@@ -175,7 +176,7 @@ export const ThoughtCloud = memo((props: {
                   <markdown content={(p as ThinkingPart).content} fg={theme.markdownText} syntaxStyle={syntaxStyle} />
                 </box>
               : <box key={(p as ToolPart).id || `t-${i}`} width="100%" flexShrink={0}>
-                  <Tool tool={p as ToolPart} detail={detail === "hidden" ? "hidden" : "collapsed"} />
+                  <Tool branch={i === body.length - 1 ? "last" : "mid"} tool={p as ToolPart} detail={detail} />
                 </box>,
           )}
         </box>

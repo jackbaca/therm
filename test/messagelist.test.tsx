@@ -120,14 +120,14 @@ describe("MessageList", () => {
 })
 
 describe("tool/inline", () => {
-  test("terminal + read_file render icon/verb rows", async () => {
+  test("terminal + read_file render trail rows", async () => {
     let t = await tool(turn[1].parts[1] as ToolPart)
-    await until(t, () => t.frame().includes("$ bun run build"))
+    await until(t, () => t.frame().includes("● bun run build"))
     expect(t.frame()).toContain("87ms")
     t.destroy()
 
     t = await tool(turn[1].parts[2] as ToolPart)
-    await until(t, () => t.frame().includes("→ Read src/index.tsx"))
+    await until(t, () => t.frame().includes("● Read src/index.tsx"))
     t.destroy()
   })
 
@@ -148,7 +148,7 @@ describe("tool/inline", () => {
       preview: "rm -rf /", status: "error", duration: 5,
       result: "permission denied",
     })
-    await until(t, () => t.frame().includes("$ rm -rf /"))
+    await until(t, () => t.frame().includes("● rm -rf /"))
     expect(t.frame()).toContain("permission denied")
     t.destroy()
   })
@@ -206,6 +206,19 @@ describe("tool/file-edit", () => {
       status: "done", duration: 5, diff: UDIFF,
     })
     await until(t, () => t.frame().includes("Edit") && !t.frame().includes("changed"))
+    t.destroy()
+  })
+
+  test("file-edit diff preview falls back to terse edit label", async () => {
+    const t = await tool({
+      type: "tool", id: "td", name: "patch", args: "",
+      preview: UDIFF, status: "done", duration: 5, diff: UDIFF,
+    })
+    await until(t, () => t.frame().includes("Edit"))
+    const f = t.frame()
+    expect(f).not.toContain("--- a/foo.ts")
+    expect(f).not.toContain("@@")
+    expect(f).not.toContain("+new line")
     t.destroy()
   })
 

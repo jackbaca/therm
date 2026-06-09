@@ -85,6 +85,20 @@ describe("Tool > detail mode", () => {
     t.destroy()
   })
 
+  test("expanded error mode prefers verbose error detail", async () => {
+    const verbose: ToolPart = {
+      type: "tool", id: "t4", name: "terminal", args: "",
+      preview: "bun test", status: "error", duration: 10,
+      result: "failed", verboseResult: "failed\ntraceback line",
+    }
+    const t = await mount(verbose, "expanded")
+    await until(t, () => t.frame().includes("traceback line"))
+    const f = t.frame()
+    expect(f).toContain("Error")
+    expect(f).toContain("traceback line")
+    t.destroy()
+  })
+
   test("collapsed mode keeps verbose details hidden", async () => {
     const verbose: ToolPart = {
       type: "tool", id: "t3", name: "patch", args: "",
