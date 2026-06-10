@@ -5,10 +5,11 @@
 import { readdirSync, readFileSync } from "node:fs"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { parse, header as peek, decodeRuntimeFile, type Eikon, type Clip, type Meta } from "eikon"
+import { parseLaunchStream, resolveSignal as resolveLaunchSignal } from "eikon/stream"
 
 export type EikonMeta = Meta
 export type EikonState = Clip
-export type ParsedEikon = { meta: EikonMeta; states: Map<string, EikonState> }
+export type ParsedEikon = { meta: EikonMeta; states: Map<string, EikonState>; resolve: (signal: string) => EikonState | undefined }
 
 type ListedEikon = { path: string; meta: EikonMeta }
 
@@ -27,8 +28,21 @@ function readManifestEntrypoint(path: string): string | undefined {
 }
 
 export function parseEikon(text: string): ParsedEikon {
+  const first = text.split("\n", 1)[0]
+  const row = first ? JSON.parse(first) as { type?: unknown } : {}
+  if (row.type === "header") {
+    const e = parseLaunchStream(text)
+    return {
+      meta: e.meta,
+      states: e.clips,
+      resolve: signal => {
+        try { return e.clips.get(resolveLaunchSignal(e, signal as never).clip) }
+        catch { return undefined }
+      },
+    }
+  }
   const e = parse(text)
-  return { meta: e.meta, states: e.clips }
+  return { meta: e.meta, states: e.clips, resolve: signal => e.clips.get(signal.replace(/^state\./, "")) }
 }
 
 export function parseEikonFile(path: string): ParsedEikon {

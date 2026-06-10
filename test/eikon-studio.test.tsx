@@ -389,7 +389,16 @@ describe("EikonStudio tab", () => {
       port: 0,
       fetch(req) {
         return new URL(req.url).pathname.endsWith("manifest.json")
-          ? Response.json({ files: ["base.png"] })
+          ? Response.json({
+            kind: "eikon.package",
+            schemaVersion: "1.0",
+            id: "liftaris/remote",
+            name: "remote",
+            version: "1.0.0",
+            compatibility: { eikon: ">=1 <2" },
+            entrypoints: { default: "remote.eikon" },
+            source: { base: "base.png" },
+          })
           : new Response(PX)
       },
     })

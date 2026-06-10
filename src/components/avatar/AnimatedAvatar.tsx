@@ -33,7 +33,8 @@ export const AnimatedAvatar = memo(({ state = "idle", eikon, onHold }: {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const holdRef = useRef(onHold); holdRef.current = onHold
 
-  const clip: EikonState = eikon?.states.get(state) ?? STATE_FRAMES[state]
+  const signal = `state.${state}`
+  const clip: EikonState = eikon?.resolve(signal) ?? eikon?.states.get(state) ?? STATE_FRAMES[state]
   const { frames, fps, loopFrom } = clip
   const count = frames.length
 

@@ -279,7 +279,7 @@ describe("service/eikon: fetchSource", () => {
     srv.stop()
   })
 
-  test("legacy {files:[]} manifest: role from basename", async () => {
+  test("source-only {files:[]} manifest is rejected outside migration tooling", async () => {
     const srv = Bun.serve({
       port: 0,
       fetch(req) {
@@ -290,9 +290,7 @@ describe("service/eikon: fetchSource", () => {
       },
     })
     const url = `http://localhost:${srv.port}/y/`
-    const out = await eikon.fetchSource(url)
-    expect(out.name).toBe("legacy")
-    expect(out.sources).toEqual({ base: "base.png", thinking: "thinking.png" })
+    await expect(eikon.fetchSource(url)).rejects.toThrow(/eikon\.package/)
     srv.stop()
   })
 
@@ -470,12 +468,12 @@ describe("service/eikon: lifecycle", () => {
     expect(info.updateable).toBe(true)
   })
 
-  test("legacy source_url is read as unverified legacy metadata", async () => {
+  test("legacy source_url is read as unverified unknown metadata", async () => {
     eikon.ensure("legacy")
     writeFileSync(eikon.file("legacy"), JSON.stringify({ eikon: 1, name: "legacy", source_url: "http://x/legacy/" }) + "\n")
     writeFileSync(join(eikon.dir("legacy"), "manifest.json"), JSON.stringify({ name: "legacy" }))
     const info = eikon.lifecycle("legacy")
-    expect(info.source.kind).toBe("legacy")
+    expect(info.source.kind).toBe("unknown")
     expect(info.source.origin).toBe("http://x/legacy/")
     expect(info.trust).toBe("unverified")
   })

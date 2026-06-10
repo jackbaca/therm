@@ -19,8 +19,10 @@
 import { existsSync, mkdirSync, readdirSync, copyFileSync, readFileSync, writeFileSync, rmSync, statSync, renameSync } from "node:fs"
 import { createHash } from "node:crypto"
 import { join, extname, basename, dirname } from "node:path"
-import { install, resolve, peek, entries as packageEntries, downloadBytes, dirty, header as peekHeader, serializeLaunchStream, defaultSignalMappings, decodeRuntimeBytes,
-         type LaunchStreamRecord, type Installed as Got, type Resolved as ResolvedEikon, type Origin as EikonOrigin, type TrustState, type SourceKind, type DownloadOptions, type RuntimeDescriptor } from "eikon"
+import { canonicalSignal, defaultSignalMappings, header as peekHeader, type LaunchStreamRecord, type SourceKind } from "eikon"
+import { install, resolve, peek, entries as packageEntries, downloadBytes, dirty,
+         type Installed as Got, type Resolved as ResolvedEikon, type Origin as EikonOrigin, type TrustState, type DownloadOptions } from "eikon/install"
+import { decodeRuntimeBytes, serializeLaunchStream, type RuntimeDescriptor } from "eikon/stream"
 import { DEFAULT_PUBLIC_CATALOG } from "eikon/catalog"
 import { hermesPath } from "./hermes-home"
 import * as prefs from "../context/preferences"
@@ -66,7 +68,6 @@ export type LifecycleInfo = {
   updateAvailable: boolean
   dirty: boolean
   poster?: string
-  preview?: string
   compatibility?: Record<string, unknown>
   installedAt?: string
 }
@@ -132,7 +133,7 @@ function sourceInfo(man: Record<string, unknown> | undefined, head: Record<strin
   const src = typeof o?.source === "string" ? o.source : legacySource(head)
   const identity = o?.identityKey ?? o?.sourceKey ?? o?.packageUrl ?? o?.repo ?? src
   return {
-    kind: o?.kind ?? (src ? "legacy" : "unknown"),
+    kind: o?.kind ?? "unknown",
     ...(identity ? { identity } : {}),
     ...(src ? { origin: src } : {}),
     ...(o?.repo ? { repo: o.repo } : {}),
@@ -223,7 +224,7 @@ export function lifecycle(name: string, opts: { dirty?: boolean } = {}): Lifecyc
     ...(author ? { author } : {}),
     ...(version ? { version } : {}),
     source: src,
-    trust: originObject(man)?.trust ?? (src.kind === "legacy" ? "unverified" : "unknown"),
+    trust: originObject(man)?.trust ?? (src.origin ? "unverified" : "unknown"),
     active: prefs.get("eikon") === name,
     removable: existsSync(file(name)),
     updateable: hasOrigin,
@@ -708,7 +709,6 @@ export type PackageManifest = {
   files?: Array<{ path: string; mediaType?: string; size?: number; digest?: string; role?: string; encoding?: string; decodedSize?: number; decodedDigest?: string }>
   source?: { base?: string; states?: Partial<Record<string, { file: string; role?: string }>> }
   poster?: string
-  preview?: string
   triggers?: Array<{ signal: string; when: string; fallback?: string }>
   extensions?: { used?: string[]; required?: string[] }
   legacy?: { sourceFormat?: ".eikon"; migration?: "adapt" | "converted"; notes?: string[] }
@@ -726,7 +726,6 @@ export type CatalogPackage = {
   glyph?: string
   tags?: string[]
   poster?: string
-  preview?: string
   packageUrl: string
   detailUrl?: string
   compatibility: { eikon: string; hosts?: Record<string, string>; available?: boolean; reason?: string }
@@ -887,7 +886,6 @@ function validatePkg(value: unknown): PackageManifest {
     if (!f || typeof f.path !== "string" || !safePath(f.path)) throw pkgErr("files.path", "safe relative path required")
   }
   if (man.poster && !safePath(man.poster)) throw pkgErr("poster", "safe relative path required")
-  if (man.preview && !safePath(man.preview)) throw pkgErr("preview", "safe relative path required")
   return man
 }
 
@@ -927,7 +925,7 @@ function normalize(input: unknown, base?: string): CatalogPackage {
       id: man.id, sourceKey: typeof input.sourceKey === "string" ? input.sourceKey : packageUrl,
       name: man.name, title: man.display?.title, author: man.display?.author,
       description: man.display?.description, glyph: man.display?.glyph, tags: man.display?.tags,
-      poster: relUrl(root, man.poster), preview: relUrl(root, man.preview ?? man.entrypoints.default),
+      poster: relUrl(root, man.poster),
       packageUrl, detailUrl: typeof input.detailUrl === "string" ? asUrl(input.detailUrl, root) : undefined,
       compatibility: { eikon: man.compatibility.eikon, hosts: man.compatibility.hosts, available: launchOk(man.compatibility.eikon) },
       state: entryState(man.name, launchOk(man.compatibility.eikon)),

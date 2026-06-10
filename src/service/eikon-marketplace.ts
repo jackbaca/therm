@@ -32,7 +32,6 @@ export type MarketplaceRow = {
   installed: boolean
   active: boolean
   installState: EntryState
-  preview?: string
   installedManifest?: InstalledManifest
   installedName?: string
   installedPath?: string
@@ -191,7 +190,6 @@ function life(name: string, man: InstalledManifest): eikon.LifecycleInfo {
     updateAvailable: false,
     dirty: false,
     ...(text(man.poster) ? { poster: text(man.poster) } : {}),
-    ...(text(man.preview) ? { preview: text(man.preview) } : {}),
     ...(obj(man.compatibility) ? { compatibility: man.compatibility as Record<string, unknown> } : {}),
     ...(text(origin.at) ? { installedAt: text(origin.at) } : {}),
   }
@@ -218,7 +216,7 @@ function bundled(xs: InstalledMetadata[]): InstalledMetadata[] {
 }
 
 function cacheKey(entry: CatalogEntry) {
-  return entry.identityKey || entry.sourceKey || entry.id
+  return [entry.identityKey || entry.sourceKey || entry.id, entry.runtimeUrl, entry.trust?.runtimeDigest, entry.trust?.runtimeSize].filter(Boolean).join("|")
 }
 
 function blob(url: string) {
@@ -226,10 +224,7 @@ function blob(url: string) {
 }
 
 function artifact(entry: CatalogEntry): CatalogEntry {
-  if (!entry.preview || entry.preview === entry.runtimeUrl) return entry
-  const out = { ...entry, runtimeUrl: entry.preview } as Partial<CatalogEntry>
-  delete out.trust
-  return out as CatalogEntry
+  return entry
 }
 
 type Trust = { manifestDigest?: string; runtimeDigest?: string; digest?: string }
@@ -354,7 +349,6 @@ function row(entry: CatalogEntry, xs: InstalledMetadata[]): MarketplaceRow {
     updateAvailable: false,
     dirty: false,
     ...(entry.poster ? { poster: entry.poster } : {}),
-    ...(entry.preview ? { preview: entry.preview } : {}),
     compatibility: entry.compatibility as Record<string, unknown>,
   }
   const available = sourceAvailable(entry, usable?.inst)
@@ -485,7 +479,7 @@ export class MarketplaceService {
     const out = await eikon.fetchSource(entry.packageUrl, { name: entry.name, media: opts.media === true, downloader: this.dl(undefined, this.cached(entry.packageUrl, raw)) })
     const ef = eikon.file(out.name)
     if (!existsSync(ef)) {
-      const art = await loadRuntimeArtifact(entry, this.runtime(entry))
+      const art = await loadRuntimeArtifact(entry, this.runtime(entry), { allowPrivate: this.allowPrivate })
       await Bun.write(ef, art.bytes)
       eikon.notifyRevision()
     }
@@ -549,7 +543,7 @@ export class MarketplaceService {
     opts.signal?.addEventListener("abort", off, { once: true })
     try {
       const item = artifact(entry)
-      const text = (await loadRuntimeArtifact(item, this.runtime(item, ctl.signal), { signal: ctl.signal })).text
+      const text = (await loadRuntimeArtifact(item, this.runtime(item, ctl.signal), { signal: ctl.signal, allowPrivate: this.allowPrivate })).text
       this.cache.set(cacheKey(entry), text)
       while (this.cache.size > this.previewCacheLimit) this.cache.delete(this.cache.keys().next().value!)
       return text

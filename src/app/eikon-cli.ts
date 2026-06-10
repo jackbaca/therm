@@ -1,4 +1,4 @@
-import { resolve as resolveSource, type Resolved } from "eikon"
+import { resolve as resolveSource, type Resolved } from "eikon/install"
 import * as svc from "../service/eikon"
 import * as market from "../service/eikon-marketplace"
 import * as prefs from "../context/preferences"
@@ -42,7 +42,7 @@ type InspectResult = {
   sourceKind: svc.SourceInfo["kind"]
   sourceIdentity?: string
   compatibility?: Record<string, unknown> | string
-  preview: boolean
+  runtime: boolean
   poster: boolean
   installed: boolean
   active: boolean
@@ -75,7 +75,7 @@ type ResolvedManifestInfo = {
   display?: { title?: string; author?: string }
   version?: string
   compatibility?: Record<string, unknown> | string
-  preview?: string
+  runtime?: string
   poster?: string
 }
 
@@ -92,10 +92,10 @@ function inspectFromResolved(source: string, r: Resolved): InspectResult {
     title: man?.display?.title ?? man?.name,
     author: man?.display?.author,
     version: man?.version,
-    sourceKind: r.origin.kind ?? "legacy",
+    sourceKind: r.origin.kind ?? "unknown",
     sourceIdentity: r.origin.identityKey ?? r.origin.sourceKey ?? r.origin.repo ?? r.origin.source,
     compatibility: man?.compatibility,
-    preview: Boolean(man?.preview),
+    runtime: true,
     poster: Boolean(man?.poster),
     installed: svc.list().some(e => e.name === r.name),
     active: prefs.get("eikon") === r.name,
