@@ -145,16 +145,12 @@ describe("session.close", () => {
     t.destroy()
   })
 
-  test("switchSession preconfigures stored model before resume", async () => {
+  test("switchSession resumes without stored model preconfigure", async () => {
     seed()
-    let prepped = false
     const gw = new MockGateway({
       "commands.catalog": () => ({ pairs: [["/resume", "resume session"]] }),
       "session.create": () => ({ session_id: "old" }),
-      "config.set": p => {
-        prepped = p.value === "gpt-5.5 --provider openai-codex" && p.session_id === undefined
-        return { key: p.key, value: p.value, warning: "" }
-      },
+      "config.set": () => { throw new Error("unexpected model switch") },
       "session.resume": p => ({
         session_id: "live-past",
         resumed: p.session_id,
@@ -169,7 +165,7 @@ describe("session.close", () => {
             output: 0,
             total: 0,
             context_used: 110_000,
-            context_max: prepped ? 1_000_000 : 256_000,
+            context_max: 256_000,
           },
         },
       }),
@@ -181,27 +177,21 @@ describe("session.close", () => {
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Ready") && t.frame().includes("hello"))
 
-    const ri = gw.calls.findIndex(c => c.method === "session.resume" && c.params.session_id === "past")
-    const ci = gw.calls.findIndex(c => c.method === "config.set" && c.params.value === "gpt-5.5 --provider openai-codex")
-    expect(ci).toBeGreaterThan(-1)
-    expect(ci).toBeLessThan(ri)
-    expect(t.frame()).toContain("110K / 1M")
+    expect(gw.calls.some(c => c.method === "config.set")).toBe(false)
+    expect(gw.last("session.resume")?.params.session_id).toBe("past")
+    expect(t.frame()).toContain("110K / 256K")
 
     t.destroy()
   })
 
-  test("Sessions tab preconfigures stored model on first resume", async () => {
+  test("Sessions tab resumes without stored model preconfigure", async () => {
     seed()
-    let prepped = false
     const row = { id: "past", title: "Past", preview: "hello", message_count: 2, started_at: 1000, source: "tui" }
     const gw = new MockGateway({
       "commands.catalog": () => ({ pairs: [["/sessions", "sessions"]] }),
       "session.create": () => ({ session_id: "old" }),
       "session.list": () => ({ sessions: [row] }),
-      "config.set": p => {
-        prepped = p.value === "gpt-5.5 --provider openai-codex" && p.session_id === undefined
-        return { key: p.key, value: p.value, warning: "" }
-      },
+      "config.set": () => { throw new Error("unexpected model switch") },
       "session.resume": p => ({
         session_id: "live-past",
         resumed: p.session_id,
@@ -216,7 +206,7 @@ describe("session.close", () => {
             output: 0,
             total: 0,
             context_used: 110_000,
-            context_max: prepped ? 1_000_000 : 256_000,
+            context_max: 256_000,
           },
         },
       }),
@@ -232,22 +222,20 @@ describe("session.close", () => {
     await act(async () => { await t.keys.typeText("y") })
     await until(t, () => t.frame().includes("Ready") && t.frame().includes("hello"))
 
-    const ci = gw.calls.findIndex(c => c.method === "config.set" && c.params.value === "gpt-5.5 --provider openai-codex")
-    const ri = gw.calls.findIndex(c => c.method === "session.resume" && c.params.session_id === "past")
-    expect(ci).toBeGreaterThan(-1)
-    expect(ci).toBeLessThan(ri)
-    expect(t.frame()).toContain("110K / 1M")
+    expect(gw.calls.some(c => c.method === "config.set")).toBe(false)
+    expect(gw.last("session.resume")?.params.session_id).toBe("past")
+    expect(t.frame()).toContain("110K / 256K")
     expect(t.frame()).not.toContain("Connecting")
 
     t.destroy()
   })
 
-  test("switchSession resumes when stored model preconfigure fails", async () => {
+  test("switchSession ignores stale stored model", async () => {
     seed()
     const gw = new MockGateway({
       "commands.catalog": () => ({ pairs: [["/resume", "resume session"]] }),
       "session.create": () => ({ session_id: "old" }),
-      "config.set": () => { throw new Error("model switch failed") },
+      "config.set": () => { throw new Error("unexpected model switch") },
       "session.resume": p => ({
         session_id: "live-past",
         resumed: p.session_id,
@@ -261,7 +249,8 @@ describe("session.close", () => {
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Ready") && t.frame().includes("hello"))
 
-    expect(t.frame()).toContain("Stored session model unavailable: model switch failed; resumed with current model.")
+    expect(gw.calls.some(c => c.method === "config.set")).toBe(false)
+    expect(t.frame()).not.toContain("Stored session model unavailable")
     expect(t.frame()).not.toContain("Failed to resume")
     expect(t.frame()).not.toContain("Connecting")
     expect(gw.last("session.close")?.params.session_id).toBe("old")

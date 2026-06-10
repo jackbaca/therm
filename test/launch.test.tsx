@@ -168,29 +168,7 @@ describe("useSession.boot", () => {
     expect(gw.last("session.resume")?.params.session_id).toBe("tip")
   })
 
-  test("mode:resume switches live model to the stored provider/model", async () => {
-    const db = seed()
-    sess(db, "past", "tui", 1005, 5, { model: "gpt-5.5", billing_provider: "openai-codex" })
-    db.close()
-    resetDb()
-
-    const sets: Array<Record<string, unknown>> = []
-    const gw = new MockGateway({
-      "session.resume": p => ({ session_id: "live-past", resumed: p.session_id, messages: [] }),
-      "config.set": p => { sets.push(p); return { value: p.value } },
-    })
-    gw.setSession("old")
-    await boot(gw, { mode: "resume", sid: "past" })
-
-    expect(gw.last("session.resume")?.params.session_id).toBe("past")
-    expect(sets).toEqual([{ session_id: undefined, key: "model", value: "gpt-5.5 --provider openai-codex" }])
-    const ci = gw.calls.findIndex(c => c.method === "config.set")
-    const ri = gw.calls.findIndex(c => c.method === "session.resume")
-    expect(ci).toBeGreaterThan(-1)
-    expect(ci).toBeLessThan(ri)
-  })
-
-  test("mode:resume keeps going when stored model switch fails", async () => {
+  test("mode:resume ignores stored provider/model", async () => {
     const db = seed()
     sess(db, "past", "tui", 1005, 5, { model: "gpt-5.5-free", billing_provider: "openai-codex" })
     db.close()
@@ -198,13 +176,15 @@ describe("useSession.boot", () => {
 
     const gw = new MockGateway({
       "session.resume": p => ({ session_id: "live-past", resumed: p.session_id, messages: [] }),
-      "config.set": () => { throw new Error("missing model") },
+      "config.set": () => { throw new Error("unexpected model switch") },
     })
+    gw.setSession("old")
     const r = await boot(gw, { mode: "resume", sid: "past" })
 
     expect(gw.last("session.resume")?.params.session_id).toBe("past")
     expect(r.id).toBe("live-past")
-    expect(r.note).toBe("Stored session model unavailable: missing model; resumed with current model.")
+    expect(r.note).toBeUndefined()
+    expect(gw.calls.some(c => c.method === "config.set")).toBe(false)
   })
 
   test("mode:resume normalizes session_*.json filenames", async () => {

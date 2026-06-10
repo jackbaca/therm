@@ -2,7 +2,7 @@
 
 import { useMemo, useCallback } from "react"
 import * as preferences from "../context/preferences"
-import { sdb, byId } from "../service/sessions-db"
+import { sdb } from "../service/sessions-db"
 import { useGateway } from "../context/gateway"
 import { transcriptToMessages } from "./turnReducer"
 import type { Launch } from "./launch"
@@ -15,14 +15,6 @@ import type {
   TranscriptMessage,
 } from "../context/wire"
 import type { Message, Usage } from "../types/message"
-
-const spec = (row: ReturnType<typeof byId>) => {
-  if (!row?.model) return null
-  if (!row.billing_provider) return row.model
-  return `${row.model} --provider ${row.billing_provider}`
-}
-
-const msg = (e: unknown) => e instanceof Error ? e.message : String(e)
 
 /** session.compress response shape. `messages` is compacted server context;
  *  the live chat transcript intentionally stays visually unchanged. */
@@ -45,7 +37,7 @@ export type CompressResult = {
 }
 
 type Booted = { id: string; messages: Message[]; note?: string; info?: SessionInfo }
-type Resumed = { id: string; messages: Message[]; note?: string; info?: SessionInfo }
+type Resumed = { id: string; messages: Message[]; info?: SessionInfo }
 type Activated = { id: string; messages: Message[]; info?: SessionInfo; running: boolean; status?: string; startedAt?: number }
 type Agents = { processes?: Array<{ status?: string }> }
 type Close = { preserveBackground?: boolean }
@@ -84,18 +76,12 @@ export function useSession(): SessionOps {
     // No tip-chasing here: Sessions-tab lineage walk and `/resume <id>`
     // pass exact ids on purpose; boot() resolves tips itself.
     const target = normalize(sid)
-    const row = byId(target)
-    const model = spec(row)
-    const note = model ? await gw.request("config.set", {
-      session_id: undefined, key: "model", value: model,
-    }).then(() => undefined).catch(e =>
-      `Stored session model unavailable: ${msg(e)}; resumed with current model.`) : undefined
     const res = await gw.request<SessionResumeResponse>("session.resume", { session_id: target })
     const id = res.session_id
     gw.setSession(id)
     preferences.set("lastSessionId", res.resumed ?? target)
     const messages = res.messages?.length ? transcriptToMessages(res.messages) : []
-    return { id, messages, note, info: res.info }
+    return { id, messages, info: res.info }
   }, [gw])
 
   // No `cols` param and no `terminal.resize` RPC on SIGWINCH: herm renders
