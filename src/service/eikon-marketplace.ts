@@ -262,8 +262,12 @@ function sourceEntries(man: SourceManifest | undefined, strict = false): Array<[
     })
   } catch (err) {
     if (strict) throw err
-    return []
   }
+  return (man.files ?? []).flatMap(file => {
+    if (typeof file.path !== "string" || !file.role?.startsWith("source")) return []
+    const r = role(file)
+    return r ? [[r, file.path] as [SourceRole, string]] : []
+  })
 }
 
 function sourceDescriptors(man: SourceManifest | undefined) {
