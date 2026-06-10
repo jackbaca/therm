@@ -73,6 +73,10 @@ export const RULES: Record<string, Rule> = {
   "logging.level": oneOf("DEBUG", "INFO", "WARNING", "ERROR"),
   "approvals.mode": oneOf("manual", "ask", "yolo", "deny"),
   "code_execution.mode": oneOf("project", "strict"),
+  "onboarding.profile_build": oneOf("ask", "off"),
+  "streaming.transport": oneOf("auto", "draft", "edit", "off"),
+  "tools.tool_search.enabled": oneOf("auto", "on", "off"),
+  "updates.non_interactive_local_changes": oneOf("stash", "discard"),
 }
 
 /** Validate a field's buffer. Unknown keys pass. */
