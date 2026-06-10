@@ -858,7 +858,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
                 onAttachClipboard={attachClipboard}
                 onEnqueue={onEnqueue}
                 onDequeue={dequeue}
-                onSteer={openSteer}
                 onDirty={setComposing}
                 onEmptyEnter={onEmptyEnter}
               />
