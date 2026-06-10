@@ -89,8 +89,7 @@ describe("EikonStudio tab", () => {
 
     await using t = await mountNode(<EikonStudio focused />, { width: 160, height: 48 })
 
-    await until(t, () => t.frame().includes("Download source"))
-    expect(t.frame()).toContain("1 files")
+    await until(t, () => t.frame().includes("Download source") && t.frame().includes("1 files"))
     srv.stop()
   })
 
