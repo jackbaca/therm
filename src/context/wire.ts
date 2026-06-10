@@ -199,6 +199,7 @@ export type SessionInfo = {
   context_max?: number
   context_used?: number
   credential_warning?: string
+  yolo?: boolean
   mcp_servers?: McpServer[]
   /** hermes-agent version string (e.g. "1.14.2-dev+abc123") */
   release_date?: string

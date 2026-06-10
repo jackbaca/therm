@@ -299,6 +299,20 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
             })
             .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
           return
+        case "yolo":
+          gw.request<{ value?: string; warning?: string; info?: SessionInfo }>("config.set", { key: "yolo" })
+            .then(r => {
+              if (r.info) {
+                x.setInfo(r.info)
+                x.setUsage(r.info.usage)
+              } else {
+                x.setInfo({ ...(x.info ?? {}), yolo: !x.info?.yolo })
+              }
+              toast.show({ variant: "success", message: `yolo ${r.value ?? "toggled"}` })
+              if (r.warning) toast.show({ variant: "warning", message: r.warning })
+            })
+            .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
+          return
         case "quit": quit(renderer, x.sid, x.title, gw); return
         case "queue":
           if (!arg) { x.dispatch({ kind: "system", text: `${x.queueRef.current.length} queued` }); return }

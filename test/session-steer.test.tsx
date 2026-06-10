@@ -51,14 +51,22 @@ describe("session steer", () => {
     t.destroy()
   })
 
-  test("composer steer chip advertises the leader chord", async () => {
+  test("/steer opens a text prompt and submits guidance through session.steer", async () => {
     const gw = new MockGateway({
       "session.steer": p => ({ status: "queued", text: p.text }),
     })
     const t = await mount({ gw })
-    await until(t, () => t.frame().includes("steer Ctrl+X S"))
+    await until(t, () => t.frame().includes("Ready"))
 
-    expect(t.frame()).toContain("◇ steer Ctrl+X S")
+    await act(async () => { await t.keys.typeText("/steer") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Steer"))
+    await act(async () => { await t.keys.typeText("use the cache") })
+    act(() => { t.keys.pressEnter() })
+    await until(t, () => gw.last("session.steer")?.params.text === "use the cache")
+
+    expect(t.gw.last("prompt.submit")).toBeUndefined()
+    expect(t.frame()).toContain("Queued")
     t.destroy()
   })
 

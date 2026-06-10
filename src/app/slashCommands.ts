@@ -37,7 +37,7 @@ export const LOCAL_NAMES = new Set([
   "rollback", "save", "history", "status", "usage", "profile", "steer",
   "reload", "reload-mcp", "reload-skills", "chafa", "splash", "skin",
   // parity: session-mutating commands the slash-worker can't service
-  "resume", "branch", "compress", "undo", "redo", "retry", "model", "quit",
+  "resume", "branch", "compress", "undo", "redo", "retry", "model", "yolo", "quit",
   "copy", "paste", "image", "background", "voice", "mouse", "redraw", "queue",
   "stash",
   // Ink-only UI toggles — local no-op with a note
@@ -74,6 +74,7 @@ export const LOCAL_COMMANDS: ReadonlyArray<SlashCommand> = [
   { name: "skin",   description: "Switch Hermes skin (+ theme + eikon)", category: "Client",  aliases: [], argsHint: "[name]", subcommands: [...SKINS], source: "local", target: "local" },
   { name: "voice",  description: "Toggle voice recording",               category: "Client",  aliases: [], argsHint: "[on|off|status|tts]", subcommands: ["on", "off", "status", "tts"], source: "local", target: "local" },
   { name: "queue",  description: "Queue a prompt for the next idle turn", category: "Session", aliases: ["q"], argsHint: "[text]", subcommands: [], source: "local", target: "local" },
+  { name: "yolo",   description: "Toggle approval bypass",                 category: "Session", aliases: [], argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "quit",   description: "Exit herm",                             category: "Exit",    aliases: ["exit"], argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "stash",  description: "Park the prompt (pop/list to restore)", category: "Client",  aliases: [], argsHint: "[pop|list]", subcommands: ["pop", "list"], source: "local", target: "local" },
   { name: "redo",   description: "Re-send the last undone message",       category: "Session", aliases: [], argsHint: "", subcommands: [], source: "local", target: "local" },
