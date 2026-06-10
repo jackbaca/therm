@@ -55,6 +55,26 @@ function serve(routes: Route[]) {
 }
 
 function catalog(extra: Route[] = []) {
+  const aresManifest = {
+    kind: "eikon.package", schemaVersion: "1.0", id: "liftaris/ares", name: "ares", version: "1.0.0",
+    display: { title: "Ares", author: "Kaio", description: "red warrior" },
+    compatibility: { eikon: ">=1 <2" }, entrypoints: { default: "ares.eikon" },
+    files: [
+      { path: "ares.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl", size: body.length, digest: digest(body) },
+      { path: "source/base.png", role: "source.base", mediaType: "image/png", size: png.length, digest: digest(png) },
+    ],
+    source: { base: "source/base.png" },
+  }
+  const monoManifest = {
+    ...aresManifest,
+    id: "liftaris/mono", name: "mono",
+    display: { title: "Mono", author: "Nous", description: "quiet lines" },
+    entrypoints: { default: "mono.eikon" },
+    files: [
+      { path: "mono.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl", size: monoBody.length, digest: digest(monoBody) },
+      { path: "source/base.png", role: "source.base", mediaType: "image/png", size: png.length, digest: digest(png) },
+    ],
+  }
   const srv = serve([
     { path: "/eikons/index.json", body: [
       { name: "ares", author: "Kaio", width: 48, height: 24, poster: "ARES-POSTER", source: "ares/", description: "red warrior" },
@@ -65,11 +85,11 @@ function catalog(extra: Route[] = []) {
       { name: "gamma", author: "Gamma", width: 48, height: 24, poster: "GAMMA-POSTER", source: "gamma/", description: "green field" },
     ] },
     { path: "/eikons/ares/ares.eikon", body },
-    { path: "/eikons/ares/manifest.json", body: { name: "ares", source: "source.png" } },
-    { path: "/eikons/ares/source.png", body: png },
+    { path: "/eikons/ares/manifest.json", body: aresManifest },
+    { path: "/eikons/ares/source/base.png", body: png },
     { path: "/eikons/mono/mono.eikon", body: monoBody },
-    { path: "/eikons/mono/manifest.json", body: { name: "mono", source: "source.png" } },
-    { path: "/eikons/mono/source.png", body: png },
+    { path: "/eikons/mono/manifest.json", body: monoManifest },
+    { path: "/eikons/mono/source/base.png", body: png },
     ...extra,
   ])
   return { srv, base: `http://localhost:${srv.port}/eikons` }

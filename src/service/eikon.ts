@@ -133,7 +133,7 @@ function sourceInfo(man: Record<string, unknown> | undefined, head: Record<strin
   const src = typeof o?.source === "string" ? o.source : legacySource(head)
   const identity = o?.identityKey ?? o?.sourceKey ?? o?.packageUrl ?? o?.repo ?? src
   return {
-    kind: o?.kind ?? (src ? "legacy" : "unknown"),
+    kind: o?.kind ?? "unknown",
     ...(identity ? { identity } : {}),
     ...(src ? { origin: src } : {}),
     ...(o?.repo ? { repo: o.repo } : {}),
@@ -224,7 +224,7 @@ export function lifecycle(name: string, opts: { dirty?: boolean } = {}): Lifecyc
     ...(author ? { author } : {}),
     ...(version ? { version } : {}),
     source: src,
-    trust: originObject(man)?.trust ?? (src.kind === "legacy" ? "unverified" : "unknown"),
+    trust: originObject(man)?.trust ?? (src.origin ? "unverified" : "unknown"),
     active: prefs.get("eikon") === name,
     removable: existsSync(file(name)),
     updateable: hasOrigin,

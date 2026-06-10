@@ -92,7 +92,7 @@ function inspectFromResolved(source: string, r: Resolved): InspectResult {
     title: man?.display?.title ?? man?.name,
     author: man?.display?.author,
     version: man?.version,
-    sourceKind: r.origin.kind ?? "legacy",
+    sourceKind: r.origin.kind ?? "unknown",
     sourceIdentity: r.origin.identityKey ?? r.origin.sourceKey ?? r.origin.repo ?? r.origin.source,
     compatibility: man?.compatibility,
     runtime: true,

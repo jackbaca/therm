@@ -21,7 +21,16 @@ test("baked mode: plays packed frames, hides spatial, shows download row", async
   const srv = Bun.serve({
     port: 0,
     fetch: r => new URL(r.url).pathname.endsWith("manifest.json")
-      ? Response.json({ files: ["base.png"] })
+      ? Response.json({
+        kind: "eikon.package",
+        schemaVersion: "1.0",
+        id: "liftaris/bake",
+        name: "bake",
+        version: "1.0.0",
+        compatibility: { eikon: ">=1 <2" },
+        entrypoints: { default: "bake.eikon" },
+        source: { base: "base.png" },
+      })
       : new Response(new Uint8Array(2048), { headers: { "content-length": "2048" } }),
   })
   const url = `http://localhost:${srv.port}/bake/`
