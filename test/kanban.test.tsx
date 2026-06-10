@@ -2,10 +2,11 @@ import { describe, test, expect, beforeAll, afterEach } from "bun:test"
 import { act } from "react"
 import { Database } from "bun:sqlite"
 import { mkdirSync, writeFileSync, rmSync, chmodSync } from "node:fs"
+import { join } from "node:path"
 import { mountNode, MockGateway, until } from "./harness"
 import { hermesPath } from "../src/service/hermes-home"
 import {
-  board, boardOf, detail, assignees, tailLog, q, resetKanban,
+  board, boardOf, detail, detailOf, assignees, tailLog, q, resetKanban,
   currentBoard, listBoards, parseDiagnostics, maxSeverity, sortDiags,
   boardStateOf, boardErrors, corruptBackupsOf,
 } from "../src/service/hermes-kanban"
@@ -38,6 +39,10 @@ const schema = (db: Database) => {
     id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT, profile TEXT,
     status TEXT, outcome TEXT, started_at INTEGER, ended_at INTEGER,
     summary TEXT, error TEXT, worker_pid INTEGER)`)
+  db.run(`CREATE TABLE IF NOT EXISTS task_attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT,
+    filename TEXT, stored_path TEXT, content_type TEXT,
+    size INTEGER, uploaded_by TEXT, created_at INTEGER)`)
 }
 
 
@@ -82,6 +87,13 @@ beforeAll(() => {
   db.run("INSERT INTO task_links (parent_id, child_id) VALUES ('t1','t3'),('t2','t3')")
   db.run("INSERT INTO task_comments (task_id, author, body, created_at) VALUES (?,?,?,?)",
     ["t1", "kaio", "check AWS reserved pricing too", now - 1000])
+  mkdirSync(hermesPath("kanban/attachments/t1"), { recursive: true })
+  const defaultBlob = hermesPath("kanban/attachments/t1/spec.pdf")
+  writeFileSync(defaultBlob, "pdf bytes")
+  db.run(`INSERT INTO task_attachments
+    (task_id, filename, stored_path, content_type, size, uploaded_by, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ["t1", "spec.pdf", defaultBlob, "application/pdf", 9, "kaio", now - 900])
   db.close()
 
   // Second board with its own DB + log dir, and board.json metadata.
@@ -95,6 +107,13 @@ beforeAll(() => {
     `INSERT INTO tasks (id, title, status, priority, created_at)
      VALUES ('m1', 'upgrade forge', 'ready', 1, ?)`, [now - 100],
   )
+  mkdirSync(hermesPath("kanban/boards/atm10/attachments/m1"), { recursive: true })
+  const boardBlob = hermesPath("kanban/boards/atm10/attachments/m1/modpack.txt")
+  writeFileSync(boardBlob, "modpack")
+  db2.run(`INSERT INTO task_attachments
+    (task_id, filename, stored_path, content_type, size, uploaded_by, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ["m1", "modpack.txt", boardBlob, "text/plain", 7, "kaio", now - 50])
   db2.close()
   // Third board — empty, exercises collapsed-by-default + empty-last sort.
   mkdirSync(hermesPath("kanban/boards/zeta"), { recursive: true })
@@ -177,6 +196,64 @@ describe("hermes-kanban readers", () => {
     const d1 = detail("t1")!
     expect(d1.children).toEqual(["t3"])
     expect(d1.comments[0].body).toContain("AWS reserved")
+    expect(d.attachments).toEqual([])
+  })
+
+  test("detail() hydrates safe attachment metadata", () => {
+    const d = detail("t1")!
+    expect(d.attachments).toEqual([{
+      id: 1,
+      filename: "spec.pdf",
+      name: "spec.pdf",
+      size: 9,
+      created_at: now - 900,
+      stored_path: hermesPath("kanban/attachments/t1/spec.pdf"),
+      relative_path: "t1/spec.pdf",
+      path: hermesPath("kanban/attachments/t1/spec.pdf"),
+    }])
+  })
+
+  test("detailOf() uses the selected board attachment root", () => {
+    const d = detailOf("atm10", "m1")!
+    expect(d.attachments[0].path).toBe(hermesPath("kanban/boards/atm10/attachments/m1/modpack.txt"))
+  })
+
+  test("detailOf() validates stored paths against the attachment root", () => {
+    const db = new Database(hermesPath("kanban.db"))
+    db.run(`INSERT INTO task_attachments
+      (task_id, filename, stored_path, content_type, size, uploaded_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ["t1", "passwd", "/etc/passwd", "text/plain", 123, "evil", now - 800])
+    db.close()
+    resetKanban()
+
+    const bad = detail("t1")!.attachments.find(a => a.filename === "passwd")!
+    expect(bad.path).toBeNull()
+    expect(bad.relative_path).toBeNull()
+    expect(bad.stored_path).toBe("/etc/passwd")
+  })
+
+  test("detailOf() respects HERMES_KANBAN_ATTACHMENTS_ROOT", () => {
+    const root = hermesPath("custom-attachments")
+    mkdirSync(join(root, "t1"), { recursive: true })
+    const custom = join(root, "t1", "custom.txt")
+    writeFileSync(custom, "custom")
+    const db = new Database(hermesPath("kanban.db"))
+    db.run(`INSERT INTO task_attachments
+      (task_id, filename, stored_path, content_type, size, uploaded_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ["t1", "custom.txt", custom, "text/plain", 6, "kaio", now - 700])
+    db.close()
+    process.env.HERMES_KANBAN_ATTACHMENTS_ROOT = root
+    resetKanban()
+    try {
+      const d = detail("t1")!
+      expect(d.attachments.find(a => a.filename === "custom.txt")?.path).toBe(custom)
+      expect(d.attachments.find(a => a.filename === "spec.pdf")?.path).toBeNull()
+    } finally {
+      delete process.env.HERMES_KANBAN_ATTACHMENTS_ROOT
+      resetKanban()
+    }
   })
 
   test("assignees() = profiles-on-disk ∪ board assignees", () => {
@@ -328,6 +405,8 @@ describe("Kanban tab", () => {
     act(() => t.keys.pressEnter())
     await until(t, () => /Assignee\s+researcher/.test(t.frame()))
     expect(t.frame()).toMatch(/Children\s+t3/)
+    expect(t.frame()).toContain("spec.pdf")
+    expect(t.frame()).not.toContain(hermesPath("kanban/attachments/t1/spec.pdf"))
     expect(t.frame()).toContain("AWS reserved")
     expect(t.frame()).toMatch(/a assign\s+c comment\s+u unblock/)
     act(() => t.keys.pressEscape())
