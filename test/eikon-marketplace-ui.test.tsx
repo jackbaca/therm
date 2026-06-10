@@ -86,7 +86,7 @@ function packageCatalog(extra: Route[] = []) {
     kind: "eikon.package", schemaVersion: "1.0", id: "liftaris/ares", name: "ares", version: "1.0.0",
     display: { title: "Ares", author: "Kaio", description: "red warrior" },
     compatibility: { eikon: ">=1 <2" }, entrypoints: { default: "ares.eikon" },
-    files: [{ path: "ares.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl", size: body.length, digest: digest(body) }], poster: "poster.txt", preview: "ares.eikon",
+    files: [{ path: "ares.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl", size: body.length, digest: digest(body) }], poster: "poster.txt",
   }
   const source = {
     ...runtime,
@@ -99,7 +99,6 @@ function packageCatalog(extra: Route[] = []) {
       { path: "source/base.png", role: "source.base", mediaType: "image/png", size: png.length, digest: digest(png) },
     ],
     source: { base: "source/base.png" },
-    preview: "mono.eikon",
   }
   const srv = serve([
     { path: "/eikons/index.json", body: [
@@ -265,7 +264,6 @@ describe("EikonMarketplace tab", () => {
       kind: "eikon.package", schemaVersion: "1.0", id: "liftaris/nous", name: "nous", version: "1.0.0",
       display: { title: "Nous", author: "Kaio" }, compatibility: { eikon: ">=1 <2" }, entrypoints: { default: "nous.eikon" },
       files: [{ path: "nous.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl", size: nousBody.length, digest: digest(nousBody) }],
-      preview: "nous.eikon",
     }
     const srv = serve([
       { path: "/eikons/index.json", body: [{ manifest: man, packageUrl: "nous/manifest.json", sourceKey: "registry:eikon.liftaris.dev:liftaris/nous@1.0.0" }] },

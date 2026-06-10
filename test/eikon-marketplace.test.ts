@@ -82,7 +82,6 @@ type CatalogEntrySeed = {
   poster?: string
   source?: string
   sourceKey?: string
-  preview?: string
   runtimeUrl?: string
   packageUrl?: string
   trust?: Record<string, unknown>
@@ -107,7 +106,6 @@ function catalogRow(seed: CatalogEntrySeed, base: string) {
     ...(seed.author ? { author: seed.author } : {}),
     ...(seed.description ? { description: seed.description } : {}),
     poster: seed.poster ?? seed.name,
-    preview: seed.preview ? url(seed.preview, dir) : runtimeUrl,
     runtimeUrl,
     packageUrl,
     compatibility: { eikon: ">=1 <2", available: true },
@@ -312,20 +310,20 @@ describe("service/eikon-marketplace", () => {
     const gz = runtimeDescriptor(launch, { encoding: "gzip" })
     const cat: Catalog = {
       base: "https://example.com/eikons",
-      entries: [entry({ name: "split", preview: "preview.eikon", runtimeUrl: "runtime.eikon" })],
+      entries: [entry({ name: "split", runtimeUrl: "runtime.eikon" })],
       load: async () => "",
     }
     const seen: string[] = []
     const svc = new market.MarketplaceService(cat, {
       fetcher: async input => {
         seen.push(String(input))
-        if (String(input).endsWith("preview.eikon")) return new Response(prev)
-        return new Response(wire(gz.bytes), { headers: { "content-encoding": "gzip" } })
+        if (String(input).endsWith("runtime.eikon")) return new Response(wire(gz.bytes), { headers: { "content-encoding": "gzip" } })
+        return new Response(prev)
       },
     })
 
-    expect(await svc.preview(cat.entries[0]!.identityKey)).toBe(prev)
-    expect(seen.some(u => u.endsWith("preview.eikon"))).toBe(true)
+    expect(await svc.preview(cat.entries[0]!.identityKey)).toBe(launch)
+    expect(seen.some(u => u.endsWith("runtime.eikon"))).toBe(true)
 
     const raw: Catalog = { ...cat, entries: [entry({ name: "raw", runtimeUrl: "runtime.eikon" })] }
     const open = new market.MarketplaceService(raw, { fetcher: async () => new Response(wire(gz.bytes), { headers: { "content-encoding": "gzip" } }) })
