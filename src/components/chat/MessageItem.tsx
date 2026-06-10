@@ -1,5 +1,5 @@
 import { memo, useMemo, useRef, useState, type RefObject } from "react"
-import type { RGBA, MouseEvent } from "@opentui/core"
+import { RGBA, type MouseEvent } from "@opentui/core"
 import type { Message, Part, TextPart, ToolPart, PromptPart } from "../../types/message"
 import { ErrorBlock } from "./ErrorBlock"
 import { MediaChip, classify, splitContent } from "./MediaChip"
@@ -35,6 +35,27 @@ function extract(msg: Message): string {
 }
 
 const trunc = (s: string, max: number) => s.length <= max ? s : s.slice(0, max - 1) + "…"
+
+function mix(a: RGBA, b: RGBA, n = 0.5): RGBA {
+  return RGBA.fromValues(
+    a.r + (b.r - a.r) * n,
+    a.g + (b.g - a.g) * n,
+    a.b + (b.b - a.b) * n,
+    a.a + (b.a - a.a) * n,
+  )
+}
+
+const TOP_RULE = {
+  topLeft: "▔", topRight: "▔", horizontal: "▔",
+  bottomLeft: "", bottomRight: "", vertical: "",
+  topT: "", bottomT: "", leftT: "", rightT: "", cross: "",
+}
+
+const BOTTOM_RULE = {
+  bottomLeft: "▁", bottomRight: "▁", horizontal: "▁",
+  topLeft: "", topRight: "", vertical: "",
+  topT: "", bottomT: "", leftT: "", rightT: "", cross: "",
+}
 
 // OpenTUI has no onClick; synthesize one from down→up at the same cell
 // so text-selection drags don't fire it.
@@ -116,6 +137,10 @@ const UserMessage = memo(({ message, onRewind }: { message: Message; onRewind?: 
   const theme = useTheme().theme
   const [hover, setHover] = useState(false)
   const click = useClick(onRewind && (() => onRewind(message)))
+  const rule = useMemo(
+    () => mix(theme.background, theme.backgroundElement),
+    [theme.background, theme.backgroundElement],
+  )
   const segs = useMemo(
     () => message.parts.map(p => p.type === "text" && p.content ? splitContent(p.content) : null),
     [message.parts],
@@ -124,34 +149,36 @@ const UserMessage = memo(({ message, onRewind }: { message: Message; onRewind?: 
     <box
       flexDirection="column"
       marginBottom={1}
-      backgroundColor={hover ? theme.backgroundElement : undefined}
-      onMouseOver={() => setHover(true)}
-      onMouseOut={() => setHover(false)}
-      {...click}
     >
-      <Gutter color={theme.primary} side="left">
-        <box minHeight={1} flexDirection="column">
-          {message.parts.map((p, i) => {
-            const seg = segs[i]
-            if (!seg) return null
-            const k = (p as TextPart).key ?? i
-            return seg.map((s, j) => {
-              if ("media" in s) {
-                const kind = classify(s.media)
-                return kind === "img" ? (
-                  <box key={`${k}-m${j}`}><ChafaImage path={s.media} /></box>
-                ) : (
-                  <box key={`${k}-m${j}`} marginTop={1}><MediaChip path={s.media} /></box>
-                )
-              }
-              if ("code" in s) return (
-                <CodeBlock key={`${k}-c${j}`} code={s.code} lang={s.lang} />
+      <box height={1} border={["bottom"]} customBorderChars={BOTTOM_RULE}
+           borderColor={rule} />
+      <box backgroundColor={hover ? rule : theme.backgroundElement}
+           paddingLeft={1} paddingRight={1} paddingY={1} flexDirection="column" minHeight={1}
+           onMouseOver={() => setHover(true)}
+           onMouseOut={() => setHover(false)}
+           {...click}>
+        {message.parts.map((p, i) => {
+          const seg = segs[i]
+          if (!seg) return null
+          const k = (p as TextPart).key ?? i
+          return seg.map((s, j) => {
+            if ("media" in s) {
+              const kind = classify(s.media)
+              return kind === "img" ? (
+                <box key={`${k}-m${j}`}><ChafaImage path={s.media} /></box>
+              ) : (
+                <box key={`${k}-m${j}`} marginTop={1}><MediaChip path={s.media} /></box>
               )
-              return <text key={`${k}-${j}`} fg={theme.text} wrapMode="word">{s.md}</text>
-            })
-          })}
-        </box>
-      </Gutter>
+            }
+            if ("code" in s) return (
+              <CodeBlock key={`${k}-c${j}`} code={s.code} lang={s.lang} />
+            )
+            return <text key={`${k}-${j}`} fg={theme.text} wrapMode="word">{s.md}</text>
+          })
+        })}
+      </box>
+      <box height={1} border={["top"]} customBorderChars={TOP_RULE}
+           borderColor={rule} />
     </box>
   )
 })
@@ -230,12 +257,12 @@ const AssistantMessage = memo(({ message, streaming, prompt, onPick }: {
   }
 
   return (
-    <box flexDirection="column" marginBottom={1}
-         backgroundColor={hover ? theme.backgroundElement : undefined}
+    <box flexDirection="row" marginBottom={1}
          onMouseOver={() => setHover(true)}
          onMouseOut={() => setHover(false)}
          {...click}>
-      <Gutter color={err ? theme.error : theme.accent} side="right">
+      <box width={3} flexShrink={0} backgroundColor={hover ? theme.backgroundElement : undefined} />
+      <box flexDirection="column" flexGrow={1} flexShrink={1}>
         <box height={1} flexDirection="row">
           <box flexGrow={1}><text fg={theme.textMuted}>{header}</text></box>
           {trail.length ? (
@@ -247,7 +274,7 @@ const AssistantMessage = memo(({ message, streaming, prompt, onPick }: {
         {message.parts.map(part)}
         {diffs.length ? <DiffTabs tools={diffs} /> : null}
         {err ? <ErrorBlock text={message.error!} /> : null}
-      </Gutter>
+      </box>
     </box>
   )
 })

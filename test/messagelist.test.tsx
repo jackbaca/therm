@@ -70,7 +70,7 @@ describe("MessageList", () => {
     expect(msg.parts[0]).toMatchObject({ type: "text", content: "Keep, regenerate, or adjust?", streaming: false })
   })
 
-  test("renders gutter + header + trail badge; body is text-only", async () => {
+  test("renders message chrome + header + trail badge; body is text-only", async () => {
     const t: Harness = await mountNode(
       <box flexDirection="column" width="100%" height="100%">
         <MessageList messages={turn} streaming={false} />
@@ -81,7 +81,8 @@ describe("MessageList", () => {
     const f = t.frame()
 
     expect(f).toContain("run the build")
-    expect(f).toContain("│")
+    expect(f).toContain("▁")
+    expect(f).toContain("▔")
     // Agent header: "Hermes · <tokens> · <duration>" (model is shown
     // in the sidebar/status bar, not in message headers).
     expect(f).toContain("Hermes · 12→34 tok · 250ms")
@@ -112,9 +113,9 @@ describe("MessageList", () => {
     const y3 = lines.findIndex(l => l.includes("third question"))
     // First user turn: the line directly above must NOT be a separator.
     expect(lines[y1 - 1] ?? "").not.toContain("───")
-    // Second + third user turns: separator sits directly above.
-    expect(lines[y2 - 1]).toContain("───")
-    expect(lines[y3 - 1]).toContain("───")
+    // Second + third user turns: separator sits before user chrome.
+    expect(lines.slice(Math.max(0, y2 - 4), y2).some(l => l.includes("───"))).toBe(true)
+    expect(lines.slice(Math.max(0, y3 - 4), y3).some(l => l.includes("───"))).toBe(true)
     t.destroy()
   })
 })
