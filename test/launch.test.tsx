@@ -190,6 +190,23 @@ describe("useSession.boot", () => {
     expect(ci).toBeLessThan(ri)
   })
 
+  test("mode:resume keeps going when stored model switch fails", async () => {
+    const db = seed()
+    sess(db, "past", "tui", 1005, 5, { model: "gpt-5.5-free", billing_provider: "openai-codex" })
+    db.close()
+    resetDb()
+
+    const gw = new MockGateway({
+      "session.resume": p => ({ session_id: "live-past", resumed: p.session_id, messages: [] }),
+      "config.set": () => { throw new Error("missing model") },
+    })
+    const r = await boot(gw, { mode: "resume", sid: "past" })
+
+    expect(gw.last("session.resume")?.params.session_id).toBe("past")
+    expect(r.id).toBe("live-past")
+    expect(r.note).toBe("Stored session model unavailable: missing model; resumed with current model.")
+  })
+
   test("mode:resume normalizes session_*.json filenames", async () => {
     const gw = new MockGateway()
     await boot(gw, { mode: "resume", sid: "session_20260509_002407_e8b6e4.json" })

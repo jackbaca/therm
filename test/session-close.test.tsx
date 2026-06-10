@@ -242,28 +242,35 @@ describe("session.close", () => {
     t.destroy()
   })
 
-  test("switchSession stops before resume when model preconfigure fails", async () => {
+  test("switchSession resumes when stored model preconfigure fails", async () => {
     seed()
     const gw = new MockGateway({
       "commands.catalog": () => ({ pairs: [["/resume", "resume session"]] }),
       "session.create": () => ({ session_id: "old" }),
       "config.set": () => { throw new Error("model switch failed") },
-      "session.resume": p => ({ session_id: p.session_id, messages: [] }),
+      "session.resume": p => ({
+        session_id: "live-past",
+        resumed: p.session_id,
+        messages: [{ role: "user", text: "hello" }],
+      }),
     })
     const t = await mount({ gw, launch: { mode: "new", splash: false } })
     await until(t, () => t.frame().includes("Ready"))
 
     await act(async () => { await t.keys.typeText("/resume past") })
     act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("Failed to resume: model switch failed"))
+    await until(t, () => t.frame().includes("Ready") && t.frame().includes("hello"))
 
-    expect(gw.calls.some(c => c.method === "session.resume" && c.params.session_id === "past")).toBe(false)
+    expect(t.frame()).toContain("Stored session model unavailable: model switch failed; resumed with current model.")
+    expect(t.frame()).not.toContain("Failed to resume")
     expect(t.frame()).not.toContain("Connecting")
+    expect(gw.last("session.close")?.params.session_id).toBe("old")
+    expect(gw.calls.some(c => c.method === "session.resume" && c.params.session_id === "past")).toBe(true)
 
-    await act(async () => { await t.keys.typeText("still old") })
+    await act(async () => { await t.keys.typeText("now live") })
     act(() => t.keys.pressEnter())
     await until(t, () => t.gw.last("prompt.submit") !== undefined)
-    expect(t.gw.last("prompt.submit")?.params.session_id).toBe("old")
+    expect(t.gw.last("prompt.submit")?.params.session_id).toBe("live-past")
 
     t.destroy()
   })

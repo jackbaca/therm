@@ -387,6 +387,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       setReady(true)
       sessionStart.current = Date.now()
       if (res.messages.length) dispatch({ kind: "load", messages: res.messages })
+      if (res.note) dispatch({ kind: "system", text: res.note })
       // Close only after resume succeeds — a failed resume leaves the
       // user in the outgoing session, which must stay live. Skip when
       // resuming self (prev === res.id), e.g. the boot path reusing an
