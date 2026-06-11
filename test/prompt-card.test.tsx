@@ -162,10 +162,10 @@ describe("PromptCard.Clarify", () => {
       { width: 90, height: 20 },
     )
     const f = t.frame()
-    expect(f).toContain("ask which one?")
-    expect(f).toContain("answer: blue")
+    expect(f).toContain("which one?")
+    expect(f).toContain("blue")
     expect(f).toContain("write a concise status update")
-    expect(f).toContain("answer: Use the shorter terminal-friendly wording")
+    expect(f).toContain("Use the shorter terminal-friendly wording")
   })
 })
 

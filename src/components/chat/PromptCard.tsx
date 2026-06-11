@@ -359,8 +359,8 @@ function outcome(part: PromptPart): { head: string; body?: string } {
   const a = part.answered!
   if (part.variant === "clarify") {
     const q = cap(question(part))
-    const body = `answer: ${cap(a.label)}`
-    return same(q, a.label) ? { head: body } : { head: `ask ${q}`, body }
+    const body = cap(a.label)
+    return same(q, a.label) ? { head: body } : { head: q, body }
   }
   if (part.variant === "approval") {
     const q = cap(question(part), 96)
