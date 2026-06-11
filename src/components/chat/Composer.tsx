@@ -231,8 +231,9 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
   //     hits append to session["attached_images"] server-side; herm mirrors
   //     the chip and inserts only the trailing remainder text, not the
   //     `[User attached image: …]` placeholder (that's for blind clients).
-  //     Non-image hits (pdf/txt/…) insert the `[User attached file: …]`
-  //     wrapper so the agent sees the path. Any miss falls through.
+  //     Non-image hits (pdf/txt/…) mirror as chips and insert the
+  //     `[User attached file: …]` wrapper so the agent sees the path.
+  //     Any miss falls through.
   //  2. ≥5 lines → gateway writes a temp file and hands back a
   //     `[Pasted #N …]` placeholder (hermes CLI convention; expanded
   //     server-side in prompt.submit).
@@ -260,6 +261,7 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
             if (!r.text.startsWith("[User attached")) ta.current?.insertText(r.text + " ")
             return
           }
+          live.current.props.onAttach?.({ attached: true, path: r.path, name: r.name })
           ta.current?.insertText(r.text + " ")
         })
         .catch(verbatim)

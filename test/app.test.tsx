@@ -1225,6 +1225,7 @@ describe("app", () => {
     const done = t.frame().split("\n")
     const line = done.find(l => l.includes("Ready")) ?? ""
     expect(line).not.toContain("Preflight compression")
+    expect(t.frame()).not.toContain("Preflight compression")
     t.destroy()
   })
 
