@@ -106,6 +106,8 @@ let cachedBin: string | null | undefined = undefined
 /** Locate the chafa binary once per process. null → not installed. */
 export function chafaBin(): string | null {
   if (cachedBin !== undefined) return cachedBin
+  const bin = Bun.which?.("chafa") ?? null
+  if (bin) { cachedBin = bin; return bin }
   for (const p of CHAFA_PATHS) if (existsSync(p)) { cachedBin = p; return p }
   cachedBin = null
   return null
