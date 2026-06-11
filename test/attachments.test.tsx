@@ -21,9 +21,10 @@ describe("composer: image attachments (D4+D7)", () => {
     await until(t, () => t.frame().includes("clip_1.png"))
 
     const f = t.frame()
-    expect(f).toContain(" img ")
-    expect(f).toContain("800×600")
-    expect(f).toContain("~1.1kt")
+    expect(f).not.toContain(" img ")
+    expect(f).not.toContain("800×600")
+    expect(f).not.toContain("~1.1kt")
+    expect(f).not.toContain("⌫ to detach")
     // stopPropagation: <input> didn't receive the literal "v"
     expect(f).not.toMatch(/> v\b/)
 
@@ -39,8 +40,8 @@ describe("composer: image attachments (D4+D7)", () => {
     // gateway's text-mode image routing owns the analysis-block prefix
     // without duplicating the path. See app.tsx:send for rationale.
     expect(t.gw.last("prompt.submit")?.params.text).toBe("describe this")
-    // Pre-send tray chip — the one with 800×600 dims — is gone.
-    await until(t, () => !t.frame().includes("800×600"))
+    // Pre-send tray metadata is gone.
+    await until(t, () => !t.frame().includes("~1.1kt"))
     // But the transcript MEDIA echo is visible: basename in the user turn.
     expect(t.frame()).toContain("clip_1.png")
     t.destroy()
@@ -61,7 +62,7 @@ describe("composer: image attachments (D4+D7)", () => {
     t.destroy()
   })
 
-  test("multiple attachments stack as separate chips", async () => {
+  test("multiple image attachments stay visible", async () => {
     let n = 0
     const t = await mount({
       handlers: {
@@ -112,7 +113,7 @@ describe("composer: image attachments (D4+D7)", () => {
     t.destroy()
   })
 
-  test("backspace with text in buffer edits text, doesn't detach", async () => {
+  test("backspace mid-text edits text, not attachments", async () => {
     const t = await mount({
       handlers: {
         "clipboard.paste": () => ({
@@ -132,6 +133,27 @@ describe("composer: image attachments (D4+D7)", () => {
     t.destroy()
   })
 
+  test("backspace at line start detaches even when composer has text", async () => {
+    const t = await mount({
+      handlers: {
+        "clipboard.paste": () => ({
+          attached: true, path: "/tmp/clip_1.png", name: "clip_1.png", count: 1,
+        }),
+      },
+    })
+    await until(t, () => t.frame().includes("Ready"))
+    act(() => t.keys.pressKey("v", { ctrl: true }))
+    await until(t, () => t.frame().includes("clip_1.png"))
+    await act(async () => { await t.keys.typeText("hi") })
+    act(() => t.keys.pressKey("HOME"))
+    await t.settle()
+
+    act(() => t.keys.pressBackspace())
+    await until(t, () => !t.frame().includes("clip_1.png"))
+    expect(t.frame()).toContain("hi")
+    t.destroy()
+  })
+
   test("Enter with empty buffer + attachment → sends empty prompt with image", async () => {
     const t = await mount({
       handlers: {
@@ -143,14 +165,15 @@ describe("composer: image attachments (D4+D7)", () => {
     })
     await until(t, () => t.frame().includes("Ready"))
     act(() => t.keys.pressKey("v", { ctrl: true }))
-    await until(t, () => t.frame().includes("⌫ to detach"))
+    await until(t, () => t.frame().includes("clip_1.png"))
+    expect(t.frame()).not.toContain("⌫ to detach")
     // Enter with no typed text — should still submit (gateway has the image).
     act(() => t.keys.pressEnter())
     await until(t, () => t.gw.last("prompt.submit") !== undefined)
     expect(t.gw.last("prompt.submit")?.params.text).toBe("")
-    // Pre-send tray is gone (detach hint disappears; chip still appears in
-    // the transcript MEDIA echo, which is expected).
-    await until(t, () => !t.frame().includes("⌫ to detach"))
+    // Pre-send tray is gone; chip still appears in the transcript MEDIA
+    // echo, which is expected.
+    await until(t, () => t.frame().includes("Ready"))
     t.destroy()
   })
 

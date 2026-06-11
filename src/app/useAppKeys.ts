@@ -364,11 +364,13 @@ export function useAppKeys(o: Opts) {
         const ok = c?.historyDown()
         return void (ok && c?.value() !== before && key.stopPropagation())
       }
-      // Backspace on an empty buffer with attachments → detach the last.
-      // Swallow before the textarea sees it so a subsequent backspace on
-      // a still-empty buffer keeps peeling attachments off, not chars.
+      // Backspace at a line start with attachments peels the last
+      // attachment. This lets the user detach while drafting without
+      // clearing the whole buffer first; mid-line backspace still edits
+      // text through the textarea.
       if (key.name === "backspace" && !key.ctrl && !key.meta
-          && c?.isEmpty() && o.onDetachLast()) {
+          && c && (c.isEmpty() || c.caret() === 0 || c.value()[c.caret() - 1] === "\n")
+          && o.onDetachLast()) {
         key.stopPropagation()
         return
       }

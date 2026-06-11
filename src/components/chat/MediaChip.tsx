@@ -97,6 +97,7 @@ export function splitContent(text: string): Seg[] {
 
 export const MediaChip = memo((props: {
   path: string
+  bare?: boolean
   /** Override the default open-file click. Handlers stopPropagation so
    *  the enclosing message's useClick (→ actions menu) never sees the
    *  down event. Pass to repurpose the chip (e.g. ChafaImage collapse). */
@@ -111,6 +112,21 @@ export const MediaChip = memo((props: {
   }[kind]
   const click = props.onMouseDown
     ?? ((e: MouseEvent) => { e.stopPropagation(); openFile(props.path) })
+  if (props.bare) return (
+    <box
+      flexDirection="row" height={1}
+      onMouseDown={click}
+      onMouseOver={() => setHover(true)}
+      onMouseOut={() => setHover(false)}
+    >
+      <text>
+        <span fg={theme.text}
+              attributes={hover ? TextAttributes.UNDERLINE : TextAttributes.NONE}>
+          {basename(props.path)}
+        </span>
+      </text>
+    </box>
+  )
   return (
     <box
       flexDirection="row" height={1}

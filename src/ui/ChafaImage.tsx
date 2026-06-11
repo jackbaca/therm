@@ -13,9 +13,9 @@ import { MediaChip } from "../components/chat/MediaChip"
 
 const basename = (p: string) => p.split(/[/\\]/).pop() || p
 
-type Props = { path: string; width?: number }
+type Props = { path: string; width?: number; bare?: boolean }
 
-export const ChafaImage = memo(({ path, width }: Props) => {
+export const ChafaImage = memo(({ path, width, bare }: Props) => {
   const theme = useTheme().theme
   const [collapsed, setCollapsed] = useState(false)
   const w = Math.max(20, Math.min(80, width ?? 60))
@@ -26,7 +26,7 @@ export const ChafaImage = memo(({ path, width }: Props) => {
   )
 
   // chafa missing or render failed → stream the MediaChip, no chrome
-  if (!hasChafa || "err" in result) return <MediaChip path={path} />
+  if (!hasChafa || "err" in result) return <MediaChip path={path} bare={bare} />
 
   // Collapsed → chip re-expands on click. Override MediaChip's default
   // openFile so the click does exactly one thing; stopPropagation keeps
@@ -34,14 +34,15 @@ export const ChafaImage = memo(({ path, width }: Props) => {
   if (collapsed) {
     return (
       <MediaChip path={path}
+        bare={bare}
         onMouseDown={(e: MouseEvent) => { e.stopPropagation(); setCollapsed(false) }} />
     )
   }
 
   return (
-    <box flexDirection="column" marginTop={1}>
+    <box flexDirection="column" marginTop={bare ? 0 : 1}>
       <box flexDirection="column"
-           onMouseDown={(e: MouseEvent) => { e.stopPropagation(); setCollapsed(true) }}>
+           onMouseDown={(e: MouseEvent) => { e.stopPropagation(); if (!bare) setCollapsed(true) }}>
         {result.rows.map((row, i) => (
           <text key={i}>
             {row.map((c, j) => (
@@ -50,7 +51,7 @@ export const ChafaImage = memo(({ path, width }: Props) => {
           </text>
         ))}
       </box>
-      <box height={1}
+      {bare ? null : <box height={1}
            onMouseDown={(e: MouseEvent) => { e.stopPropagation(); openFile(path) }}>
         <text>
           <span fg={theme.textMuted}>{"  "}</span>
@@ -58,7 +59,7 @@ export const ChafaImage = memo(({ path, width }: Props) => {
           <span fg={theme.text}>{basename(path)}</span>
           <span fg={theme.textMuted}>{"  click image to collapse · click name to open"}</span>
         </text>
-      </box>
+      </box>}
     </box>
   )
 })

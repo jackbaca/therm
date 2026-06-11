@@ -223,10 +223,9 @@ export function mapEvent(ev: GatewayEvent, side: Side): Action | null {
       const kind = ev.payload?.kind
       const text = ev.payload?.text ?? ""
       side.onStatus?.(text)
-      // Generic "status" and compression lifecycle lines are cosmetic;
-      // error/warn and non-compression lifecycle lines carry real signal
-      // (retries, fallbacks, auth failures) and still persist.
-      if (!kind || kind === "status" || (kind === "lifecycle" && /compression/i.test(text))) return null
+      // Generic "status" is cosmetic; lifecycle/error/warn carry real
+      // signal (retries, fallbacks, auth failures) and must persist.
+      if (!kind || kind === "status") return null
       // process: route through debounced accumulator instead of dispatching
       // directly — prevents TUI lag when many terminal(background=true)
       // processes finish in rapid succession.
