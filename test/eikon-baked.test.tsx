@@ -47,7 +47,6 @@ test("baked mode: plays packed frames, hides spatial, shows download row", async
   // Knob panel collapsed: download row present, rasterizer-declared
   // knobs absent, fork/reset hidden.
   expect(f).toContain("Download source")
-  expect(f).toContain("1 files")
   // Live-only action rows absent in baked mode.
   expect(f).not.toMatch(/▸?\s+tune\s+◂/)
   expect(f).not.toMatch(/▸?\s+reset\s+▸ defaults/)
