@@ -5,40 +5,33 @@ import { previewStrategy } from "../src/utils/terminal-image"
 const ESC = "\x1b"
 
 describe("image preview strategy", () => {
-  test("safe native capability wins before chafa", () => {
-    expect(previewStrategy({ path: "/tmp/a.png", exists: true, native: true, chafa: true })).toEqual({
-      kind: "native",
-      reason: "native-supported",
-    })
-  })
-
-  test("chafa wins when native preview is unavailable", () => {
-    expect(previewStrategy({ path: "/tmp/a.png", exists: true, native: false, chafa: true })).toEqual({
+  test("chafa wins when image exists and chafa is available", () => {
+    expect(previewStrategy({ path: "/tmp/a.png", exists: true, chafa: true })).toEqual({
       kind: "chafa",
       reason: "chafa-supported",
     })
   })
 
-  test("chip is the final fallback without native or chafa", () => {
-    expect(previewStrategy({ path: "/tmp/a.png", exists: true, native: false, chafa: false })).toEqual({
+  test("chip is the final fallback without chafa", () => {
+    expect(previewStrategy({ path: "/tmp/a.png", exists: true, chafa: false })).toEqual({
       kind: "chip",
       reason: "no-renderer",
     })
   })
 
   test("missing and unsupported images use chip", () => {
-    expect(previewStrategy({ path: "/tmp/missing.png", exists: false, native: true, chafa: true })).toEqual({
+    expect(previewStrategy({ path: "/tmp/missing.png", exists: false, chafa: true })).toEqual({
       kind: "chip",
       reason: "missing",
     })
-    expect(previewStrategy({ path: "/tmp/not-image.txt", exists: true, native: true, chafa: true })).toEqual({
+    expect(previewStrategy({ path: "/tmp/not-image.txt", exists: true, chafa: true })).toEqual({
       kind: "chip",
       reason: "unsupported",
     })
   })
 
   test("remote urls stay chips even when the extension looks image-like", () => {
-    expect(previewStrategy({ path: "https://x.test/a.png", exists: true, native: true, chafa: true })).toEqual({
+    expect(previewStrategy({ path: "https://x.test/a.png", exists: true, chafa: true })).toEqual({
       kind: "chip",
       reason: "remote",
     })

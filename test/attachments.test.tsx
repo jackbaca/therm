@@ -7,7 +7,7 @@ import { LOCAL_COMMANDS } from "../src/app/slashCommands"
 
 describe("composer: image attachments (D4+D7)", () => {
   test("composer images use the shared preview strategy", () => {
-    expect(previewStrategy({ path: "/tmp/clip_1.png", exists: true, native: false, chafa: true })).toEqual({
+    expect(previewStrategy({ path: "/tmp/clip_1.png", exists: true, chafa: true })).toEqual({
       kind: "chafa",
       reason: "chafa-supported",
     })

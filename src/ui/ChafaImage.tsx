@@ -27,7 +27,6 @@ export const ChafaImage = memo(({ path, width, bare }: Props) => {
     [path, w, preview.kind],
   )
 
-  // Native rendering stays disabled until OpenTUI owns redraw/scrollback.
   if (preview.kind !== "chafa" || !result || "err" in result) return <MediaChip path={path} bare={bare} />
 
   // Collapsed → chip re-expands on click. Override MediaChip's default

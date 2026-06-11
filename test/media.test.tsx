@@ -98,7 +98,7 @@ describe("MediaChip > classify", () => {
 
 describe("MessageItem > media rendering", () => {
   test("transcript images use the shared preview strategy", () => {
-    expect(previewStrategy({ path: "/tmp/screenshot.png", exists: true, native: false, chafa: false })).toEqual({
+    expect(previewStrategy({ path: "/tmp/screenshot.png", exists: true, chafa: false })).toEqual({
       kind: "chip",
       reason: "no-renderer",
     })
