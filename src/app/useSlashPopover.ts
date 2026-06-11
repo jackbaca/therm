@@ -29,6 +29,17 @@ function boundary(ch: string | undefined) {
   return ch === undefined || /\s/.test(ch) || "({\"'`".includes(ch)
 }
 
+function tag(s: SlashToken | null) {
+  return s ? `${s.start}:${s.end}:${s.text}` : ""
+}
+
+function exact(spot: SlashToken, cmds: ReadonlyArray<SlashCommand>) {
+  const m = spot.query.match(/^(\S+)(?:\s+(\S.*))?$/)
+  if (!m) return false
+  return cmds.some(c => c.name === m[1] || c.aliases.includes(m[1]))
+    && (m[2] !== undefined || spot.query === m[1])
+}
+
 export function slashTokenAt(input: string, caret = input.length): SlashToken | null {
   const off = Math.max(0, Math.min(caret, input.length))
   if (/^\/[A-Za-z0-9_-]*$/.test(input)) {
@@ -46,8 +57,11 @@ export function slashTokenAt(input: string, caret = input.length): SlashToken | 
   const m = tail.match(/^[A-Za-z0-9_-]*/)
   const query = m?.[0] ?? ""
   const end = slash + 1 + query.length
-  if (off > end || off < slash) return null
   if (input[end] === "/") return null
+  if (slash === line && off > end && /^\s+[^\n]*$/.test(input.slice(end, off))) {
+    return { text: input.slice(slash, off), query: input.slice(slash + 1, off), start: slash, end: off, whole: true }
+  }
+  if (off > end || off < slash) return null
   if (!query && input[slash + 1] === "/") return null
   return { text: input.slice(slash, end), query, start: slash, end, whole: false }
 }
@@ -61,10 +75,11 @@ export function useSlashPopover(input: string, cmds: ReadonlyArray<SlashCommand>
   const [cursor, setCursor] = useState(0)
   const [dismissed, setDismissed] = useState<string | null>(null)
   const spot = useMemo(() => slashTokenAt(input, caret), [input, caret])
-  const key = spot ? `${spot.start}:${spot.end}:${spot.text}` : ""
+  const key = tag(spot)
 
   const popover = useMemo(() => {
     if (!spot || dismissed === key) return null
+    if (spot.whole && exact(spot, cmds)) return null
     const subs = matchSub(cmds, spot.text)
     if (subs) return subs
     return rank(cmds, spot.query)
@@ -91,5 +106,9 @@ export function useSlashPopover(input: string, cmds: ReadonlyArray<SlashCommand>
 
   const open = popover !== null && popover.length > 0
 
-  return { popover, cursor: active, setCursor, ghost, open, spot, dismiss: () => setDismissed(key) }
+  return {
+    popover, cursor: active, setCursor, ghost, open, spot,
+    dismiss: (next?: string, off = next?.length ?? caret) =>
+      setDismissed(tag(next === undefined ? spot : slashTokenAt(next, off))),
+  }
 }

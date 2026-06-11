@@ -41,6 +41,8 @@ describe("composer completion request", () => {
   test("acceptance avoids duplicating slash command prefixes", () => {
     expect(acceptCompletion("/det", { text: "/details", display: "/details", meta: "command" }, 1))
       .toBe("/details ")
+    expect(acceptCompletion("please /det now", { text: "/details", display: "/details", meta: "command" }, 8, 11))
+      .toBe("please /details now")
   })
 
   test("acceptance preserves prompt toolkit slash command items", () => {

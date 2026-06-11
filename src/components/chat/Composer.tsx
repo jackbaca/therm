@@ -166,6 +166,14 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     live.current.props.onSlash(c)
   }
 
+  const fill = (c: SlashCommand) => {
+    const p = live.current.pop
+    if (!p.spot) return
+    const next = replaceSlashToken(live.current.input, p.spot, c)
+    p.dismiss(next)
+    write(next)
+  }
+
   // Complete @-refs land as styled chips; prefix keywords that keep the
   // popover open have nothing to anchor a mark to and stay plain text.
   const atAccept = (idx?: number) => {
@@ -266,7 +274,7 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     const p = live.current.pop
     if (p.open) {
       const c = p.popover?.[p.cursor]
-      if (c) select(c)
+      if (c) fill(c)
       return
     }
     const exp = buf.current?.expand() ?? { text: live.current.input, parts: [] }
@@ -330,14 +338,7 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
       }
       const p = live.current.pop
       const c = p.popover?.[p.cursor]
-      if (c && p.spot) {
-        if (p.spot.whole && p.spot.text === `/${c.name}` && !c.name.includes(" ")) {
-          write("")
-          live.current.props.onSlash(c)
-          return
-        }
-        write(replaceSlashToken(live.current.input, p.spot, c))
-      }
+      if (c) fill(c)
     },
     popCancel: () => {
       const a = live.current.at

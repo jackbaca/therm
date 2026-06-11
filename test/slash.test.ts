@@ -67,6 +67,7 @@ describe("slash", () => {
     expect(slashTokenAt("please /cl now", 9)).toEqual({ text: "/cl", query: "cl", start: 7, end: 10, whole: false })
     expect(slashTokenAt("line one\ntry /new later", 16)).toEqual({ text: "/new", query: "new", start: 13, end: 17, whole: false })
     expect(slashTokenAt("/clear")).toEqual({ text: "/clear", query: "clear", start: 0, end: 6, whole: true })
+    expect(slashTokenAt("/voice o")).toEqual({ text: "/voice o", query: "voice o", start: 0, end: 8, whole: true })
     expect(slashTokenAt("/tmp/file")).toBeNull()
     expect(slashTokenAt("https://host/path")).toBeNull()
     expect(slashTokenAt("see [label](/clear)")).toBeNull()

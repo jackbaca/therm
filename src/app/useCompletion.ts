@@ -29,7 +29,9 @@ export function completionRequest(input: string): CompletionRequest | null {
 }
 
 export function acceptCompletion(input: string, item: CompletionItem, replaceFrom: number, replaceTo = input.length) {
-  const replace = item.text.startsWith("/") && input.startsWith("/") ? 0 : replaceFrom
+  const replace = item.text.startsWith("/") && input[replaceFrom - 1] === "/"
+    ? replaceFrom - 1
+    : item.text.startsWith("/") && input.startsWith("/") ? 0 : replaceFrom
   const left = input.slice(0, replace)
   const right = input.slice(replaceTo)
   if (item.text.includes(":")) frecency.bump(item.text)

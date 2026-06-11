@@ -223,21 +223,28 @@ describe("composer", () => {
     t.destroy()
   })
 
-  test("popover Enter dispatches onSlash and clears input", async () => {
-    const { t, ref, slashed } = await setup()
-    await act(async () => { await t.keys.typeText("/help") })
+  test("popover Enter completes command text and closes before submit", async () => {
+    const { t, ref, sent, slashed } = await setup()
+    await act(async () => { await t.keys.typeText("/he") })
     await t.settle()
     expect(ref.current?.popOpen()).toBe(true)
 
     act(() => t.keys.pressEnter())
     await t.settle()
-    expect(slashed.map(c => c.name)).toEqual(["help"])
+    expect(slashed).toEqual([])
+    expect(sent).toEqual([])
+    expect(ref.current?.value()).toBe("/help")
+    expect(ref.current?.popOpen()).toBe(false)
+
+    act(() => t.keys.pressEnter())
+    await t.settle()
+    expect(sent).toEqual(["/help"])
     expect(ref.current?.value()).toBe("")
     t.destroy()
   })
 
-  test("slash popover selection accepts the top rendered candidate", async () => {
-    const { t, slashed } = await withCommands([
+  test("slash popover Enter accepts the top rendered candidate", async () => {
+    const { t, ref, slashed } = await withCommands([
       cmd("zulu", "Zed"),
       cmd("alpha", "Client"),
     ])
@@ -250,7 +257,9 @@ describe("composer", () => {
     act(() => t.keys.pressEnter())
     await t.settle()
 
-    expect(slashed.map(c => c.name)).toEqual([top!])
+    expect(ref.current?.value()).toBe(`/${top!}`)
+    expect(ref.current?.popOpen()).toBe(false)
+    expect(slashed).toEqual([])
     t.destroy()
   })
 
@@ -281,6 +290,7 @@ describe("composer", () => {
     act(() => ref.current?.popAccept())
     await t.settle()
     expect(ref.current?.value()).toBe("please /clear")
+    expect(ref.current?.popOpen()).toBe(false)
     expect(slashed).toEqual([])
     t.destroy()
   })
@@ -534,16 +544,17 @@ describe("composer", () => {
     t.destroy()
   })
 
-  test("slash popover live while streaming; Enter fires onSlash, not onEnqueue", async () => {
+  test("slash popover live while streaming; Enter accepts without enqueueing", async () => {
     const ref = createRef<ComposerHandle>()
     const slashed: SlashCommand[] = []
     const queued: string[] = []
+    const sent: string[] = []
     const t: Harness = await mountNode(
       <box flexDirection="column" flexGrow={1} width="100%" height="100%">
         <box flexGrow={1} />
         <Composer
           ref={ref} focused canSubmitPrompt={true} ready streaming queue={[]} cmds={LOCAL_COMMANDS}
-          onSend={() => {}} onSlash={c => slashed.push(c)}
+          onSend={m => sent.push(m)} onSlash={c => slashed.push(c)}
           onEnqueue={m => queued.push(m)}
         />
       </box>,
@@ -551,7 +562,7 @@ describe("composer", () => {
     )
     await until(t, () => t.frame().includes("Type to queue"))
 
-    await act(async () => { await t.keys.typeText("/steer") })
+    await act(async () => { await t.keys.typeText("/ste") })
     await t.settle()
     expect(ref.current?.popOpen()).toBe(true)
     // Popover renders its matched entry above the input.
@@ -559,9 +570,11 @@ describe("composer", () => {
 
     act(() => t.keys.pressEnter())
     await t.settle()
-    expect(slashed.map(c => c.name)).toEqual(["steer"])
+    expect(slashed).toEqual([])
+    expect(sent).toEqual([])
     expect(queued).toEqual([])
-    expect(ref.current?.value()).toBe("")
+    expect(ref.current?.value()).toBe("/steer")
+    expect(ref.current?.popOpen()).toBe(false)
     t.destroy()
   })
 
