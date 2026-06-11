@@ -47,7 +47,7 @@ export type PromptPart = {
   id: string
   variant: "approval" | "clarify" | "sudo" | "secret"
   req: PromptReq
-  answered?: { label: string; ok: boolean; at: number }
+  answered?: { label: string; ok: boolean; at: number; question?: string }
 }
 
 export type PromptReq =

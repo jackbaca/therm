@@ -171,7 +171,7 @@ export function turnReducer(state: TurnState, a: Action): TurnState {
       return {
         ...state,
         messages: updatePrompt(state.messages, a.id, p => ({
-          ...p, answered: { label: a.label, ok: a.ok, at: Date.now() },
+          ...p, answered: { label: a.label, ok: a.ok, at: Date.now(), question: promptQuestion(p.req) },
         })),
       }
 
@@ -352,6 +352,13 @@ function updatePrompt(messages: Message[], id: string, fn: (p: PromptPart) => Pr
     if (!m.parts.some(p => p.type === "prompt" && p.id === id)) return m
     return { ...m, parts: m.parts.map(p => p.type === "prompt" && p.id === id ? fn(p) : p) }
   })
+}
+
+function promptQuestion(req: PromptReq): string | undefined {
+  if (req.variant === "clarify") return req.question
+  if (req.variant === "approval") return req.description || "Shell command"
+  if (req.variant === "sudo") return "Sudo required"
+  return req.env_var ? `Secret: ${req.env_var}` : "Secret required"
 }
 
 function upsertThinking(messages: Message[], text: string, final: boolean, verbose?: boolean): Message[] {
