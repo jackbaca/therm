@@ -11,7 +11,7 @@ import { useGateway } from "../../context/gateway"
 import type { ImageAttachResponse, DropDetectResponse } from "../../context/wire"
 import { looksLikePath } from "../../utils/drop"
 import type { SlashCommand } from "../../app/slashCommands"
-import { useSlashPopover } from "../../app/useSlashPopover"
+import { replaceSlashToken, useSlashPopover } from "../../app/useSlashPopover"
 import { useAtRefPopover, atWordAt } from "../../app/useAtRefPopover"
 import { acceptCompletion, useCompletion } from "../../app/useCompletion"
 import { frecency } from "../../app/frecency"
@@ -103,19 +103,16 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
   const [mode, setMode] = useState<"normal" | "shell">("normal")
   const modeRef = useRef(mode); modeRef.current = mode
 
-  // Slash popover keys off the first line only — the grammar is a
-  // single-line prefix and a newline is a hard boundary. @-ref is
-  // cursor-relative over the full buffer so mid-prompt file mentions
-  // work on any line.
-  const head = useMemo(() => {
-    const i = input.indexOf("\n")
-    return i < 0 ? input : input.slice(0, i)
-  }, [input])
-
-  const pop = useSlashPopover(mode === "normal" ? head : "", props.cmds)
+  // Slash and @-ref popovers are cursor-relative over the current buffer.
+  // Slash command execution stays whole-buffer only; mixed prose accepts
+  // replace the token under the cursor without invoking local commands.
+  const pop = useSlashPopover(mode === "normal" ? input : "", props.cmds, caret)
   const atSpot = mode === "normal" ? atWordAt(input, caret) : null
   const at = useAtRefPopover(mode === "normal" ? input : "", caret)
-  const comp = useCompletion(mode === "normal" && !atSpot ? head : "", mode !== "normal" || pop.open, gw)
+  const slashReq = pop.spot && !pop.open && pop.spot.query
+    ? { method: "complete.slash" as const, params: { text: pop.spot.text }, replaceFrom: pop.spot.start + 1, replaceTo: pop.spot.end }
+    : null
+  const comp = useCompletion(mode === "normal" && !atSpot ? input : "", mode !== "normal" || pop.open, gw, slashReq)
 
   const write = useCallback((v: string) => {
     // clear() wipes text + extmarks via setText(""); replay v after.
@@ -159,6 +156,11 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
   // Selecting a popover entry: subcommand synthetics (name contains a
   // space) complete the input for further typing; real commands dispatch.
   const select = (c: SlashCommand) => {
+    const spot = live.current.pop.spot
+    if (spot && !spot.whole) {
+      write(replaceSlashToken(live.current.input, spot, c))
+      return
+    }
     if (c.name.includes(" ")) { write(`/${c.name} `); return }
     write("")
     live.current.props.onSlash(c)
@@ -258,7 +260,7 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     if (cc.open) {
       const it = cc.items[cc.cursor]
       if (!it || !it.text) return
-      write(acceptCompletion(live.current.input, it, cc.replaceFrom))
+      write(acceptCompletion(live.current.input, it, cc.replaceFrom, cc.replaceTo))
       return
     }
     const p = live.current.pop
@@ -323,18 +325,27 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
       const cc = live.current.comp
       if (cc.open) {
         const it = cc.items[cc.cursor]
-        if (it?.text) write(acceptCompletion(live.current.input, it, cc.replaceFrom))
+        if (it?.text) write(acceptCompletion(live.current.input, it, cc.replaceFrom, cc.replaceTo))
         return
       }
       const p = live.current.pop
       const c = p.popover?.[p.cursor]
-      if (c) write(`/${c.name}${c.name.includes(" ") ? " " : ""}`)
+      if (c && p.spot) {
+        if (p.spot.whole && p.spot.text === `/${c.name}` && !c.name.includes(" ")) {
+          write("")
+          live.current.props.onSlash(c)
+          return
+        }
+        write(replaceSlashToken(live.current.input, p.spot, c))
+      }
     },
     popCancel: () => {
       const a = live.current.at
       if (a.open) return a.dismiss()
       const cc = live.current.comp
       if (cc.open) return cc.dismiss()
+      const p = live.current.pop
+      if (p.open && p.spot && !p.spot.whole) return p.dismiss()
       write("")
     },
     // History nav is cursor-aware: ↑ fires when the caret is on the
@@ -412,7 +423,7 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
             onCursor={comp.setCursor}
             onSelect={idx => {
               const it = comp.items[idx]
-              if (it?.text) write(acceptCompletion(input, it, comp.replaceFrom))
+              if (it?.text) write(acceptCompletion(input, it, comp.replaceFrom, comp.replaceTo))
             }}
           />
         </box>
@@ -480,7 +491,7 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
             // Only worth a re-render when @-completion might retarget;
             // otherwise ←/→ in a long prompt would reconcile Composer
             // on every keystroke for no observable effect.
-            if (!live.current.input.includes("@")) return
+            if (!live.current.input.includes("@") && !live.current.input.includes("/")) return
             const off = ta.current?.cursorOffset ?? 0
             setCaret(c => c === off ? c : off)
           }}
@@ -500,7 +511,7 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
           focusedBackgroundColor="transparent"
           flexGrow={1}
         />
-        {pop.ghost && props.focused && rows === 1 ? (
+        {pop.ghost && props.focused && rows === 1 && pop.spot?.whole ? (
           <box position="absolute" top={0} left={2 + input.length} height={1}>
             <text fg={theme.textMuted}>{pop.ghost}</text>
           </box>

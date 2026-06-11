@@ -601,6 +601,22 @@ describe("app", () => {
     t.destroy()
   })
 
+  test("mixed prose slash command submits through prompt.submit, not local slash", async () => {
+    const t = await mount()
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("please /clear now") })
+    await until(t, () => t.frame().includes("/clear"))
+    act(() => t.keys.pressEscape())
+    await t.settle()
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.gw.last("prompt.submit") !== undefined)
+
+    expect(t.gw.last("prompt.submit")?.params.text).toBe("please /clear now")
+    expect(t.gw.last("slash.exec")).toBeUndefined()
+    t.destroy()
+  })
+
   test("/title <arg> sets via session.title RPC", async () => {
     const t = await mount()
     await until(t, () => t.frame().includes("Ready"))

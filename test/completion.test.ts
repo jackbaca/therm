@@ -2,12 +2,8 @@ import { describe, expect, test } from "bun:test"
 import { acceptCompletion, completionRequest } from "../src/app/useCompletion"
 
 describe("composer completion request", () => {
-  test("routes slash-like input through complete.slash", () => {
-    expect(completionRequest("/help")).toEqual({
-      method: "complete.slash",
-      params: { text: "/help" },
-      replaceFrom: 1,
-    })
+  test("whole-buffer slash popover owns slash-like input", () => {
+    expect(completionRequest("/help")).toBeNull()
   })
 
   test("does not treat absolute paths as slash commands", () => {
@@ -15,6 +11,7 @@ describe("composer completion request", () => {
       method: "complete.path",
       params: { word: "/home/kaio/Dev/herm/src/app.tsx" },
       replaceFrom: 0,
+      replaceTo: 31,
     })
   })
 
@@ -23,6 +20,7 @@ describe("composer completion request", () => {
       method: "complete.path",
       params: { word: "src/app" },
       replaceFrom: 5,
+      replaceTo: 12,
     })
   })
 
@@ -33,6 +31,11 @@ describe("composer completion request", () => {
   test("acceptance replaces only the completion token", () => {
     expect(acceptCompletion("read src/app", { text: "src/app.tsx", display: "app.tsx", meta: "file" }, 5))
       .toBe("read src/app.tsx ")
+  })
+
+  test("acceptance preserves suffix", () => {
+    expect(acceptCompletion("read src/app now", { text: "src/app.tsx", display: "app.tsx", meta: "file" }, 5, 12))
+      .toBe("read src/app.tsx now")
   })
 
   test("acceptance avoids duplicating slash command prefixes", () => {

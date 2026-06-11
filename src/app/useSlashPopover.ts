@@ -4,6 +4,14 @@ import { useMemo, useEffect, useState } from "react"
 import { matchSub, type SlashCommand } from "./slashCommands"
 import { score } from "../utils/fuzzy"
 
+export type SlashToken = {
+  text: string
+  query: string
+  start: number
+  end: number
+  whole: boolean
+}
+
 function best(q: string, cmd: SlashCommand) {
   return cmd.aliases.reduce((m, a) => Math.max(m, score(q, a)), score(q, cmd.name))
 }
@@ -17,34 +25,71 @@ export function rank(list: ReadonlyArray<SlashCommand>, q: string): SlashCommand
     .map(r => r.cmd)
 }
 
-export function useSlashPopover(input: string, cmds: ReadonlyArray<SlashCommand>) {
+function boundary(ch: string | undefined) {
+  return ch === undefined || /\s/.test(ch) || "({\"'`".includes(ch)
+}
+
+export function slashTokenAt(input: string, caret = input.length): SlashToken | null {
+  const off = Math.max(0, Math.min(caret, input.length))
+  if (/^\/[A-Za-z0-9_-]*$/.test(input)) {
+    return { text: input, query: input.slice(1), start: 0, end: input.length, whole: true }
+  }
+
+  const line = input.lastIndexOf("\n", Math.max(0, off - 1)) + 1
+  const slash = input.lastIndexOf("/", off)
+  if (slash < line) return null
+  if (!boundary(input[slash - 1])) return null
+  if (input[slash - 1] === "(" && input[slash - 2] === "]") return null
+  if (input[slash - 1] === "[") return null
+
+  const tail = input.slice(slash + 1)
+  const m = tail.match(/^[A-Za-z0-9_-]*/)
+  const query = m?.[0] ?? ""
+  const end = slash + 1 + query.length
+  if (off > end || off < slash) return null
+  if (input[end] === "/") return null
+  if (!query && input[slash + 1] === "/") return null
+  return { text: input.slice(slash, end), query, start: slash, end, whole: false }
+}
+
+export function replaceSlashToken(input: string, spot: SlashToken, cmd: SlashCommand) {
+  const text = `/${cmd.name}${cmd.name.includes(" ") ? " " : ""}`
+  return input.slice(0, spot.start) + text + input.slice(spot.end)
+}
+
+export function useSlashPopover(input: string, cmds: ReadonlyArray<SlashCommand>, caret = input.length) {
   const [cursor, setCursor] = useState(0)
+  const [dismissed, setDismissed] = useState<string | null>(null)
+  const spot = useMemo(() => slashTokenAt(input, caret), [input, caret])
+  const key = spot ? `${spot.start}:${spot.end}:${spot.text}` : ""
 
   const popover = useMemo(() => {
-    const subs = matchSub(cmds, input)
+    if (!spot || dismissed === key) return null
+    const subs = matchSub(cmds, spot.text)
     if (subs) return subs
-    const m = input.match(/^\/(\S*)$/)
-    return m ? rank(cmds, m[1]) : null
-  }, [input, cmds])
+    return rank(cmds, spot.query)
+  }, [spot, cmds, dismissed, key])
 
   const active = popover ? Math.max(0, Math.min(cursor, popover.length - 1)) : 0
 
   // Reset cursor when input changes
-  useEffect(() => { setCursor(c => c === 0 ? c : 0) }, [input])
+  useEffect(() => {
+    setCursor(c => c === 0 ? c : 0)
+    setDismissed(d => d && d !== key ? null : d)
+  }, [key])
 
   const ghost = useMemo(() => {
     if (!popover || popover.length === 0) return ""
-    const best = popover[active]
-    if (!best || best.name.includes(" ")) return ""
-    const m = input.match(/^\/(\S*)$/)
-    if (!m) return ""
-    const typed = m[1]
+    const hit = popover[active]
+    if (!hit || hit.name.includes(" ")) return ""
+    if (!spot || !/^\/\S*$/.test(spot.text)) return ""
+    const typed = spot.query
     if (typed.length < 2) return ""
-    if (!best.name.toLowerCase().startsWith(typed.toLowerCase())) return ""
-    return best.name.slice(typed.length)
-  }, [input, popover, active])
+    if (!hit.name.toLowerCase().startsWith(typed.toLowerCase())) return ""
+    return hit.name.slice(typed.length)
+  }, [spot, popover, active])
 
   const open = popover !== null && popover.length > 0
 
-  return { popover, cursor: active, setCursor, ghost, open }
+  return { popover, cursor: active, setCursor, ghost, open, spot, dismiss: () => setDismissed(key) }
 }

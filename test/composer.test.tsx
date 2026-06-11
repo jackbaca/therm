@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { act, createRef, useState } from "react"
 import { mountNode, until, MockGateway, type Harness } from "./harness"
 import { Composer, type ComposerHandle } from "../src/components/chat/Composer"
+import { acceptCompletion } from "../src/app/useCompletion"
 import * as prefs from "../src/context/preferences"
 import type { SlashCommand } from "../src/app/slashCommands"
 import { LOCAL_COMMANDS } from "../src/app/slashCommands"
@@ -181,7 +182,7 @@ describe("composer", () => {
     t.destroy()
   })
 
-  test("history: multi-line buffer → up/down no-op (returned false)", async () => {
+  test("history: Up from a later logical line lets the textarea own movement", async () => {
     const { t, ref } = await setup()
     await act(async () => { await t.keys.typeText("seed") })
     act(() => t.keys.pressEnter())
@@ -191,6 +192,20 @@ describe("composer", () => {
     await t.settle()
     expect(ref.current?.historyUp()).toBe(false)
     expect(ref.current?.value()).toBe("a\nb")
+    t.destroy()
+  })
+
+  test("history: Up at first logical line loads previous prompt", async () => {
+    const { t, ref } = await setup()
+    await act(async () => { await t.keys.typeText("seed") })
+    act(() => t.keys.pressEnter())
+    await t.settle()
+
+    act(() => ref.current?.set("draft"))
+    await t.settle()
+    expect(ref.current?.historyUp()).toBe(true)
+    await t.settle()
+    expect(ref.current?.value()).toBe("seed")
     t.destroy()
   })
 
@@ -254,6 +269,75 @@ describe("composer", () => {
     expect(cats.length).toBe(1)
     expect(items.length).toBeLessThanOrEqual(10)
     expect(t.frame()).toContain("/skill-31")
+    t.destroy()
+  })
+
+  test("slash token in mixed prose opens popover and accept replaces only token", async () => {
+    const { t, ref, slashed } = await setup()
+    await act(async () => { await t.keys.typeText("please /cl") })
+    await until(t, () => t.frame().includes("/clear"))
+    expect(ref.current?.popOpen()).toBe(true)
+
+    act(() => ref.current?.popAccept())
+    await t.settle()
+    expect(ref.current?.value()).toBe("please /clear")
+    expect(slashed).toEqual([])
+    t.destroy()
+  })
+
+  test("slash tokens in paths, URLs, and markdown links do not open popover", async () => {
+    for (const text of ["/tmp/file", "https://host/path", "see [label](/clear)"]) {
+      const { t, ref } = await setup()
+      await act(async () => { await t.keys.typeText(text) })
+      await t.settle()
+      expect(ref.current?.popOpen()).toBe(false)
+      t.destroy()
+    }
+  })
+
+  test("mixed prose slash command submits as prompt text, not local slash", async () => {
+    const { t, sent, slashed } = await setup()
+    await act(async () => { await t.keys.typeText("please /clear now") })
+    await until(t, () => t.frame().includes("/clear"))
+    act(() => t.keys.pressEscape())
+    await t.settle()
+    act(() => t.keys.pressEnter())
+    await t.settle()
+    expect(sent).toEqual(["please /clear now"])
+    expect(slashed).toEqual([])
+    t.destroy()
+  })
+
+  test("slash RPC completion in mixed prose preserves suffix", async () => {
+    const gw = new MockGateway({
+      "complete.slash": p => p.text === "/zz" ? {
+        replace_from: 1,
+        items: [{ text: "zeta", display: "/zeta", meta: "remote" }],
+      } : { items: [] },
+    })
+    const { t, ref } = await setup(gw)
+
+    await act(async () => { await t.keys.typeText("please /zz") })
+    await until(t, () => t.frame().includes("/zeta"))
+    expect(t.gw.last("complete.slash")?.params.text).toBe("/zz")
+
+    act(() => t.keys.pressEnter())
+    await t.settle()
+    expect(ref.current?.value()).toBe("please /zeta ")
+    t.destroy()
+  })
+
+  test("popover arrows own navigation before composer history", async () => {
+    const { t, ref } = await setup()
+    await act(async () => { await t.keys.typeText("seed") })
+    act(() => t.keys.pressEnter())
+    await t.settle()
+
+    await act(async () => { await t.keys.typeText("please /") })
+    await until(t, () => t.frame().includes("/clear"))
+    act(() => ref.current?.popNav(1))
+    await t.settle()
+    expect(ref.current?.value()).toBe("please /")
     t.destroy()
   })
 
@@ -338,6 +422,15 @@ describe("composer", () => {
     expect(sent).toEqual([])
     expect(ref.current?.value()).toBe("see ./bad")
     t.destroy()
+  })
+
+  test("acceptCompletion preserves suffix for mid-buffer replacement", () => {
+    expect(acceptCompletion(
+      "please /zz now",
+      { text: "zeta", display: "/zeta", meta: "remote" },
+      8,
+      10,
+    )).toBe("please /zeta now")
   })
 
   test("@ opens atref popover; Tab inserts; Esc dismisses without clearing", async () => {

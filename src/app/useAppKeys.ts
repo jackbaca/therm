@@ -354,8 +354,16 @@ export function useAppKeys(o: Opts) {
         key.stopPropagation()
         return
       }
-      if (key.name === "up") return void c?.historyUp()
-      if (key.name === "down") return void c?.historyDown()
+      if (key.name === "up") {
+        const before = c?.value()
+        const ok = c?.historyUp()
+        return void (ok && c?.value() !== before && key.stopPropagation())
+      }
+      if (key.name === "down") {
+        const before = c?.value()
+        const ok = c?.historyDown()
+        return void (ok && c?.value() !== before && key.stopPropagation())
+      }
       // Backspace on an empty buffer with attachments → detach the last.
       // Swallow before the textarea sees it so a subsequent backspace on
       // a still-empty buffer keeps peeling attachments off, not chars.
