@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import { act } from "react"
-import { mount, until } from "./harness"
+import { mount, mountNode, until } from "./harness"
+import { Composer } from "../src/components/chat/Composer"
+import { LOCAL_COMMANDS } from "../src/app/slashCommands"
 
 describe("composer: image attachments (D4+D7)", () => {
   test("Ctrl+V → clipboard.paste → chip renders; clears on send", async () => {
@@ -175,6 +177,71 @@ describe("composer: image attachments (D4+D7)", () => {
     act(() => t.keys.pressEnter())
     await t.settle()
     expect(t.gw.last("prompt.submit")).toBeUndefined()
+    t.destroy()
+  })
+
+  test("attachments render inside the composer border", async () => {
+    const t = await mount({
+      handlers: {
+        "clipboard.paste": () => ({
+          attached: true, path: "/tmp/inside.png", name: "inside.png",
+          count: 1, width: 640, height: 480,
+        }),
+      },
+    })
+    await until(t, () => t.frame().includes("Ready"))
+    act(() => t.keys.pressKey("v", { ctrl: true }))
+    await until(t, () => t.frame().includes("inside.png"))
+
+    const rows = t.frame().split("\n")
+    const top = rows.findIndex(l => l.startsWith("┌"))
+    const img = rows.findIndex(l => l.includes("inside.png"))
+    const bot = rows.findIndex((l, i) => i > top && l.startsWith("└"))
+    expect(top).toBeGreaterThan(-1)
+    expect(img).toBeGreaterThan(top)
+    expect(img).toBeLessThan(bot)
+    t.destroy()
+  })
+
+  test("path-backed non-image attachment renders only a file chip", async () => {
+    const t = await mountNode(
+      <box flexDirection="column" flexGrow={1} width="100%" height="100%">
+        <box flexGrow={1} />
+        <Composer
+          focused canSubmitPrompt={true} ready streaming={false} cmds={LOCAL_COMMANDS}
+          attachments={[{ attached: true, path: "/tmp/report.pdf", name: "report.pdf", count: 1 }]}
+          onSend={() => {}} onSlash={() => {}}
+        />
+      </box>,
+      { width: 120, height: 30 },
+    )
+    await until(t, () => t.frame().includes("report.pdf"))
+
+    expect(t.frame()).toContain(" file ")
+    expect(t.frame()).not.toContain(" img ")
+    t.destroy()
+  })
+
+  test("attachment overflow counts only attachments hidden from previews and chips", async () => {
+    const t = await mountNode(
+      <box flexDirection="column" flexGrow={1} width="100%" height="100%">
+        <box flexGrow={1} />
+        <Composer
+          focused canSubmitPrompt={true} ready streaming={false} cmds={LOCAL_COMMANDS}
+          attachments={[
+            { attached: true, path: "/tmp/one.pdf", name: "one.pdf", count: 1 },
+            { attached: true, path: "/tmp/two.txt", name: "two.txt", count: 2 },
+            { attached: true, path: "/tmp/three.png", name: "three.png", count: 3 },
+          ]}
+          onSend={() => {}} onSlash={() => {}}
+        />
+      </box>,
+      { width: 120, height: 30 },
+    )
+    await until(t, () => t.frame().includes("one.pdf") && t.frame().includes("two.txt"))
+
+    expect(t.frame()).toContain("three.png")
+    expect(t.frame()).not.toContain("+1")
     t.destroy()
   })
 })
