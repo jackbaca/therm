@@ -448,8 +448,7 @@ describe("app", () => {
 
     const call = t.gw.last("prompt.submit")
     expect(call?.params.text).toBe("hello gateway")
-    // User messages render inside a left-side gutter.
-    expect(t.frame()).toMatch(/│ hello gateway/)
+    expect(t.frame()).toContain("hello gateway")
 
     t.destroy()
   })
@@ -1261,9 +1260,8 @@ describe("app", () => {
     expect(f).not.toContain("STALE-THINK")
     expect(f).not.toContain("zz_stale_tool")   // tool part never created
     expect(f).toContain("alpha")
-    // `*[interrupted]*` → markdown strips `*` and `[]`; bare word under
-    // the assistant right-side gutter (content on the left, bar on the right).
-    expect(f).toMatch(/interrupted\s+│/)
+    // `*[interrupted]*` → markdown strips `*` and `[]`.
+    expect(f).toMatch(/^\s+interrupted\s*$/m)
 
     // Latch survives completion: the worker thread's stream-retry except
     // handler emits lifecycle "Reconnecting…" after message.complete; a
