@@ -32,7 +32,8 @@
     "build": "bun scripts/build.ts",
     "start": "bun run dist/index.js",
     "test": "bun test",
-    "typecheck": "bunx tsc --noEmit"
+    "typecheck": "bunx tsc --noEmit",
+    "screenshot:styled": "bun scripts/styled-screenshot.tsx"
   },
   "dependencies": {
     "@opentui/core": "0.2.2",

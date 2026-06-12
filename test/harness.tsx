@@ -122,6 +122,8 @@ export type Harness = {
   gw: MockGateway
   /** Rendered screen as a newline-joined string. */
   frame: () => string
+  /** Rendered styled spans preserving fg/bg/attributes. */
+  spans: () => unknown
   /** Flush React + render one frame. Await after any state mutation. */
   settle: () => Promise<void>
   resize: (w: number, h: number) => void
@@ -200,6 +202,7 @@ async function render(node: ReactNode, gw: MockGateway, opts: Opts): Promise<Har
     mouse: setup.mockMouse,
     gw,
     frame: setup.captureCharFrame,
+    spans: setup.captureSpans,
     settle,
     resize: setup.resize,
     destroy: () => setup.renderer.destroy(),
