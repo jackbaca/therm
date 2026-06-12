@@ -277,6 +277,27 @@ describe("EikonStudio tab", () => {
     un()
   })
 
+  run("dirty submit prompts save and active consequence before preview", async () => {
+    const un = eikon.register(stub)
+    seed("submitdirty")
+    prefs.set("eikon", "submitdirty")
+    let sub = 1
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
+      { width: 160, height: 48 },
+    )
+    await until(t, () => t.frame().includes("rasterizer"))
+    for (let i = 0; i < 5; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
+    act(() => t.keys.pressArrow("right"))
+    await until(t, () => t.frame().includes("● unsaved"))
+    act(() => t.keys.pressKey("u"))
+    await until(t, () => t.frame().includes("Save before submit?"))
+    act(() => t.keys.pressKey("s"))
+    await until(t, () => t.frame().includes("Save active 'submitdirty' before submit?"))
+    expect(t.frame()).toContain("Submit itself will not change active selection")
+    un()
+  })
+
   run("Ctrl+S saves without activation; Ctrl+U explicitly saves and uses", async () => {
     const un = eikon.register(stub)
     seed("active")

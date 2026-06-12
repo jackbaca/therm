@@ -128,11 +128,15 @@ outside the default catalog and support both single-package repos and
 multi-eikon catalog repos addressed as `github.com/user/repo/eikon-name`.
 Private GitHub repos use normal git authentication.
 
-Creators can share eikons through normal GitHub repositories. Use upstream
-`eikon pack`, `eikon index`, and `eikon manifest` to prepare single-package or
-multi-eikon repos for direct installs. `eikon publish` remains a GitHub PR
-contribution helper for the configured/default catalog repo; it is not a
-hosted marketplace account, upload, dashboard, or moderation flow.
+Creators can share Eikons through normal GitHub repositories. For official
+registry listing, use Eikon → Studio/Gallery → submit after baking. Herm previews
+the exact public bundle, asks for title/author/description/glyph, and either
+creates a GitHub PR through local `gh` auth or gives a browser/manual PR
+fallback with copyable bundle and PR text. Direct-install repos can still be
+prepared with upstream `eikon pack`, `eikon index`, and `eikon manifest`.
+`eikon publish` remains the lower-level GitHub PR contribution helper for the
+configured/default catalog repo; it is not a hosted marketplace account, upload,
+dashboard, or moderation flow.
 
 Use `eikon.liftaris.dev` as a discovery gallery only; it previews catalog
 entries and gives copyable Herm install instructions.

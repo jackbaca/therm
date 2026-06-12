@@ -14,6 +14,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExterna
 import { extend, useKeyboard, useTerminalDimensions } from "@opentui/react"
 import { SliderRenderable } from "@opentui/core"
 import type { ParsedKey, ScrollBoxRenderable } from "@opentui/core"
+import { existsSync } from "node:fs"
 import { basename } from "node:path"
 import type { ReactNode } from "react"
 import { useTheme } from "../theme"
@@ -987,12 +988,34 @@ export const EikonStudio = memo((props: {
       toast.show({ variant: "warning", title: "Published eikon", message: "Create a local draft before submitting", duration: 6000 })
       return
     }
+    if (cur.dirty || !existsSync(path)) {
+      const pick = await openSaveDiscard(dialog, {
+        title: "Save before submit?",
+        body: `'${cur.name}' has unsaved changes. Save to submit the current preview, discard to submit the last saved artifact, or keep editing.`,
+      })
+      if (pick === "save") {
+        if (prefs.get("eikon") === cur.name) {
+          const ok = await openConfirm(dialog, {
+            title: `Save active '${cur.name}' before submit?`, danger: true,
+            body: "Saving changes the active avatar's backing artifact. Submit itself will not change active selection.",
+            yes: "save", no: "cancel",
+          })
+          if (!ok) return
+        }
+        if (!await doSave()) return
+      } else if (pick === "discard") open(cur.name)
+      else return
+    }
+    if (!existsSync(path)) {
+      toast.show({ variant: "warning", message: "Save this eikon before submitting" })
+      return
+    }
     await openEikonSubmit(dialog, {
       name: cur.name,
       path,
       submit: submitSvc.submit,
     })
-  }, [dialog, toast])
+  }, [dialog, doSave, open, toast])
 
   const doAction = async (id: string) => {
     if (!s) return
