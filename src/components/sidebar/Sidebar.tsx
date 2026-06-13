@@ -8,19 +8,6 @@ import type { Usage } from "../../types/message"
 import { useGitBranch, rtrunc } from "../../utils/git"
 import { Tail } from "../chat/ThoughtCloud"
 import { ContextGauge } from "./ContextGauge"
-import { FilterChip } from "../../ui/filter-chip"
-
-export type SidebarPreview = {
-  key: string
-  eikon: ParsedEikon
-  state: AvatarState
-  title?: string
-  subtitle?: string
-  body?: string
-  rows?: readonly { label: string; value: string; strong?: boolean; block?: boolean }[]
-  states?: readonly AvatarState[]
-  onState?: (state: AvatarState) => void
-}
 
 // The pillar body carries a compact identity block, the MCP operational
 // section, and a context-usage gauge at the bottom. Stats/Memory/Recent/
@@ -84,37 +71,6 @@ const Row = (props: { label: string; value: string; strong?: boolean; block?: bo
   )
 }
 
-const Preview = (props: { preview: SidebarPreview }) => {
-  const theme = useTheme().theme
-  const meta = props.preview.eikon.meta
-  const rows = props.preview.rows ?? [
-    { label: "Author", value: meta.author ?? "—" },
-    { label: "State", value: props.preview.state },
-  ]
-  const states = props.preview.states?.length ? props.preview.states : undefined
-  return (
-    <box flexDirection="column">
-      <Row label="Eikon" value={props.preview.title ?? meta.name} strong />
-      {props.preview.subtitle ? <Row label="Author" value={props.preview.subtitle} /> : null}
-      {props.preview.body ? (
-        <box marginTop={1} marginBottom={1}>
-          <text fg={theme.text} wrapMode="word">{props.preview.body}</text>
-        </box>
-      ) : null}
-      {states ? (
-        <box flexDirection="row" flexWrap="wrap" marginBottom={1}>
-          {states.map((s, i) => (
-            <FilterChip key={s} label={s} state={s === props.preview.state ? "in" : "off"}
-              gap={i === 0 ? 0 : 1} color={theme.primary} textColor={theme.textMuted}
-              onMouseDown={() => { if (props.preview.onState) props.preview.onState(s) }} />
-          ))}
-        </box>
-      ) : null}
-      {rows.map((r, i) => <Row key={`${r.label}:${i}`} label={r.label} value={r.value} strong={r.strong} block={r.block} />)}
-    </box>
-  )
-}
-
 export const Sidebar = memo((props: {
   agentState?: AvatarState
   info?: SessionInfo | null
@@ -124,15 +80,12 @@ export const Sidebar = memo((props: {
   title?: string
   cloud?: boolean
   pulse?: boolean
-  preview?: SidebarPreview
   onAvatar?: () => void
   onAvatarHold?: (s: AvatarState) => void
 }) => {
   const theme = useTheme().theme
-  const state = props.preview?.state ?? props.agentState ?? "idle"
+  const state = props.agentState ?? "idle"
   const info = props.info
-  const eikon = props.preview?.eikon ?? props.eikon
-  const preview = !!props.preview
 
   const [mcpOpen, setMcpOpen] = useState(false)
 
@@ -143,9 +96,9 @@ export const Sidebar = memo((props: {
     <box width={WIDTH} flexDirection="column">
       {/* Avatar (bust) — also the anchor for the thought-cloud tail */}
       <box position="relative" flexDirection="column" height={24} overflow="hidden"
-           onMouseDown={preview ? undefined : props.onAvatar}>
-        <Avatar id={props.preview?.key} state={state} eikon={eikon} onHold={preview ? undefined : props.onAvatarHold} />
-        {!preview && props.cloud ? (
+           onMouseDown={props.onAvatar}>
+        <Avatar state={state} eikon={props.eikon} onHold={props.onAvatarHold} />
+        {props.cloud ? (
           <box position="absolute" left={0} top={0}>
             <Tail run={!!props.pulse} />
           </box>
@@ -159,45 +112,43 @@ export const Sidebar = memo((props: {
            border={["top", "left", "right"]} borderStyle="double"
            borderColor={theme.hermAvatar}>
 
-        {props.preview ? <Preview preview={props.preview} /> : <>
-          {/* Flat identity block — Title is primary (always rendered so the
-              block doesn't reflow when `/title` fires), then Profile
-              (which IS agent lineage — each profile is an isolated
-              HERMES_HOME), then model/cwd/branch. */}
-          <Row label="Title" value={props.title || "—"} strong={!!props.title} />
-          <Row label="Profile" value={props.profile ?? "default"}
-               strong={!!props.profile && props.profile !== "default"} />
-          <Row label="Model" value={info?.model ?? "—"} />
-          {info?.cwd ? <Row label="cwd" value={info.cwd} /> : null}
-          {branch ? <Row label="Branch" value={rtrunc(branch, INNER - PAD_L - 2)} /> : null}
+        {/* Flat identity block — Title is primary (always rendered so the
+            block doesn't reflow when `/title` fires), then Profile
+            (which IS agent lineage — each profile is an isolated
+            HERMES_HOME), then model/cwd/branch. */}
+        <Row label="Title" value={props.title || "—"} strong={!!props.title} />
+        <Row label="Profile" value={props.profile ?? "default"}
+             strong={!!props.profile && props.profile !== "default"} />
+        <Row label="Model" value={info?.model ?? "—"} />
+        {info?.cwd ? <Row label="cwd" value={info.cwd} /> : null}
+        {branch ? <Row label="Branch" value={rtrunc(branch, INNER - PAD_L - 2)} /> : null}
 
-          {(info?.mcp_servers?.length ?? 0) > 0 ? (() => {
-            const srv = info!.mcp_servers!
-            const ok = srv.filter(s => s.connected).length
-            return (
-              <Section title="MCP"
-                       hint={`${ok}/${srv.length} up`}
-                       open={mcpOpen} onToggle={() => setMcpOpen(o => !o)}>
-                {srv.map(s => (
-                  <box key={s.name} height={1}>
-                    <text>
-                      <span fg={theme.textMuted}>{"  "}</span>
-                      <span fg={s.connected ? theme.text : theme.textMuted}>
-                        {(s.connected ? "● " : "○ ") + trunc(s.name, 16).padEnd(16)}
-                      </span>
-                      <span fg={theme.textMuted}>
-                        {s.connected ? ` ${s.transport} · ${s.tools}t` : " failed"}
-                      </span>
-                    </text>
-                  </box>
-                ))}
-              </Section>
-            )
-          })() : null}
-        </>}
+        {(info?.mcp_servers?.length ?? 0) > 0 ? (() => {
+          const srv = info!.mcp_servers!
+          const ok = srv.filter(s => s.connected).length
+          return (
+            <Section title="MCP"
+                     hint={`${ok}/${srv.length} up`}
+                     open={mcpOpen} onToggle={() => setMcpOpen(o => !o)}>
+              {srv.map(s => (
+                <box key={s.name} height={1}>
+                  <text>
+                    <span fg={theme.textMuted}>{"  "}</span>
+                    <span fg={s.connected ? theme.text : theme.textMuted}>
+                      {(s.connected ? "● " : "○ ") + trunc(s.name, 16).padEnd(16)}
+                    </span>
+                    <span fg={theme.textMuted}>
+                      {s.connected ? ` ${s.transport} · ${s.tools}t` : " failed"}
+                    </span>
+                  </text>
+                </box>
+              ))}
+            </Section>
+          )
+        })() : null}
 
         <box flexGrow={1} />
-        {!props.preview ? <ContextGauge info={info} usage={props.usage} width={INNER} /> : null}
+        <ContextGauge info={info} usage={props.usage} width={INNER} />
       </box>
     </box>
   )

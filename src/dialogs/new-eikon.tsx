@@ -81,7 +81,7 @@ const Form = (props: {
           `Source: ${info.sourceLabel}`,
           `Trust: ${info.trust}${info.reason ? ` (${info.reason})` : ""}`,
           `Preview: ${info.previewAvailable ? "available" : "none"}; poster: ${info.posterAvailable ? "available" : "none"}`,
-          "Install does not activate; use the Gallery after install to select it.",
+          "Install does not activate; use the Library after install to select it.",
         ].join("\n"),
         yes: "install", no: "cancel",
       })

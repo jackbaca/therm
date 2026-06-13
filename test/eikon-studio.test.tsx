@@ -642,7 +642,7 @@ describe("EikonGallery tab", () => {
     seed("nous")
     prefs.set("eikon", "nous")
     await using t = await mountNode(<EikonGallery focused />, { width: 160, height: 48 })
-    await until(t, () => t.frame().includes("Gallery (") && /●\s+nous/.test(t.frame()))
+    await until(t, () => t.frame().includes("Library (") && /●\s+nous/.test(t.frame()))
     expect(t.frame().split("\n").filter(l => /^│\s*(?:▸\s*)?(?:●\s*)?nous\s+[█│]/i.test(l))).toHaveLength(1)
     expect(t.frame().match(/●\s+nous/g)?.length ?? 0).toBe(1)
   })
@@ -655,7 +655,7 @@ describe("EikonGallery tab", () => {
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
       { width: 160, height: 48 },
     )
-    await until(t, () => t.frame().includes("Gallery ("))
+    await until(t, () => t.frame().includes("Library ("))
     expect(t.frame()).toContain("galone")
     // Bundled Nous also shows when no installed eikon shadows it.
     // Move to galone and activate.

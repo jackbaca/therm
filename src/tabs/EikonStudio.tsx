@@ -463,7 +463,7 @@ export const resetToolsetsCache = () => { genCaps = null }
 
 export const EikonStudio = memo((props: {
   focused: boolean
-  /** Name to open on mount / when Gallery hands over. Empty → fresh. */
+  /** Name to open on mount / when Library hands over. Empty → fresh. */
   name?: string
 }) => {
   const theme = useTheme().theme
@@ -946,7 +946,7 @@ export const EikonStudio = memo((props: {
         `Source: ${info.sourceLabel}`,
         `Trust: ${info.trust}${info.reason ? ` (${info.reason})` : ""}`,
         `Preview: ${info.previewAvailable ? "available" : "none"}; poster: ${info.posterAvailable ? "available" : "none"}`,
-        "Install does not activate; use Ctrl+U or Gallery after install to select it.",
+        "Install does not activate; use Ctrl+U or Library after install to select it.",
       ].join("\n"),
       yes: "install", no: "cancel",
     })
@@ -1216,7 +1216,7 @@ export const EikonStudio = memo((props: {
     :       "no source — Enter on 'source'")
 
   const hint: Array<readonly [string, string]> =
-    !s                   ? [["Enter", "new eikon"], ["Shift+→", "gallery"]]
+    !s                   ? [["Enter", "new eikon"], ["Shift+→", "library"]]
   : pane === "knobs"   ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.activate"), "edit"], [keys.print("list.refresh"), "reload"], [keys.print("list.new"), "new"], ["u", "submit"], [keys.print("eikon.save"), "save"], ["Ctrl+U", "save & use"], ["Tab", "pane"]]
   : pane === "preview" ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.toggle"), "play/pause"], ["wheel", "pan"], ["Ctrl+wheel", "zoom"], [keys.print("eikon.save"), "save"], ["Ctrl+U", "save & use"], ["Tab", "pane"]]
   :                      [["←→", "state"], [keys.print("list.activate"), "actions"], [keys.print("eikon.save"), "save"], ["Ctrl+U", "save & use"], ["Tab", "pane"]]

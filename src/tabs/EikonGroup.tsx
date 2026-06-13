@@ -4,21 +4,17 @@ import { SUB_TABS, EIKON_TAB } from "../app/tabs"
 import { EikonStudio } from "./EikonStudio"
 import { EikonGallery } from "./EikonGallery"
 import { EikonMarketplace } from "./EikonMarketplace"
-import type { SidebarPreview } from "../components/sidebar/Sidebar"
 
 type Props = {
   focused?: boolean
   sub: number
   setSub: (i: number) => void
-  sidebarPreview?: (preview?: SidebarPreview) => void
-  sidebarHidden?: boolean
 }
 
 export const EikonGroup = memo((props: Props) => {
   const labels = SUB_TABS[EIKON_TAB]!
   const [target, setTarget] = useState<string | undefined>(undefined)
   useEffect(() => { if (props.sub >= labels.length) props.setSub(0) }, [props.sub, labels.length])
-  useEffect(() => { if (props.sub !== 2) props.sidebarPreview?.(undefined) }, [props.sub, props.sidebarPreview])
   const edit = useCallback((name: string) => { setTarget(name); props.setSub(1) }, [props])
   const hint = "shift+←/→ sub"
   return (
@@ -32,8 +28,7 @@ export const EikonGroup = memo((props: Props) => {
           <EikonStudio focused={!!props.focused && props.sub === 1} name={target} />
         </Pane>
         <Pane visible={props.sub === 2}>
-          <EikonMarketplace focused={!!props.focused && props.sub === 2}
-            sidebarPreview={props.sidebarPreview} sidebarHidden={props.sidebarHidden} />
+          <EikonMarketplace focused={!!props.focused && props.sub === 2} />
         </Pane>
       </box>
     </box>
