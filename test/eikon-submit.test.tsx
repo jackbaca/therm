@@ -30,7 +30,7 @@ function seed(name: string, opts: { published?: boolean } = {}) {
 async function selectDraft(t: Harness) {
   await until(t, () => t.frame().includes("draft"))
   for (let i = 0; i < 20; i++) {
-    if (t.frame().split("\n").some(l => l.includes("▸") && l.includes("draft"))) return
+    if (t.frame().includes("Preview — draft")) return
     act(() => t.keys.pressArrow("down"))
     await t.settle()
   }

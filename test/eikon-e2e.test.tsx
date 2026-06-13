@@ -60,7 +60,7 @@ function seedNousDraft(name: string) {
 async function selectRow(t: Harness, name: string) {
   await until(t, () => t.frame().includes(name))
   for (let i = 0; i < 30; i++) {
-    if (t.frame().split("\n").some(l => l.includes("▸") && l.includes(name))) return
+    if (t.frame().includes(`Preview — ${name}`)) return
     act(() => t.keys.pressArrow("down"))
     await t.settle()
   }

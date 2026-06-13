@@ -35,6 +35,7 @@ type Props = {
 
 type Pane = "list" | "actions"
 type Action = { key: string; label: string; run: () => void; danger?: boolean }
+const PREVIEW = 54
 
 export const EikonGallery = memo((props: Props) => {
   const theme = useTheme().theme
@@ -230,35 +231,37 @@ export const EikonGallery = memo((props: Props) => {
         <TabShell title="Grid" grow={1}>
           <EikonCardGrid rows={cards} sel={sel} follow={gridFollow} onSel={setSel} onUse={i => activate(rows[i])} />
         </TabShell>
-        <TabShell title={cur ? `Preview — ${cur.name}` : "Preview"} grow={1}>
-          <box flexDirection="column" flexGrow={1} padding={1} alignItems="center">
-            <box alignItems="center" justifyContent="center" height={24} flexShrink={0}>
-              {parsed
-                ? <AnimatedAvatar key={cur!.path} state="idle" eikon={parsed} />
-                : <text fg={theme.textMuted}>No preview.</text>}
-            </box>
-            {cur ? (
-              <box flexDirection="column" width={Math.max(48, cur.name.length + 8)}>
-                <text fg={theme.text}><strong>{cur.name}</strong></text>
-                <text fg={theme.textMuted}>Author: {cur.author ?? "—"}</text>
-                <text fg={theme.textMuted}>Status: {current(cur) ? "active" : cur.bundled ? "bundled/system" : "installed"}</text>
-                <text fg={theme.textMuted} wrapMode="word">Source: {gallerySource(cur)}</text>
-                <text fg={theme.textMuted} wrapMode="word">Trust: {galleryTrust(cur)}</text>
-                <text fg={theme.textMuted} wrapMode="word">Package: {packageId(cur)}</text>
-                <text fg={theme.textMuted}>{sourceBadge(cur)}</text>
-                <box height={1} />
-                <text fg={theme.primary}><strong>Actions</strong></text>
-                {actions.map((a, i) => (
-                  <box key={a.label} height={1} overflow="hidden" paddingRight={1}
-                       backgroundColor={pane === "actions" && i === act ? theme.backgroundElement : undefined}
-                       onMouseDown={() => { setPane("actions"); setAct(i); a.run() }}>
-                    <text fg={a.danger ? theme.error : theme.text} wrapMode="none">{pane === "actions" && i === act ? "▸ " : "  "}{a.label} [{a.key}]</text>
-                  </box>
-                ))}
+        <box width={PREVIEW} flexShrink={0} minHeight={0}>
+          <TabShell title={cur ? `Preview — ${cur.name}` : "Preview"} grow={1}>
+            <box flexDirection="column" flexGrow={1} padding={1} alignItems="center">
+              <box alignItems="center" justifyContent="center" width={48} height={24} flexShrink={0} overflow="hidden">
+                {parsed
+                  ? <AnimatedAvatar key={cur!.path} state="idle" eikon={parsed} />
+                  : <text fg={theme.textMuted}>No preview.</text>}
               </box>
-            ) : null}
-          </box>
-        </TabShell>
+              {cur ? (
+                <box flexDirection="column" width={48}>
+                  <text fg={theme.text}><strong>{cur.name}</strong></text>
+                  <text fg={theme.textMuted}>Author: {cur.author ?? "—"}</text>
+                  <text fg={theme.textMuted}>Status: {current(cur) ? "active" : cur.bundled ? "bundled/system" : "installed"}</text>
+                  <text fg={theme.textMuted} wrapMode="word">Source: {gallerySource(cur)}</text>
+                  <text fg={theme.textMuted} wrapMode="word">Trust: {galleryTrust(cur)}</text>
+                  <text fg={theme.textMuted} wrapMode="word">Package: {packageId(cur)}</text>
+                  <text fg={theme.textMuted}>{sourceBadge(cur)}</text>
+                  <box height={1} />
+                  <text fg={theme.primary}><strong>Actions</strong></text>
+                  {actions.map((a, i) => (
+                    <box key={a.label} height={1} overflow="hidden" paddingRight={1}
+                         backgroundColor={pane === "actions" && i === act ? theme.backgroundElement : undefined}
+                         onMouseDown={() => { setPane("actions"); setAct(i); a.run() }}>
+                      <text fg={a.danger ? theme.error : theme.text} wrapMode="none">{pane === "actions" && i === act ? "▸ " : "  "}{a.label} [{a.key}]</text>
+                    </box>
+                  ))}
+                </box>
+              ) : null}
+            </box>
+          </TabShell>
+        </box>
       </box>
       <HintBar pairs={[
         ["Tab", pane === "list" ? "actions" : "library"],
