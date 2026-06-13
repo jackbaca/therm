@@ -223,7 +223,6 @@ describe("EikonMarketplace tab", () => {
     expect(t.frame()).toContain("red warrior")
     expect(t.frame()).toContain("Digest")
     expect(t.frame()).toContain("unknown")
-    expect(t.frame()).toContain("Open actions")
 
     await act(async () => { await t.keys.typeText("/") })
     await until(t, () => t.frame().includes("Search:"))
@@ -243,7 +242,7 @@ describe("EikonMarketplace tab", () => {
     local("localone")
     prefs.set("eikon", "localone")
     await using t = await mountNode(group(), { width: 160, height: 48 })
-    await until(t, () => t.frame().includes("Catalog (6)") && t.frame().includes("Open actions"))
+    await until(t, () => t.frame().includes("Catalog (6)") && t.frame().includes("ARES-POSTER"))
 
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Eikon only"))
@@ -266,7 +265,6 @@ describe("EikonMarketplace tab", () => {
     await until(t, () => t.frame().includes("Catalog (2)") && t.frame().includes("Unverified"))
     expect(t.frame()).toContain("Source")
     expect(t.frame()).toContain("Compat: Compatible")
-    expect(t.frame()).toContain("Open actions")
 
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Eikon only"))
@@ -384,7 +382,7 @@ describe("EikonMarketplace tab", () => {
     const fx = packageCatalog()
     process.env.EIKON_URL = fx.base
     await using t = await mountNode(group(), { width: 160, height: 40 })
-    await until(t, () => t.frame().includes("Catalog (2)") && t.frame().includes("Open actions"))
+    await until(t, () => t.frame().includes("Catalog (2)") && t.frame().includes("ARES-POSTER"))
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Eikon only"))
     act(() => t.keys.pressEnter())
@@ -456,7 +454,6 @@ describe("EikonMarketplace tab", () => {
     await until(t, () => t.frame().includes("[Tab] catalog"))
     act(() => t.keys.pressArrow("right"))
     await until(t, () => t.frame().includes("ARES-THINKING"))
-    act(() => t.keys.pressArrow("down"))
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Eikon only"))
     fx.srv.stop()

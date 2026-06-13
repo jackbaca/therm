@@ -19,9 +19,9 @@ import type { AvatarState } from "../components/avatar/states"
 
 const NO_MARKET: MarketplaceState = { status: "empty", query: "", rows: [] }
 const CARD = 50
+const DETAIL = 54
 
 type Pane = "grid" | "detail"
-type Detail = "state" | "action"
 
 type Preview = {
   eikon: ParsedEikon
@@ -54,7 +54,6 @@ export const EikonMarketplace = memo((props: {
   const [previewState, setPreviewState] = useState<AvatarState>("idle")
   const [preview, setPreview] = useState<Preview | undefined>(undefined)
   const [pane, setPane] = useState<Pane>("grid")
-  const [detail, setDetail] = useState<Detail>("state")
   const previewSeq = useRef(0)
   const follow = useFollow("market", i => state.rows[i]?.entry.identityKey ?? i)
 
@@ -194,11 +193,9 @@ export const EikonMarketplace = memo((props: {
     if (key.name === "tab") return setPane(p => p === "grid" ? "detail" : "grid")
     if (pane === "detail") {
       if (key.name === "escape" || (plain && key.name === "left")) { setPane("grid"); return }
-      if (plain && key.name === "down") { setDetail("action"); return }
-      if (plain && key.name === "up") { setDetail("state"); return }
-      if (plain && key.name === "right") { if (detail === "state") cycle(1); return }
-      if (keys.match("list.activate", key)) { detail === "action" ? primary() : cycle(1); return }
-      if (keys.match("list.toggle", key)) { detail === "action" ? primary() : cycle(1); return }
+      if (plain && key.name === "right") { cycle(1); return }
+      if (keys.match("list.activate", key)) { primary(); return }
+      if (keys.match("list.toggle", key)) { cycle(1); return }
       if (keys.match("list.search", key)) { setPane("grid"); setSearching(true); return }
       if (keys.match("list.refresh", key)) { loadMarket(query); return }
       return
@@ -231,15 +228,16 @@ export const EikonMarketplace = memo((props: {
           <MarketplaceGrid rows={state.rows} sel={sel} follow={follow}
             loading={loading} error={state.error} onSel={setSel} onUse={primary} />
         </TabShell>
-        <TabShell title={selected ? `Details — ${selected.entry.name}` : "Details"} focus={props.focused && pane === "detail"} grow={2}>
-          <MarketplaceDetail row={selected} loading={loading} installing={installing} onUse={() => primary()}
-            onFocus={() => setPane("detail")} onState={setPreviewState}
-            onDetail={setDetail} detail={detail} preview={preview} />
-        </TabShell>
+        <box width={DETAIL} flexShrink={0} minHeight={0}>
+          <TabShell title={selected ? `Details — ${selected.entry.name}` : "Details"} focus={props.focused && pane === "detail"} grow={1}>
+            <MarketplaceDetail row={selected} loading={loading} installing={installing} onUse={() => primary()}
+              onFocus={() => setPane("detail")} onState={setPreviewState} preview={preview} />
+          </TabShell>
+        </box>
       </box>
       <HintBar pairs={[
         ["Tab", pane === "grid" ? "details" : "catalog"], [keys.print("list.activate"), "actions"],
-        [pane === "detail" ? "↑↓" : "↑↓←→/Pg", pane === "detail" ? "focus" : "select"],
+        [pane === "detail" ? "→/Space" : "↑↓←→/Pg", pane === "detail" ? "state" : "select"],
         [keys.print("list.search"), searching ? "typing search" : "search"], [keys.print("list.refresh"), "reload"],
         ["d", "delete in modal"], ["Space", "preview"],
       ]} />
@@ -295,9 +293,7 @@ const MarketplaceDetail = (props: {
   installing: boolean
   onUse: () => void
   onFocus: () => void
-  onDetail: (focus: Detail) => void
   onState: (state: AvatarState) => void
-  detail: Detail
   preview?: Preview
 }) => {
   const theme = useTheme().theme
@@ -315,18 +311,12 @@ const MarketplaceDetail = (props: {
       <box height={1} overflow="hidden"><text fg={r.active ? theme.accent : theme.text} wrapMode="none"><strong>{r.active ? "● " : ""}{r.entry.name}</strong></text></box>
       <box height={1} overflow="hidden"><text fg={theme.textMuted} wrapMode="none">by {r.entry.author ?? "unknown"}</text></box>
       <box minHeight={1}><text fg={theme.text} wrapMode="word">{r.entry.description ?? "No description."}</text></box>
-      <box flexDirection="row" flexWrap="wrap" flexShrink={0} backgroundColor={props.detail === "state" ? theme.backgroundElement : undefined}
-           onMouseDown={() => props.onDetail("state")}>
+      <box flexDirection="row" flexWrap="wrap" flexShrink={0}>
         {states.map((s, i) => (
           <FilterChip key={s} label={s} state={s === previewState ? "in" : "off"}
             gap={i === 0 ? 0 : 1} color={theme.primary} textColor={theme.textMuted}
             onMouseDown={() => props.onState(s)} />
         ))}
-      </box>
-      <box height={1} paddingX={1}
-           backgroundColor={props.detail === "action" ? theme.backgroundElement : undefined}
-           onMouseDown={() => { props.onDetail("action"); props.onUse() }}>
-        <text fg={r.action === "active" ? theme.textMuted : theme.primary}><strong>{props.installing ? "Installing…" : "Open actions"}</strong></text>
       </box>
       <DetailRow label="Status" value={stateLabel(r)} block />
       <DetailRow label="Trust" value={trustLabel(r)} block />
@@ -340,7 +330,7 @@ const MarketplaceDetail = (props: {
 const DetailRow = (props: { label: string; value: string; block?: boolean }) => {
   const theme = useTheme().theme
   if (props.block) return (
-    <box flexDirection="column" minHeight={1}>
+    <box flexDirection="column" minHeight={props.label === "Status" ? 2 : 1}>
       <text fg={theme.textMuted} wrapMode="word">{props.label}: {props.value}</text>
     </box>
   )

@@ -350,8 +350,6 @@ describe("app", () => {
     expect(t.frame()).toContain("market one")
     expect(t.frame()).toContain("not installed")
     expect(t.frame()).toContain("Trust")
-    expect(t.frame()).toContain("Digest")
-    expect(t.frame()).toContain("unknown")
     expect(t.frame()).toMatch(/Profile\s+default/)
     const lines = t.frame().split("\n")
     const desc = lines.findIndex(l => l.includes("market one"))
