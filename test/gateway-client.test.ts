@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from "fs"
 import { join, resolve } from "path"
 import { tmpdir } from "os"
-import { hermesAgentRoot, python } from "../src/context/gateway-client"
+import { GatewayClient, hermesAgentRoot, python } from "../src/context/gateway-client"
 
 const withEnv = <T>(key: string, value: string | undefined, fn: () => T): T => {
   const prev = process.env[key]
@@ -88,5 +88,42 @@ describe("python", () => {
         }
       })
     })
+  })
+})
+
+describe("GatewayClient", () => {
+  test("normalizes outbound JSON-RPC strings to Unicode scalar values", async () => {
+    const prev = Bun.spawn
+    const enc = new TextEncoder()
+    const dec = new TextDecoder()
+    let frame = ""
+    let ctrl: ReadableStreamDefaultController<Uint8Array> | null = null
+    const stdout = new ReadableStream<Uint8Array>({ start: c => { ctrl = c } })
+    const stdin = {
+      write(data: string | Uint8Array) {
+        frame += typeof data === "string" ? data : dec.decode(data)
+        const req = JSON.parse(frame.trim()) as { id: string }
+        ctrl?.enqueue(enc.encode(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { ok: true } }) + "\n"))
+        return frame.length
+      },
+    }
+    ;(Bun as unknown as { spawn: typeof Bun.spawn }).spawn = ((() => ({
+      stdin,
+      stdout,
+      stderr: null,
+      exited: new Promise<null>(() => {}),
+      exitCode: null,
+      kill() {},
+    })) as unknown) as typeof Bun.spawn
+
+    const gw = new GatewayClient()
+    try {
+      await expect(gw.request("paste.collapse", { text: "a\udc9d", nested: ["💝"] })).resolves.toEqual({ ok: true })
+      expect(JSON.parse(frame.trim()).params).toEqual({ text: "a�", nested: ["💝"] })
+      expect(gw.tail()).toContain("[wire] sanitized invalid unicode for paste.collapse: $.params.text:1")
+    } finally {
+      gw.kill()
+      ;(Bun as unknown as { spawn: typeof Bun.spawn }).spawn = prev
+    }
   })
 })
