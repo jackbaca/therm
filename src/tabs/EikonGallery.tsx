@@ -33,8 +33,6 @@ type Props = {
   submit?: submitSvc.Submit
 }
 
-type Pane = "list" | "preview"
-
 export const EikonGallery = memo((props: Props) => {
   const theme = useTheme().theme
   const dialog = useDialog()
@@ -69,7 +67,6 @@ export const EikonGallery = memo((props: Props) => {
   const path = useMemo(() => active ? eikon.baked(active) : undefined, [active, rev])
   const current = (row: Row) => path === row.path
   const [sel, setSel] = useState(0)
-  const [pane, setPane] = useState<Pane>("list")
   const galleryFollow = useFollow("gal", i => rows[i]?.slug ?? i)
 
   useEffect(() => { if (sel >= rows.length) setSel(Math.max(0, rows.length - 1)) }, [rows.length, sel])
@@ -161,19 +158,6 @@ export const EikonGallery = memo((props: Props) => {
 
   useKeyboard(key => {
     if (!props.focused || dialog.open()) return
-    const plain = !key.shift && !key.ctrl && !key.meta
-    if (key.name === "tab") return setPane(p => p === "list" ? "preview" : "list")
-    if (pane === "preview") {
-      if (key.name === "escape" || (plain && key.name === "left")) { setPane("list"); return }
-      if (keys.match("list.activate", key)) { activate(); return }
-      if (keys.match("list.delete", key)) { void del(); return }
-      if (keys.match("list.new", key)) { void doNew(); return }
-      if (keys.match("list.refresh", key)) { eikon.notifyRevision(); toast.show({ variant: "info", message: "Reloaded", duration: 1000 }); return }
-      if (key.name === "u" && cur && !cur.bundled) return void updateLocal()
-      if (key.name === "s" && cur && !cur.bundled) return void submitLocal()
-      if (key.name === "e" && cur && props.onEdit) return props.onEdit(cur.slug)
-      return
-    }
     if (handleListKey(keys, key, {
       count: rows.length,
       setSel,
@@ -189,38 +173,47 @@ export const EikonGallery = memo((props: Props) => {
     if (key.name === "e" && cur && props.onEdit) props.onEdit(cur.slug)
   })
 
+  const listW = Math.max(
+    "Library (000)".length,
+    ...rows.map(r => r.name.length + 4),
+  ) + 7
+
   return (
     <box flexDirection="column" flexGrow={1} minWidth={0}>
-      <box flexDirection="row" flexGrow={1}>
-        <TabShell title={`Library (${rows.length})`} focus={props.focused && pane === "list"} grow={3}>
-          <scrollbox ref={galleryFollow.ref} scrollY flexGrow={1} verticalScrollbarOptions={VBAR}>
-            {rows.length === 0
-              ? <text fg={theme.textMuted}>No eikons found.</text>
-              : rows.map((r, i) => {
-                  const on = i === sel
-                  const here = current(r)
-                  return (
-                    <box key={r.path} id={galleryFollow.id(i)} flexDirection="row" height={1}
-                         backgroundColor={on ? theme.backgroundElement : undefined}
-                         onMouseMove={() => setSel(i)} onMouseDown={() => { setSel(i); activate(r) }}>
-                      <box width={2}><text fg={on ? theme.primary : theme.textMuted}>{on ? "▸ " : "  "}</text></box>
-                      <box flexGrow={1} minWidth={0} height={1} overflow="hidden"><text fg={here ? theme.accent : theme.text}>
-                        {here ? "● " : "  "}<strong>{r.name}</strong>
-                      </text></box>
-                    </box>
-                  )
-                })}
-          </scrollbox>
+      <box flexDirection="row" flexGrow={1} minHeight={0}>
+        <box width={listW} flexShrink={0} minHeight={0}>
+        <TabShell title={`Library (${rows.length})`} focus={props.focused} grow={1}>
+          <box flexDirection="column" flexGrow={1} minHeight={0} paddingRight={3}>
+            <scrollbox ref={galleryFollow.ref} scrollY flexGrow={1} verticalScrollbarOptions={VBAR}>
+              {rows.length === 0
+                ? <text fg={theme.textMuted}>No eikons found.</text>
+                : rows.map((r, i) => {
+                    const on = i === sel
+                    const here = current(r)
+                    return (
+                      <box key={r.path} id={galleryFollow.id(i)} flexDirection="row" height={1}
+                           backgroundColor={on ? theme.backgroundElement : undefined}
+                           onMouseMove={() => setSel(i)} onMouseDown={() => { setSel(i); activate(r) }}>
+                        <box width={2}><text fg={on ? theme.primary : theme.textMuted}>{on ? "▸ " : "  "}</text></box>
+                        <box flexGrow={1} minWidth={0} height={1} overflow="hidden"><text fg={here ? theme.accent : theme.text}>
+                          {here ? "● " : "  "}<strong>{r.name}</strong>
+                        </text></box>
+                      </box>
+                    )
+                  })}
+            </scrollbox>
+          </box>
         </TabShell>
-        <TabShell title={cur ? `Preview — ${cur.name}` : "Preview"} focus={props.focused && pane === "preview"} grow={3}>
-          <box flexDirection="column" flexGrow={1} padding={1}>
-            <box alignItems="center" justifyContent="center" flexGrow={1}>
+        </box>
+        <TabShell title={cur ? `Preview — ${cur.name}` : "Preview"} grow={1}>
+          <box flexDirection="column" flexGrow={1} padding={1} alignItems="center">
+            <box alignItems="center" justifyContent="center" height={24} flexShrink={0}>
               {parsed
                 ? <AnimatedAvatar key={cur!.path} state="idle" eikon={parsed} />
                 : <text fg={theme.textMuted}>No preview.</text>}
             </box>
             {cur ? (
-              <box flexDirection="column" gap={1}>
+              <box flexDirection="column" width={Math.max(48, cur.name.length + 8)}>
                 <text fg={theme.text}><strong>{cur.name}</strong></text>
                 <text fg={theme.textMuted}>Author: {cur.author ?? "—"}</text>
                 <text fg={theme.textMuted}>Status: {current(cur) ? "active" : cur.bundled ? "bundled/system" : "installed"}</text>
@@ -234,7 +227,6 @@ export const EikonGallery = memo((props: Props) => {
         </TabShell>
       </box>
       <HintBar pairs={[
-        ["Tab", pane === "list" ? "preview" : "library"],
         [keys.print("list.activate"), "use"], ["↑↓", "select"],
         [keys.print("list.new"), "new / install"], [keys.print("list.refresh"), "reload"],
         ...(cur && props.onEdit ? [["e", "edit"] as const] : []),

@@ -207,7 +207,7 @@ describe("EikonMarketplace tab", () => {
   test("catalog grid wraps more than two cards when space allows", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
-    await using t = await mountNode(group(), { width: 180, height: 36 })
+    await using t = await mountNode(group(), { width: 300, height: 36 })
     await until(t, () => t.frame().includes("Catalog (6)") && t.frame().includes("DELTA-POSTER"))
     const line = t.frame().split("\n").find(l => l.includes("ARES-POSTER")) ?? ""
     expect(line).toContain("MONO-POSTER")
@@ -404,7 +404,7 @@ describe("EikonMarketplace tab", () => {
   test("grid navigation clamps and Space does not install", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
-    await using t = await mountNode(group(), { width: 120, height: 28 })
+    await using t = await mountNode(group(), { width: 180, height: 28 })
     await until(t, () => t.frame().includes("Catalog (6)") && /▸ .*ares/.test(t.frame()))
     expect(t.frame()).toContain("[Space] preview")
 
@@ -454,8 +454,9 @@ describe("EikonMarketplace tab", () => {
     await until(t, () => t.frame().includes("ARES-IDLE") && t.frame().includes("[Tab] details"))
     act(() => t.keys.pressTab())
     await until(t, () => t.frame().includes("[Tab] catalog"))
-    act(() => t.keys.pressArrow("down"))
+    act(() => t.keys.pressArrow("right"))
     await until(t, () => t.frame().includes("ARES-THINKING"))
+    act(() => t.keys.pressArrow("down"))
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Eikon only"))
     fx.srv.stop()
@@ -534,7 +535,7 @@ describe("EikonMarketplace tab", () => {
     await until(t, () => t.frame().includes("ARES-IDLE") && t.frame().includes("Profile"))
     act(() => t.keys.pressTab())
     await until(t, () => t.frame().includes("[Tab] catalog"))
-    act(() => t.keys.pressArrow("down"))
+    act(() => t.keys.pressArrow("right"))
     await until(t, () => t.frame().includes("ARES-THINKING"))
     fx.srv.stop()
   })

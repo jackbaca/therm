@@ -11,6 +11,7 @@ import { openEikonMarketplaceAction } from "../dialogs/eikon-marketplace-action"
 import { VBAR } from "../ui/table"
 import { useKeys, handleListKey, useFollow } from "../keys"
 import * as perf from "../utils/perf"
+import { AnimatedAvatar } from "../components/avatar/AnimatedAvatar"
 import { parseEikon, type ParsedEikon } from "../components/avatar/eikon"
 import { eikon } from "../service/eikon"
 import * as market from "../service/eikon-marketplace"
@@ -18,9 +19,10 @@ import type { MarketplaceRow, MarketplaceState } from "../service/eikon-marketpl
 import type { AvatarState } from "../components/avatar/states"
 
 const NO_MARKET: MarketplaceState = { status: "empty", query: "", rows: [] }
-const CARD = 24
+const CARD = 50
 
 type Pane = "grid" | "detail"
+type Detail = "state" | "action"
 
 type Preview = {
   eikon: ParsedEikon
@@ -53,6 +55,7 @@ export const EikonMarketplace = memo((props: {
   const [previewState, setPreviewState] = useState<AvatarState>("idle")
   const [preview, setPreview] = useState<Preview | undefined>(undefined)
   const [pane, setPane] = useState<Pane>("grid")
+  const [detail, setDetail] = useState<Detail>("state")
   const previewSeq = useRef(0)
   const follow = useFollow("market", i => state.rows[i]?.entry.identityKey ?? i)
 
@@ -192,10 +195,11 @@ export const EikonMarketplace = memo((props: {
     if (key.name === "tab") return setPane(p => p === "grid" ? "detail" : "grid")
     if (pane === "detail") {
       if (key.name === "escape" || (plain && key.name === "left")) { setPane("grid"); return }
-      if (plain && (key.name === "down" || key.name === "right")) { cycle(1); return }
-      if (plain && key.name === "up") { cycle(-1); return }
-      if (keys.match("list.activate", key)) { primary(); return }
-      if (keys.match("list.toggle", key)) { cycle(1); return }
+      if (plain && key.name === "down") { setDetail("action"); return }
+      if (plain && key.name === "up") { setDetail("state"); return }
+      if (plain && key.name === "right") { if (detail === "state") cycle(1); return }
+      if (keys.match("list.activate", key)) { detail === "action" ? primary() : cycle(1); return }
+      if (keys.match("list.toggle", key)) { detail === "action" ? primary() : cycle(1); return }
       if (keys.match("list.search", key)) { setPane("grid"); setSearching(true); return }
       if (keys.match("list.refresh", key)) { loadMarket(query); return }
       return
@@ -230,12 +234,13 @@ export const EikonMarketplace = memo((props: {
         </TabShell>
         <TabShell title={selected ? `Details — ${selected.entry.name}` : "Details"} focus={props.focused && pane === "detail"} grow={2}>
           <MarketplaceDetail row={selected} loading={loading} installing={installing} onUse={() => primary()}
-            onFocus={() => setPane("detail")} onState={setPreviewState} preview={preview} />
+            onFocus={() => setPane("detail")} onState={setPreviewState}
+            onDetail={setDetail} detail={detail} preview={preview} />
         </TabShell>
       </box>
       <HintBar pairs={[
         ["Tab", pane === "grid" ? "details" : "catalog"], [keys.print("list.activate"), "actions"],
-        [pane === "detail" ? "↑↓/Space" : "↑↓←→/Pg", pane === "detail" ? "state" : "select"],
+        [pane === "detail" ? "↑↓" : "↑↓←→/Pg", pane === "detail" ? "focus" : "select"],
         [keys.print("list.search"), searching ? "typing search" : "search"], [keys.print("list.refresh"), "reload"],
         ["d", "delete in modal"], ["Space", "preview"],
       ]} />
@@ -258,7 +263,7 @@ const MarketplaceGrid = (props: {
           const on = i === props.sel
           const lines = posterLines(r.entry.poster)
           return (
-            <box key={r.entry.identityKey} id={props.follow.id(i)} flexDirection="column" height={cardHeight(r)} width={CARD} flexShrink={0} paddingX={1}
+            <box key={r.entry.identityKey} id={props.follow.id(i)} flexDirection="column" height={cardHeight(r)} width={cardWidth(r)} flexShrink={0} paddingX={1}
                  backgroundColor={on ? theme.backgroundElement : undefined}
                  onMouseMove={() => props.onSel(i)} onMouseDown={() => { props.onSel(i); props.onUse(i) }}>
               <box height={lines.length} overflow="hidden" flexDirection="column">
@@ -283,13 +288,17 @@ const posterLines = (poster?: string) => {
 
 const cardHeight = (row: MarketplaceRow) => posterLines(row.entry.poster).length + 2
 
+const cardWidth = (row: MarketplaceRow) => Math.max(CARD, ...posterLines(row.entry.poster).map(line => line.length + 2))
+
 const MarketplaceDetail = (props: {
   row?: MarketplaceRow
   loading: boolean
   installing: boolean
   onUse: () => void
   onFocus: () => void
+  onDetail: (focus: Detail) => void
   onState: (state: AvatarState) => void
+  detail: Detail
   preview?: Preview
 }) => {
   const theme = useTheme().theme
@@ -298,20 +307,17 @@ const MarketplaceDetail = (props: {
   const previewState = props.preview?.state ?? "idle"
   const states = props.preview?.states ?? [previewState]
   return (
-    <box flexDirection="column" padding={1} gap={1} onMouseDown={props.onFocus}>
+    <box flexDirection="column" padding={1} onMouseDown={props.onFocus}>
       {props.preview ? (
-        <box alignItems="center" justifyContent="center" height={8} overflow="hidden">
-          <box flexDirection="column">
-            {props.preview.eikon.states.get(props.preview.state)?.frames[0]?.map((line, i) => (
-              <text key={i}>{line}</text>
-            ))}
-          </box>
+        <box alignItems="center" justifyContent="center" height={20} flexShrink={0} overflow="hidden">
+          <AnimatedAvatar key={`${r.entry.identityKey}:${props.preview.state}`} state={props.preview.state} eikon={props.preview.eikon} />
         </box>
       ) : null}
-      <text fg={r.active ? theme.accent : theme.text}><strong>{r.active ? "● " : ""}{r.entry.name}</strong></text>
-      <text fg={theme.textMuted}>by {r.entry.author ?? "unknown"}</text>
-      <text fg={theme.text} wrapMode="word">{r.entry.description ?? "No description."}</text>
-      <box flexDirection="row" height={1}>
+      <box height={1} overflow="hidden"><text fg={r.active ? theme.accent : theme.text} wrapMode="none"><strong>{r.active ? "● " : ""}{r.entry.name}</strong></text></box>
+      <box height={1} overflow="hidden"><text fg={theme.textMuted} wrapMode="none">by {r.entry.author ?? "unknown"}</text></box>
+      <box minHeight={1}><text fg={theme.text} wrapMode="word">{r.entry.description ?? "No description."}</text></box>
+      <box flexDirection="row" flexWrap="wrap" flexShrink={0} backgroundColor={props.detail === "state" ? theme.backgroundElement : undefined}
+           onMouseDown={() => props.onDetail("state")}>
         {states.map((s, i) => (
           <FilterChip key={s} label={s} state={s === previewState ? "in" : "off"}
             gap={i === 0 ? 0 : 1} color={theme.primary} textColor={theme.textMuted}
@@ -322,10 +328,12 @@ const MarketplaceDetail = (props: {
       <DetailRow label="Trust" value={trustLabel(r)} block />
       <DetailRow label="Source" value={sourceText(r)} block />
       <DetailRow label="Compat" value={compatText(r)} />
-      <DetailRow label="Digest" value={digest(r) ?? "unknown"} block />
-      <box height={1} onMouseDown={props.onUse}>
-        <text fg={r.action === "active" ? theme.textMuted : theme.primary}>{props.installing ? "Installing…" : "Open actions"}</text>
+      <box height={1} paddingX={1}
+           backgroundColor={props.detail === "action" ? theme.backgroundElement : undefined}
+           onMouseDown={() => { props.onDetail("action"); props.onUse() }}>
+        <text fg={r.action === "active" ? theme.textMuted : theme.primary}><strong>{props.installing ? "Installing…" : "Open actions"}</strong></text>
       </box>
+      <DetailRow label="Digest" value={digest(r) ?? "unknown"} block />
     </box>
   )
 }
@@ -333,12 +341,11 @@ const MarketplaceDetail = (props: {
 const DetailRow = (props: { label: string; value: string; block?: boolean }) => {
   const theme = useTheme().theme
   if (props.block) return (
-    <box flexDirection="column" minHeight={2}>
-      <text fg={theme.textMuted}>{props.label}</text>
-      <text fg={theme.text} wrapMode="word">{props.value}</text>
+    <box flexDirection="column" minHeight={1}>
+      <text fg={theme.textMuted} wrapMode="word">{props.label}: {props.value}</text>
     </box>
   )
-  return <text fg={theme.textMuted}>{props.label}: {props.value}</text>
+  return <box height={1} overflow="hidden"><text fg={theme.textMuted} wrapMode="none">{props.label}: {props.value}</text></box>
 }
 
 const shortDigest = (value?: string) => {

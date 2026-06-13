@@ -1,5 +1,4 @@
 import { afterEach, test, expect } from "bun:test"
-import { act } from "react"
 import { mountNode, until } from "./harness"
 import { EikonGallery } from "../src/tabs/EikonGallery"
 import { EikonGroup } from "../src/tabs/EikonGroup"
@@ -72,11 +71,8 @@ test("Library title remains readable without catalog action at narrow widths", a
   expect(row).not.toContain("Catalog")
 })
 
-test("Library Tab moves focus between list and preview", async () => {
+test("Library does not expose pane focus navigation", async () => {
   await using t = await mountNode(<EikonGallery focused />, { width: 120, height: 32 })
-  await until(t, () => t.frame().includes("Library (") && t.frame().includes("[Tab] preview"))
-  act(() => t.keys.pressTab())
-  await until(t, () => t.frame().includes("[Tab] library"))
-  act(() => t.keys.pressTab())
-  await until(t, () => t.frame().includes("[Tab] preview"))
+  await until(t, () => t.frame().includes("Library ("))
+  expect(t.frame()).not.toContain("[Tab]")
 })
