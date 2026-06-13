@@ -44,10 +44,9 @@ afterEach(() => {
 test("Eikon sub-tabs put Catalog after Library and Studio and preserve slash routes", () => {
   expect(SUB_TABS[EIKON_TAB]).toEqual(["Library", "Studio", "Catalog"])
   expect(TAB_SLASH.library).toEqual({ tab: EIKON_TAB, sub: 0 })
-  expect(TAB_SLASH.gallery).toEqual({ tab: EIKON_TAB, sub: 0 })
   expect(TAB_SLASH.studio).toEqual({ tab: EIKON_TAB, sub: 1 })
   expect(TAB_SLASH.catalog).toEqual({ tab: EIKON_TAB, sub: 2 })
-  expect(TAB_SLASH.marketplace).toEqual({ tab: EIKON_TAB, sub: 2 })
+  expect(Object.keys(TAB_SLASH).filter(k => ["gallery", "marketplace"].includes(k))).toEqual([])
 })
 
 test("Library no longer embeds a Catalog header action", async () => {
