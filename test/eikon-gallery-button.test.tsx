@@ -1,4 +1,5 @@
 import { afterEach, test, expect } from "bun:test"
+import { act } from "react"
 import { mountNode, until } from "./harness"
 import { EikonGallery } from "../src/tabs/EikonGallery"
 import { EikonGroup } from "../src/tabs/EikonGroup"
@@ -40,32 +41,41 @@ afterEach(() => {
   server = undefined
 })
 
-test("Eikon sub-tabs put Marketplace after Gallery and Studio and preserve slash routes", () => {
-  expect(SUB_TABS[EIKON_TAB]).toEqual(["Gallery", "Studio", "Marketplace"])
-  expect(TAB_SLASH.gallery).toEqual({ tab: EIKON_TAB, sub: 0 })
-  expect(TAB_SLASH.studio).toEqual({ tab: EIKON_TAB, sub: 1 })
-  expect(TAB_SLASH.marketplace).toEqual({ tab: EIKON_TAB, sub: 2 })
+test("Eikon sub-tabs put Studio after Library and Catalog and preserve slash routes", () => {
+  expect(SUB_TABS[EIKON_TAB]).toEqual(["Library", "Catalog", "Studio"])
+  expect(TAB_SLASH.library).toEqual({ tab: EIKON_TAB, sub: 0 })
+  expect(TAB_SLASH.catalog).toEqual({ tab: EIKON_TAB, sub: 1 })
+  expect(TAB_SLASH.studio).toEqual({ tab: EIKON_TAB, sub: 2 })
+  expect(Object.keys(TAB_SLASH).filter(k => ["gallery", "marketplace"].includes(k))).toEqual([])
 })
 
-test("Gallery no longer embeds a Marketplace header action", async () => {
+test("Library no longer embeds a Catalog header action", async () => {
   await using t = await mountNode(<EikonGallery focused />, { width: 160, height: 48 })
-  await until(t, () => t.frame().includes("Gallery ("))
-  expect(t.frame()).not.toContain("[ Marketplace ]")
-  expect(t.frame()).not.toContain("Marketplace (")
+  await until(t, () => t.frame().includes("Library ("))
+  expect(t.frame()).not.toContain("[ Catalog ]")
+  expect(t.frame()).not.toContain("Catalog (")
 })
 
-test("Marketplace renders as its own Eikon sub-tab", async () => {
+test("Catalog renders as its own Eikon sub-tab", async () => {
   useCatalog()
-  let sub = 2
+  let sub = 1
   await using t = await mountNode(<EikonGroup focused sub={sub} setSub={i => { sub = i }} />, { width: 160, height: 48 })
-  await until(t, () => t.frame().includes("Marketplace (1)") && t.frame().includes("ARES-POSTER"))
+  await until(t, () => t.frame().includes("Catalog (1)") && t.frame().includes("ARES-IDLE"))
   expect(t.frame()).toContain("Details — ares")
 })
 
-test("Gallery title remains readable without marketplace action at narrow widths", async () => {
+test("Library title remains readable without catalog action at narrow widths", async () => {
   await using t = await mountNode(<EikonGallery focused />, { width: 80, height: 32 })
-  await until(t, () => t.frame().includes("Gallery ("))
-  const row = t.frame().split("\n").find(l => l.includes("Gallery (")) ?? ""
-  expect(row).toContain("Gallery (")
-  expect(row).not.toContain("Marketplace")
+  await until(t, () => t.frame().includes("Library ("))
+  const row = t.frame().split("\n").find(l => l.includes("Library (")) ?? ""
+  expect(row).toContain("Library (")
+  expect(row).not.toContain("Catalog")
+})
+
+test("Library action pane names management actions", async () => {
+  await using t = await mountNode(<EikonGallery focused />, { width: 180, height: 48 })
+  await until(t, () => t.frame().includes("Library (") && t.frame().includes("Actions"))
+  expect(t.frame()).toContain("Use as active avatar")
+  act(() => t.keys.pressTab())
+  await until(t, () => t.frame().includes("[Tab] library"))
 })

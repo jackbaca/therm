@@ -7,7 +7,6 @@ import { mount, mountNode, until } from "./harness"
 import { EikonGroup } from "../src/tabs/EikonGroup"
 import { eikon } from "../src/service/eikon"
 import * as prefs from "../src/context/preferences"
-import type { SidebarPreview } from "../src/components/sidebar/Sidebar"
 
 const HH = process.env.HERMES_HOME!
 const launchBody = (name: string, author: string, frames: Record<string, string>) => {
@@ -138,17 +137,16 @@ function packageCatalog(extra: Route[] = []) {
   return { srv, base: `http://localhost:${srv.port}/eikons` }
 }
 
-function group(props: { sub?: number; sidebarPreview?: (p?: SidebarPreview) => void } = {}) {
-  let sub = props.sub ?? 2
-  return <EikonGroup focused sub={sub} setSub={i => { sub = i }} sidebarPreview={props.sidebarPreview} />
+function group(props: { sub?: number } = {}) {
+  let sub = props.sub ?? 1
+  return <EikonGroup focused sub={sub} setSub={i => { sub = i }} />
 }
 
 async function openMarketplaceTab(t: Awaited<ReturnType<typeof mount>>) {
   act(() => t.keys.pressKey("5", { meta: true }))
-  await until(t, () => t.frame().includes("Gallery ("))
+  await until(t, () => t.frame().includes("Library ("))
   act(() => t.keys.pressArrow("right", { shift: true }))
-  act(() => t.keys.pressArrow("right", { shift: true }))
-  await until(t, () => t.frame().includes("Marketplace ("))
+  await until(t, () => t.frame().includes("Catalog ("))
 }
 
 afterEach(() => {
@@ -166,12 +164,12 @@ afterEach(() => {
 })
 
 describe("EikonMarketplace tab", () => {
-  test("Gallery is separate from Marketplace tab", async () => {
+  test("Library is separate from Marketplace tab", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
     await using t = await mountNode(group({ sub: 0 }), { width: 120, height: 28 })
-    await until(t, () => t.frame().includes("Gallery ("))
-    expect(t.frame()).not.toContain("[ Marketplace ]")
+    await until(t, () => t.frame().includes("Library ("))
+    expect(t.frame()).not.toContain("[ Catalog ]")
     expect(t.frame()).not.toContain("ARES-POSTER")
     fx.srv.stop()
   })
@@ -183,8 +181,8 @@ describe("EikonMarketplace tab", () => {
     process.env.HERM_TEST_PERF = "1"
     globalThis.__hermAvatarTimerStarts = 0
     const startsBefore = globalThis.__hermAvatarTimerStarts ?? 0
-    await using t = await mountNode(group(), { width: 120, height: 28 })
-    await until(t, () => t.frame().includes("Marketplace (6)") && t.frame().includes("ARES-POSTER"))
+    await using t = await mountNode(group(), { width: 220, height: 28 })
+    await until(t, () => t.frame().includes("Catalog (6)") && t.frame().includes("ARES-POSTER"))
 
     expect((globalThis.__hermAvatarTimerStarts ?? 0) - startsBefore).toBe(0)
     delete globalThis.__hermAvatarTimerStarts
@@ -199,30 +197,34 @@ describe("EikonMarketplace tab", () => {
       { name: "ares", author: "Kaio", width: 48, height: 24, poster, source: "ares/", description: "red warrior" },
     ] }])
     process.env.EIKON_URL = fx.base
-    await using t = await mountNode(group({ sidebarPreview: () => {} }), { width: 120, height: 36 })
-    await until(t, () => t.frame().includes("Marketplace (1)") && t.frame().includes("ARES-23"))
+    await using t = await mountNode(group(), { width: 220, height: 36 })
+    await until(t, () => t.frame().includes("Catalog (1)") && t.frame().includes("ARES-23"))
     expect(t.frame()).toContain("by Kaio")
     fx.srv.stop()
   })
 
-  test("searches by author and Escape exits search without leaving the tab", async () => {
+  test("catalog grid wraps more than two cards when space allows", async () => {
+    const fx = catalog()
+    process.env.EIKON_URL = fx.base
+    await using t = await mountNode(group(), { width: 300, height: 36 })
+    await until(t, () => t.frame().includes("Catalog (6)") && t.frame().includes("DELTA-POSTER"))
+    const line = t.frame().split("\n").find(l => l.includes("ARES-POSTER")) ?? ""
+    expect(line).toContain("MONO-POSTER")
+    expect(line).toContain("DELTA-POSTER")
+    fx.srv.stop()
+  })
+
+  test("slash enters search without leaving the tab", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
     await using t = await mountNode(group(), { width: 160, height: 48 })
-    await until(t, () => t.frame().includes("Marketplace (6)") && t.frame().includes("ARES-POSTER"))
+    await until(t, () => t.frame().includes("Catalog (6)") && t.frame().includes("ARES-IDLE"))
     expect(t.frame()).toContain("red warrior")
     expect(t.frame()).toContain("Digest")
     expect(t.frame()).toContain("unknown")
-    expect(t.frame()).toContain("Open actions")
 
     await act(async () => { await t.keys.typeText("/") })
-    await until(t, () => t.frame().includes("Search:"))
-    await act(async () => { await t.keys.typeText("nous") })
-    await until(t, () => t.frame().includes("Marketplace (1)") && t.frame().includes("mono"))
-    expect(t.frame()).not.toContain("ares  Kaio")
-
-    act(() => t.keys.pressEscape())
-    await until(t, () => t.frame().includes("Marketplace (1)") && !t.frame().includes("Search:"))
+    await until(t, () => t.frame().includes("typing search"))
     fx.srv.stop()
   })
 
@@ -233,7 +235,7 @@ describe("EikonMarketplace tab", () => {
     local("localone")
     prefs.set("eikon", "localone")
     await using t = await mountNode(group(), { width: 160, height: 48 })
-    await until(t, () => t.frame().includes("Marketplace (6)") && t.frame().includes("Open actions"))
+    await until(t, () => t.frame().includes("Catalog (6)") && t.frame().includes("ARES-IDLE"))
 
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Eikon only"))
@@ -252,11 +254,10 @@ describe("EikonMarketplace tab", () => {
   test("Marketplace details expose runtime-only package lifecycle truthfully", async () => {
     const fx = packageCatalog()
     process.env.EIKON_URL = fx.base
-    await using t = await mountNode(group(), { width: 120, height: 40 })
-    await until(t, () => t.frame().includes("Marketplace (2)") && t.frame().includes("Unverified"))
+    await using t = await mountNode(group(), { width: 120, height: 48 })
+    await until(t, () => t.frame().includes("Catalog (2)") && t.frame().includes("Unverified"))
     expect(t.frame()).toContain("Source")
     expect(t.frame()).toContain("Compat: Compatible")
-    expect(t.frame()).toContain("Open actions")
 
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Eikon only"))
@@ -294,7 +295,7 @@ describe("EikonMarketplace tab", () => {
     prefs.set("eikon", "nous")
     await using t = await mountNode(group(), { width: 140, height: 40 })
 
-    await until(t, () => t.frame().includes("Marketplace (1)") && t.frame().includes("▸ ● nous") && t.frame().includes("active"))
+    await until(t, () => t.frame().includes("Catalog (1)") && t.frame().includes("▸ ● nous") && t.frame().includes("active"))
     expect(t.frame()).not.toContain("active name conflict")
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Download Source") || t.frame().includes("No available actions."))
@@ -303,7 +304,7 @@ describe("EikonMarketplace tab", () => {
     srv.stop()
   })
 
-  test("sidebar preview does not claim runtime-only installed packages have source", async () => {
+  test("detail preview does not claim runtime-only installed packages have source", async () => {
     const fx = packageCatalog()
     process.env.EIKON_URL = fx.base
     eikon.ensure("ares")
@@ -314,18 +315,11 @@ describe("EikonMarketplace tab", () => {
       files: [{ path: "ares.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl", size: body.length, digest: digest(body) }],
       origin: { sourceKey: `${fx.base}/ares/`, identityKey: `${fx.base}/ares/`, packageUrl: `${fx.base}/ares/manifest.json` },
     }, null, 2))
-    const seen: SidebarPreview[] = []
-    await using t = await mountNode(
-      group({ sidebarPreview: p => { if (p) seen.push(p) } }),
-      { width: 160, height: 48 },
-    )
-    const status = () => seen.flatMap(p => p.title === "ares" ? p.rows ?? [] : []).find(r => r.label === "Status")?.value
-    await until(t, () => status()?.includes("installed") === true)
-    const got = status()!
-
-    expect(got).toContain("installed")
-    expect(got).not.toContain("source available")
-    expect(got).not.toContain("source downloadable")
+    await using t = await mountNode(group(), { width: 160, height: 48 })
+    await until(t, () => t.frame().includes("Catalog (2)") && t.frame().includes("installed"))
+    expect(t.frame()).toContain("installed")
+    expect(t.frame()).not.toContain("source available")
+    expect(t.frame()).not.toContain("source downloadable")
     fx.srv.stop()
   })
 
@@ -333,7 +327,7 @@ describe("EikonMarketplace tab", () => {
     const fx = packageCatalog()
     process.env.EIKON_URL = fx.base
     await using t = await mountNode(group(), { width: 160, height: 40 })
-    await until(t, () => t.frame().includes("Marketplace (2)") && t.frame().includes("mono"))
+    await until(t, () => t.frame().includes("Catalog (2)") && t.frame().includes("mono"))
     act(() => t.keys.pressArrow("right"))
     await until(t, () => /▸ .*mono/.test(t.frame()))
     act(() => t.keys.pressEnter())
@@ -354,7 +348,7 @@ describe("EikonMarketplace tab", () => {
     const fx = packageCatalog()
     process.env.EIKON_URL = fx.base
     await using t = await mountNode(group(), { width: 160, height: 40 })
-    await until(t, () => t.frame().includes("Marketplace (2)") && t.frame().includes("mono"))
+    await until(t, () => t.frame().includes("Catalog (2)") && t.frame().includes("mono"))
     act(() => t.keys.pressArrow("right"))
     await until(t, () => /▸ .*mono/.test(t.frame()))
     act(() => t.keys.pressEnter())
@@ -381,7 +375,7 @@ describe("EikonMarketplace tab", () => {
     const fx = packageCatalog()
     process.env.EIKON_URL = fx.base
     await using t = await mountNode(group(), { width: 160, height: 40 })
-    await until(t, () => t.frame().includes("Marketplace (2)") && t.frame().includes("Open actions"))
+    await until(t, () => t.frame().includes("Catalog (2)") && t.frame().includes("ARES-IDLE"))
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Eikon only"))
     act(() => t.keys.pressEnter())
@@ -401,16 +395,16 @@ describe("EikonMarketplace tab", () => {
   test("grid navigation clamps and Space does not install", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
-    await using t = await mountNode(group(), { width: 120, height: 28 })
-    await until(t, () => t.frame().includes("Marketplace (6)") && /▸ .*ares/.test(t.frame()))
+    await using t = await mountNode(group(), { width: 180, height: 28 })
+    await until(t, () => t.frame().includes("Catalog (6)") && /▸ .*ares/.test(t.frame()))
     expect(t.frame()).toContain("[Space] preview")
 
     act(() => t.keys.pressArrow("right"))
     await until(t, () => /▸ .*mono/.test(t.frame()))
     act(() => t.keys.pressArrow("down"))
-    await until(t, () => /▸ .*echo/.test(t.frame()))
-    act(() => t.keys.pressArrow("left"))
     await until(t, () => /▸ .*delta/.test(t.frame()))
+    act(() => t.keys.pressArrow("left"))
+    await until(t, () => /▸ .*mono/.test(t.frame()))
     act(() => t.keys.pressArrow("up"))
     await until(t, () => /▸ .*ares/.test(t.frame()))
 
@@ -427,53 +421,43 @@ describe("EikonMarketplace tab", () => {
     fx.srv.stop()
   })
 
-  test("sidebar preview preserves state across selections and falls back when unsupported", async () => {
+  test("detail preview preserves state across selections and falls back when unsupported", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
-    const previews: string[] = []
-    await using t = await mountNode(
-      group({ sidebarPreview: p => previews.push(p ? `${p.eikon.meta.name}:${p.state}` : "clear") }),
-      { width: 160, height: 48 },
-    )
-    await until(t, () => previews.includes("ares:idle"))
+    await using t = await mountNode(group(), { width: 160, height: 48 })
+    await until(t, () => t.frame().includes("ARES-IDLE"))
 
     await act(async () => { await t.keys.pressKey(" ") })
-    await until(t, () => previews.includes("ares:thinking"))
+    await until(t, () => t.frame().includes("ARES-THINKING"))
     expect(t.frame()).toContain("[Space] preview")
 
     act(() => t.keys.pressArrow("right"))
-    await until(t, () => previews.includes("mono:idle"))
-    expect(previews).not.toContain("mono:thinking")
+    await until(t, () => /▸ .*mono/.test(t.frame()) && t.frame().includes("MONO-IDLE"))
+    expect(t.frame()).not.toContain("MONO-THINKING")
     expect(prefs.get("eikon")).toBeUndefined()
     fx.srv.stop()
   })
 
-  test("visible sidebar preview exposes clickable state controls", async () => {
+  test("detail pane is keyboard navigable", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
-    const seen: SidebarPreview[] = []
-    await using t = await mountNode(
-      group({ sidebarPreview: p => { if (p) seen.push(p) } }),
-      { width: 160, height: 48 },
-    )
-    await until(t, () => !!seen.find(p => p.eikon.meta.name === "ares" && p.state === "idle" && p.states?.includes("thinking") && p.onState))
-    const p = seen.find(x => x.eikon.meta.name === "ares")!
-    act(() => p.onState!("thinking"))
-    await until(t, () => seen.some(x => x.eikon.meta.name === "ares" && x.state === "thinking"))
+    await using t = await mountNode(group(), { width: 160, height: 48 })
+    await until(t, () => t.frame().includes("ARES-IDLE") && t.frame().includes("[Tab] details"))
+    act(() => t.keys.pressTab())
+    await until(t, () => t.frame().includes("[Tab] catalog"))
+    act(() => t.keys.pressArrow("right"))
+    await until(t, () => t.frame().includes("ARES-THINKING"))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Eikon only"))
     fx.srv.stop()
   })
 
-  test("sidebar preview clears on load failure", async () => {
+  test("detail preview is omitted on load failure", async () => {
     const fx = catalog([{ path: "/eikons/ares/ares.eikon", body: "missing", status: 500 }])
     process.env.EIKON_URL = fx.base
-    const previews: string[] = []
-    await using t = await mountNode(
-      group({ sidebarPreview: p => previews.push(p ? p.eikon.meta.name : "clear") }),
-      { width: 160, height: 48 },
-    )
-    await until(t, () => t.frame().includes("Marketplace (6)"))
-    await until(t, () => previews.includes("clear"))
-    expect(previews).not.toContain("ares")
+    await using t = await mountNode(group(), { width: 160, height: 48 })
+    await until(t, () => t.frame().includes("Catalog (6)") && t.frame().includes("red warrior"))
+    expect(t.frame()).not.toContain("ARES-IDLE")
     fx.srv.stop()
   })
 
@@ -502,17 +486,14 @@ describe("EikonMarketplace tab", () => {
     })
     servers.add(srv)
     process.env.EIKON_URL = `http://localhost:${srv.port}/eikons`
-    const previews: string[] = []
-    await using t = await mountNode(
-      group({ sidebarPreview: p => previews.push(p ? p.eikon.meta.name : "clear") }),
-      { width: 160, height: 48 },
-    )
-    await until(t, () => t.frame().includes("Marketplace (2)"))
+    await using t = await mountNode(group(), { width: 160, height: 48 })
+    await until(t, () => t.frame().includes("Catalog (2)"))
     act(() => t.keys.pressArrow("right"))
-    await until(t, () => previews.includes("mono"))
+    await until(t, () => t.frame().includes("MONO-IDLE"))
     releaseAres(new Response(body))
     await t.settle(); await t.settle()
-    expect(previews.at(-1)).toBe("mono")
+    expect(t.frame()).toContain("MONO-IDLE")
+    expect(t.frame()).not.toContain("ARES-IDLE")
     srv.stop()
     stop()
   })
@@ -521,7 +502,7 @@ describe("EikonMarketplace tab", () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
     await using t = await mountNode(group(), { width: 100, height: 40 })
-    await until(t, () => t.frame().includes("Marketplace (6)") && t.frame().includes("ARES-IDLE"))
+    await until(t, () => t.frame().includes("Catalog (6)") && t.frame().includes("ARES-IDLE"))
     const lines = t.frame().split("\n")
     const desc = lines.findIndex(l => l.includes("red warrior"))
     const chip = lines.findIndex((l, i) => i > desc && l.includes("idle") && l.includes("thinking"))
@@ -534,18 +515,17 @@ describe("EikonMarketplace tab", () => {
     fx.srv.stop()
   })
 
-  test("wide marketplace renders detail preview when the app sidebar is hidden", async () => {
+  test("wide marketplace always renders detail preview beside the app sidebar", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
-    await using t = await mount({ width: 160, height: 48 })
+    await using t = await mount({ width: 180, height: 48 })
     await until(t, () => t.frame().includes("Ready"))
     await openMarketplaceTab(t)
 
-    act(() => t.keys.pressKey("x", { ctrl: true }))
-    await t.settle()
-    await act(async () => { await t.keys.typeText("b") })
-    await until(t, () => t.frame().includes("ARES-IDLE"))
-    await act(async () => { await t.keys.pressKey(" ") })
+    await until(t, () => t.frame().includes("ARES-IDLE") && t.frame().includes("Profile"))
+    act(() => t.keys.pressTab())
+    await until(t, () => t.frame().includes("[Tab] catalog"))
+    act(() => t.keys.pressArrow("right"))
     await until(t, () => t.frame().includes("ARES-THINKING"))
     fx.srv.stop()
   })
@@ -554,10 +534,14 @@ describe("EikonMarketplace tab", () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
     await using t = await mountNode(group(), { width: 160, height: 48 })
-    await until(t, () => t.frame().includes("Marketplace (6)") && /▸ .*ares/.test(t.frame()))
+    await until(t, () => t.frame().includes("Catalog (6)") && /▸ .*ares/.test(t.frame()))
 
-    const y = () => t.frame().split("\n").findIndex(l => l.includes("mono"))
-    await act(async () => { await t.mouse.click(52, y()) })
+    const pos = () => {
+      const lines = t.frame().split("\n")
+      const y = lines.findIndex(l => l.includes("mono"))
+      return { x: Math.max(0, lines[y]?.indexOf("mono") ?? 0), y }
+    }
+    await act(async () => { const p = pos(); await t.mouse.click(p.x, p.y) })
     await until(t, () => t.frame().includes("Eikon only") && /▸ .*mono/.test(t.frame()))
     expect(eikon.list().some(x => x.name === "ares")).toBe(false)
     expect(eikon.list().some(x => x.name === "mono")).toBe(false)

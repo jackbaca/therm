@@ -27,6 +27,7 @@ Herm's built-in **Eikon** tab (Gallery / Studio / Marketplace). Tell the user:
 - Preview pane → wheel pans, Ctrl+wheel zooms, Shift+wheel pans X
 - **Ctrl+S** bakes all six states without changing the active avatar
 - **Ctrl+U** bakes all six states and uses it as the active avatar
+- `u` from Studio or `s` from Gallery opens the official-registry submit flow
 
 ## What makes a good source
 
@@ -46,6 +47,7 @@ everything.
 | "too dark / washed out" | "invert toggle, then contrast slider — under `input`." |
 | "off-center / too small" | "Ctrl+wheel to zoom, wheel/drag to pan on the preview." |
 | "make it move" | `eikon-create` §5 (video), or Studio's `source` → Generate video…. |
+| "publish/share my eikon" | "Eikon tab → Studio/Gallery → submit. Review the bundle, metadata, and GitHub PR target before continuing." |
 
 ## Install and manage shared eikons
 
@@ -74,10 +76,13 @@ herm eikon remove <name> --active-ok
 eikon requires explicit acknowledgement because it changes or clears the active
 avatar.
 
-Creators share through normal GitHub repositories. Use upstream `eikon pack`,
-`eikon index`, and `eikon manifest` to prepare repo artifacts. `eikon publish`
-is a GitHub PR contribution helper for the configured/default catalog repo, not
-a hosted marketplace account or upload flow.
+Creators share through normal GitHub repositories. For official registry
+listing, use Gallery/Studio submit after baking: Herm previews the public
+bundle, asks for title/author/description/glyph, and creates or guides a
+GitHub PR to the shared registry. Use upstream `eikon pack`, `eikon index`,
+and `eikon manifest` for direct-install repos. `eikon publish` is the lower-
+level GitHub PR contribution helper for the configured/default catalog repo,
+not a hosted marketplace account or upload flow.
 
 ## Quick poster
 

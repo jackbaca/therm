@@ -293,7 +293,7 @@ describe("app", () => {
   })
 
 
-  test("marketplace preview updates sidebar without changing active preference", async () => {
+  test("marketplace detail preview does not change active sidebar preference", async () => {
     const HH = process.env.HERMES_HOME!
     const png = new Uint8Array([137, 80, 78, 71])
     let previewHits = 0
@@ -341,19 +341,15 @@ describe("app", () => {
     await until(t, () => t.frame().includes("Ready") && t.frame().includes("ACTIVE-EIKON-LINE"))
     const startsBefore = globalThis.__hermAvatarTimerStarts ?? 0
     act(() => { for (let i = 0; i < 4; i++) t.keys.pressArrow("right", { meta: true }) })
-    await until(t, () => t.frame().includes("Gallery ("))
+    await until(t, () => t.frame().includes("Library ("))
     act(() => t.keys.pressArrow("right", { shift: true }))
-    act(() => t.keys.pressArrow("right", { shift: true }))
-    await until(t, () => t.frame().includes("Marketplace (1)") && t.frame().includes("MARKET-PREVIEW-LINE"))
-    expect(t.frame()).toMatch(/Eikon\s+marketone/)
-    expect(t.frame()).toMatch(/Author\s+Kaio/)
+    await until(t, () => t.frame().includes("Catalog (1)") && t.frame().includes("MARKET-PREVIEW-LINE") && t.frame().includes("ACTIVE-EIKON-LINE"))
+    expect(t.frame()).toContain("Details — marketone")
+    expect(t.frame()).toContain("by Kaio")
     expect(t.frame()).toContain("market one")
     expect(t.frame()).toContain("not installed")
-    expect(t.frame()).not.toContain("not installed · source available")
-    expect(t.frame()).not.toContain("Trust")
-    expect(t.frame()).toContain("Digest")
-    expect(t.frame()).toContain("unknown")
-    expect(t.frame()).not.toMatch(/Profile\s+default/)
+    expect(t.frame()).toContain("Trust")
+    expect(t.frame()).toMatch(/Profile\s+default/)
     const lines = t.frame().split("\n")
     const desc = lines.findIndex(l => l.includes("market one"))
     const chip = lines.findIndex((l, i) => i > desc && l.includes("idle"))
@@ -363,13 +359,9 @@ describe("app", () => {
     expect(chip).toBeLessThan(status)
 
     expect(prefs.get("eikon")).toBe("activeone")
-    expect(t.frame()).not.toContain("ACTIVE-EIKON-LINE")
+    expect(t.frame()).toContain("ACTIVE-EIKON-LINE")
     expect(previewHits).toBe(1)
     expect((globalThis.__hermAvatarTimerStarts ?? 0) - startsBefore).toBeLessThanOrEqual(1)
-
-    act(() => t.keys.pressEscape())
-    await until(t, () => t.frame().includes("Marketplace (") && t.frame().includes("ACTIVE-EIKON-LINE"))
-    expect(prefs.get("eikon")).toBe("activeone")
 
     delete globalThis.__hermAvatarTimerStarts
     if (prevTestPerf === undefined) delete process.env.HERM_TEST_PERF

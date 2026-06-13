@@ -14,6 +14,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExterna
 import { extend, useKeyboard, useTerminalDimensions } from "@opentui/react"
 import { SliderRenderable } from "@opentui/core"
 import type { ParsedKey, ScrollBoxRenderable } from "@opentui/core"
+import { existsSync } from "node:fs"
 import { basename } from "node:path"
 import type { ReactNode } from "react"
 import { useTheme } from "../theme"
@@ -462,7 +463,7 @@ export const resetToolsetsCache = () => { genCaps = null }
 
 export const EikonStudio = memo((props: {
   focused: boolean
-  /** Name to open on mount / when Gallery hands over. Empty → fresh. */
+  /** Name to open on mount / when Library hands over. Empty → fresh. */
   name?: string
 }) => {
   const theme = useTheme().theme
@@ -945,7 +946,7 @@ export const EikonStudio = memo((props: {
         `Source: ${info.sourceLabel}`,
         `Trust: ${info.trust}${info.reason ? ` (${info.reason})` : ""}`,
         `Preview: ${info.previewAvailable ? "available" : "none"}; poster: ${info.posterAvailable ? "available" : "none"}`,
-        "Install does not activate; use Ctrl+U or Gallery after install to select it.",
+        "Install does not activate; use Ctrl+U or Library after install to select it.",
       ].join("\n"),
       yes: "install", no: "cancel",
     })
@@ -987,12 +988,34 @@ export const EikonStudio = memo((props: {
       toast.show({ variant: "warning", title: "Published eikon", message: "Create a local draft before submitting", duration: 6000 })
       return
     }
+    if (cur.dirty || !existsSync(path)) {
+      const pick = await openSaveDiscard(dialog, {
+        title: "Save before submit?",
+        body: `'${cur.name}' has unsaved changes. Save to submit the current preview, discard to submit the last saved artifact, or keep editing.`,
+      })
+      if (pick === "save") {
+        if (prefs.get("eikon") === cur.name) {
+          const ok = await openConfirm(dialog, {
+            title: `Save active '${cur.name}' before submit?`, danger: true,
+            body: "Saving changes the active avatar's backing artifact. Submit itself will not change active selection.",
+            yes: "save", no: "cancel",
+          })
+          if (!ok) return
+        }
+        if (!await doSave()) return
+      } else if (pick === "discard") open(cur.name)
+      else return
+    }
+    if (!existsSync(path)) {
+      toast.show({ variant: "warning", message: "Save this eikon before submitting" })
+      return
+    }
     await openEikonSubmit(dialog, {
       name: cur.name,
       path,
       submit: submitSvc.submit,
     })
-  }, [dialog, toast])
+  }, [dialog, doSave, open, toast])
 
   const doAction = async (id: string) => {
     if (!s) return
@@ -1193,7 +1216,7 @@ export const EikonStudio = memo((props: {
     :       "no source — Enter on 'source'")
 
   const hint: Array<readonly [string, string]> =
-    !s                   ? [["Enter", "new eikon"], ["Shift+→", "gallery"]]
+    !s                   ? [["Enter", "new eikon"], ["Shift+→", "library"]]
   : pane === "knobs"   ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.activate"), "edit"], [keys.print("list.refresh"), "reload"], [keys.print("list.new"), "new"], ["u", "submit"], [keys.print("eikon.save"), "save"], ["Ctrl+U", "save & use"], ["Tab", "pane"]]
   : pane === "preview" ? [["↑↓", "row"], ["←→", "adjust"], [keys.print("list.toggle"), "play/pause"], ["wheel", "pan"], ["Ctrl+wheel", "zoom"], [keys.print("eikon.save"), "save"], ["Ctrl+U", "save & use"], ["Tab", "pane"]]
   :                      [["←→", "state"], [keys.print("list.activate"), "actions"], [keys.print("eikon.save"), "save"], ["Ctrl+U", "save & use"], ["Tab", "pane"]]

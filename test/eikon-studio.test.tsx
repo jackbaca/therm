@@ -48,7 +48,7 @@ describe("EikonStudio tab", () => {
     const un = eikon.register(stub)
     seed("pub", { published: true })
     prefs.set("eikon", "pub")
-    let sub = 1
+    let sub = 2
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
       { width: 160, height: 48 },
@@ -97,7 +97,7 @@ describe("EikonStudio tab", () => {
     const un = eikon.register(stub)
     seed("owl")
     prefs.set("eikon", "owl")
-    let sub = 1
+    let sub = 2
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
       { width: 160, height: 60 },
@@ -140,7 +140,7 @@ describe("EikonStudio tab", () => {
     const un = eikon.register(stub)
     seed("knb")
     prefs.set("eikon", "knb")
-    let sub = 1
+    let sub = 2
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
       { width: 160, height: 60 },
@@ -166,7 +166,7 @@ describe("EikonStudio tab", () => {
     const un = eikon.register(stub)
     seed("cat")
     prefs.set("eikon", "cat")
-    let sub = 1
+    let sub = 2
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
       { width: 160, height: 48 },
@@ -189,7 +189,7 @@ describe("EikonStudio tab", () => {
     const un = eikon.register(stub)
     seed("alpha")
     prefs.set("eikon", "alpha")
-    let sub = 1
+    let sub = 2
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
       { width: 160, height: 48 },
@@ -217,7 +217,7 @@ describe("EikonStudio tab", () => {
     const un = eikon.register(stub)
     seed("dog")
     prefs.set("eikon", "dog")
-    let sub = 1
+    let sub = 2
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
     )
@@ -237,7 +237,7 @@ describe("EikonStudio tab", () => {
     const un = eikon.register(stub)
     seed("cow")
     prefs.set("eikon", "cow")
-    let sub = 1
+    let sub = 2
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
     )
@@ -259,7 +259,7 @@ describe("EikonStudio tab", () => {
     seed("badsave")
     eikon.writeStudio("badsave", { ...eikon.readStudio("badsave")!, rasterizer: "bad" })
     prefs.set("eikon", "badsave")
-    let sub = 1
+    let sub = 2
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
     )
@@ -274,6 +274,27 @@ describe("EikonStudio tab", () => {
 
     expect(t.frame()).toContain("● unsaved")
     expect(t.frame()).not.toContain("Saved →")
+    un()
+  })
+
+  run("dirty submit prompts save and active consequence before preview", async () => {
+    const un = eikon.register(stub)
+    seed("submitdirty")
+    prefs.set("eikon", "submitdirty")
+    let sub = 2
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
+      { width: 160, height: 48 },
+    )
+    await until(t, () => t.frame().includes("rasterizer"))
+    for (let i = 0; i < 5; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
+    act(() => t.keys.pressArrow("right"))
+    await until(t, () => t.frame().includes("● unsaved"))
+    act(() => t.keys.pressKey("u"))
+    await until(t, () => t.frame().includes("Save before submit?"))
+    act(() => t.keys.pressKey("s"))
+    await until(t, () => t.frame().includes("Save active 'submitdirty' before submit?"))
+    expect(t.frame()).toContain("Submit itself will not change active selection")
     un()
   })
 
@@ -302,7 +323,7 @@ describe("EikonStudio tab", () => {
     const un = eikon.register(stub)
     seed("fox")
     prefs.set("eikon", "fox")
-    let sub = 1
+    let sub = 2
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
     )
@@ -318,7 +339,7 @@ describe("EikonStudio tab", () => {
     run("cold start: Enter opens New eikon; submitting seeds a session", async () => {
     const un = eikon.register(stub)
     prefs.set("eikonRasterizer", "stub")
-    let sub = 1
+    let sub = 2
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
       { width: 160, height: 48 },
@@ -368,7 +389,7 @@ describe("EikonStudio tab", () => {
     const un = eikon.register(stub)
     seed("refresh")
     prefs.set("eikon", "refresh")
-    await using t = await mountNode(<EikonGroup focused sub={1} setSub={() => {}} />, { width: 160, height: 48 })
+    await using t = await mountNode(<EikonGroup focused sub={2} setSub={() => {}} />, { width: 160, height: 48 })
     await until(t, () => t.frame().includes("base.png · 1×1 · 67 B"))
 
     writeFileSync(join(eikon.sourceDir("refresh"), "base.png"), new Uint8Array([...PX, 0]))
@@ -407,7 +428,7 @@ describe("EikonStudio tab", () => {
     writeFileSync(eikon.file("remote"), JSON.stringify({ eikon: 1, name: "remote", width: 48, height: 24, source_url: `http://localhost:${srv.port}/remote/` }) + "\n")
     eikon.writeStudio("remote", { rasterizer: "stub", spatial: { zoom: 1, ox: 0.5, oy: 0.5 }, tone: { contrast: 1, invert: true, flip: "none" }, fps: 16, base: {}, per: {}, glyph: "◆", sources: {} })
     prefs.set("eikon", "remote")
-    await using t = await mountNode(<EikonGroup focused sub={1} setSub={() => {}} />, { width: 160, height: 48 })
+    await using t = await mountNode(<EikonGroup focused sub={2} setSub={() => {}} />, { width: 160, height: 48 })
     await until(t, () => t.frame().includes("Download source"))
 
     for (let i = 0; i < 3; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
@@ -427,7 +448,7 @@ describe("EikonStudio tab", () => {
     writeFileSync(extPath, PX)
     resetToolsetsCache()
     gen.setProbe(async () => ({ image: false, video: false }))
-    let sub = 1
+    let sub = 2
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
       { width: 160, height: 48 },
@@ -474,7 +495,7 @@ describe("EikonStudio tab", () => {
     gen.setProbe(async () => ({ image: true, video: false }))
     let got: { kind: string; prompt: string } | undefined
     gen.setImpl(async (kind, prompt) => { got = { kind, prompt }; return { path: genPath } })
-    let sub = 1
+    let sub = 2
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
       { width: 160, height: 60 },
@@ -526,7 +547,7 @@ describe("EikonStudio tab", () => {
     prefs.set("eikon", "nogen")
     resetToolsetsCache()
     gen.setProbe(async () => ({ image: false, video: false }))
-    let sub = 1
+    let sub = 2
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
       { width: 160, height: 48 },
@@ -548,7 +569,7 @@ describe("EikonStudio tab", () => {
     seed("helpt")
     prefs.set("eikon", "helpt")
     await using t = await mountNode(
-      <EikonGroup focused sub={1} setSub={() => {}} />,
+      <EikonGroup focused sub={2} setSub={() => {}} />,
       { width: 160, height: 48 },
     )
     await until(t, () => t.frame().includes("rasterizer"))
@@ -579,7 +600,7 @@ describe("EikonStudio tab", () => {
     eikon.writeStudio("wheelt", { rasterizer: "stub", spatial: { zoom: 0.5, ox: 0.5, oy: 0.5 }, tone: { contrast: 1, invert: true, flip: "none" }, fps: 16, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
     prefs.set("eikon", "wheelt")
     await using t = await mountNode(
-      <EikonGroup focused sub={1} setSub={() => {}} />,
+      <EikonGroup focused sub={2} setSub={() => {}} />,
       { width: 180, height: 30 },  // short → outer scrollbox is scrollable
     )
     await until(t, () => t.frame().includes("STUB-ROW"))
@@ -621,9 +642,10 @@ describe("EikonGallery tab", () => {
     seed("nous")
     prefs.set("eikon", "nous")
     await using t = await mountNode(<EikonGallery focused />, { width: 160, height: 48 })
-    await until(t, () => t.frame().includes("Gallery (") && /●\s+nous/.test(t.frame()))
-    expect(t.frame().split("\n").filter(l => /^│\s*(?:▸\s*)?(?:●\s*)?nous\s+[█│]/i.test(l))).toHaveLength(1)
-    expect(t.frame().match(/●\s+nous/g)?.length ?? 0).toBe(1)
+    await until(t, () => t.frame().includes("Library (") && /●\s+nous/.test(t.frame()))
+    const rows = t.frame().split("\n").filter(l => /^│\s*(?:▸\s*)?(?:●\s*)?nous\s+│/i.test(l))
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatch(/●\s+nous/i)
   })
 
   test("lists bundled + installed; Enter sets active eikon", async () => {
@@ -634,7 +656,7 @@ describe("EikonGallery tab", () => {
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
       { width: 160, height: 48 },
     )
-    await until(t, () => t.frame().includes("Gallery ("))
+    await until(t, () => t.frame().includes("Library ("))
     expect(t.frame()).toContain("galone")
     // Bundled Nous also shows when no installed eikon shadows it.
     // Move to galone and activate.

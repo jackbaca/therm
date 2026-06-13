@@ -30,7 +30,7 @@ function seed(name: string, opts: { published?: boolean } = {}) {
 async function selectDraft(t: Harness) {
   await until(t, () => t.frame().includes("draft"))
   for (let i = 0; i < 20; i++) {
-    if (t.frame().split("\n").some(l => l.includes("▸") && l.includes("draft"))) return
+    if (t.frame().includes("Preview — draft")) return
     act(() => t.keys.pressArrow("down"))
     await t.settle()
   }
@@ -48,21 +48,31 @@ async function stage(t: Harness) {
   await until(t, () => t.frame().includes("Included files"))
 }
 
+async function consent(t: Harness) {
+  act(() => t.keys.pressKey("c"))
+  await until(t, () => t.frame().includes("public PR consent"))
+}
+
+function meta() {
+  return { title: "draft", author: "kaio", description: "demo", glyph: "◆" }
+}
+
 describe("Eikon submit dialog", () => {
   test("Enter previews included files before backend invocation", async () => {
     await seed("draft")
-    const fn = mock(async () => ({ kind: "submitted" as const, url: "https://github.com/liftaris/eikon/pull/1", request: {} as never }))
+    const fn = mock(async (_input: submit.PreparedSubmit) => ({ kind: "submitted" as const, url: "https://github.com/liftaris/eikon/pull/1", request: {} as never }))
     await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 160, height: 48 })
     await open(t)
     await stage(t)
-    expect(t.frame()).toContain("source/base.png")
+    expect(t.frame()).toContain("draft.eikon")
     expect(t.frame()).toContain("manifest.json")
+    expect(t.frame()).toContain("runtime-only")
     expect(fn).not.toHaveBeenCalled()
   })
 
   test("published marketplace installs are blocked from duplicate submission", async () => {
     await seed("draft", { published: true })
-    const fn = mock(async () => ({ kind: "submitted" as const, url: "https://github.com/liftaris/eikon/pull/1", request: {} as never }))
+    const fn = mock(async (_input: submit.PreparedSubmit) => ({ kind: "submitted" as const, url: "https://github.com/liftaris/eikon/pull/1", request: {} as never }))
     await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 160, height: 48 })
     await selectDraft(t)
     act(() => t.keys.pressKey("s"))
@@ -78,13 +88,13 @@ describe("Eikon submit dialog", () => {
     writeFileSync(join(root, ".env"), "TOKEN=***")
     writeFileSync(join(HH, "escape.txt"), "outside")
     symlinkSync(join(HH, "escape.txt"), join(root, "source", "escape.txt"))
-    const seen = await submit.preview({ path: eikon.file("draft") })
+    const seen = await submit.prepare({ path: eikon.file("draft"), meta: meta(), includeSource: true })
     const paths = seen.files.map(f => f.path)
     expect(paths).toContain("source/base.png")
     expect(paths).toContain("manifest.json")
     expect(paths).not.toContain(".env")
     expect(paths).not.toContain("source/escape.txt")
-    const fn = mock(async () => ({ kind: "submitted" as const, url: "https://github.com/liftaris/eikon/pull/7", request: {} as never }))
+    const fn = mock(async (_input: submit.PreparedSubmit) => ({ kind: "submitted" as const, url: "https://github.com/liftaris/eikon/pull/7", request: {} as never }))
     await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 180, height: 60 })
     await open(t)
     await stage(t)
@@ -92,9 +102,58 @@ describe("Eikon submit dialog", () => {
     expect(t.frame()).not.toContain(".env")
     expect(t.frame()).not.toContain("escape.txt")
     expect(fn).not.toHaveBeenCalled()
+    await consent(t)
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Submitted") && t.frame().includes("pull/7"))
-    expect(fn).toHaveBeenCalledWith({ path: eikon.file("draft") })
+    expect(fn).toHaveBeenCalledTimes(1)
+    expect((fn.mock.calls[0]?.[0] as submit.PreparedSubmit).path).toBe(eikon.file("draft"))
+  })
+
+  test("metadata validation rejects secrets and private URLs before staging", async () => {
+    await seed("draft")
+
+    await expect(submit.prepare({
+      path: eikon.file("draft"),
+      meta: { title: "draft", author: "kaio", description: "token ghp_secret", glyph: "◆" },
+    })).rejects.toThrow(/description looks secret-like/)
+
+    for (const url of ["http://172.16.0.1", "http://169.254.169.254", "http://[::1]"]) {
+      await expect(submit.prepare({
+        path: eikon.file("draft"),
+        meta: { title: "draft", author: "kaio", description: url, glyph: "◆" },
+      })).rejects.toThrow(/description contains private or unsafe URL/)
+    }
+  })
+
+  test("submit revalidates staged bundle before backend create", async () => {
+    await seed("draft")
+    const prepared = await submit.prepare({ path: eikon.file("draft"), meta: meta() })
+    writeFileSync(join(prepared.bundleDir, "manifest.json"), "tampered")
+
+    const fn = mock(async (_req: import("eikon").SubmitRequest) => ({ kind: "submitted" as const, url: "https://github.com/liftaris/eikon/pull/1", request: _req }))
+    const backend: import("eikon").SubmitBackend = {
+      async check() { return { ok: true as const } },
+      create: fn,
+    }
+
+    const res = await submit.submit(prepared, backend)
+
+    expect(res.kind).toBe("validation-failed")
+    expect(fn).not.toHaveBeenCalled()
+  })
+
+  test("staged public manifest drops unknown source manifest fields and uses display metadata", async () => {
+    await seed("draft")
+    writeFileSync(join(eikon.dir("draft"), "manifest.json"), JSON.stringify({
+      name: "draft", version: 1, source: "source/base.png", states: { idle: { file: "source/base.png" } }, notes: "token ***",
+    }, null, 2) + "\n")
+
+    const prepared = await submit.prepare({ path: eikon.file("draft"), meta: meta(), includeSource: true })
+    const man = JSON.parse(await Bun.file(join(prepared.bundleDir, "manifest.json")).text())
+
+    expect(man.notes).toBeUndefined()
+    expect(man.display).toEqual({ title: "draft", author: "kaio", description: "demo", glyph: "◆" })
+    expect(prepared.body).toContain("Description: demo")
   })
 
   test("preflight preview accepts gzip runtime drafts", async () => {
@@ -102,55 +161,73 @@ describe("Eikon submit dialog", () => {
     const raw = await Bun.file(eikon.file("draft")).text()
     writeFileSync(eikon.file("draft"), runtimeDescriptor(raw, { encoding: "gzip" }).bytes)
 
-    const seen = await submit.preview({ path: eikon.file("draft") })
+    const seen = await submit.prepare({ path: eikon.file("draft"), meta: meta(), includeSource: true })
 
     expect(seen.name).toBe("draft")
     expect(seen.files.map(f => f.path)).toContain("manifest.json")
   })
 
+  test("browser fallback action is blocked until consent and shows manual PR data", async () => {
+    await seed("draft")
+    const fn = mock(async (_input: submit.PreparedSubmit) => ({ kind: "setup-needed" as const, failures: [{ code: "missing-auth" as const, message: "Run gh auth login" }] }))
+    await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 180, height: 60 })
+    await open(t)
+    await stage(t)
+    expect(t.frame()).toContain("PR title")
+    expect(t.frame()).toContain("PR body")
+    expect(t.frame()).toContain("Manual steps")
+    act(() => t.keys.pressKey("o"))
+    await until(t, () => t.frame().includes("Press c to consent before opening browser fallback"))
+    expect(fn).not.toHaveBeenCalled()
+  })
+
   test("preflight setup guidance does not submit", async () => {
     await seed("draft")
-    const fn = mock(async () => ({ kind: "setup-needed" as const, failures: [{ code: "missing-auth" as const, message: "Run gh auth login" }] }))
+    const fn = mock(async (_input: submit.PreparedSubmit) => ({ kind: "setup-needed" as const, failures: [{ code: "missing-auth" as const, message: "Run gh auth login" }] }))
     await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 160, height: 48 })
     await open(t)
     await stage(t)
+    await consent(t)
     act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("Setup needed") && t.frame().includes("Run gh auth login"))
+    await until(t, () => t.frame().includes("GitHub setup needed") && t.frame().includes("Run gh auth login") && t.frame().includes("fallback"))
     expect(fn).toHaveBeenCalledTimes(1)
-    expect(fn).toHaveBeenCalledWith({ path: eikon.file("draft") })
+    expect((fn.mock.calls[0]?.[0] as submit.PreparedSubmit).path).toBe(eikon.file("draft"))
   })
 
   test("happy path displays the returned submission URL", async () => {
     await seed("draft")
-    const fn = mock(async () => ({ kind: "submitted" as const, url: "https://github.com/liftaris/eikon/pull/7", request: {} as never }))
+    const fn = mock(async (_input: submit.PreparedSubmit) => ({ kind: "submitted" as const, url: "https://github.com/liftaris/eikon/pull/7", request: {} as never }))
     await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 160, height: 48 })
     await open(t)
     await stage(t)
+    await consent(t)
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Submitted") && t.frame().includes("pull/7"))
-    expect(fn).toHaveBeenCalledWith({ path: eikon.file("draft") })
+    expect((fn.mock.calls[0]?.[0] as submit.PreparedSubmit).path).toBe(eikon.file("draft"))
   })
 
   test("failure redacts displayed auth tokens", async () => {
     await seed("draft")
-    const fn = mock(async () => ({ kind: "backend-failed" as const, failures: [{ code: "backend-failed" as const, message: "gh failed token ***" }] }))
+    const fn = mock(async (_input: submit.PreparedSubmit) => ({ kind: "backend-failed" as const, failures: [{ code: "backend-failed" as const, message: "gh failed token ***" }] }))
     await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 160, height: 48 })
     await open(t)
     await stage(t)
+    await consent(t)
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Submit failed"))
     expect(t.frame()).toContain("[redacted]")
     expect(t.frame()).not.toContain("***")
-    expect(fn).toHaveBeenCalledWith({ path: eikon.file("draft") })
+    expect((fn.mock.calls[0]?.[0] as submit.PreparedSubmit).path).toBe(eikon.file("draft"))
   })
 
   test("repeated Enter while in flight creates one backend submission", async () => {
     await seed("draft")
     let release: ((value: submit.SubmitResult) => void) | undefined
-    const fn = mock(() => new Promise<submit.SubmitResult>(res => { release = res }))
+    const fn = mock((_input: submit.PreparedSubmit) => new Promise<submit.SubmitResult>(res => { release = res }))
     await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 160, height: 48 })
     await open(t)
     await stage(t)
+    await consent(t)
     act(() => t.keys.pressEnter())
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Submitting…"))
@@ -162,10 +239,11 @@ describe("Eikon submit dialog", () => {
   test("rejected submit clears busy state", async () => {
     await seed("draft")
     let calls = 0
-    const fn = mock(async () => { calls++; throw new Error("gh failed Bearer abc.def") })
+    const fn = mock(async (_input: submit.PreparedSubmit) => { calls++; throw new Error("gh failed Bearer abc.def") })
     await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 160, height: 48 })
     await open(t)
     await stage(t)
+    await consent(t)
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Submit failed") && t.frame().includes("[redacted]"))
     act(() => t.keys.pressEnter())
@@ -174,7 +252,7 @@ describe("Eikon submit dialog", () => {
 
   test("Submit entry is hidden for bundled eikons", async () => {
     prefs.set("eikon", "nous")
-    const fn = mock(async () => ({ kind: "submitted" as const, url: "https://github.com/liftaris/eikon/pull/1", request: {} as never }))
+    const fn = mock(async (_input: submit.PreparedSubmit) => ({ kind: "submitted" as const, url: "https://github.com/liftaris/eikon/pull/1", request: {} as never }))
     await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 160, height: 48 })
     await until(t, () => t.frame().includes("bundled/system"))
     expect(t.frame()).not.toContain("submit")

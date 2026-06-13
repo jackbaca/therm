@@ -38,7 +38,7 @@ test("baked mode: plays packed frames, hides spatial, shows download row", async
   writeFileSync(eikon.file("bake"), make("bake", url))
   prefs.set("eikon", "bake")
 
-  await using t = await mountNode(<EikonGroup focused sub={1} setSub={() => {}} />, { width: 180, height: 50 })
+  await using t = await mountNode(<EikonGroup focused sub={2} setSub={() => {}} />, { width: 180, height: 50 })
   await until(t, () => t.frame().includes("(baked)"))
   const f = t.frame()
   // Baked frame content is on screen; spatial rows are not.
@@ -63,7 +63,7 @@ test("baked mode: no url → 'attach' hint, no download row", async () => {
   eikon.ensure("noburl")
   writeFileSync(eikon.file("noburl"), make("noburl"))
   prefs.set("eikon", "noburl")
-  await using t = await mountNode(<EikonGroup focused sub={1} setSub={() => {}} />, { width: 180, height: 50 })
+  await using t = await mountNode(<EikonGroup focused sub={2} setSub={() => {}} />, { width: 180, height: 50 })
   await until(t, () => t.frame().includes("(baked)"))
   const f = t.frame()
   expect(f).not.toContain("download source")

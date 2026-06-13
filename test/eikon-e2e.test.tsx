@@ -7,7 +7,8 @@ import { EikonGallery } from "../src/tabs/EikonGallery"
 import { EikonStudio } from "../src/tabs/EikonStudio"
 import { eikon } from "../src/service/eikon"
 import * as prefs from "../src/context/preferences"
-import { decodeRuntimeFile, submit as eikonSubmit, type SubmitBackend, type SubmitRequest } from "eikon"
+import { decodeRuntimeFile, type SubmitBackend, type SubmitRequest } from "eikon"
+import * as submitSvc from "../src/service/eikon-submit"
 import { caps, type Rasterizer } from "../src/utils/eikon-render"
 
 const HH = process.env.HERMES_HOME!
@@ -59,7 +60,7 @@ function seedNousDraft(name: string) {
 async function selectRow(t: Harness, name: string) {
   await until(t, () => t.frame().includes(name))
   for (let i = 0; i < 30; i++) {
-    if (t.frame().split("\n").some(l => l.includes("▸") && l.includes(name))) return
+    if (t.frame().includes(`Preview — ${name}`)) return
     act(() => t.keys.pressArrow("down"))
     await t.settle()
   }
@@ -92,7 +93,7 @@ test("Eikon visual E2E: duplicate Nous draft, studio preview, submit, delete rel
       return { kind: "submitted" as const, url: "https://example.test/submissions/nous-e2e", request: req }
     },
   }
-  const submit = (input: { path: string }) => eikonSubmit({ path: input.path, backend })
+  const submit = (input: submitSvc.PreparedSubmit) => submitSvc.submit(input, backend)
   const frames: Record<string, string> = {}
 
   try {
@@ -120,14 +121,17 @@ test("Eikon visual E2E: duplicate Nous draft, studio preview, submit, delete rel
     snap("submit-preview", gallery, frames)
     expect(frames["submit-preview"]).toContain(`${name}.eikon`)
     expect(frames["submit-preview"]).toContain("manifest.json")
-    expect(frames["submit-preview"]).toContain("source/base.png")
+    expect(frames["submit-preview"]).toContain("runtime-only")
+    expect(frames["submit-preview"]).not.toContain("source/base.png")
     expect(requests).toHaveLength(0)
 
+    act(() => gallery.keys.pressKey("c"))
+    await until(gallery, () => gallery.frame().includes("public PR consent"))
     act(() => gallery.keys.pressEnter())
     await until(gallery, () => gallery.frame().includes("Submitted") && gallery.frame().includes("nous-e2e"))
     snap("submitted", gallery, frames)
     expect(requests).toHaveLength(1)
-    expect(requests[0]!.bundle.files.map(f => f.path).sort()).toEqual(["manifest.json", `${name}.eikon`, "source/base.png"])
+    expect(requests[0]!.bundle.files.map(f => f.path).sort()).toEqual(["manifest.json", `${name}.eikon`])
     expect(requests[0]!.bundle.catalog.name).toBe(name)
     expect(requests[0]!.bundle.catalog.runtimeUrl).toContain(`${name}.eikon`)
 
