@@ -7,6 +7,7 @@ import { useToast } from "../ui/toast"
 import { TabShell } from "../ui/shell"
 import { HintBar } from "../ui/hint"
 import { useKeys, handleListKey, useFollow } from "../keys"
+import { EikonCardGrid, EikonTitleList, type EikonCard } from "./eikon-panels"
 import { openConfirm } from "../dialogs/confirm"
 import { openEikonSubmit } from "../dialogs/eikon-submit"
 import { openNewEikon } from "../dialogs/new-eikon"
@@ -31,6 +32,9 @@ type Props = {
   onEdit?: (name: string) => void
   submit?: submitSvc.Submit
 }
+
+type Pane = "list" | "actions"
+type Action = { key: string; label: string; run: () => void; danger?: boolean }
 
 export const EikonGallery = memo((props: Props) => {
   const theme = useTheme().theme
@@ -66,7 +70,10 @@ export const EikonGallery = memo((props: Props) => {
   const path = useMemo(() => active ? eikon.baked(active) : undefined, [active, rev])
   const current = (row: Row) => path === row.path
   const [sel, setSel] = useState(0)
+  const [pane, setPane] = useState<Pane>("list")
+  const [act, setAct] = useState(0)
   const galleryFollow = useFollow("gal", i => rows[i]?.slug ?? i)
+  const gridFollow = useFollow("lib-grid", i => rows[i]?.slug ?? i)
 
   useEffect(() => { if (sel >= rows.length) setSel(Math.max(0, rows.length - 1)) }, [rows.length, sel])
 
@@ -155,8 +162,45 @@ export const EikonGallery = memo((props: Props) => {
     toast.show({ variant: "info", message: `Deleted ${cur.name}` })
   }
 
+  const actions = useMemo<Action[]>(() => {
+    if (!cur) return []
+    return [
+      { key: "Enter", label: current(cur) ? "Use as active avatar (active)" : "Use as active avatar", run: () => activate() },
+      ...(props.onEdit ? [{ key: "e", label: "Edit in Studio", run: () => props.onEdit?.(cur.slug) } satisfies Action] : []),
+      ...(!cur.bundled ? [
+        { key: "u", label: "Update local package", run: () => void updateLocal() },
+        { key: "s", label: "Share to catalog", run: () => void submitLocal() },
+        { key: "d", label: "Delete local eikon", run: () => void del(), danger: true },
+      ] satisfies Action[] : []),
+    ]
+  }, [cur, props.onEdit, updateLocal, submitLocal])
+
+  useEffect(() => { if (act >= actions.length) setAct(Math.max(0, actions.length - 1)) }, [act, actions.length])
+
+  const cards = useMemo<EikonCard[]>(() => rows.map(r => {
+    const p = (() => { try { return parseEikonFile(r.path) } catch { return undefined } })()
+    const lines = p?.resolve("state.idle")?.frames[0] ?? p?.states.get("idle")?.frames[0] ?? ["(no preview)"]
+    return {
+      key: r.path,
+      name: r.name,
+      active: current(r),
+      author: r.author,
+      status: current(r) ? "active" : r.bundled ? "bundled/system" : "installed",
+      lines,
+    }
+  }), [rows, path])
+
   useKeyboard(key => {
     if (!props.focused || dialog.open()) return
+    const plain = !key.shift && !key.ctrl && !key.meta
+    if (key.name === "tab") return setPane(p => p === "list" ? "actions" : "list")
+    if (pane === "actions") {
+      if (key.name === "escape" || (plain && key.name === "left")) { setPane("list"); return }
+      if (plain && key.name === "up") { setAct(i => Math.max(0, i - 1)); return }
+      if (plain && key.name === "down") { setAct(i => Math.min(actions.length - 1, i + 1)); return }
+      if (keys.match("list.activate", key) || keys.match("list.toggle", key)) { actions[act]?.run(); return }
+      return
+    }
     if (handleListKey(keys, key, {
       count: rows.length,
       setSel,
@@ -180,30 +224,12 @@ export const EikonGallery = memo((props: Props) => {
   return (
     <box flexDirection="column" flexGrow={1} minWidth={0}>
       <box flexDirection="row" flexGrow={1} minHeight={0}>
-        <box width={listW} flexShrink={0} minHeight={0}>
-        <TabShell title={`Library (${rows.length})`} focus={props.focused} grow={1}>
-          <box flexDirection="column" flexGrow={1} minHeight={0}>
-            <scrollbox ref={galleryFollow.ref} scrollY flexGrow={1}>
-              {rows.length === 0
-                ? <text fg={theme.textMuted}>No eikons found.</text>
-                : rows.map((r, i) => {
-                    const on = i === sel
-                    const here = current(r)
-                    return (
-                      <box key={r.path} id={galleryFollow.id(i)} flexDirection="row" height={1} paddingRight={3}
-                           backgroundColor={on ? theme.backgroundElement : undefined}
-                           onMouseMove={() => setSel(i)} onMouseDown={() => { setSel(i); activate(r) }}>
-                        <box width={2}><text fg={on ? theme.primary : theme.textMuted}>{on ? "▸ " : "  "}</text></box>
-                        <box flexGrow={1} minWidth={0} height={1} overflow="hidden"><text fg={here ? theme.accent : theme.text}>
-                          {here ? "● " : "  "}<strong>{r.name}</strong>
-                        </text></box>
-                      </box>
-                    )
-                  })}
-            </scrollbox>
-          </box>
+        <EikonTitleList title={`Library (${rows.length})`} rows={rows.map(r => ({ key: r.path, name: r.name, active: current(r) }))}
+          sel={sel} focus={props.focused && pane === "list"} follow={galleryFollow} width={listW}
+          onSel={setSel} onUse={i => activate(rows[i])} />
+        <TabShell title="Grid" grow={1}>
+          <EikonCardGrid rows={cards} sel={sel} follow={gridFollow} onSel={setSel} onUse={i => activate(rows[i])} />
         </TabShell>
-        </box>
         <TabShell title={cur ? `Preview — ${cur.name}` : "Preview"} grow={1}>
           <box flexDirection="column" flexGrow={1} padding={1} alignItems="center">
             <box alignItems="center" justifyContent="center" height={24} flexShrink={0}>
@@ -220,16 +246,25 @@ export const EikonGallery = memo((props: Props) => {
                 <text fg={theme.textMuted} wrapMode="word">Trust: {galleryTrust(cur)}</text>
                 <text fg={theme.textMuted} wrapMode="word">Package: {packageId(cur)}</text>
                 <text fg={theme.textMuted}>{sourceBadge(cur)}</text>
+                <box height={1} />
+                <text fg={theme.primary}><strong>Actions</strong></text>
+                {actions.map((a, i) => (
+                  <box key={a.label} height={1} overflow="hidden" paddingRight={1}
+                       backgroundColor={pane === "actions" && i === act ? theme.backgroundElement : undefined}
+                       onMouseDown={() => { setPane("actions"); setAct(i); a.run() }}>
+                    <text fg={a.danger ? theme.error : theme.text} wrapMode="none">{pane === "actions" && i === act ? "▸ " : "  "}{a.label} [{a.key}]</text>
+                  </box>
+                ))}
               </box>
             ) : null}
           </box>
         </TabShell>
       </box>
       <HintBar pairs={[
-        [keys.print("list.activate"), "use"], ["↑↓", "select"],
+        ["Tab", pane === "list" ? "actions" : "library"],
+        [keys.print("list.activate"), pane === "actions" ? "run action" : "use"], ["↑↓", pane === "actions" ? "action" : "select"],
         [keys.print("list.new"), "new / install"], [keys.print("list.refresh"), "reload"],
-        ...(cur && props.onEdit ? [["e", "edit"] as const] : []),
-        ...(cur && !cur.bundled ? [["u/s/d", "manage"] as const] : []),
+        ...(cur && props.onEdit ? [["e", "edit in Studio"] as const] : []),
       ]} />
     </box>
   )

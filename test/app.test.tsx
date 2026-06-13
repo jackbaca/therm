@@ -343,7 +343,6 @@ describe("app", () => {
     act(() => { for (let i = 0; i < 4; i++) t.keys.pressArrow("right", { meta: true }) })
     await until(t, () => t.frame().includes("Library ("))
     act(() => t.keys.pressArrow("right", { shift: true }))
-    act(() => t.keys.pressArrow("right", { shift: true }))
     await until(t, () => t.frame().includes("Catalog (1)") && t.frame().includes("MARKET-PREVIEW-LINE") && t.frame().includes("ACTIVE-EIKON-LINE"))
     expect(t.frame()).toContain("Details — marketone")
     expect(t.frame()).toContain("by Kaio")

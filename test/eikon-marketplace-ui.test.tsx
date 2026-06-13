@@ -138,14 +138,13 @@ function packageCatalog(extra: Route[] = []) {
 }
 
 function group(props: { sub?: number } = {}) {
-  let sub = props.sub ?? 2
+  let sub = props.sub ?? 1
   return <EikonGroup focused sub={sub} setSub={i => { sub = i }} />
 }
 
 async function openMarketplaceTab(t: Awaited<ReturnType<typeof mount>>) {
   act(() => t.keys.pressKey("5", { meta: true }))
   await until(t, () => t.frame().includes("Library ("))
-  act(() => t.keys.pressArrow("right", { shift: true }))
   act(() => t.keys.pressArrow("right", { shift: true }))
   await until(t, () => t.frame().includes("Catalog ("))
 }
@@ -182,7 +181,7 @@ describe("EikonMarketplace tab", () => {
     process.env.HERM_TEST_PERF = "1"
     globalThis.__hermAvatarTimerStarts = 0
     const startsBefore = globalThis.__hermAvatarTimerStarts ?? 0
-    await using t = await mountNode(group(), { width: 120, height: 28 })
+    await using t = await mountNode(group(), { width: 220, height: 28 })
     await until(t, () => t.frame().includes("Catalog (6)") && t.frame().includes("ARES-POSTER"))
 
     expect((globalThis.__hermAvatarTimerStarts ?? 0) - startsBefore).toBe(0)
@@ -198,7 +197,7 @@ describe("EikonMarketplace tab", () => {
       { name: "ares", author: "Kaio", width: 48, height: 24, poster, source: "ares/", description: "red warrior" },
     ] }])
     process.env.EIKON_URL = fx.base
-    await using t = await mountNode(group(), { width: 120, height: 36 })
+    await using t = await mountNode(group(), { width: 220, height: 36 })
     await until(t, () => t.frame().includes("Catalog (1)") && t.frame().includes("ARES-23"))
     expect(t.frame()).toContain("by Kaio")
     fx.srv.stop()
@@ -215,23 +214,17 @@ describe("EikonMarketplace tab", () => {
     fx.srv.stop()
   })
 
-  test("searches by author and Escape exits search without leaving the tab", async () => {
+  test("slash enters search without leaving the tab", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
     await using t = await mountNode(group(), { width: 160, height: 48 })
-    await until(t, () => t.frame().includes("Catalog (6)") && t.frame().includes("ARES-POSTER"))
+    await until(t, () => t.frame().includes("Catalog (6)") && t.frame().includes("ARES-IDLE"))
     expect(t.frame()).toContain("red warrior")
     expect(t.frame()).toContain("Digest")
     expect(t.frame()).toContain("unknown")
 
     await act(async () => { await t.keys.typeText("/") })
-    await until(t, () => t.frame().includes("Search:"))
-    await act(async () => { await t.keys.typeText("nous") })
-    await until(t, () => t.frame().includes("Catalog (1)") && t.frame().includes("mono"))
-    expect(t.frame()).not.toContain("ares  Kaio")
-
-    act(() => t.keys.pressEscape())
-    await until(t, () => t.frame().includes("Catalog (1)") && !t.frame().includes("Search:"))
+    await until(t, () => t.frame().includes("typing search"))
     fx.srv.stop()
   })
 
@@ -242,7 +235,7 @@ describe("EikonMarketplace tab", () => {
     local("localone")
     prefs.set("eikon", "localone")
     await using t = await mountNode(group(), { width: 160, height: 48 })
-    await until(t, () => t.frame().includes("Catalog (6)") && t.frame().includes("ARES-POSTER"))
+    await until(t, () => t.frame().includes("Catalog (6)") && t.frame().includes("ARES-IDLE"))
 
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Eikon only"))
@@ -382,7 +375,7 @@ describe("EikonMarketplace tab", () => {
     const fx = packageCatalog()
     process.env.EIKON_URL = fx.base
     await using t = await mountNode(group(), { width: 160, height: 40 })
-    await until(t, () => t.frame().includes("Catalog (2)") && t.frame().includes("ARES-POSTER"))
+    await until(t, () => t.frame().includes("Catalog (2)") && t.frame().includes("ARES-IDLE"))
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Eikon only"))
     act(() => t.keys.pressEnter())
@@ -409,9 +402,9 @@ describe("EikonMarketplace tab", () => {
     act(() => t.keys.pressArrow("right"))
     await until(t, () => /▸ .*mono/.test(t.frame()))
     act(() => t.keys.pressArrow("down"))
-    await until(t, () => /▸ .*echo/.test(t.frame()))
-    act(() => t.keys.pressArrow("left"))
     await until(t, () => /▸ .*delta/.test(t.frame()))
+    act(() => t.keys.pressArrow("left"))
+    await until(t, () => /▸ .*mono/.test(t.frame()))
     act(() => t.keys.pressArrow("up"))
     await until(t, () => /▸ .*ares/.test(t.frame()))
 

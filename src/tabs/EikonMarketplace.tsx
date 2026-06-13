@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
-import { useKeyboard } from "@opentui/react"
+import { useKeyboard, useTerminalDimensions } from "@opentui/react"
 import { useTheme } from "../theme"
 import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
@@ -9,6 +9,7 @@ import { FilterChip } from "../ui/filter-chip"
 import { openConfirm } from "../dialogs/confirm"
 import { openEikonMarketplaceAction } from "../dialogs/eikon-marketplace-action"
 import { useKeys, handleListKey, useFollow } from "../keys"
+import { EikonCardGrid, EikonTitleList, titleWidth, type EikonCard } from "./eikon-panels"
 import * as perf from "../utils/perf"
 import { AnimatedAvatar } from "../components/avatar/AnimatedAvatar"
 import { parseEikon, type ParsedEikon } from "../components/avatar/eikon"
@@ -18,7 +19,6 @@ import type { MarketplaceRow, MarketplaceState } from "../service/eikon-marketpl
 import type { AvatarState } from "../components/avatar/states"
 
 const NO_MARKET: MarketplaceState = { status: "empty", query: "", rows: [] }
-const CARD = 50
 const DETAIL = 54
 
 type Pane = "grid" | "detail"
@@ -38,12 +38,20 @@ function localCatalog(raw?: string) {
   } catch { return false }
 }
 
+const filterRows = (rows: MarketplaceRow[], query: string) => {
+  const q = query.trim().toLowerCase()
+  if (!q) return rows
+  return rows.filter(r => [r.entry.name, r.entry.author, r.entry.description, r.entry.id]
+    .some(x => typeof x === "string" && x.toLowerCase().includes(q)))
+}
+
 export const EikonMarketplace = memo((props: {
   focused: boolean
 }) => {
   const toast = useToast()
   const dialog = useDialog()
   const keys = useKeys()
+  const theme = useTheme().theme
   const rev = useSyncExternalStore(eikon.onRevision, eikon.revision)
   const [sel, setSel] = useState(0)
   const [searching, setSearching] = useState(false)
@@ -56,6 +64,8 @@ export const EikonMarketplace = memo((props: {
   const [pane, setPane] = useState<Pane>("grid")
   const previewSeq = useRef(0)
   const follow = useFollow("market", i => state.rows[i]?.entry.identityKey ?? i)
+  const listFollow = useFollow("market-list", i => state.rows[i]?.entry.identityKey ?? i)
+  const dims = useTerminalDimensions()
 
   useEffect(() => { if (sel >= state.rows.length) setSel(Math.max(0, state.rows.length - 1)) }, [state.rows.length, sel])
 
@@ -100,14 +110,15 @@ export const EikonMarketplace = memo((props: {
     void market.load({ catalog, allowPrivate: localCatalog(catalog), query: q })
       .then(next => {
         perf.count("market:list:rows", next.rows.length)
-        setState(next)
-        setSel(p => Math.max(0, Math.min(next.rows.length - 1, p)))
+        const rows = next.service ? filterRows(next.service.rows(""), q) : filterRows(next.rows, q)
+        setState({ ...next, status: rows.length > 0 ? "ready" : "empty", rows, selected: rows[0] })
+        setSel(p => Math.max(0, Math.min(rows.length - 1, p)))
       })
       .finally(() => { end(); setLoading(false) })
   }, [query])
 
   const refreshMarket = useCallback((svc: market.MarketplaceService, q = query) => {
-    const rows = svc.rows(q)
+    const rows = filterRows(svc.rows(""), q)
     setState({ status: rows.length > 0 ? "ready" : "empty", query: q, rows, selected: rows[0], service: svc })
     setSel(p => Math.max(0, Math.min(rows.length - 1, p)))
   }, [query])
@@ -184,9 +195,11 @@ export const EikonMarketplace = memo((props: {
   useKeyboard(key => {
     if (!props.focused || dialog.open()) return
     if (searching) {
-      if (key.name === "escape") { setSearching(false); return }
+      if (key.name === "escape" || key.name === "esc") { setSearching(false); return }
       if (key.name === "backspace") { setQuery(q => q.slice(0, -1)); setSel(0); return }
-      if (key.raw && key.raw.length === 1 && key.raw >= " ") { setQuery(q => q + key.raw); setSel(0); return }
+      const seq = typeof key.sequence === "string" ? key.sequence : ""
+      const ch = key.raw && key.raw.length === 1 ? key.raw : seq.length === 1 ? seq : key.name.length === 1 && !key.ctrl && !key.meta ? key.name : ""
+      if (ch >= " ") { setQuery(q => q + ch); setSel(0); return }
       return
     }
     const plain = !key.shift && !key.ctrl && !key.meta
@@ -203,15 +216,16 @@ export const EikonMarketplace = memo((props: {
     const move = (by: number) => setSel(p => {
       const n = Math.max(0, Math.min(state.rows.length - 1, p + by))
       follow.opts.scrollTo?.(n)
+      listFollow.opts.scrollTo?.(n)
       return n
     })
-    const cols = () => Math.max(1, Math.floor((follow.ref.current?.viewport.width ?? CARD) / CARD))
     if (plain && key.name === "left") { move(-1); return }
     if (plain && key.name === "right") { move(1); return }
-    if (plain && key.name === "up") { move(-cols()); return }
-    if (plain && key.name === "down") { move(cols()); return }
+    if (plain && key.name === "up") { move(-1); return }
+    if (plain && key.name === "down") { move(1); return }
     if (handleListKey(keys, key, {
-      count: state.rows.length, setSel, ...follow.opts,
+      count: state.rows.length, setSel, page: listFollow.opts.page,
+      scrollTo: n => { follow.opts.scrollTo?.(n); listFollow.opts.scrollTo?.(n) },
       onActivate: primary,
       onToggle: () => cycle(1),
       onSearch: () => setSearching(true),
@@ -221,13 +235,34 @@ export const EikonMarketplace = memo((props: {
   })
 
   perf.count("market:render")
+  const titles = state.rows.map(r => ({ key: r.entry.identityKey, name: r.entry.name, active: r.active }))
+  const cards: EikonCard[] = state.rows.map(r => ({
+    key: r.entry.identityKey,
+    name: r.entry.name,
+    active: r.active,
+    author: r.entry.author,
+    status: stateLabel(r, true),
+    lines: posterLines(r.entry.poster),
+  }))
+  const listW = titleWidth(`Catalog (${state.rows.length})`, titles)
+  const showGrid = dims.width >= 190
   return (
     <box flexDirection="column" flexGrow={1} minWidth={0} minHeight={0}>
       <box flexDirection="row" flexGrow={1} minWidth={0} minHeight={0}>
-        <TabShell title={`Catalog (${state.rows.length})${searching ? ` Search: ${query}` : ""}`} focus={props.focused && pane === "grid"} grow={3}>
-          <MarketplaceGrid rows={state.rows} sel={sel} follow={follow}
-            loading={loading} error={state.error} onSel={setSel} onUse={primary} />
-        </TabShell>
+        <EikonTitleList title={`Catalog (${state.rows.length})${searching ? ` Search: ${query}` : ""}`}
+          rows={titles} sel={sel} focus={props.focused && pane === "grid"} follow={listFollow} width={listW}
+          onSel={setSel} onUse={primary} />
+        {showGrid ? (
+          <TabShell title="Posters" grow={1}>
+            {state.error
+              ? <box padding={1}><text fg={theme.error} wrapMode="word">Catalog unavailable: {state.error}</text></box>
+              : loading && state.rows.length === 0
+                ? <box padding={1}><text fg={theme.textMuted}>Loading shared eikons…</text></box>
+                : <EikonCardGrid rows={cards} sel={sel} follow={follow}
+                    empty={<text fg={theme.textMuted}>No catalog eikons match. Press / to change search.</text>}
+                    onSel={setSel} onUse={primary} />}
+          </TabShell>
+        ) : null}
         <box width={DETAIL} flexShrink={0} minHeight={0}>
           <TabShell title={selected ? `Details — ${selected.entry.name}` : "Details"} focus={props.focused && pane === "detail"} grow={1}>
             <MarketplaceDetail row={selected} loading={loading} installing={installing} onUse={() => primary()}
@@ -245,47 +280,10 @@ export const EikonMarketplace = memo((props: {
   )
 })
 
-const MarketplaceGrid = (props: {
-  rows: MarketplaceRow[]; sel: number; follow: ReturnType<typeof useFollow>
-  loading: boolean; error?: string; onSel: (i: number) => void; onUse: (i: number) => void
-}) => {
-  const theme = useTheme().theme
-  if (props.error) return <box key="error" padding={1}><text fg={theme.error} wrapMode="word">Catalog unavailable: {props.error}</text></box>
-  if (props.loading && props.rows.length === 0) return <box key="loading" padding={1}><text fg={theme.textMuted}>Loading shared eikons…</text></box>
-  if (props.rows.length === 0) return <box key="empty" padding={1}><text fg={theme.textMuted}>No catalog eikons match. Press / to change search.</text></box>
-  return (
-    <scrollbox key="rows" ref={props.follow.ref} scrollY flexGrow={1}>
-      <box flexDirection="row" flexWrap="wrap" width="100%" flexShrink={0}>
-        {props.rows.map((r, i) => {
-          const on = i === props.sel
-          const lines = posterLines(r.entry.poster)
-          return (
-            <box key={r.entry.identityKey} id={props.follow.id(i)} flexDirection="column" height={cardHeight(r)} width={cardWidth(r)} flexShrink={0} paddingX={1}
-                 backgroundColor={on ? theme.backgroundElement : undefined}
-                 onMouseMove={() => props.onSel(i)} onMouseDown={() => { props.onSel(i); props.onUse(i) }}>
-              <box height={lines.length} overflow="hidden" flexDirection="column">
-                {lines.map((line, j) => (
-                  <box key={j} height={1} overflow="hidden"><text fg={theme.textMuted} wrapMode="none">{line || " "}</text></box>
-                ))}
-              </box>
-              <box height={1} overflow="hidden"><text fg={r.active ? theme.accent : theme.text} wrapMode="none">{on ? "▸ " : "  "}{r.active ? "● " : "  "}<strong>{r.entry.name}</strong></text></box>
-              <box height={1} overflow="hidden"><text fg={theme.textMuted} wrapMode="none">by {r.entry.author ?? "unknown"} · {stateLabel(r, true)}</text></box>
-            </box>
-          )
-        })}
-      </box>
-    </scrollbox>
-  )
-}
-
 const posterLines = (poster?: string) => {
   const lines = poster ? poster.split("\n") : []
   return lines.length ? lines : ["(no poster)"]
 }
-
-const cardHeight = (row: MarketplaceRow) => posterLines(row.entry.poster).length + 2
-
-const cardWidth = (row: MarketplaceRow) => Math.max(CARD, ...posterLines(row.entry.poster).map(line => line.length + 2))
 
 const MarketplaceDetail = (props: {
   row?: MarketplaceRow
