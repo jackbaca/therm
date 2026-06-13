@@ -8,7 +8,6 @@ import { HintBar } from "../ui/hint"
 import { FilterChip } from "../ui/filter-chip"
 import { openConfirm } from "../dialogs/confirm"
 import { openEikonMarketplaceAction } from "../dialogs/eikon-marketplace-action"
-import { VBAR } from "../ui/table"
 import { useKeys, handleListKey, useFollow } from "../keys"
 import * as perf from "../utils/perf"
 import { AnimatedAvatar } from "../components/avatar/AnimatedAvatar"
@@ -257,7 +256,7 @@ const MarketplaceGrid = (props: {
   if (props.loading && props.rows.length === 0) return <box key="loading" padding={1}><text fg={theme.textMuted}>Loading shared eikons…</text></box>
   if (props.rows.length === 0) return <box key="empty" padding={1}><text fg={theme.textMuted}>No catalog eikons match. Press / to change search.</text></box>
   return (
-    <scrollbox key="rows" ref={props.follow.ref} scrollY flexGrow={1} verticalScrollbarOptions={VBAR}>
+    <scrollbox key="rows" ref={props.follow.ref} scrollY flexGrow={1}>
       <box flexDirection="row" flexWrap="wrap" width="100%" flexShrink={0}>
         {props.rows.map((r, i) => {
           const on = i === props.sel
@@ -309,7 +308,7 @@ const MarketplaceDetail = (props: {
   return (
     <box flexDirection="column" padding={1} onMouseDown={props.onFocus}>
       {props.preview ? (
-        <box alignItems="center" justifyContent="center" height={20} flexShrink={0} overflow="hidden">
+        <box alignItems="center" justifyContent="center" width={48} height={24} flexShrink={0} overflow="hidden">
           <AnimatedAvatar key={`${r.entry.identityKey}:${props.preview.state}`} state={props.preview.state} eikon={props.preview.eikon} />
         </box>
       ) : null}
@@ -324,15 +323,15 @@ const MarketplaceDetail = (props: {
             onMouseDown={() => props.onState(s)} />
         ))}
       </box>
-      <DetailRow label="Status" value={stateLabel(r)} block />
-      <DetailRow label="Trust" value={trustLabel(r)} block />
-      <DetailRow label="Source" value={sourceText(r)} block />
-      <DetailRow label="Compat" value={compatText(r)} />
       <box height={1} paddingX={1}
            backgroundColor={props.detail === "action" ? theme.backgroundElement : undefined}
            onMouseDown={() => { props.onDetail("action"); props.onUse() }}>
         <text fg={r.action === "active" ? theme.textMuted : theme.primary}><strong>{props.installing ? "Installing…" : "Open actions"}</strong></text>
       </box>
+      <DetailRow label="Status" value={stateLabel(r)} block />
+      <DetailRow label="Trust" value={trustLabel(r)} block />
+      <DetailRow label="Source" value={sourceText(r)} block />
+      <DetailRow label="Compat" value={compatText(r)} />
       <DetailRow label="Digest" value={digest(r) ?? "unknown"} block />
     </box>
   )

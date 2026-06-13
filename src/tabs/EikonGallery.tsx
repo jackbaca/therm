@@ -6,7 +6,6 @@ import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
 import { TabShell } from "../ui/shell"
 import { HintBar } from "../ui/hint"
-import { VBAR } from "../ui/table"
 import { useKeys, handleListKey, useFollow } from "../keys"
 import { openConfirm } from "../dialogs/confirm"
 import { openEikonSubmit } from "../dialogs/eikon-submit"
@@ -183,15 +182,15 @@ export const EikonGallery = memo((props: Props) => {
       <box flexDirection="row" flexGrow={1} minHeight={0}>
         <box width={listW} flexShrink={0} minHeight={0}>
         <TabShell title={`Library (${rows.length})`} focus={props.focused} grow={1}>
-          <box flexDirection="column" flexGrow={1} minHeight={0} paddingRight={3}>
-            <scrollbox ref={galleryFollow.ref} scrollY flexGrow={1} verticalScrollbarOptions={VBAR}>
+          <box flexDirection="column" flexGrow={1} minHeight={0}>
+            <scrollbox ref={galleryFollow.ref} scrollY flexGrow={1}>
               {rows.length === 0
                 ? <text fg={theme.textMuted}>No eikons found.</text>
                 : rows.map((r, i) => {
                     const on = i === sel
                     const here = current(r)
                     return (
-                      <box key={r.path} id={galleryFollow.id(i)} flexDirection="row" height={1}
+                      <box key={r.path} id={galleryFollow.id(i)} flexDirection="row" height={1} paddingRight={3}
                            backgroundColor={on ? theme.backgroundElement : undefined}
                            onMouseMove={() => setSel(i)} onMouseDown={() => { setSel(i); activate(r) }}>
                         <box width={2}><text fg={on ? theme.primary : theme.textMuted}>{on ? "▸ " : "  "}</text></box>

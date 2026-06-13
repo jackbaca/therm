@@ -262,7 +262,7 @@ describe("EikonMarketplace tab", () => {
   test("Marketplace details expose runtime-only package lifecycle truthfully", async () => {
     const fx = packageCatalog()
     process.env.EIKON_URL = fx.base
-    await using t = await mountNode(group(), { width: 120, height: 40 })
+    await using t = await mountNode(group(), { width: 120, height: 48 })
     await until(t, () => t.frame().includes("Catalog (2)") && t.frame().includes("Unverified"))
     expect(t.frame()).toContain("Source")
     expect(t.frame()).toContain("Compat: Compatible")
