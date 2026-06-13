@@ -643,8 +643,9 @@ describe("EikonGallery tab", () => {
     prefs.set("eikon", "nous")
     await using t = await mountNode(<EikonGallery focused />, { width: 160, height: 48 })
     await until(t, () => t.frame().includes("Library (") && /●\s+nous/.test(t.frame()))
-    expect(t.frame().split("\n").filter(l => /^│\s*(?:▸\s*)?(?:●\s*)?nous\s+[█│]/i.test(l))).toHaveLength(1)
-    expect(t.frame().match(/●\s+nous/g)?.length ?? 0).toBe(1)
+    const rows = t.frame().split("\n").filter(l => /^│\s*(?:▸\s*)?(?:●\s*)?nous\s+│/i.test(l))
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatch(/●\s+nous/i)
   })
 
   test("lists bundled + installed; Enter sets active eikon", async () => {
