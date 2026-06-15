@@ -45,6 +45,14 @@ function mix(a: RGBA, b: RGBA, n = 0.5): RGBA {
   )
 }
 
+function darken(c: RGBA, n = 0.95): RGBA {
+  return RGBA.fromValues(c.r * n, c.g * n, c.b * n, c.a)
+}
+
+function lighten(c: RGBA, n = 0.05): RGBA {
+  return RGBA.fromValues(c.r + (1 - c.r) * n, c.g + (1 - c.g) * n, c.b + (1 - c.b) * n, c.a)
+}
+
 const TOP_RULE = {
   topLeft: "▔", topRight: "▔", horizontal: "▔",
   bottomLeft: "", bottomRight: "", vertical: "",
@@ -134,12 +142,17 @@ const SystemMessage = memo(({ message }: { message: Message }) => {
 })
 
 const UserMessage = memo(({ message, onRewind }: { message: Message; onRewind?: (m: Message) => void }) => {
-  const theme = useTheme().theme
+  const ctx = useTheme()
+  const theme = ctx.theme
   const [hover, setHover] = useState(false)
   const click = useClick(onRewind && (() => onRewind(message)))
-  const rule = useMemo(
-    () => mix(theme.background, theme.backgroundElement),
-    [theme.background, theme.backgroundElement],
+  const fill = useMemo(
+    () => ctx.mode === "dark" ? mix(theme.background, theme.backgroundElement) : darken(theme.backgroundElement),
+    [ctx.mode, theme.background, theme.backgroundElement],
+  )
+  const edge = useMemo(
+    () => ctx.mode === "dark" ? darken(theme.background) : darken(theme.backgroundElement),
+    [ctx.mode, theme.background, theme.backgroundElement],
   )
   const segs = useMemo(
     () => message.parts.map(p => p.type === "text" && p.content ? splitContent(p.content) : null),
@@ -151,8 +164,8 @@ const UserMessage = memo(({ message, onRewind }: { message: Message; onRewind?: 
       marginBottom={1}
     >
       <box height={1} border={["bottom"]} customBorderChars={BOTTOM_RULE}
-           borderColor={rule} />
-      <box backgroundColor={hover ? rule : theme.backgroundElement}
+           borderColor={edge} />
+      <box backgroundColor={hover ? fill : theme.backgroundElement}
            paddingLeft={1} paddingRight={1} paddingY={1} flexDirection="column" minHeight={1}
            onMouseOver={() => setHover(true)}
            onMouseOut={() => setHover(false)}
@@ -178,7 +191,7 @@ const UserMessage = memo(({ message, onRewind }: { message: Message; onRewind?: 
         })}
       </box>
       <box height={1} border={["top"]} customBorderChars={TOP_RULE}
-           borderColor={rule} />
+           borderColor={edge} />
     </box>
   )
 })
@@ -191,6 +204,10 @@ const AssistantMessage = memo(({ message, streaming, prompt, onPick }: {
   const { agentName } = useSkin()
   const [hover, setHover] = useState(false)
   const click = useClick(onPick && (() => onPick(message)))
+  const rail = useMemo(
+    () => ctx.mode === "dark" ? lighten(theme.background) : darken(theme.backgroundElement),
+    [ctx.mode, theme.background, theme.backgroundElement],
+  )
   const err = !!message.error
   const trail = message.parts.filter((p): p is ToolPart | PromptPart =>
     p.type === "tool" || p.type === "prompt")
@@ -261,7 +278,6 @@ const AssistantMessage = memo(({ message, streaming, prompt, onPick }: {
          onMouseOver={() => setHover(true)}
          onMouseOut={() => setHover(false)}
          {...click}>
-      <box width={3} flexShrink={0} backgroundColor={hover ? theme.backgroundElement : undefined} />
       <box flexDirection="column" flexGrow={1} flexShrink={1}>
         <box height={1} flexDirection="row">
           <box flexGrow={1}><text fg={theme.textMuted}>{header}</text></box>
@@ -274,6 +290,10 @@ const AssistantMessage = memo(({ message, streaming, prompt, onPick }: {
         {message.parts.map(part)}
         {diffs.length ? <DiffTabs tools={diffs} /> : null}
         {err ? <ErrorBlock text={message.error!} /> : null}
+      </box>
+      <box width={3} flexShrink={0} flexDirection="row">
+        <box width={2} />
+        <box width={1} backgroundColor={hover ? rail : undefined} />
       </box>
     </box>
   )
