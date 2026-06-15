@@ -45,6 +45,10 @@ function mix(a: RGBA, b: RGBA, n = 0.5): RGBA {
   )
 }
 
+function darken(c: RGBA, n = 0.35): RGBA {
+  return RGBA.fromValues(c.r * (1 - n), c.g * (1 - n), c.b * (1 - n), c.a)
+}
+
 const TOP_RULE = {
   topLeft: "▔", topRight: "▔", horizontal: "▔",
   bottomLeft: "", bottomRight: "", vertical: "",
@@ -134,12 +138,17 @@ const SystemMessage = memo(({ message }: { message: Message }) => {
 })
 
 const UserMessage = memo(({ message, onRewind }: { message: Message; onRewind?: (m: Message) => void }) => {
-  const theme = useTheme().theme
+  const ctx = useTheme()
+  const theme = ctx.theme
   const [hover, setHover] = useState(false)
   const click = useClick(onRewind && (() => onRewind(message)))
-  const rule = useMemo(
+  const fill = useMemo(
     () => mix(theme.background, theme.backgroundElement),
     [theme.background, theme.backgroundElement],
+  )
+  const edge = useMemo(
+    () => ctx.mode === "dark" ? darken(theme.background) : fill,
+    [ctx.mode, theme.background, fill],
   )
   const segs = useMemo(
     () => message.parts.map(p => p.type === "text" && p.content ? splitContent(p.content) : null),
@@ -151,8 +160,8 @@ const UserMessage = memo(({ message, onRewind }: { message: Message; onRewind?: 
       marginBottom={1}
     >
       <box height={1} border={["bottom"]} customBorderChars={BOTTOM_RULE}
-           borderColor={rule} />
-      <box backgroundColor={hover ? rule : theme.backgroundElement}
+           borderColor={edge} />
+      <box backgroundColor={hover ? fill : theme.backgroundElement}
            paddingLeft={1} paddingRight={1} paddingY={1} flexDirection="column" minHeight={1}
            onMouseOver={() => setHover(true)}
            onMouseOut={() => setHover(false)}
@@ -178,7 +187,7 @@ const UserMessage = memo(({ message, onRewind }: { message: Message; onRewind?: 
         })}
       </box>
       <box height={1} border={["top"]} customBorderChars={TOP_RULE}
-           borderColor={rule} />
+           borderColor={edge} />
     </box>
   )
 })

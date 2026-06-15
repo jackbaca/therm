@@ -92,32 +92,6 @@ describe("MessageList", () => {
     t.destroy()
   })
 
-  test("renders ─── separator above non-first user turns only", async () => {
-    const msgs: Message[] = [
-      { id: "u1", role: "user", timestamp: 0, parts: [{ type: "text", content: "first question", streaming: false }] },
-      { id: "a1", role: "assistant", timestamp: 0, parts: [{ type: "text", content: "first answer", streaming: false }] },
-      { id: "u2", role: "user", timestamp: 0, parts: [{ type: "text", content: "second question", streaming: false }] },
-      { id: "a2", role: "assistant", timestamp: 0, parts: [{ type: "text", content: "second answer", streaming: false }] },
-      { id: "u3", role: "user", timestamp: 0, parts: [{ type: "text", content: "third question", streaming: false }] },
-    ]
-    const t: Harness = await mountNode(
-      <box flexDirection="column" width="100%" height="100%">
-        <MessageList messages={msgs} streaming={false} />
-      </box>,
-      { width: 120, height: 40 },
-    )
-    await until(t, () => t.frame().includes("third question"))
-    const lines = t.frame().split("\n")
-    const y1 = lines.findIndex(l => l.includes("first question"))
-    const y2 = lines.findIndex(l => l.includes("second question"))
-    const y3 = lines.findIndex(l => l.includes("third question"))
-    // First user turn: the line directly above must NOT be a separator.
-    expect(lines[y1 - 1] ?? "").not.toContain("───")
-    // Second + third user turns: separator sits before user chrome.
-    expect(lines.slice(Math.max(0, y2 - 4), y2).some(l => l.includes("───"))).toBe(true)
-    expect(lines.slice(Math.max(0, y3 - 4), y3).some(l => l.includes("───"))).toBe(true)
-    t.destroy()
-  })
 })
 
 describe("tool/inline", () => {

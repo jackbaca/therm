@@ -32,8 +32,6 @@ export const MessageList = memo(({ messages, streaming, prompt, onRewind, onPick
 
   const last = messages[messages.length - 1]
   const lastStreaming = streaming && last?.role === "assistant"
-  const firstUser = messages.findIndex(m => m.role === "user")
-
   return (
     <scrollbox
       flexGrow={1}
@@ -45,9 +43,6 @@ export const MessageList = memo(({ messages, streaming, prompt, onRewind, onPick
       <box flexDirection="column" paddingBottom={1}>
         {messages.map((msg, i) => (
           <box key={msg.id} flexDirection="column">
-            {msg.role === "user" && i > firstUser ? (
-              <box height={1}><text fg={theme.borderSubtle}>───</text></box>
-            ) : null}
             <MessageItem
               message={msg}
               streaming={lastStreaming && i === messages.length - 1}
