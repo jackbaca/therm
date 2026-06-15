@@ -60,6 +60,26 @@ describe("EikonStudio tab", () => {
     un()
   })
 
+  run("u key release does not submit from Studio", async () => {
+    const un = eikon.register(stub)
+    seed("pub", { published: true })
+    prefs.set("eikon", "pub")
+    let sub = 2
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
+      { width: 160, height: 48 },
+    )
+    await until(t, () => t.frame().includes("rasterizer"))
+    act(() => t.renderer.keyInput.processParsedKey({
+      name: "u", ctrl: false, meta: false, shift: false, option: false,
+      sequence: "u", number: false, raw: "u", eventType: "release", source: "raw",
+    }))
+    await t.settle()
+    expect(t.frame()).not.toContain("Create a local draft before submitting")
+    expect(t.frame()).not.toContain("Submit eikon")
+    un()
+  })
+
   test("runtime-only package installs expose Studio fetch from manifest origin", async () => {
     const srv = Bun.serve({
       port: 0,

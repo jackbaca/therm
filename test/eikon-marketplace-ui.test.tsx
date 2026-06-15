@@ -35,7 +35,7 @@ const servers = new Set<ReturnType<typeof Bun.serve>>()
 const baseTestPerf = process.env.HERM_TEST_PERF
 const baseAvatarTimerStarts = globalThis.__hermAvatarTimerStarts
 
-type Route = { path: string; body: BodyInit | object; status?: number; headers?: HeadersInit }
+type Route = { path: string; body: BodyInit | object | (() => Response | Promise<Response>); status?: number; headers?: HeadersInit }
 
 function serve(routes: Route[]) {
   const srv = Bun.serve({
@@ -44,6 +44,7 @@ function serve(routes: Route[]) {
       const path = new URL(req.url).pathname
       const hit = routes.findLast(r => r.path === path)
       if (!hit) return new Response("404", { status: 404 })
+      if (typeof hit.body === "function") return hit.body()
       if (typeof hit.body === "object" && !(hit.body instanceof Uint8Array))
         return Response.json(hit.body, { status: hit.status ?? 200, headers: hit.headers })
       return new Response(hit.body as BodyInit, { status: hit.status ?? 200, headers: hit.headers })
@@ -223,6 +224,51 @@ describe("EikonMarketplace tab", () => {
     await using hidden = await mountNode(group(), { width: 121, height: 48 })
     await until(hidden, () => hidden.frame().includes("Catalog (6)") && hidden.frame().includes("ARES-IDLE"))
     expect(hidden.frame()).not.toContain("ARES-POSTER")
+    fx.srv.stop()
+  })
+
+  test("stale catalog loads cannot overwrite newer search results", async () => {
+    let calls = 0
+    const fx = catalog([{ path: "/eikons/index.json", body: async () => {
+      calls++
+      if (calls === 1) {
+        await Bun.sleep(120)
+        return Response.json([{ name: "ares", author: "Kaio", width: 48, height: 24, poster: "ARES-POSTER", source: "ares/", description: "red warrior" }])
+      }
+      return Response.json([{ name: "mono", author: "Nous", width: 48, height: 24, poster: "MONO-POSTER", source: "mono/", description: "quiet lines" }])
+    } }])
+    process.env.EIKON_URL = fx.base
+    await using t = await mountNode(group(), { width: 160, height: 48 })
+    await act(async () => { await t.keys.typeText("/") })
+    await until(t, () => t.frame().includes("typing search"))
+    await act(async () => { await t.keys.typeText("mono") })
+    await until(t, () => t.frame().includes("Catalog (1)") && t.frame().includes("Details — mono"))
+    await Bun.sleep(160)
+    await t.settle()
+    expect(t.frame()).toContain("Details — mono")
+    expect(t.frame()).not.toContain("Details — ares")
+    fx.srv.stop()
+  })
+
+  test("repeated Enter while sizes load opens one catalog action", async () => {
+    let hits = 0
+    const man = {
+      kind: "eikon.package", schemaVersion: "1.0", id: "liftaris/ares", name: "ares", version: "1.0.0",
+      display: { title: "Ares", author: "Kaio", description: "red warrior" },
+      compatibility: { eikon: ">=1 <2" }, entrypoints: { default: "ares.eikon" },
+      files: [{ path: "ares.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl", size: body.length, digest: digest(body) }],
+    }
+    const fx = catalog([{ path: "/eikons/ares/manifest.json", body: async () => {
+      hits++
+      await Bun.sleep(120)
+      return Response.json(man)
+    } }])
+    process.env.EIKON_URL = fx.base
+    await using t = await mountNode(group(), { width: 160, height: 48 })
+    await until(t, () => t.frame().includes("Catalog (6)") && t.frame().includes("ARES-IDLE"))
+    act(() => { t.keys.pressEnter(); t.keys.pressEnter() })
+    await until(t, () => t.frame().includes("Eikon only"))
+    expect(hits).toBe(1)
     fx.srv.stop()
   })
 

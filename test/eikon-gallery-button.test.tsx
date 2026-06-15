@@ -85,12 +85,30 @@ test("Library grid hides only below one card of available width", async () => {
   expect(hidden.frame()).not.toContain("Grid")
 })
 
+test("Library prefers folder-form duplicate over flat legacy row", async () => {
+  mkdirSync(join(HH, "eikons", "dup"), { recursive: true })
+  writeFileSync(join(HH, "eikons", "dup.eikon"), eikonBody.replaceAll("ares", "dup"))
+  writeFileSync(join(HH, "eikons", "dup", "dup.eikon"), eikonBody.replaceAll("ares", "dup"))
+
+  await using t = await mountNode(<EikonGallery focused />, { width: 160, height: 48 })
+  await until(t, () => t.frame().includes("Library (") && t.frame().includes("dup"))
+  const rows = t.frame().split("\n").filter(l => /^│\s*(?:▸\s*)?(?:●\s*)?dup\s+│/i.test(l))
+  expect(rows).toHaveLength(1)
+})
+
 test("Library action pane names management actions", async () => {
   await using t = await mountNode(<EikonGallery focused />, { width: 180, height: 48 })
   await until(t, () => t.frame().includes("Library (") && t.frame().includes("Actions"))
   expect(t.frame()).toContain("Use as active avatar")
   act(() => t.keys.pressTab())
   await until(t, () => t.frame().includes("[Tab] library"))
+})
+
+test("Library active action label refreshes after bundled activation", async () => {
+  await using t = await mountNode(<EikonGallery focused />, { width: 180, height: 48 })
+  await until(t, () => t.frame().includes("Library (") && t.frame().includes("Use as active avatar"))
+  act(() => t.keys.pressEnter())
+  await until(t, () => t.frame().includes("Use as active avatar (active)"))
 })
 
 test("Library delete removes flat legacy eikon files", async () => {
@@ -107,6 +125,8 @@ test("Library delete removes flat legacy eikon files", async () => {
   }
   act(() => t.keys.pressKey("d"))
   await until(t, () => t.frame().includes("Delete 'liftaris'?"))
+  expect(t.frame()).toContain("Removes legacy flat file liftaris.eikon.")
+  expect(t.frame()).not.toContain(`${HH}/eikons and all its sources`)
   act(() => t.keys.pressEnter())
   await until(t, () => !existsSync(old))
 })

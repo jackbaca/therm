@@ -50,7 +50,7 @@ export const EikonGallery = memo((props: Props) => {
     const own = eikon.list()
     const map = new Map(own.map(x => [x.name.toLowerCase(), x]))
     const meta = own.map(x => ({ inst: x, ids: ids(x.manifest as Record<string, unknown> | undefined, x.name, x.sourceUrl) }))
-    return listEikons([BUNDLED_EIKON_DIR, user]).map(e => {
+    const rows = listEikons([BUNDLED_EIKON_DIR, user]).map(e => {
       const slug = e.path.startsWith(BUNDLED_EIKON_DIR)
         ? e.meta.name.toLowerCase()
         : dirname(e.path) === user ? basename(e.path, ".eikon") : basename(dirname(e.path))
@@ -67,6 +67,11 @@ export const EikonGallery = memo((props: Props) => {
         ...(man ? { manifest: man } : {}),
       }
     }).filter(r => !(r.bundled && r.lifecycle))
+    return [...rows.reduce((map, row) => {
+      const prev = map.get(row.slug)
+      if (!prev || (dirname(prev.path) === user && dirname(row.path) !== user)) map.set(row.slug, row)
+      return map
+    }, new Map<string, Row>()).values()]
   }, [rev])
 
   const active = prefs.usePref("eikon")
@@ -152,9 +157,10 @@ export const EikonGallery = memo((props: Props) => {
   const del = async () => {
     if (!cur || cur.bundled) return
     const here = current(cur)
-    const body = here
-      ? `Removes ${dirname(cur.path)} and all its sources. This is the active avatar; deleting it will clear the active avatar selection.`
+    const base = dirname(cur.path) === hermesPath("eikons")
+      ? `Removes legacy flat file ${basename(cur.path)}.`
       : `Removes ${dirname(cur.path)} and all its sources.`
+    const body = here ? `${base} This is the active avatar; deleting it will clear the active avatar selection.` : base
     const ok = await openConfirm(dialog, {
       title: `Delete '${cur.name}'?`, danger: true,
       body,
@@ -176,7 +182,7 @@ export const EikonGallery = memo((props: Props) => {
         { key: "d", label: "Delete local eikon", run: () => void del(), danger: true },
       ] satisfies Action[] : []),
     ]
-  }, [cur, props.onEdit, updateLocal, submitLocal])
+  }, [cur, path, props.onEdit, updateLocal, submitLocal])
 
   useEffect(() => { if (act >= actions.length) setAct(Math.max(0, actions.length - 1)) }, [act, actions.length])
 

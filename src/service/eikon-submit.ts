@@ -3,6 +3,7 @@ import { createHash } from "node:crypto"
 import { isIP } from "node:net"
 import { basename, dirname, join } from "node:path"
 import {
+  decodeRuntimeFile,
   githubSubmitBackend,
   previewSubmitBundle,
   type SubmitBackend,
@@ -112,6 +113,8 @@ export async function preview(input: SubmitInput): Promise<SubmitPreview> {
 
 export async function prepare(input: SubmitInput): Promise<PreparedSubmit> {
   const base = await previewSubmitBundle({ path: input.path })
+  const want = `${base.meta.name}.eikon`
+  if (basename(base.packed) !== want) throw new Error(`runtime filename must match eikon name: expected ${want}`)
   const meta = sanitize(input.meta ?? await defaults(input))
   const target = repo(input.target ?? DEFAULT_REPO)
   const rel = `eikon-submissions/${base.meta.name}-${Date.now()}-${Math.random().toString(36).slice(2)}/${base.meta.name}`
@@ -119,6 +122,7 @@ export async function prepare(input: SubmitInput): Promise<PreparedSubmit> {
   mkdirSync(root, { recursive: true })
   stage(base, root, meta, input.includeSource === true)
   const bundle = await previewSubmitBundle({ path: join(root, basename(base.packed)) })
+  scan(bundle)
   const req = request(bundle, meta, target)
   return {
     path: input.path,
@@ -155,6 +159,23 @@ export async function submit(input: PreparedSubmit, backend?: SubmitBackend): Pr
   if (!setup.ok) return { kind: "setup-needed", failures: [{ code: "missing-auth", message: redact(setup.reason) }] }
   try { return await be.create(request(bundle, input.meta, input.target)) }
   catch (err) { return { kind: "backend-failed", failures: [{ code: "backend-failed", message: redact(err instanceof Error ? err.message : String(err)) }] } }
+}
+
+function scan(bundle: SubmitBundle) {
+  const errs = bundle.files.flatMap(file => {
+    const text = publicText(file.abs, file.path)
+    if (text === undefined) return []
+    if (secretLike(text)) return [`${file.path} looks secret-like`]
+    if (unsafeUrl(text)) return [`${file.path} contains private or unsafe URL`]
+    return []
+  })
+  if (errs.length) throw new Error(errs.join("\n"))
+}
+
+function publicText(abs: string, rel: string): string | undefined {
+  if (/\.eikon$/i.test(rel)) return decodeRuntimeFile(abs)
+  if (/\.(json|md|txt|ya?ml)$/i.test(rel)) return readFileSync(abs, "utf8")
+  return undefined
 }
 
 function stage(bundle: SubmitBundle, root: string, meta: SubmitMeta, source: boolean) {

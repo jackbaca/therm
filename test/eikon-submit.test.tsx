@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test"
 import { act } from "react"
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs"
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { decodeRuntimeFile, runtimeDescriptor } from "eikon"
 import { mountNode, until, type Harness } from "./harness"
@@ -123,6 +123,26 @@ describe("Eikon submit dialog", () => {
         meta: { title: "draft", author: "kaio", description: url, glyph: "◆" },
       })).rejects.toThrow(/description contains private or unsafe URL/)
     }
+  })
+
+  test("runtime filename must match Eikon metadata name", async () => {
+    await seed("draft")
+    const wrong = join(eikon.dir("draft"), "wrongfile.eikon")
+    writeFileSync(wrong, readFileSync(eikon.file("draft")))
+
+    await expect(submit.prepare({ path: wrong, meta: meta() }))
+      .rejects.toThrow(/runtime filename must match eikon name: expected draft\.eikon/)
+  })
+
+  test("runtime metadata public scan rejects private URLs before staging", async () => {
+    await seed("draft")
+    const lines = readFileSync(eikon.file("draft"), "utf8").trimEnd().split("\n")
+    const head = JSON.parse(lines[0]!)
+    head.description = "debug endpoint http://127.0.0.1/internal"
+    writeFileSync(eikon.file("draft"), `${JSON.stringify(head)}\n${lines.slice(1).join("\n")}\n`)
+
+    await expect(submit.prepare({ path: eikon.file("draft"), meta: meta() }))
+      .rejects.toThrow(/draft\.eikon contains private or unsafe URL/)
   })
 
   test("submit revalidates staged bundle before backend create", async () => {

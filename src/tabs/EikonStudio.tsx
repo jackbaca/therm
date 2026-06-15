@@ -1135,9 +1135,9 @@ export const EikonStudio = memo((props: {
 
   useKeyboard((key: ParsedKey) => {
     if (!props.focused || dialog.open()) return
+    if (key.eventType === "release") return
     if (key.name === "u" && key.ctrl && sRef.current) return void doSaveUse()
     if (key.name === "u" && sRef.current) return void doSubmit()
-    if (key.eventType === "release") return
     if (keys.match("eikon.save", key)) { if (!saving) void doSave(); return }
     if (key.name === "escape") return void discard()
     if (key.name === "tab") {
