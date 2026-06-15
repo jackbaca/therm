@@ -74,6 +74,7 @@ function deps(overrides: Partial<EikonCliDeps> = {}): EikonCliDeps {
     info: name => ({ ...item(name).lifecycle, active: overrides.getActive?.() === name || active === name }),
     update: async name => ({ name, sources: {}, n: 1, bytes: 42 }),
     remove: () => undefined,
+    delist: async target => ({ url: `https://github.com/liftaris/eikon/pull/${target}`, info: { eligible: true } }),
     list: () => [item()],
     baked: name => name === "ares" ? "/tmp/ares/ares.eikon" : undefined,
     has: name => name === "ares",
@@ -93,6 +94,7 @@ describe("eikon headless CLI", () => {
     expect(await handleEikonCli(["eikon", "--help"], deps(), c.io)).toBe(0)
     expect(c.stdout()).toContain("herm eikon install <name|url|dir>")
     expect(EIKON_CLI_USAGE).toContain("herm eikon use <name>")
+    expect(EIKON_CLI_USAGE).toContain("herm eikon delist <name|id>")
   })
 
   test("install passes name/media options, emits json, and can skip activation", async () => {
@@ -166,6 +168,26 @@ describe("eikon headless CLI", () => {
     const b = capture()
     expect(await handleEikonCli(["eikon", "browse", "--json"], deps(), b.io)).toBe(0)
     expect(JSON.parse(b.stdout()).eikons[0].name).toBe("ares")
+  })
+
+  test("delist requests official registry removal", async () => {
+    const calls: string[] = []
+    const c = capture()
+
+    expect(await handleEikonCli(["eikon", "delist", "ares", "--json"], deps({
+      delist: async target => { calls.push(target); return { url: "https://github.com/liftaris/eikon/pull/99", info: { eligible: true, user: "liftaris" } } },
+    }), c.io)).toBe(0)
+
+    expect(calls).toEqual(["ares"])
+    expect(JSON.parse(c.stdout())).toEqual({ ok: true, url: "https://github.com/liftaris/eikon/pull/99", info: { eligible: true, user: "liftaris" } })
+  })
+
+  test("delist requires a target", async () => {
+    const c = capture()
+
+    expect(await handleEikonCli(["eikon", "delist", "--json"], deps(), c.io)).toBe(1)
+
+    expect(JSON.parse(c.stderr())).toEqual({ ok: false, error: "usage: herm eikon delist <name|id>" })
   })
 
   test("inspect and info expose source, compatibility, trust, and state", async () => {

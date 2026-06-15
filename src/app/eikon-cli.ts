@@ -16,6 +16,7 @@ Usage:
   herm eikon use <name> [--json]
   herm eikon update <name> [--active-ok] [--json]
   herm eikon remove <name> [--active-ok] [--json]
+  herm eikon delist <name|id> [--json]
   herm eikon -h, --help
 `
 
@@ -31,6 +32,7 @@ type SearchRow = {
   installed: boolean
   active: boolean
   compatibility?: Record<string, unknown> | string
+  identityKey?: string
 }
 
 type InspectResult = {
@@ -58,6 +60,7 @@ export type EikonCliDeps = {
   info: (name: string) => svc.LifecycleInfo
   update: typeof svc.update
   remove: typeof svc.remove
+  delist: (target: string) => Promise<{ url: string; info: unknown }>
   list: typeof svc.list
   baked: typeof svc.baked
   has: (name: string) => boolean
@@ -116,6 +119,7 @@ function searchRow(row: market.MarketplaceRow): SearchRow {
     installed: row.installed,
     active: row.active,
     compatibility: lifecycle.compatibility,
+    identityKey: row.entry.identityKey,
   }
 }
 
@@ -131,6 +135,13 @@ const defaultDeps = (): EikonCliDeps => ({
   info: svc.lifecycle,
   update: svc.update,
   remove: svc.remove,
+  delist: async target => {
+    const state = await market.load()
+    if (state.status === "error") throw new Error(state.error ?? "marketplace failed")
+    const entry = state.service?.entry(target)
+    if (!entry || !state.service) throw new Error(`No official catalog eikon named '${target}'`)
+    return state.service.delist(entry.identityKey)
+  },
   list: svc.list,
   baked: svc.baked,
   has: name => svc.list().some(e => e.name === name),
@@ -225,6 +236,14 @@ export async function handleEikonCli(
       const eikons = await deps.search(query)
       if (p.json) return emit(io, JSON.stringify({ ok: true, query, eikons }))
       return emit(io, eikons.length ? eikons.map(e => `${e.name}\t${e.title ?? e.name}\t${e.trust}${e.active ? "\tactive" : e.installed ? "\tinstalled" : ""}`).join("\n") : "No eikons found")
+    }
+
+    if (cmd === "delist") {
+      const target = p.values[0]
+      if (!target) return emitError(io, "usage: herm eikon delist <name|id>", p.json)
+      const out = await deps.delist(target)
+      if (p.json) return emit(io, JSON.stringify({ ok: true, url: out.url, info: out.info }))
+      return emit(io, `Delist requested: ${out.url}`)
     }
 
     if (cmd === "inspect" || cmd === "peek") {

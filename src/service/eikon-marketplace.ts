@@ -4,6 +4,7 @@ import { basename, dirname, extname, join } from "node:path"
 import { downloadBytes, entries as packageEntries, type Catalog, type PublicCatalogEntry as CatalogEntry, type CatalogOptions, type DownloadOptions } from "eikon"
 import { loadCatalog, loadRuntimeArtifact, publicCatalogUrl, searchCatalog } from "eikon/catalog"
 import { eikon } from "./eikon"
+import * as delist from "./eikon-delist"
 import * as prefs from "../context/preferences"
 import { listEikons } from "../components/avatar/eikon"
 import { BUNDLED_EIKON_DIR } from "../components/avatar/bundled"
@@ -60,6 +61,8 @@ export type MarketplaceState = {
 export type MarketplaceOptions = CatalogOptions & {
   catalog?: string
   fetcher?: Fetcher
+  delistRepo?: string
+  delistRun?: delist.Run
   query?: string
   timeoutMs?: number
   previewCacheLimit?: number
@@ -78,6 +81,7 @@ type Job<T> = {
 
 const DEFAULT_TIMEOUT = 5000
 const DEFAULT_CACHE_LIMIT = 24
+const OFFICIAL_CATALOG = "https://eikon.liftaris.dev/eikons"
 const dec = new TextDecoder()
 
 function hash(data: Uint8Array) {
@@ -406,6 +410,9 @@ export class MarketplaceService {
   private previewCacheLimit: number
   private concurrency: number
   private allowPrivate: boolean
+  private official: boolean
+  private delistRepo?: string
+  private delistRun?: delist.Run
   private activeLoads = 0
   private queue: Job<string>[] = []
   private cache = new Map<string, string>()
@@ -418,6 +425,9 @@ export class MarketplaceService {
     this.previewCacheLimit = opts.previewCacheLimit ?? DEFAULT_CACHE_LIMIT
     this.concurrency = Math.max(1, Math.floor(opts.concurrency ?? 4))
     this.allowPrivate = opts.allowPrivate === true
+    this.official = keyIdentity(publicCatalogUrl(opts.catalog ?? OFFICIAL_CATALOG, undefined, opts)) === keyIdentity(OFFICIAL_CATALOG)
+    this.delistRepo = opts.delistRepo
+    this.delistRun = opts.delistRun
   }
 
   rows(query = ""): MarketplaceRow[] {
@@ -471,6 +481,20 @@ export class MarketplaceService {
     const entry = this.entry(id)
     if (!entry) throw new Error(`marketplace: unknown eikon "${id}"`)
     return sizes(JSON.parse(dec.decode(await downloadBytes(entry.packageUrl, this.dl()))) as SizedPackage)
+  }
+
+  async delistInfo(id: string): Promise<delist.Info> {
+    const entry = this.entry(id)
+    if (!entry) throw new Error(`marketplace: unknown eikon "${id}"`)
+    if (!this.official) return { eligible: false, reason: "Registry delist is only available from the official Eikon catalog" }
+    return delist.info(entry, { repo: this.delistRepo, run: this.delistRun })
+  }
+
+  async delist(id: string): Promise<delist.Result> {
+    const entry = this.entry(id)
+    if (!entry) throw new Error(`marketplace: unknown eikon "${id}"`)
+    if (!this.official) throw new Error("Registry delist is only available from the official Eikon catalog")
+    return delist.submit(entry, { repo: this.delistRepo, run: this.delistRun })
   }
 
   async install(id: string, opts: { media?: boolean; confirmActive?: boolean } = {}): Promise<MarketplaceInstall> {

@@ -3,7 +3,7 @@ import { useTheme } from "../theme"
 import type { DialogContext } from "../ui/dialog"
 import type { MarketplaceRow, MarketplaceSizes } from "../service/eikon-marketplace"
 
-type Choice = "install" | "source" | "use" | "download" | "delete"
+type Choice = "install" | "source" | "use" | "download" | "delete" | "delist"
 type Opt = { label: string; hint?: string; value: Choice }
 
 type Props = {
@@ -15,15 +15,19 @@ type Props = {
 const fmt = (n?: number) => n == null ? "size unknown" : n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KiB` : `${(n / 1024 / 1024).toFixed(1)} MiB`
 
 const choices = (row: MarketplaceRow, sizes?: MarketplaceSizes): Opt[] => {
-  if (row.installState === "incompatible" || row.installState === "mismatch") return []
+  if (row.installState === "incompatible" || row.installState === "mismatch") return [
+    { label: "Delist from Registry", hint: "opens an automatic GitHub delist request for the original submitter", value: "delist" },
+  ]
   if (!row.installed) return [
     { label: "Eikon only", hint: fmt(sizes?.eikon), value: "install" },
     { label: "Eikon + Source", hint: `${fmt((sizes?.eikon ?? 0) + (sizes?.source ?? 0))} · Source files needed to edit Eikon in Studio`, value: "source" },
+    { label: "Delist from Registry", hint: "opens an automatic GitHub delist request for the original submitter", value: "delist" },
   ]
   return [
     ...(!row.active ? [{ label: "Use", hint: "set as active avatar", value: "use" as const }] : []),
     ...(row.sourceDownloadable ? [{ label: "Download Source", hint: "needed to edit in Studio", value: "download" as const }] : []),
     ...(row.removable ? [{ label: "Delete", value: "delete" as const }] : []),
+    { label: "Delist from Registry", hint: "opens an automatic GitHub delist request for the original submitter", value: "delist" as const },
   ]
 }
 
