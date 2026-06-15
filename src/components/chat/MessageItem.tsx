@@ -45,7 +45,7 @@ function mix(a: RGBA, b: RGBA, n = 0.5): RGBA {
   )
 }
 
-function darken(c: RGBA, n = 0.35): RGBA {
+function darken(c: RGBA, n = 0.95): RGBA {
   return RGBA.fromValues(c.r * n, c.g * n, c.b * n, c.a)
 }
 
@@ -147,8 +147,8 @@ const UserMessage = memo(({ message, onRewind }: { message: Message; onRewind?: 
     [theme.background, theme.backgroundElement],
   )
   const edge = useMemo(
-    () => ctx.mode === "dark" ? darken(theme.background) : fill,
-    [ctx.mode, theme.background, fill],
+    () => ctx.mode === "dark" ? darken(theme.background) : darken(theme.backgroundElement),
+    [ctx.mode, theme.background, theme.backgroundElement],
   )
   const segs = useMemo(
     () => message.parts.map(p => p.type === "text" && p.content ? splitContent(p.content) : null),
@@ -270,7 +270,6 @@ const AssistantMessage = memo(({ message, streaming, prompt, onPick }: {
          onMouseOver={() => setHover(true)}
          onMouseOut={() => setHover(false)}
          {...click}>
-      <box width={3} flexShrink={0} backgroundColor={hover ? theme.backgroundElement : undefined} />
       <box flexDirection="column" flexGrow={1} flexShrink={1}>
         <box height={1} flexDirection="row">
           <box flexGrow={1}><text fg={theme.textMuted}>{header}</text></box>
@@ -283,6 +282,10 @@ const AssistantMessage = memo(({ message, streaming, prompt, onPick }: {
         {message.parts.map(part)}
         {diffs.length ? <DiffTabs tools={diffs} /> : null}
         {err ? <ErrorBlock text={message.error!} /> : null}
+      </box>
+      <box width={3} flexShrink={0} flexDirection="row">
+        <box width={2} />
+        <box width={1} backgroundColor={hover ? theme.backgroundElement : undefined} />
       </box>
     </box>
   )
