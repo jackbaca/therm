@@ -35,7 +35,7 @@ const servers = new Set<ReturnType<typeof Bun.serve>>()
 const baseTestPerf = process.env.HERM_TEST_PERF
 const baseAvatarTimerStarts = globalThis.__hermAvatarTimerStarts
 
-type Route = { path: string; body: BodyInit | object | (() => Response | Promise<Response>); status?: number; headers?: HeadersInit }
+type Route = { path: string; body: BodyInit | object | ((req?: Request) => Response | Promise<Response> | BodyInit | object); status?: number; headers?: HeadersInit }
 
 function serve(routes: Route[]) {
   const srv = Bun.serve({
@@ -44,7 +44,10 @@ function serve(routes: Route[]) {
       const path = new URL(req.url).pathname
       const hit = routes.findLast(r => r.path === path)
       if (!hit) return new Response("404", { status: 404 })
-      if (typeof hit.body === "function") return hit.body()
+      if (typeof hit.body === "function") {
+        const out = hit.body(req)
+        return out instanceof Response || out instanceof Promise ? out as Response | Promise<Response> : typeof out === "object" && !(out instanceof Uint8Array) ? Response.json(out, { status: hit.status ?? 200, headers: hit.headers }) : new Response(out as BodyInit, { status: hit.status ?? 200, headers: hit.headers })
+      }
       if (typeof hit.body === "object" && !(hit.body instanceof Uint8Array))
         return Response.json(hit.body, { status: hit.status ?? 200, headers: hit.headers })
       return new Response(hit.body as BodyInit, { status: hit.status ?? 200, headers: hit.headers })
@@ -279,6 +282,27 @@ describe("EikonMarketplace tab", () => {
     await until(t, () => t.frame().includes("Catalog (6)") && t.frame().includes("ARES-IDLE"))
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Eikon only") && t.frame().includes("Delist from Registry"))
+    fx.srv.stop()
+  })
+
+  test("incompatible catalog action still includes registry delist", async () => {
+    const fx = catalog([{ path: "/eikons/index.json", body: req => {
+      const base = `${new URL(req!.url).origin}/eikons/`
+      return [
+        {
+          kind: "eikon.catalog.entry", schemaVersion: "1.0", id: "liftaris/ares", name: "ares", version: "1.0.0",
+          sourceKey: "registry:eikon.liftaris.dev:liftaris/ares@1.0.0", title: "ares", author: "Kaio", poster: "ARES-POSTER",
+          runtimeUrl: `${base}ares/ares.eikon`, packageUrl: `${base}ares/manifest.json`, description: "red warrior",
+          compatibility: { eikon: ">=1 <2", available: false, reason: "future runtime" }, trust: {},
+        },
+      ]
+    } }])
+    process.env.EIKON_URL = fx.base
+    await using t = await mountNode(group(), { width: 160, height: 48 })
+    await until(t, () => t.frame().includes("Catalog (1)") && t.frame().includes("future runtime"))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Delist from Registry"))
+    expect(t.frame()).not.toContain("Eikon only")
     fx.srv.stop()
   })
 

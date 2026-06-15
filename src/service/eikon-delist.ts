@@ -124,11 +124,11 @@ async function main(run: Run, repo: string) {
 }
 
 async function tree(run: Run, repo: string, sha: string) {
-  return json<Tree>(await run(["api", `repos/${repo}/git/trees/${sha}`, "-f", "recursive=1"])).tree ?? []
+  return json<Tree>(await run(["api", "-X", "GET", `repos/${repo}/git/trees/${sha}`, "-f", "recursive=1"])).tree ?? []
 }
 
 async function index(run: Run, repo: string) {
-  const raw = json<Content>(await run(["api", `repos/${repo}/contents/eikons/index.json`, "-f", "ref=main"]))
+  const raw = json<Content>(await run(["api", "-X", "GET", `repos/${repo}/contents/eikons/index.json`, "-f", "ref=main"]))
   return { sha: raw.sha, text: Buffer.from((raw.content ?? "").replace(/\s/g, ""), "base64").toString("utf8") }
 }
 
@@ -136,7 +136,7 @@ async function pr(run: Run, repo: string, user: string, branch: string, name: st
   try {
     return await run(["pr", "create", "-R", repo, "-H", `${user}:${branch}`, "-B", "main", "-t", `eikons: delist ${name}`, "-b", body])
   } catch {
-    const raw = await run(["pr", "list", "-R", repo, "--state", "open", "--head", `${user}:${branch}`, "--json", "url", "--limit", "1"])
+    const raw = await run(["api", "-X", "GET", `repos/${repo}/pulls`, "-f", "state=open", "-f", `head=${user}:${branch}`])
     const hit = json<Array<{ url?: string }>>(raw)[0]?.url
     if (hit) return hit
     throw new Error("GitHub PR creation failed")

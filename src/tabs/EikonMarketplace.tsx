@@ -178,7 +178,13 @@ export const EikonMarketplace = memo((props: {
         }
         if (pick === "delete") return removeSelected(idx)
         if (pick === "delist") {
-          const own = await svc.delistInfo(row.entry.identityKey)
+          let own: Awaited<ReturnType<typeof svc.delistInfo>>
+          try {
+            own = await svc.delistInfo(row.entry.identityKey)
+          } catch (err) {
+            toast.show({ variant: "error", title: "Delist check failed", message: err instanceof Error ? err.message : String(err), duration: 6000 })
+            return
+          }
           if (!own.eligible) {
             toast.show({ variant: "warning", title: "Delist unavailable", message: own.reason ?? "Only the original GitHub submitter can delist this eikon", duration: 6000 })
             return

@@ -28,7 +28,7 @@ function b64(text: string) {
   return Buffer.from(text).toString("base64")
 }
 
-function run(opts: { user?: string; submitter?: string } = {}) {
+function run(opts: { user?: string; submitter?: string; createFails?: boolean } = {}) {
   const calls: Array<{ args: string[]; input?: string }> = []
   const user = opts.user ?? "liftaris"
   const submitter = opts.submitter ?? "liftaris"
@@ -44,18 +44,22 @@ function run(opts: { user?: string; submitter?: string } = {}) {
     if (key === "api repos/liftaris/eikon/git/ref/heads/main -q .object.sha") return "main-sha"
     if (key === "api repos/liftaris/eikon/git/commits/main-sha -q .tree.sha") return "tree-sha"
     if (args[0] === "api" && args[3] === "repos/liftaris/eikon/git/refs") return ""
-    if (key === "api repos/liftaris/eikon/contents/eikons/index.json -f ref=main")
+    if (key === "api -X GET repos/liftaris/eikon/contents/eikons/index.json -f ref=main")
       return JSON.stringify({ sha: "index-main", content: b64(JSON.stringify([entry])) })
-    if (key === "api repos/liftaris/eikon/git/trees/tree-sha -f recursive=1")
+    if (key === "api -X GET repos/liftaris/eikon/git/trees/tree-sha -f recursive=1")
       return JSON.stringify({ tree: [
         { path: "eikons/ovo/ovo.eikon", type: "blob", sha: "runtime-sha" },
         { path: "eikons/ovo/manifest.json", type: "blob", sha: "manifest-sha" },
         { path: "packages/liftaris/ovo/1.0.0.json", type: "blob", sha: "pkg-sha" },
       ] })
+    if (key === "api -X GET repos/liftaris/eikon/pulls -f state=open -f head=liftaris:delist/ovo") return opts.createFails ? JSON.stringify([{ url: "https://github.com/liftaris/eikon/pull/98" }]) : "[]"
     if (args[0] === "api" && args[1] === "-X" && args[2] === "GET" && args[4] === "-f")
       return JSON.stringify({ sha: `${args[3]!.split("/").pop()}-branch-sha` })
     if (args[0] === "api" && args[1] === "-X" && (args[2] === "PUT" || args[2] === "DELETE")) return ""
-    if (args[0] === "pr" && args[1] === "create") return "https://github.com/liftaris/eikon/pull/99"
+    if (args[0] === "pr" && args[1] === "create") {
+      if (opts.createFails) throw new Error("already exists")
+      return "https://github.com/liftaris/eikon/pull/99"
+    }
     throw new Error(`unexpected ${key}`)
   }
   return { fn, calls }
@@ -81,5 +85,16 @@ describe("eikon delist service", () => {
       "repos/liftaris/eikon/contents/eikons/ovo/manifest.json",
       "repos/liftaris/eikon/contents/packages/liftaris/ovo/1.0.0.json",
     ])
+    expect(mock.calls.some(c => c.args.join(" ") === "api -X GET repos/liftaris/eikon/contents/eikons/index.json -f ref=main")).toBe(true)
+    expect(mock.calls.some(c => c.args.join(" ") === "api -X GET repos/liftaris/eikon/git/trees/tree-sha -f recursive=1")).toBe(true)
+  })
+
+  test("submit returns an existing delist PR when create reports one", async () => {
+    const mock = run({ createFails: true })
+
+    const out = await delist.submit(entry, { run: mock.fn })
+
+    expect(out.url).toBe("https://github.com/liftaris/eikon/pull/98")
+    expect(mock.calls.some(c => c.args.join(" ") === "api -X GET repos/liftaris/eikon/pulls -f state=open -f head=liftaris:delist/ovo")).toBe(true)
   })
 })
