@@ -49,6 +49,10 @@ function darken(c: RGBA, n = 0.95): RGBA {
   return RGBA.fromValues(c.r * n, c.g * n, c.b * n, c.a)
 }
 
+function lighten(c: RGBA, n = 0.05): RGBA {
+  return RGBA.fromValues(c.r + (1 - c.r) * n, c.g + (1 - c.g) * n, c.b + (1 - c.b) * n, c.a)
+}
+
 const TOP_RULE = {
   topLeft: "▔", topRight: "▔", horizontal: "▔",
   bottomLeft: "", bottomRight: "", vertical: "",
@@ -143,8 +147,8 @@ const UserMessage = memo(({ message, onRewind }: { message: Message; onRewind?: 
   const [hover, setHover] = useState(false)
   const click = useClick(onRewind && (() => onRewind(message)))
   const fill = useMemo(
-    () => mix(theme.background, theme.backgroundElement),
-    [theme.background, theme.backgroundElement],
+    () => ctx.mode === "dark" ? mix(theme.background, theme.backgroundElement) : darken(theme.backgroundElement),
+    [ctx.mode, theme.background, theme.backgroundElement],
   )
   const edge = useMemo(
     () => ctx.mode === "dark" ? darken(theme.background) : darken(theme.backgroundElement),
@@ -200,6 +204,10 @@ const AssistantMessage = memo(({ message, streaming, prompt, onPick }: {
   const { agentName } = useSkin()
   const [hover, setHover] = useState(false)
   const click = useClick(onPick && (() => onPick(message)))
+  const rail = useMemo(
+    () => ctx.mode === "dark" ? lighten(theme.background) : darken(theme.backgroundElement),
+    [ctx.mode, theme.background, theme.backgroundElement],
+  )
   const err = !!message.error
   const trail = message.parts.filter((p): p is ToolPart | PromptPart =>
     p.type === "tool" || p.type === "prompt")
@@ -285,7 +293,7 @@ const AssistantMessage = memo(({ message, streaming, prompt, onPick }: {
       </box>
       <box width={3} flexShrink={0} flexDirection="row">
         <box width={2} />
-        <box width={1} backgroundColor={hover ? theme.backgroundElement : undefined} />
+        <box width={1} backgroundColor={hover ? rail : undefined} />
       </box>
     </box>
   )
