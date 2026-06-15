@@ -34,7 +34,6 @@ const Form = (props: Props) => {
   const [status, setStatus] = useState<string>("")
   const [result, setResult] = useState<SubmitResult | null>(null)
   const [prepared, setPrepared] = useState<svc.PreparedSubmit | null>(null)
-  const [consent, setConsent] = useState(false)
   const [field, setField] = useState<Field>("title")
   const [meta, setMeta] = useState<svc.SubmitMeta>({
     title: props.name,
@@ -68,7 +67,6 @@ const Form = (props: Props) => {
     setMeta(m => ({ ...m, [key]: value }))
     if (prepared) svc.cleanup(prepared)
     setPrepared(null)
-    setConsent(false)
     setResult(null)
   }
 
@@ -78,12 +76,11 @@ const Form = (props: Props) => {
     setBusy(true)
     setResult(null)
     try {
-      setStatus("Preparing public bundle…")
+      setStatus("Running registry preflight…")
       if (prepared) svc.cleanup(prepared)
       const next = await svc.prepare({ path: props.path, meta, includeSource: false })
       setPrepared(next)
-      setConsent(false)
-      setStatus("Review bundle, then press c to consent")
+      setStatus(`This will create a PR in ${next.target} for review. Press Enter to submit.`)
     } catch (e) {
       setStatus(`Submit failed: ${svc.redact(e instanceof Error ? e.message : String(e))}`)
     } finally {
@@ -95,10 +92,6 @@ const Form = (props: Props) => {
   const send = async () => {
     if (flight.current) return
     if (!prepared) return prep()
-    if (!consent) {
-      setStatus("Press c to consent before publishing")
-      return
-    }
     flight.current = true
     setBusy(true)
     setResult(null)
@@ -108,11 +101,11 @@ const Form = (props: Props) => {
       setResult(next)
       if (next.kind === "submitted") {
         svc.cleanup(prepared)
-        setStatus(`Submitted: ${next.url}`)
-      } else if (next.kind === "setup-needed") setStatus(`GitHub setup needed; browser fallback ready: ${svc.failureText(next.failures)}`)
-      else setStatus(`Submit failed; browser fallback ready: ${svc.failureText(next.failures)}`)
+        setStatus("Your Eikon has been submitted and is being reviewed.")
+      } else if (next.kind === "setup-needed") setStatus(`GitHub CLI unavailable. Follow the manual PR instructions below. ${svc.failureText(next.failures)}`)
+      else setStatus(`Submit failed. Follow the manual PR instructions below. ${svc.failureText(next.failures)}`)
     } catch (e) {
-      setStatus(`Submit failed; browser fallback ready: ${svc.redact(e instanceof Error ? e.message : String(e))}`)
+      setStatus(`Submit failed. Follow the manual PR instructions below. ${svc.redact(e instanceof Error ? e.message : String(e))}`)
     } finally {
       flight.current = false
       setBusy(false)
@@ -121,27 +114,20 @@ const Form = (props: Props) => {
 
   const open = () => {
     if (!prepared) return
-    if (!consent) {
-      setStatus("Press c to consent before opening browser fallback")
-      return
-    }
     const ok = openUrl(prepared.url)
-    setStatus(ok ? "Opened browser fallback" : `Open failed; copy ${prepared.url}`)
+    setStatus(ok ? "Opened GitHub compare page" : `Open failed; copy ${prepared.url}`)
+  }
+
+  const move = (by: number) => {
+    const i = FIELDS.indexOf(field)
+    setField(FIELDS[(i + by + FIELDS.length) % FIELDS.length]!)
   }
 
   useKeyboard(key => {
     if (key.name === "escape") return close()
     if (busy) return
-    if (key.name === "tab" && !prepared) {
-      const i = FIELDS.indexOf(field)
-      setField(FIELDS[(i + (key.shift ? FIELDS.length - 1 : 1)) % FIELDS.length]!)
-      return
-    }
-    if (key.name === "c" && prepared) {
-      setConsent(v => !v)
-      setStatus(!consent ? "Consented to public PR submission" : "Consent cleared")
-      return
-    }
+    if (!prepared && key.name === "up") return move(-1)
+    if (!prepared && key.name === "down") return move(1)
     if (key.name === "o" && prepared) return open()
     if (key.name === "return") return void send()
   })
@@ -154,12 +140,11 @@ const Form = (props: Props) => {
       <box height={1}><text fg={theme.textMuted}>{props.name} · official registry PR</text></box>
       <box height={1}><text fg={theme.textMuted}>{svc.targetRepo()}</text></box>
       <box height={1} />
-      {!prepared ? <Meta meta={meta} field={field} setField={setField} setMeta={edit} /> : <Preview prepared={prepared} consent={consent} />}
+      {!prepared ? <Meta meta={meta} field={field} setField={setField} setMeta={edit} /> : <Preview prepared={prepared} result={result} />}
       <box height={1} />
       <text fg={bad ? theme.error : warn ? theme.warning : theme.textMuted} wrapMode="word">
-        {status || (prepared ? "c consent  ·  Enter submit  ·  o open browser fallback  ·  Esc cancel" : "Tab field  ·  Enter preview public bundle  ·  Esc cancel")}
+        {status || (prepared ? "Enter submit  ·  o open GitHub compare  ·  Esc cancel" : "↑↓ field  ·  Enter continue  ·  Esc cancel")}
       </text>
-      {result?.kind === "submitted" ? <text fg={theme.accent}>{result.url}</text> : null}
     </box>
   )
 }
@@ -200,24 +185,29 @@ function Input(props: { label: string; value: string; on: boolean; setOn: () => 
   )
 }
 
-function Preview(props: { prepared: svc.PreparedSubmit; consent: boolean }) {
+function Preview(props: { prepared: svc.PreparedSubmit; result: SubmitResult | null }) {
   const theme = useTheme().theme
+  const manual = props.result?.kind === "setup-needed" || props.result?.kind === "backend-failed"
   return (
     <box flexDirection="column">
-      <text fg={theme.textMuted}>Included files ({props.prepared.files.length}) · {props.prepared.source ? "source included" : "runtime-only"}</text>
-      {props.prepared.files.slice(0, 6).map(f => <text key={f.path} fg={theme.text}>• {f.path} · {f.bytes} B</text>)}
-      {props.prepared.files.length > 6 ? <text fg={theme.textMuted}>… {props.prepared.files.length - 6} more</text> : null}
+      <text fg={theme.textMuted}>Registry preflight</text>
+      {props.prepared.lint.map(line => <text key={line} fg={theme.accent}>{line}</text>)}
+      <box height={1} />
+      <text fg={theme.textMuted}>Package</text>
+      <text fg={theme.text}>{props.prepared.files.length} files prepared for registry review</text>
+      <box height={1} flexDirection="row"><box width={8}><text fg={theme.textMuted}>Bundle:</text></box><FileLink source={props.prepared.bundleSource}>{props.prepared.bundleDir}</FileLink></box>
+      <box height={1} />
+      <text fg={theme.textMuted}>Metadata</text>
       <text fg={theme.textMuted}>Title: {props.prepared.meta.title}</text>
       <text fg={theme.textMuted}>Author: {props.prepared.meta.author}</text>
       <text fg={theme.textMuted} wrapMode="word">Description: {props.prepared.meta.description}</text>
       <text fg={theme.textMuted}>Glyph: {props.prepared.meta.glyph}</text>
-      <box height={1} flexDirection="row"><box width={8}><text fg={theme.textMuted}>Bundle:</text></box><FileLink source={props.prepared.bundleSource}>{props.prepared.bundleDir}</FileLink></box>
-      <text fg={props.consent ? theme.accent : theme.warning}>{props.consent ? "● public PR consent" : "○ consent required"}</text>
-      <text fg={theme.textMuted}>PR title: {props.prepared.title}</text>
-      <text fg={theme.textMuted} wrapMode="word">PR body: {props.prepared.body}</text>
-      <text fg={theme.textMuted}>Manual steps:</text>
-      {props.prepared.steps.map(step => <text key={step} fg={theme.textMuted} wrapMode="word">• {step}</text>)}
-      <text fg={theme.textMuted}>Fallback: {props.prepared.url}</text>
+      {manual ? <box flexDirection="column">
+        <box height={1} />
+        <text fg={theme.warning}>Manual PR</text>
+        {props.prepared.steps.map(step => <text key={step} fg={theme.textMuted} wrapMode="word">• {step}</text>)}
+        <text fg={theme.textMuted}>Compare: {props.prepared.url}</text>
+      </box> : null}
     </box>
   )
 }

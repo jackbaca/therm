@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test"
-import { existsSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { join } from "node:path"
@@ -550,6 +550,22 @@ describe("service/eikon: lifecycle", () => {
     const update = await eikon.update("live")
     expect("type" in update && update.type).toBe("active-consequence")
     expect(existsSync(eikon.file("live"))).toBe(true)
+  })
+
+  test("remove deletes flat legacy eikon files", () => {
+    mkdirSync(join(HH, "eikons"), { recursive: true })
+    const old = join(HH, "eikons", "liftaris.eikon")
+    writeFileSync(old, '{"eikon":1,"name":"liftaris"}\n')
+    prefs.set("eikon", "liftaris")
+
+    expect(eikon.baked("liftaris")).toBe(old)
+    const held = eikon.remove("liftaris")
+    expect(held?.type).toBe("active-consequence")
+    expect(existsSync(old)).toBe(true)
+
+    expect(eikon.remove("liftaris", { confirmActive: true })).toBeUndefined()
+    expect(existsSync(old)).toBe(false)
+    expect(prefs.get("eikon")).toBeUndefined()
   })
 })
 

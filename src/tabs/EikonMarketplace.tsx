@@ -9,7 +9,7 @@ import { FilterChip } from "../ui/filter-chip"
 import { openConfirm } from "../dialogs/confirm"
 import { openEikonMarketplaceAction } from "../dialogs/eikon-marketplace-action"
 import { useKeys, handleListKey, useFollow } from "../keys"
-import { EikonCardGrid, EikonTitleList, titleWidth, type EikonCard } from "./eikon-panels"
+import { EIKON_CARD, EikonCardGrid, EikonTitleList, titleWidth, type EikonCard } from "./eikon-panels"
 import * as perf from "../utils/perf"
 import { AnimatedAvatar } from "../components/avatar/AnimatedAvatar"
 import { parseEikon, type ParsedEikon } from "../components/avatar/eikon"
@@ -59,10 +59,13 @@ export const EikonMarketplace = memo((props: {
   const [state, setState] = useState<MarketplaceState>(NO_MARKET)
   const [loading, setLoading] = useState(false)
   const [installing, setInstalling] = useState(false)
+  const [acting, setActing] = useState(false)
   const [previewState, setPreviewState] = useState<AvatarState>("idle")
   const [preview, setPreview] = useState<Preview | undefined>(undefined)
   const [pane, setPane] = useState<Pane>("grid")
   const previewSeq = useRef(0)
+  const loadSeq = useRef(0)
+  const actingRef = useRef(false)
   const follow = useFollow("market", i => state.rows[i]?.entry.identityKey ?? i)
   const listFollow = useFollow("market-list", i => state.rows[i]?.entry.identityKey ?? i)
   const dims = useTerminalDimensions()
@@ -104,17 +107,19 @@ export const EikonMarketplace = memo((props: {
   }, [])
 
   const loadMarket = useCallback((q = query) => {
+    const id = ++loadSeq.current
     setLoading(true)
     const end = perf.mark("market:list:load")
     const catalog = process.env.EIKON_URL
     void market.load({ catalog, allowPrivate: localCatalog(catalog), query: q })
       .then(next => {
+        if (loadSeq.current !== id) return
         perf.count("market:list:rows", next.rows.length)
         const rows = next.service ? filterRows(next.service.rows(""), q) : filterRows(next.rows, q)
         setState({ ...next, status: rows.length > 0 ? "ready" : "empty", rows, selected: rows[0] })
         setSel(p => Math.max(0, Math.min(rows.length - 1, p)))
       })
-      .finally(() => { end(); setLoading(false) })
+      .finally(() => { end(); if (loadSeq.current === id) setLoading(false) })
   }, [query])
 
   const refreshMarket = useCallback((svc: market.MarketplaceService, q = query) => {
@@ -132,45 +137,6 @@ export const EikonMarketplace = memo((props: {
     const at = Math.max(0, states.indexOf(cur))
     setPreviewState(states[(at + by + states.length) % states.length]!)
   }, [preview])
-
-  const primary = useCallback((idx?: number) => {
-    const row = state.rows[idx ?? sel]
-    const svc = state.service
-    if (!row || !svc || installing) return
-    const run = async () => {
-      const sizes = !row.installed ? await svc.packageSizes(row.entry.identityKey).catch(() => undefined) : undefined
-      const pick = await openEikonMarketplaceAction(dialog, { row, sizes })
-      if (!pick) return
-      if (pick === "use") {
-        const name = row.installedName ?? row.entry.name
-        eikon.useInstalled(name)
-        toast.show({ variant: "success", message: `Avatar → ${name}` })
-        refreshMarket(svc, query)
-        return
-      }
-      if (pick === "delete") return removeSelected(idx)
-      setInstalling(true)
-      try {
-        const confirm = row.installState === "active-name-conflict"
-          ? await openConfirm(dialog, {
-              title: `Replace active '${row.entry.name}'?`, danger: true,
-              body: `Installing this catalog package will replace the active avatar's backing package for '${row.entry.name}' because another package with the same installed name is active.`,
-              yes: "replace active", no: "cancel",
-            })
-          : true
-        if (!confirm) return
-        const out = pick === "download" ? await svc.downloadSource(row.entry.identityKey) : await svc.install(row.entry.identityKey, { media: pick === "source", confirmActive: row.installState === "active-name-conflict" })
-        toast.show({ variant: "success", message: pick === "download" ? `Downloaded source for '${out.name}'` : `Installed '${out.name}' (${out.n} files)` })
-        refreshMarket(svc, query)
-      } catch (err) {
-        toast.show({ variant: "error", title: pick === "download" ? "Source download failed" : "Install failed", message: err instanceof Error ? err.message : String(err), duration: 6000 })
-        refreshMarket(svc, query)
-      } finally {
-        setInstalling(false)
-      }
-    }
-    void run()
-  }, [dialog, state.rows, state.service, sel, installing, toast, refreshMarket, query])
 
   const removeSelected = useCallback(async (idx?: number) => {
     const row = state.rows[idx ?? sel]
@@ -191,6 +157,52 @@ export const EikonMarketplace = memo((props: {
     toast.show({ variant: "info", message: `Removed '${name}'` })
     refreshMarket(svc, query)
   }, [dialog, query, refreshMarket, sel, state.rows, state.service, toast])
+
+  const primary = useCallback((idx?: number) => {
+    const row = state.rows[idx ?? sel]
+    const svc = state.service
+    if (!row || !svc || actingRef.current || acting) return
+    const run = async () => {
+      actingRef.current = true
+      setActing(true)
+      try {
+        const sizes = !row.installed ? await svc.packageSizes(row.entry.identityKey).catch(() => undefined) : undefined
+        const pick = await openEikonMarketplaceAction(dialog, { row, sizes })
+        if (!pick) return
+        if (pick === "use") {
+          const name = row.installedName ?? row.entry.name
+          eikon.useInstalled(name)
+          toast.show({ variant: "success", message: `Avatar → ${name}` })
+          refreshMarket(svc, query)
+          return
+        }
+        if (pick === "delete") return removeSelected(idx)
+        setInstalling(true)
+        try {
+          const confirm = row.installState === "active-name-conflict"
+            ? await openConfirm(dialog, {
+                title: `Replace active '${row.entry.name}'?`, danger: true,
+                body: `Installing this catalog package will replace the active avatar's backing package for '${row.entry.name}' because another package with the same installed name is active.`,
+                yes: "replace active", no: "cancel",
+              })
+            : true
+          if (!confirm) return
+          const out = pick === "download" ? await svc.downloadSource(row.entry.identityKey) : await svc.install(row.entry.identityKey, { media: pick === "source", confirmActive: row.installState === "active-name-conflict" })
+          toast.show({ variant: "success", message: pick === "download" ? `Downloaded source for '${out.name}'` : `Installed '${out.name}' (${out.n} files)` })
+          refreshMarket(svc, query)
+        } catch (err) {
+          toast.show({ variant: "error", title: pick === "download" ? "Source download failed" : "Install failed", message: err instanceof Error ? err.message : String(err), duration: 6000 })
+          refreshMarket(svc, query)
+        } finally {
+          setInstalling(false)
+        }
+      } finally {
+        actingRef.current = false
+        setActing(false)
+      }
+    }
+    void run()
+  }, [dialog, state.rows, state.service, sel, acting, toast, refreshMarket, query, removeSelected])
 
   useKeyboard(key => {
     if (!props.focused || dialog.open()) return
@@ -245,7 +257,7 @@ export const EikonMarketplace = memo((props: {
     lines: posterLines(r.entry.poster),
   }))
   const listW = titleWidth(`Catalog (${state.rows.length})`, titles)
-  const showGrid = dims.width >= 190
+  const showGrid = dims.width - listW - DETAIL >= EIKON_CARD
   return (
     <box flexDirection="column" flexGrow={1} minWidth={0} minHeight={0}>
       <box flexDirection="row" flexGrow={1} minWidth={0} minHeight={0}>

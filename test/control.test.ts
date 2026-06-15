@@ -38,6 +38,19 @@ describe("control.isDangerous — guards the intended tabs by name, not hardcode
     expect(isDangerous(p, "k", false)).toBe(true)
   })
 
+  test("Eikon group: use/install/delete/create/share/save keys guarded", () => {
+    const e = idx("Eikon")
+    expect(isDangerous(e, "return", false)).toBe(true)
+    expect(isDangerous(e, "n", false)).toBe(true)
+    expect(isDangerous(e, "d", false)).toBe(true)
+    expect(isDangerous(e, "delete", false)).toBe(true)
+    expect(isDangerous(e, "s", false)).toBe(true)
+    expect(isDangerous(e, "u", false)).toBe(true)
+    expect(isDangerous(e, "s", true)).toBe(true)
+    expect(isDangerous(e, "u", true)).toBe(true)
+    expect(isDangerous(e, "space", false)).toBe(false)
+  })
+
   test("Unknown tab index returns false (no crash)", () => {
     expect(isDangerous(99, "return", false)).toBe(false)
     expect(isDangerous(-1, "return", false)).toBe(false)

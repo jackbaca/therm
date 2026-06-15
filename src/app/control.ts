@@ -130,6 +130,10 @@ const DANGEROUS: Record<number, Set<string>> = {
   // Config sub-tab: space, return, h, l, ]/[, ctrl+s. Env sub-tab:
   // return, space, d/delete. Toolsets/Skills/Memory: space for toggles.
   [idx("Config")]:                 new Set(["space", "return", "h", "l", "]", "[", "ctrl+s", "d", "delete"]),
+  // Library sub-tab: return activates, n creates, d/delete removes, s/u share/update.
+  // Catalog sub-tab: return installs/uses, d/delete removes via modal.
+  // Studio sub-tab: return edits, u submits, ctrl+s saves, ctrl+u saves and uses.
+  [idx("Eikon")]:                  new Set(["return", "n", "d", "delete", "s", "u", "ctrl+s", "ctrl+u"]),
 }
 
 export function isDangerous(tab: number, keyName: string, ctrl: boolean): boolean {
