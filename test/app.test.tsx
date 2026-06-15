@@ -1005,13 +1005,16 @@ describe("app", () => {
     expect(t.frame()).not.toContain("⏸ 2.")        // one chip left
     expect(t.gw.calls.filter(c => c.method === "prompt.submit").length).toBe(2)
 
-    // <leader>u flushes: interrupt fires, drain effect submits head on
-    // the following message.complete.
+    // <leader>u flushes: interrupt fires, then the drain waits for the
+    // gateway's post-finally session.info settle edge before submitting.
     act(() => t.keys.pressKey("x", { ctrl: true }))
     await t.settle()
     await act(async () => { await t.keys.typeText("u") })
     await until(t, () => t.gw.calls.some(c => c.method === "session.interrupt"))
     act(() => t.gw.push({ type: "message.complete", payload: { text: "r2", usage: { input: 1, output: 1, total: 2 } } }))
+    await t.settle()
+    expect(t.gw.calls.filter(c => c.method === "prompt.submit").length).toBe(2)
+    act(() => t.gw.push({ type: "session.info", payload: { model: "test-model", session_id: "test-sid", tools: {}, skills: {} } }))
     await until(t, () => t.gw.calls.filter(c => c.method === "prompt.submit").length === 3)
     expect(t.gw.last("prompt.submit")?.params.text).toBe("follow up b")
     act(() => t.gw.push({ type: "message.start" }))
