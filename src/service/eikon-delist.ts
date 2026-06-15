@@ -21,11 +21,12 @@ type Pr = {
   mergedAt?: string
   author?: { login?: string } | null
 }
-type File = { path: string }
+type File = { path?: string; filename?: string }
 type Tree = { tree?: Array<{ path?: string; type?: string; sha?: string }> }
 type Content = { content?: string; sha?: string }
 
 const REPO = process.env.EIKON_REPO ?? "liftaris/eikon"
+const HOST = "eikon.liftaris.dev"
 const enc = new TextEncoder()
 
 async function gh(args: string[], input?: string) {
@@ -57,28 +58,40 @@ function touches(entry: CatalogEntry, path: string) {
   return dirs(entry).some(dir => path.startsWith(dir))
 }
 
+export function official(entry: CatalogEntry) {
+  try {
+    const host = new URL(entry.packageUrl).hostname
+    return host === HOST && [entry.sourceKey, entry.identityKey].some(key => key?.startsWith(`registry:${HOST}:`))
+  } catch {
+    return false
+  }
+}
+
 async function user(run: Run) {
   return run(["api", "user", "-q", ".login"])
 }
 
 async function prs(entry: CatalogEntry, repo: string, run: Run) {
   const fields = "number,title,headRefName,url,mergedAt,author"
-  const first = json<Pr[]>(await run(["pr", "list", "-R", repo, "--state", "merged", "--search", `eikons: submit ${entry.name}`, "--json", fields, "--limit", "20"]))
-  if (first.length) return first
-  return json<Pr[]>(await run(["pr", "list", "-R", repo, "--state", "merged", "--json", fields, "--limit", "50"]))
+  const exact = (xs: Pr[]) => xs.filter(pr => pr.title === `eikons: submit ${entry.name}` && pr.headRefName === `submit/${entry.name}`)
+  const at = (pr: Pr) => Number.isFinite(Date.parse(pr.mergedAt ?? "")) ? Date.parse(pr.mergedAt ?? "") : 0
+  const sort = (xs: Pr[]) => xs.toSorted((a, b) => at(a) - at(b) || a.number - b.number)
+  const first = exact(json<Pr[]>(await run(["pr", "list", "-R", repo, "--state", "merged", "--search", `\"eikons: submit ${entry.name}\" in:title`, "--json", fields, "--limit", "100"])))
+  if (first.length) return sort(first)
+  return sort(exact(json<Pr[]>(await run(["pr", "list", "-R", repo, "--state", "merged", "--json", fields, "--limit", "100"]))))
 }
 
-async function files(repo: string, pr: number, run: Run) {
-  const raw = await run(["pr", "view", String(pr), "-R", repo, "--json", "files"])
-  return json<{ files?: File[] }>(raw).files ?? []
+async function files(repo: string, pr: number, run: Run): Promise<File[]> {
+  const raw = await run(["api", "--paginate", "-X", "GET", `repos/${repo}/pulls/${pr}/files`, "--jq", ".[].filename"])
+  return raw.split(/\r?\n/).filter(Boolean).map(path => ({ path }))
 }
 
 async function found(entry: CatalogEntry, repo: string, run: Run) {
   for (const pr of await prs(entry, repo, run)) {
     const title = pr.title === `eikons: submit ${entry.name}`
     const head = pr.headRefName === `submit/${entry.name}`
-    if (!title && !head) continue
-    if ((await files(repo, pr.number, run)).some(f => touches(entry, f.path))) return pr
+    if (!title || !head) continue
+    if ((await files(repo, pr.number, run)).some(f => touches(entry, f.path ?? f.filename ?? ""))) return pr
   }
   return undefined
 }
@@ -86,6 +99,7 @@ async function found(entry: CatalogEntry, repo: string, run: Run) {
 export async function info(entry: CatalogEntry, opts: Opts = {}): Promise<Info> {
   const run = opts.run ?? gh
   const repo = opts.repo ?? REPO
+  if (!official(entry)) return { eligible: false, reason: "Registry delist is only available for official Eikon catalog entries" }
   let login: string
   try { login = await user(run) }
   catch (err) { return { eligible: false, reason: err instanceof Error ? err.message : String(err) } }
@@ -129,7 +143,15 @@ async function tree(run: Run, repo: string, sha: string) {
 
 async function index(run: Run, repo: string) {
   const raw = json<Content>(await run(["api", "-X", "GET", `repos/${repo}/contents/eikons/index.json`, "-f", "ref=main"]))
-  return { sha: raw.sha, text: Buffer.from((raw.content ?? "").replace(/\s/g, ""), "base64").toString("utf8") }
+  return Buffer.from((raw.content ?? "").replace(/\s/g, ""), "base64").toString("utf8")
+}
+
+async function reset(run: Run, repo: string, name: string, sha: string) {
+  try {
+    await run(["api", "-X", "POST", `repos/${repo}/git/refs`, "-f", `ref=refs/heads/${name}`, "-f", `sha=${sha}`])
+  } catch {
+    await run(["api", "-X", "PATCH", `repos/${repo}/git/refs/heads/${name}`, "--input", "-"], JSON.stringify({ sha, force: true }))
+  }
 }
 
 async function pr(run: Run, repo: string, user: string, branch: string, name: string, body: string) {
@@ -152,10 +174,9 @@ export async function submit(entry: CatalogEntry, opts: Opts = {}): Promise<Resu
   const fork = `${own.user}/${repo.split("/")[1]}`
   const branch = `delist/${clean(entry.name)}`
   const base = await main(run, repo)
-  await run(["api", "-X", "POST", `repos/${fork}/git/refs`, "-f", `ref=refs/heads/${branch}`, "-f", `sha=${base.sha}`]).catch(() => "")
+  await reset(run, fork, branch, base.sha)
   const msg = `eikons: delist ${entry.name}`
-  const ix = await index(run, repo)
-  const next = json<Array<Record<string, unknown>>>(ix.text).filter(e => e.name !== entry.name && e.id !== entry.id)
+  const next = json<Array<Record<string, unknown>>>(await index(run, repo)).filter(e => e.name !== entry.name && e.id !== entry.id)
   await put(run, fork, branch, "eikons/index.json", `${JSON.stringify(next, null, 2)}\n`, msg)
   for (const item of await tree(run, repo, base.tree)) {
     if (!item.path || item.type !== "blob" || !item.sha || !touches(entry, item.path)) continue

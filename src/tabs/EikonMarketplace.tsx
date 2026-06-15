@@ -158,6 +158,32 @@ export const EikonMarketplace = memo((props: {
     refreshMarket(svc, query)
   }, [dialog, query, refreshMarket, sel, state.rows, state.service, toast])
 
+  const delistSelected = useCallback(async (row: MarketplaceRow, svc: market.MarketplaceService) => {
+    let own: Awaited<ReturnType<typeof svc.delistInfo>>
+    try {
+      own = await svc.delistInfo(row.entry.identityKey)
+    } catch (err) {
+      toast.show({ variant: "error", title: "Delist check failed", message: err instanceof Error ? err.message : String(err), duration: 6000 })
+      return
+    }
+    if (!own.eligible) {
+      toast.show({ variant: "warning", title: "Delist unavailable", message: own.reason ?? "Only the original GitHub submitter can delist this eikon", duration: 6000 })
+      return
+    }
+    const ok = await openConfirm(dialog, {
+      title: `Delist '${row.entry.name}'?`, danger: true,
+      body: `This will open a GitHub delist request in liftaris/eikon for '${row.entry.name}'. The registry will remove it automatically after authorship is verified.`,
+      yes: "delist", no: "cancel",
+    })
+    if (!ok) return
+    try {
+      const out = await svc.delist(row.entry.identityKey)
+      toast.show({ variant: "success", title: "Delist requested", message: `${row.entry.name} will be removed automatically once GitHub verifies the request. ${out.url}`, duration: 8000 })
+    } catch (err) {
+      toast.show({ variant: "error", title: "Delist failed", message: err instanceof Error ? err.message : String(err), duration: 6000 })
+    }
+  }, [dialog, toast])
+
   const primary = useCallback((idx?: number) => {
     const row = state.rows[idx ?? sel]
     const svc = state.service
@@ -177,32 +203,7 @@ export const EikonMarketplace = memo((props: {
           return
         }
         if (pick === "delete") return removeSelected(idx)
-        if (pick === "delist") {
-          let own: Awaited<ReturnType<typeof svc.delistInfo>>
-          try {
-            own = await svc.delistInfo(row.entry.identityKey)
-          } catch (err) {
-            toast.show({ variant: "error", title: "Delist check failed", message: err instanceof Error ? err.message : String(err), duration: 6000 })
-            return
-          }
-          if (!own.eligible) {
-            toast.show({ variant: "warning", title: "Delist unavailable", message: own.reason ?? "Only the original GitHub submitter can delist this eikon", duration: 6000 })
-            return
-          }
-          const ok = await openConfirm(dialog, {
-            title: `Delist '${row.entry.name}'?`, danger: true,
-            body: `This will open a GitHub delist request for '${row.entry.name}'. The registry will remove it automatically after authorship is verified.`,
-            yes: "delist", no: "cancel",
-          })
-          if (!ok) return
-          try {
-            const out = await svc.delist(row.entry.identityKey)
-            toast.show({ variant: "success", title: "Delist requested", message: `${row.entry.name} will be removed automatically once GitHub verifies the request. ${out.url}`, duration: 8000 })
-          } catch (err) {
-            toast.show({ variant: "error", title: "Delist failed", message: err instanceof Error ? err.message : String(err), duration: 6000 })
-          }
-          return
-        }
+        if (pick === "delist") return delistSelected(row, svc)
         setInstalling(true)
         try {
           const confirm = row.installState === "active-name-conflict"
@@ -228,7 +229,7 @@ export const EikonMarketplace = memo((props: {
       }
     }
     void run()
-  }, [dialog, state.rows, state.service, sel, acting, toast, refreshMarket, query, removeSelected])
+  }, [dialog, state.rows, state.service, sel, acting, toast, refreshMarket, query, removeSelected, delistSelected])
 
   useKeyboard(key => {
     if (!props.focused || dialog.open()) return

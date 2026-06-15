@@ -81,6 +81,7 @@ type Job<T> = {
 
 const DEFAULT_TIMEOUT = 5000
 const DEFAULT_CACHE_LIMIT = 24
+const OFFICIAL_CATALOG = "https://eikon.liftaris.dev/eikons"
 const dec = new TextDecoder()
 
 function hash(data: Uint8Array) {
@@ -409,6 +410,7 @@ export class MarketplaceService {
   private previewCacheLimit: number
   private concurrency: number
   private allowPrivate: boolean
+  private official: boolean
   private delistRepo?: string
   private delistRun?: delist.Run
   private activeLoads = 0
@@ -423,6 +425,7 @@ export class MarketplaceService {
     this.previewCacheLimit = opts.previewCacheLimit ?? DEFAULT_CACHE_LIMIT
     this.concurrency = Math.max(1, Math.floor(opts.concurrency ?? 4))
     this.allowPrivate = opts.allowPrivate === true
+    this.official = keyIdentity(publicCatalogUrl(opts.catalog ?? OFFICIAL_CATALOG, undefined, opts)) === keyIdentity(OFFICIAL_CATALOG)
     this.delistRepo = opts.delistRepo
     this.delistRun = opts.delistRun
   }
@@ -483,12 +486,14 @@ export class MarketplaceService {
   async delistInfo(id: string): Promise<delist.Info> {
     const entry = this.entry(id)
     if (!entry) throw new Error(`marketplace: unknown eikon "${id}"`)
+    if (!this.official) return { eligible: false, reason: "Registry delist is only available from the official Eikon catalog" }
     return delist.info(entry, { repo: this.delistRepo, run: this.delistRun })
   }
 
   async delist(id: string): Promise<delist.Result> {
     const entry = this.entry(id)
     if (!entry) throw new Error(`marketplace: unknown eikon "${id}"`)
+    if (!this.official) throw new Error("Registry delist is only available from the official Eikon catalog")
     return delist.submit(entry, { repo: this.delistRepo, run: this.delistRun })
   }
 

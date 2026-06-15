@@ -194,6 +194,18 @@ describe("service/eikon-marketplace", () => {
     srv.stop()
   })
 
+  test("custom catalogs cannot target official registry delist", async () => {
+    const fx = fixture()
+    const calls: string[][] = []
+    const state = await market.load({ catalog: fx.base, allowPrivate: true, delistRun: async args => { calls.push(args); return "" } })
+    const row = state.rows[0]!
+
+    await expect(state.service!.delist(row.entry.identityKey)).rejects.toThrow(/official Eikon catalog/)
+    expect(await state.service!.delistInfo(row.entry.identityKey)).toMatchObject({ eligible: false, reason: "Registry delist is only available from the official Eikon catalog" })
+    expect(calls).toEqual([])
+    fx.srv.stop()
+  })
+
   test("maps installed and active state by catalog identity before name fallback", async () => {
     const fx = fixture()
     eikon.ensure("ares")
