@@ -7,12 +7,12 @@ import { useToast } from "../ui/toast"
 import { TabShell } from "../ui/shell"
 import { HintBar } from "../ui/hint"
 import { useKeys, handleListKey, useFollow } from "../keys"
-import { EikonCardGrid, EikonTitleList, type EikonCard } from "./eikon-panels"
+import { EIKON_CARD, EikonCardGrid, EikonTitleList, type EikonCard } from "./eikon-panels"
 import { openConfirm } from "../dialogs/confirm"
 import { openEikonSubmit } from "../dialogs/eikon-submit"
 import { openNewEikon } from "../dialogs/new-eikon"
 import * as submitSvc from "../service/eikon-submit"
-import { useKeyboard } from "@opentui/react"
+import { useKeyboard, useTerminalDimensions } from "@opentui/react"
 import { AnimatedAvatar } from "../components/avatar/AnimatedAvatar"
 import { listEikons, parseEikonFile, type ParsedEikon } from "../components/avatar/eikon"
 import { BUNDLED_EIKON_DIR } from "../components/avatar/bundled"
@@ -43,6 +43,7 @@ export const EikonGallery = memo((props: Props) => {
   const toast = useToast()
   const keys = useKeys()
   const rev = useSyncExternalStore(eikon.onRevision, eikon.revision)
+  const dims = useTerminalDimensions()
 
   const rows = useMemo<Row[]>(() => {
     const user = hermesPath("eikons")
@@ -51,7 +52,8 @@ export const EikonGallery = memo((props: Props) => {
     const meta = own.map(x => ({ inst: x, ids: ids(x.manifest as Record<string, unknown> | undefined, x.name, x.sourceUrl) }))
     return listEikons([BUNDLED_EIKON_DIR, user]).map(e => {
       const slug = e.path.startsWith(BUNDLED_EIKON_DIR)
-        ? e.meta.name.toLowerCase() : basename(dirname(e.path))
+        ? e.meta.name.toLowerCase()
+        : dirname(e.path) === user ? basename(e.path, ".eikon") : basename(dirname(e.path))
       const man = manifest(dirname(e.path))
       const keys = ids(man, slug)
       const mine = meta.find(x => x.ids.some(k => keys.includes(k)))?.inst ?? map.get(slug)
@@ -221,6 +223,7 @@ export const EikonGallery = memo((props: Props) => {
     "Library (000)".length,
     ...rows.map(r => r.name.length + 4),
   ) + 7
+  const showGrid = dims.width - listW - PREVIEW >= EIKON_CARD
 
   return (
     <box flexDirection="column" flexGrow={1} minWidth={0}>
@@ -228,9 +231,11 @@ export const EikonGallery = memo((props: Props) => {
         <EikonTitleList title={`Library (${rows.length})`} rows={rows.map(r => ({ key: r.path, name: r.name, active: current(r) }))}
           sel={sel} focus={props.focused && pane === "list"} follow={galleryFollow} width={listW}
           onSel={setSel} onUse={i => activate(rows[i])} />
-        <TabShell title="Grid" grow={1}>
-          <EikonCardGrid rows={cards} sel={sel} follow={gridFollow} onSel={setSel} onUse={i => activate(rows[i])} />
-        </TabShell>
+        {showGrid ? (
+          <TabShell title="Grid" grow={1}>
+            <EikonCardGrid rows={cards} sel={sel} follow={gridFollow} onSel={setSel} onUse={i => activate(rows[i])} />
+          </TabShell>
+        ) : null}
         <box width={PREVIEW} flexShrink={0} minHeight={0}>
           <TabShell title={cur ? `Preview — ${cur.name}` : "Preview"} grow={1}>
             <box flexDirection="column" flexGrow={1} padding={1} alignItems="center">

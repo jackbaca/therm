@@ -1,11 +1,14 @@
 import { afterEach, test, expect } from "bun:test"
 import { act } from "react"
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { mountNode, until } from "./harness"
 import { EikonGallery } from "../src/tabs/EikonGallery"
 import { EikonGroup } from "../src/tabs/EikonGroup"
 import { EIKON_TAB, SUB_TABS, TAB_SLASH } from "../src/app/tabs"
 
 let server: ReturnType<typeof Bun.serve> | undefined
+const HH = process.env.HERMES_HOME!
 
 const eikonBody = [
   JSON.stringify({
@@ -39,6 +42,7 @@ afterEach(() => {
   delete process.env.EIKON_URL
   server?.stop()
   server = undefined
+  rmSync(join(HH, "eikons"), { recursive: true, force: true })
 })
 
 test("Eikon sub-tabs put Studio after Library and Catalog and preserve slash routes", () => {
@@ -72,10 +76,37 @@ test("Library title remains readable without catalog action at narrow widths", a
   expect(row).not.toContain("Catalog")
 })
 
+test("Library grid hides only below one card of available width", async () => {
+  await using shown = await mountNode(<EikonGallery focused />, { width: 124, height: 36 })
+  await until(shown, () => shown.frame().includes("Library (") && shown.frame().includes("Grid"))
+
+  await using hidden = await mountNode(<EikonGallery focused />, { width: 123, height: 36 })
+  await until(hidden, () => hidden.frame().includes("Library (") && hidden.frame().includes("Preview"))
+  expect(hidden.frame()).not.toContain("Grid")
+})
+
 test("Library action pane names management actions", async () => {
   await using t = await mountNode(<EikonGallery focused />, { width: 180, height: 48 })
   await until(t, () => t.frame().includes("Library (") && t.frame().includes("Actions"))
   expect(t.frame()).toContain("Use as active avatar")
   act(() => t.keys.pressTab())
   await until(t, () => t.frame().includes("[Tab] library"))
+})
+
+test("Library delete removes flat legacy eikon files", async () => {
+  mkdirSync(join(HH, "eikons"), { recursive: true })
+  const old = join(HH, "eikons", "liftaris.eikon")
+  writeFileSync(old, eikonBody.replaceAll("ares", "liftaris"))
+
+  await using t = await mountNode(<EikonGallery focused />, { width: 160, height: 48 })
+  await until(t, () => t.frame().includes("liftaris"))
+  for (let i = 0; i < 20; i++) {
+    if (t.frame().split("\n").some(l => l.includes("▸") && l.includes("liftaris"))) break
+    act(() => t.keys.pressArrow("down"))
+    await t.settle()
+  }
+  act(() => t.keys.pressKey("d"))
+  await until(t, () => t.frame().includes("Delete 'liftaris'?"))
+  act(() => t.keys.pressEnter())
+  await until(t, () => !existsSync(old))
 })

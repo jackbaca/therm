@@ -36,6 +36,7 @@ const ROOT = () => hermesPath("eikons")
 
 export const dir = (name: string) => join(ROOT(), name)
 export const file = (name: string) => join(dir(name), `${name}.eikon`)
+const flat = (name: string) => join(ROOT(), `${name}.eikon`)
 export const sourceDir = (name: string) => join(dir(name), "source")
 export const studioFile = (name: string) => join(dir(name), "studio.json")
 
@@ -542,6 +543,8 @@ export function header(path: string): Record<string, unknown> | undefined {
 export function baked(name: string): string | undefined {
   const local = file(name)
   if (existsSync(local)) return local
+  const old = flat(name)
+  if (existsSync(old)) return old
 
   const target = (name === "default" ? "nous" : name).toLowerCase()
   for (const e of listEikons([BUNDLED_EIKON_DIR])) {
@@ -674,6 +677,7 @@ export function remove(name: string, opts: { confirmActive?: boolean } = {}): Ac
     message: `Removing '${name}' will clear the active avatar. Pass confirmActive to remove it.`,
   }
   rmSync(dir(name), { recursive: true, force: true })
+  rmSync(flat(name), { force: true })
   if (prefs.get("eikon") === name) prefs.set("eikon", undefined)
   bump()
   return undefined

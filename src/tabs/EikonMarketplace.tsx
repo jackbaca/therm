@@ -9,7 +9,7 @@ import { FilterChip } from "../ui/filter-chip"
 import { openConfirm } from "../dialogs/confirm"
 import { openEikonMarketplaceAction } from "../dialogs/eikon-marketplace-action"
 import { useKeys, handleListKey, useFollow } from "../keys"
-import { EikonCardGrid, EikonTitleList, titleWidth, type EikonCard } from "./eikon-panels"
+import { EIKON_CARD, EikonCardGrid, EikonTitleList, titleWidth, type EikonCard } from "./eikon-panels"
 import * as perf from "../utils/perf"
 import { AnimatedAvatar } from "../components/avatar/AnimatedAvatar"
 import { parseEikon, type ParsedEikon } from "../components/avatar/eikon"
@@ -245,7 +245,7 @@ export const EikonMarketplace = memo((props: {
     lines: posterLines(r.entry.poster),
   }))
   const listW = titleWidth(`Catalog (${state.rows.length})`, titles)
-  const showGrid = dims.width >= 190
+  const showGrid = dims.width - listW - DETAIL >= EIKON_CARD
   return (
     <box flexDirection="column" flexGrow={1} minWidth={0} minHeight={0}>
       <box flexDirection="row" flexGrow={1} minWidth={0} minHeight={0}>

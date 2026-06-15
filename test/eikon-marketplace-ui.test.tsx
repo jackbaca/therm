@@ -214,6 +214,18 @@ describe("EikonMarketplace tab", () => {
     fx.srv.stop()
   })
 
+  test("catalog grid hides only below one card of available width", async () => {
+    const fx = catalog()
+    process.env.EIKON_URL = fx.base
+    await using shown = await mountNode(group(), { width: 122, height: 48 })
+    await until(shown, () => shown.frame().includes("Catalog (6)") && shown.frame().includes("ARES-POSTER"))
+
+    await using hidden = await mountNode(group(), { width: 121, height: 48 })
+    await until(hidden, () => hidden.frame().includes("Catalog (6)") && hidden.frame().includes("ARES-IDLE"))
+    expect(hidden.frame()).not.toContain("ARES-POSTER")
+    fx.srv.stop()
+  })
+
   test("slash enters search without leaving the tab", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
