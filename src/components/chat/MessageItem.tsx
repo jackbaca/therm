@@ -46,7 +46,7 @@ function mix(a: RGBA, b: RGBA, n = 0.5): RGBA {
 }
 
 function darken(c: RGBA, n = 0.35): RGBA {
-  return RGBA.fromValues(c.r * (1 - n), c.g * (1 - n), c.b * (1 - n), c.a)
+  return RGBA.fromValues(c.r * n, c.g * n, c.b * n, c.a)
 }
 
 const TOP_RULE = {
