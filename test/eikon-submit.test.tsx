@@ -81,6 +81,26 @@ describe("Eikon submit dialog", () => {
     expect(fn).not.toHaveBeenCalled()
   })
 
+  test("metadata fields use arrows, not Tab", async () => {
+    await seed("draft")
+    const fn = mock(async (_input: submit.PreparedSubmit) => ({ kind: "submitted" as const, url: "https://github.com/liftaris/eikon/pull/1", request: {} as never }))
+    await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 160, height: 48 })
+    await open(t)
+    await until(t, () => t.frame().includes("↑↓ field") && /▸ title/.test(t.frame()))
+
+    act(() => t.keys.pressTab())
+    await t.settle()
+    expect(t.frame()).toMatch(/▸ title/)
+    expect(t.frame()).not.toMatch(/▸ author/)
+
+    act(() => t.keys.pressArrow("down"))
+    await until(t, () => /▸ author/.test(t.frame()))
+    act(() => t.keys.pressArrow("down"))
+    await until(t, () => /▸ description/.test(t.frame()))
+    act(() => t.keys.pressArrow("up"))
+    await until(t, () => /▸ author/.test(t.frame()))
+  })
+
   test("preflight preview lists safe included files and omits secret symlink escapes", async () => {
     await seed("draft")
     const root = eikon.dir("draft")

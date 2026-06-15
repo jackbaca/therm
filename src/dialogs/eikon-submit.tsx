@@ -129,14 +129,16 @@ const Form = (props: Props) => {
     setStatus(ok ? "Opened browser fallback" : `Open failed; copy ${prepared.url}`)
   }
 
+  const move = (by: number) => {
+    const i = FIELDS.indexOf(field)
+    setField(FIELDS[(i + by + FIELDS.length) % FIELDS.length]!)
+  }
+
   useKeyboard(key => {
     if (key.name === "escape") return close()
     if (busy) return
-    if (key.name === "tab" && !prepared) {
-      const i = FIELDS.indexOf(field)
-      setField(FIELDS[(i + (key.shift ? FIELDS.length - 1 : 1)) % FIELDS.length]!)
-      return
-    }
+    if (!prepared && key.name === "up") return move(-1)
+    if (!prepared && key.name === "down") return move(1)
     if (key.name === "c" && prepared) {
       setConsent(v => !v)
       setStatus(!consent ? "Consented to public PR submission" : "Consent cleared")
@@ -157,7 +159,7 @@ const Form = (props: Props) => {
       {!prepared ? <Meta meta={meta} field={field} setField={setField} setMeta={edit} /> : <Preview prepared={prepared} consent={consent} />}
       <box height={1} />
       <text fg={bad ? theme.error : warn ? theme.warning : theme.textMuted} wrapMode="word">
-        {status || (prepared ? "c consent  ·  Enter submit  ·  o open browser fallback  ·  Esc cancel" : "Tab field  ·  Enter preview public bundle  ·  Esc cancel")}
+        {status || (prepared ? "c consent  ·  Enter submit  ·  o open browser fallback  ·  Esc cancel" : "↑↓ field  ·  Enter preview public bundle  ·  Esc cancel")}
       </text>
       {result?.kind === "submitted" ? <text fg={theme.accent}>{result.url}</text> : null}
     </box>
