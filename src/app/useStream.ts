@@ -36,6 +36,7 @@ type Ctx = {
   setStatus: (s: string) => void
   setSkin: (s: SkinState) => void
   setErrorPulse: (v: boolean) => void
+  settle: () => void
 }
 
 // Events that mutate the in-progress assistant turn. Everything else
@@ -153,6 +154,7 @@ export function useStream(c: Ctx) {
         x.setInfo(si)
         x.setReady(true)
         if (si.session_id) x.setSid(si.session_id)
+        x.settle()
         const bad = (si.mcp_servers ?? []).filter(s => !s.connected)
         if (bad.length) x.dispatch({
           kind: "system",

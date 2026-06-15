@@ -58,6 +58,8 @@ import { sessionCapabilities } from "./app/sessionCapabilities"
 
 type AppProps = { initialTheme?: string; gateway?: Gateway; launch?: Launch; keyOverrides?: Record<string, string> }
 
+const BUSY_RE = /session busy|waiting for model response/i
+
 export const App = (props: AppProps) => (
   <ThemeProvider initial={props.initialTheme}>
     <GatewayProvider client={props.gateway}>
@@ -201,6 +203,13 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const [pick, setPick] = useState<Message | undefined>(undefined)
   const [skin, setSkin] = useState<SkinState>(() => deriveSkin(undefined))
   const inflight = useRef(false)
+  const hold = useRef(false)
+  const [pulse, setPulse] = useState(0)
+  const settle = useCallback(() => {
+    if (!hold.current) return
+    hold.current = false
+    setPulse(n => n + 1)
+  }, [])
   // /undo snapshots the tail it pops (Message[]) so /redo can replay
   // the head user-turn's text. Client-only; gateway session.undo is a
   // hard delete with no unrevert. Cleared on reset/session-switch.
@@ -313,19 +322,25 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
         .catch(() => setQueue(q => [...q, t]))
       return
     }
-    if (busy === "interrupt") { intr.current(); return setQueue(q => [t, ...q]) }
+    if (busy === "interrupt") {
+      hold.current = true
+      setQueue(q => [t, ...q])
+      intr.current()
+      return
+    }
     setQueue(q => [...q, t])
   }, [busy, gw, toast])
   const onAttach = useCallback((r: ImageAttachResponse) => setAttachments(a => [...a, r]), [])
 
   const stream = useStream({
     dispatch, session, launchRef, sidRef, sessionStart, goalHook,
-    setSid, setInfo, setReady, setTitle, setBusy, setUsage, setStatus, setSkin, setErrorPulse,
+    setSid, setInfo, setReady, setTitle, setBusy, setUsage, setStatus, setSkin, setErrorPulse, settle,
   })
   intr.current = stream.doInterrupt
 
   const reset = useCallback(() => {
     stream.interrupted.current = false
+    hold.current = false
     toast.clear("credits.depleted")
     undone.current = []
     dispatch({ kind: "reset" })
@@ -601,12 +616,31 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     const withMedia = attachments.length
       ? [...attachments.flatMap(a => a.path ? [`MEDIA:${a.path}`] : []), text].filter(Boolean).join("\n")
       : text
-    dispatch({ kind: "user", text: withMedia })
-    setAttachments([])
-    undone.current = []
-    gw.request("prompt.submit", { text }).catch(() => { inflight.current = false })
-    setTab(CHAT_TAB)
-  }, [gw, slash, attachments])
+    gw.request("prompt.submit", { text })
+      .then(() => {
+        dispatch({ kind: "user", text: withMedia })
+        setAttachments([])
+        undone.current = []
+        setTab(CHAT_TAB)
+      })
+      .catch((e: Error) => {
+        const msg = e instanceof Error ? e.message : String(e)
+        if (BUSY_RE.test(msg)) {
+          inflight.current = true
+          setQueue(q => [text, ...q])
+          setStatus("queued for next turn")
+          toast.show({ variant: "info", message: "queued for next turn" })
+          setTimeout(() => {
+            inflight.current = false
+            setPulse(n => n + 1)
+          }, 400)
+          return
+        }
+        inflight.current = false
+        dispatch({ kind: "system", text: `submit failed: ${msg}` })
+        toast.show({ variant: "error", message: msg })
+      })
+  }, [gw, slash, attachments, toast])
   sendRef.current = send
 
   // Shell mode submit — `shell.exec` is a plain subprocess (no pty,
@@ -649,12 +683,12 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   // one tick. `inflight` bridges the dispatch→message.start gap.
   useEffect(() => { if (turn.streaming) inflight.current = false }, [turn.streaming])
   useEffect(() => {
-    if (!capabilities.canDrainQueue || inflight.current || queue.length === 0) return
+    if (!capabilities.canDrainQueue || inflight.current || hold.current || queue.length === 0) return
     const [head, ...rest] = queue
     inflight.current = true
     setQueue(rest)
     send(head)
-  }, [capabilities.canDrainQueue, queue, send])
+  }, [capabilities.canDrainQueue, queue, send, pulse])
 
   const dequeue = useCallback((i: number) => {
     const item = queueRef.current[i]
@@ -707,10 +741,13 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       return true
     },
     onInterrupt: stream.doInterrupt,
-    // queue.flush is just an interrupt — the drain effect auto-fires
-    // the head once turn.streaming flips false.
+    // queue.flush interrupts, then drain waits for session.info so
+    // prompt.submit does not race the gateway's still-running turn.
     queued: queue.length,
-    onFlushQueue: stream.doInterrupt,
+    onFlushQueue: () => {
+      hold.current = true
+      stream.doInterrupt()
+    },
     onQuit: () => quit(renderer, sid, caption, gw),
     onQuitArm: (label) =>
       toast.show({ variant: "info", message: `${label} again to quit` }),
