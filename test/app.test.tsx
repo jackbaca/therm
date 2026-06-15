@@ -543,9 +543,10 @@ describe("app", () => {
     await act(async () => { await t.keys.typeText("2") })
     await until(t, () => t.gw.last("clarify.respond") !== undefined)
     expect(t.gw.last("clarify.respond")?.params).toMatchObject({ request_id: "c1", answer: "blue" })
-    // Outcome persists after turn ends.
+    // Outcome persists after turn ends with question context.
     act(() => t.gw.push({ type: "message.complete", payload: { text: "ok", usage: { input: 0, output: 0, total: 0 } } }))
-    await until(t, () => t.frame().includes("chose: blue"))
+    await until(t, () => t.frame().includes("blue"))
+    expect(t.frame()).toContain("which one?")
     t.destroy()
   })
 

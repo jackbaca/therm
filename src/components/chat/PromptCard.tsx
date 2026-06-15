@@ -338,22 +338,54 @@ const Masked = forwardRef<PromptCardHandle, {
   )
 })
 
+function same(a: string | undefined, b: string): boolean {
+  return Boolean(a && b && b.toLowerCase().includes(a.toLowerCase()))
+}
+
+function cap(s: string, n = 160): string {
+  return s.length <= n ? s : s.slice(0, n - 1) + "…"
+}
+
+function question(part: PromptPart): string {
+  const a = part.answered?.question
+  if (a) return a
+  if (part.req.variant === "clarify") return part.req.question
+  if (part.req.variant === "approval") return mkApproval(part.req).question
+  if (part.req.variant === "sudo") return "Sudo required"
+  return part.req.env_var ? `Secret: ${part.req.env_var}` : "Secret required"
+}
+
+function outcome(part: PromptPart): { head: string; body?: string } {
+  const a = part.answered!
+  if (part.variant === "clarify") {
+    const q = cap(question(part))
+    const body = cap(a.label)
+    return same(q, a.label) ? { head: body } : { head: q, body }
+  }
+  if (part.variant === "approval") {
+    const q = cap(question(part), 96)
+    return { head: a.label, body: q }
+  }
+  if (part.variant === "sudo") return { head: `sudo ${a.label}` }
+  const req = part.req as Extract<PromptReq, { variant: "secret" }>
+  return { head: `${req.env_var ?? "secret"} ${a.label}` }
+}
+
 const Outcome = memo(({ part }: { part: PromptPart }) => {
   const theme = useTheme().theme
   const a = part.answered!
   const glyph = a.ok ? "✓" : "✗"
   const fg = a.ok ? theme.success : theme.error
-  const what =
-    part.variant === "approval" ? a.label
-    : part.variant === "clarify" ? `chose: ${a.label}`
-    : part.variant === "sudo" ? `sudo ${a.label}`
-    : `${(part.req as { env_var?: string }).env_var ?? "secret"} ${a.label}`
+  const text = outcome(part)
   return (
-    <box height={1} paddingLeft={3} marginBottom={1}>
-      <text>
-        <span fg={fg}>{glyph} </span>
-        <span fg={theme.textMuted}>{what}</span>
-      </text>
+    <box flexDirection="row" paddingLeft={3} marginBottom={1}>
+      <box width={2} flexShrink={0}>
+        <text fg={fg}>{glyph}</text>
+      </box>
+      <box flexDirection="column" flexGrow={1} flexShrink={1}>
+        <text fg={theme.textMuted} wrapMode="word">{text.head}</text>
+        {text.body ? <text fg={theme.textMuted} wrapMode="word">{text.body}</text> : null}
+      </box>
     </box>
   )
 })
