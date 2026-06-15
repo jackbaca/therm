@@ -16,18 +16,18 @@ const fmt = (n?: number) => n == null ? "size unknown" : n < 1024 ? `${n} B` : n
 
 const choices = (row: MarketplaceRow, sizes?: MarketplaceSizes): Opt[] => {
   if (row.installState === "incompatible" || row.installState === "mismatch") return [
-    { label: "Delist from Registry", hint: "opens an automatic GitHub delist request for the original submitter", value: "delist" },
+    { label: "Delist from Registry", value: "delist" },
   ]
   if (!row.installed) return [
     { label: "Eikon only", hint: fmt(sizes?.eikon), value: "install" },
     { label: "Eikon + Source", hint: `${fmt((sizes?.eikon ?? 0) + (sizes?.source ?? 0))} · Source files needed to edit Eikon in Studio`, value: "source" },
-    { label: "Delist from Registry", hint: "opens an automatic GitHub delist request for the original submitter", value: "delist" },
+    { label: "Delist from Registry", value: "delist" },
   ]
   return [
     ...(!row.active ? [{ label: "Use", hint: "set as active avatar", value: "use" as const }] : []),
     ...(row.sourceDownloadable ? [{ label: "Download Source", hint: "needed to edit in Studio", value: "download" as const }] : []),
-    ...(row.removable ? [{ label: "Delete", value: "delete" as const }] : []),
-    { label: "Delist from Registry", hint: "opens an automatic GitHub delist request for the original submitter", value: "delist" as const },
+    ...(row.removable ? [{ label: "Uninstall", value: "delete" as const }] : []),
+    { label: "Delist from Registry", value: "delist" as const },
   ]
 }
 

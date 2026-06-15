@@ -282,6 +282,7 @@ describe("EikonMarketplace tab", () => {
     await until(t, () => t.frame().includes("Catalog (6)") && t.frame().includes("ARES-IDLE"))
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Eikon only") && t.frame().includes("Delist from Registry"))
+    expect(t.frame()).not.toContain("opens an automatic")
     fx.srv.stop()
   })
 
@@ -453,7 +454,7 @@ describe("EikonMarketplace tab", () => {
     await until(t, () => prefs.get("eikon") === "mono" && t.frame().includes("▸ ● mono"))
 
     act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("Download Source") && t.frame().includes("Delete"))
+    await until(t, () => t.frame().includes("Download Source") && t.frame().includes("Uninstall"))
     expect(t.frame()).not.toContain("already active")
     expect(t.frame()).not.toContain("asks before removing")
     act(() => t.keys.pressEnter())
@@ -474,11 +475,11 @@ describe("EikonMarketplace tab", () => {
     await until(t, () => t.frame().includes("installed") && t.frame().includes("removable"))
 
     act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("Use") && t.frame().includes("Delete"))
+    await until(t, () => t.frame().includes("Use") && t.frame().includes("Uninstall"))
     expect(t.frame()).not.toContain("Download Source")
     act(() => t.keys.pressKey("2"))
     await t.settle()
-    expect(t.frame()).toContain("Delete")
+    expect(t.frame()).toContain("Uninstall")
     expect(t.frame()).not.toContain("Remove 'ares'?")
     expect(eikon.list().some(x => x.name === "ares")).toBe(true)
     fx.srv.stop()
