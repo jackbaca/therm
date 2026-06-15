@@ -1,6 +1,7 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, readFileSync, rmSync } from "node:fs"
 import { createHash } from "node:crypto"
 import { isIP } from "node:net"
+import { tmpdir } from "node:os"
 import { basename, dirname, join } from "node:path"
 import {
   decodeRuntimeFile,
@@ -13,7 +14,7 @@ import {
   type SubmitResult,
 } from "eikon"
 import { file, header } from "./eikon"
-import { hermesPath, makeSource, type Source } from "./hermes-home"
+import type { Source } from "./hermes-home"
 export type { SubmitResult } from "eikon"
 
 const TOKEN = /(gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|Bearer\s+[A-Za-z0-9._~+/=-]+|token\s+[A-Za-z0-9._~+/=-]+|\*{3,})/gi
@@ -48,6 +49,7 @@ export type SubmitPreview = {
   body: string
   url: string
   steps: string[]
+  lint: string[]
 }
 
 export type PreparedSubmit = SubmitPreview & {
@@ -112,16 +114,11 @@ export async function preview(input: SubmitInput): Promise<SubmitPreview> {
 }
 
 export async function prepare(input: SubmitInput): Promise<PreparedSubmit> {
-  const base = await previewSubmitBundle({ path: input.path })
-  const want = `${base.meta.name}.eikon`
-  if (basename(base.packed) !== want) throw new Error(`runtime filename must match eikon name: expected ${want}`)
   const meta = sanitize(input.meta ?? await defaults(input))
   const target = repo(input.target ?? DEFAULT_REPO)
-  const rel = `eikon-submissions/${base.meta.name}-${Date.now()}-${Math.random().toString(36).slice(2)}/${base.meta.name}`
-  const root = hermesPath(rel)
-  mkdirSync(root, { recursive: true })
-  stage(base, root, meta, input.includeSource === true)
-  const bundle = await previewSubmitBundle({ path: join(root, basename(base.packed)) })
+  const bundle = await previewSubmitBundle({ path: input.path, display: meta })
+  const want = `${bundle.meta.name}.eikon`
+  if (basename(input.path) !== want) throw new Error(`runtime filename must match eikon name: expected ${want}`)
   scan(bundle)
   const req = request(bundle, meta, target)
   return {
@@ -130,13 +127,14 @@ export async function prepare(input: SubmitInput): Promise<PreparedSubmit> {
     files: bundle.files.map(f => ({ path: f.path, bytes: f.bytes })),
     meta,
     target,
-    source: input.includeSource === true,
-    bundleDir: root,
-    bundleSource: makeSource(rel, rel),
+    source: bundle.files.some(f => /\/source\/|\/states\//.test(f.path)),
+    bundleDir: bundle.root,
+    bundleSource: source(bundle.root),
     title: req.title,
     body: req.body,
     url: fallbackUrl(target, bundle.meta.name),
     steps: steps(target, bundle.meta.name),
+    lint: bundle.lint,
     bundle,
     request: req,
     snapshot: snap(bundle),
@@ -144,20 +142,19 @@ export async function prepare(input: SubmitInput): Promise<PreparedSubmit> {
 }
 
 export async function submit(input: PreparedSubmit, backend?: SubmitBackend): Promise<SubmitResult> {
-  let bundle: SubmitBundle
-  try { bundle = await previewSubmitBundle({ path: join(input.bundleDir, basename(input.bundle.packed)) }) }
+  if (snap(input.bundle) !== input.snapshot) return {
+    kind: "validation-failed",
+    failures: [{ code: "invalid-eikon", message: "staged submission changed after preview; review the bundle again" }],
+  }
+  try { scan(input.bundle) }
   catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     return { kind: "validation-failed", failures: [{ code: "invalid-eikon", message }] }
   }
-  if (snap(bundle) !== input.snapshot) return {
-    kind: "validation-failed",
-    failures: [{ code: "invalid-eikon", message: "staged submission changed after preview; review the bundle again" }],
-  }
   const be = backend ?? githubSubmitBackend(input.target)
   const setup = await be.check()
   if (!setup.ok) return { kind: "setup-needed", failures: [{ code: "missing-auth", message: redact(setup.reason) }] }
-  try { return await be.create(request(bundle, input.meta, input.target)) }
+  try { return await be.create(request(input.bundle, input.meta, input.target)) }
   catch (err) { return { kind: "backend-failed", failures: [{ code: "backend-failed", message: redact(err instanceof Error ? err.message : String(err)) }] } }
 }
 
@@ -178,32 +175,6 @@ function publicText(abs: string, rel: string): string | undefined {
   return undefined
 }
 
-function stage(bundle: SubmitBundle, root: string, meta: SubmitMeta, source: boolean) {
-  const picked = source ? bundle.files : bundle.files.filter(f => f.abs === bundle.packed || f.path === basename(bundle.packed))
-  for (const entry of picked) {
-    if (entry.path === "manifest.json") continue
-    const out = join(root, entry.path)
-    mkdirSync(dirname(out), { recursive: true })
-    copyFileSync(entry.abs, out)
-  }
-  const old = source && existsSync(join(bundle.root, "manifest.json"))
-    ? JSON.parse(readFileSync(join(bundle.root, "manifest.json"), "utf8")) as Record<string, unknown>
-    : {}
-  writeFileSync(join(root, "manifest.json"), JSON.stringify({
-    name: bundle.meta.name,
-    version: typeof old.version === "number" ? old.version : 1,
-    ...(typeof old.eikon_requires === "string" ? { eikon_requires: old.eikon_requires } : {}),
-    ...(source && typeof old.source === "string" ? { source: old.source } : {}),
-    states: source && old.states && typeof old.states === "object" && !Array.isArray(old.states) ? old.states : {},
-    display: {
-      title: meta.title,
-      author: meta.author,
-      description: meta.description,
-      glyph: meta.glyph,
-    },
-  }, null, 2) + "\n", "utf8")
-}
-
 function request(bundle: SubmitBundle, meta: SubmitMeta, target: string): SubmitRequest {
   const title = `eikons: submit ${bundle.meta.name}`
   const body = [
@@ -215,10 +186,8 @@ function request(bundle: SubmitBundle, meta: SubmitMeta, target: string): Submit
     `Glyph: ${meta.glyph}`,
     `Target: ${target}`,
     "",
-    "Submission bundle:",
-    ...bundle.files.map(f => `- ${f.path} (${f.bytes} bytes)`),
-    "",
-    "This PR makes the listed files public and reviewable. The Eikon is not officially listed or verified until registry review and merge.",
+    "Registry preflight:",
+    ...bundle.lint,
   ].join("\n")
   return { bundle, title, body }
 }
@@ -304,16 +273,10 @@ function fallbackUrl(target: string, name: string) {
 
 function steps(target: string, name: string) {
   return [
-    `Fork or open ${target} on GitHub.`,
-    `Copy the prepared bundle from this machine into eikons/${name}/ on a submit/${name} branch.`,
-    "Open a pull request with the title and body shown here.",
+    `Open ${target} on GitHub.`,
+    `Create a submit/${name} branch with the prepared files.`,
+    "Open a pull request using the Eikon submission template.",
   ]
-}
-
-function stageRoot() {
-  const root = hermesPath("eikon-submissions")
-  mkdirSync(root, { recursive: true })
-  return root
 }
 
 function snap(bundle: SubmitBundle) {
@@ -329,6 +292,10 @@ function snap(bundle: SubmitBundle) {
   return hash.digest("hex")
 }
 
+function source(path: string): Source {
+  return { file: path, relative: path, label: basename(path) }
+}
+
 async function ghUser() {
   try {
     const p = Bun.spawn(["gh", "api", "user", "-q", ".login"], { stdout: "pipe", stderr: "pipe" })
@@ -340,10 +307,8 @@ async function ghUser() {
 }
 
 export function cleanup(input: PreparedSubmit) {
-  const root = stageRoot()
-  const parent = dirname(input.bundleDir)
-  if (!parent.startsWith(`${root}/`)) return
-  rmSync(parent, { recursive: true, force: true })
+  if (dirname(input.bundleDir) !== tmpdir() || !basename(input.bundleDir).startsWith("eikon-submit-")) return
+  rmSync(input.bundleDir, { recursive: true, force: true })
 }
 
 export * as submitSvc from "./eikon-submit"

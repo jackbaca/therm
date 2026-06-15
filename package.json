@@ -38,7 +38,7 @@
   "dependencies": {
     "@opentui/core": "0.2.2",
     "@opentui/react": "0.2.2",
-    "eikon": "github:liftaris/eikon#92f6e957a4ebfe6505d1aad2726f3484ec5756b6",
+    "eikon": "github:liftaris/eikon#03366100df3a91533b4206177a1a524a4463d5c2",
     "gpt-tokenizer": "^3.4.0",
     "open": "^11.0.0",
     "react": "^19.2.5",
