@@ -177,6 +177,26 @@ export const EikonMarketplace = memo((props: {
           return
         }
         if (pick === "delete") return removeSelected(idx)
+        if (pick === "delist") {
+          const own = await svc.delistInfo(row.entry.identityKey)
+          if (!own.eligible) {
+            toast.show({ variant: "warning", title: "Delist unavailable", message: own.reason ?? "Only the original GitHub submitter can delist this eikon", duration: 6000 })
+            return
+          }
+          const ok = await openConfirm(dialog, {
+            title: `Delist '${row.entry.name}'?`, danger: true,
+            body: `This will open a GitHub delist request for '${row.entry.name}'. The registry will remove it automatically after authorship is verified.`,
+            yes: "delist", no: "cancel",
+          })
+          if (!ok) return
+          try {
+            const out = await svc.delist(row.entry.identityKey)
+            toast.show({ variant: "success", title: "Delist requested", message: `${row.entry.name} will be removed automatically once GitHub verifies the request. ${out.url}`, duration: 8000 })
+          } catch (err) {
+            toast.show({ variant: "error", title: "Delist failed", message: err instanceof Error ? err.message : String(err), duration: 6000 })
+          }
+          return
+        }
         setInstalling(true)
         try {
           const confirm = row.installState === "active-name-conflict"

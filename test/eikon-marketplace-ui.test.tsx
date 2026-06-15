@@ -272,6 +272,16 @@ describe("EikonMarketplace tab", () => {
     fx.srv.stop()
   })
 
+  test("available catalog action includes registry delist", async () => {
+    const fx = catalog()
+    process.env.EIKON_URL = fx.base
+    await using t = await mountNode(group(), { width: 160, height: 48 })
+    await until(t, () => t.frame().includes("Catalog (6)") && t.frame().includes("ARES-IDLE"))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Eikon only") && t.frame().includes("Delist from Registry"))
+    fx.srv.stop()
+  })
+
   test("slash enters search without leaving the tab", async () => {
     const fx = catalog()
     process.env.EIKON_URL = fx.base
