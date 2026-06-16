@@ -90,19 +90,11 @@ describe("mapEvent", () => {
     expect(b.action).toEqual({ kind: "system", text: "HTTP 404" })
   })
 
-  test("status.update kind=process routes to debounced side callback", () => {
+  test("status.update kind=process is transient status only", () => {
     const text = "[IMPORTANT: Background process proc_abc completed (exit code 0).\nCommand: bun test\nOutput:\n…long stdout…]"
     const done = map({ type: "status.update", payload: { kind: "process", text } })
     expect(done.action).toBeNull()
-    expect(done.calls.status).toEqual([text])
-
-    const calls: string[] = []
-    const routed = map(
-      { type: "status.update", payload: { kind: "process", text } },
-      { onProcessNotification: t => calls.push(t) },
-    )
-    expect(routed.action).toBeNull()
-    expect(calls).toEqual([text])
+    expect(done.calls.status).toEqual(["proc_abc exited 0 · bun test"])
   })
 
   test("notification events route to keyed notice controller", () => {

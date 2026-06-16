@@ -10,7 +10,7 @@ import { useGateway, useGatewayEvent } from "../context/gateway"
 import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
 import { openAlert } from "../dialogs/alert"
-import { formatProcessNotification, mapEvent } from "../context/events"
+import { mapEvent } from "../context/events"
 import { deriveSkin, type SkinState } from "../context/skin"
 import { useBackground } from "./background"
 import type { Action } from "./turnReducer"
@@ -79,35 +79,11 @@ export function useStream(c: Ctx) {
   // action flushes synchronously first so part ordering is preserved.
   const deltas = useRef({ text: "", think: "", timer: null as ReturnType<typeof setTimeout> | null })
 
-  // Process notification batching: status.update/kind=process events
-  // accumulate over a 500ms window and dispatch as one combined system
-  // message. Prevents TUI lag when many background processes finish
-  // in rapid succession (each one otherwise triggers a full React
-  // re-render of the Chat transcript).
-  const procs = useRef<{ texts: string[]; timer: ReturnType<typeof setTimeout> | null }>(
-    { texts: [], timer: null },
-  )
-
   const flush = useCallback(() => {
     const d = deltas.current
     if (d.timer) { clearTimeout(d.timer); d.timer = null }
     if (d.think) { ctx.current.dispatch({ kind: "thinking", text: d.think, final: false }); d.think = "" }
     if (d.text) { ctx.current.dispatch({ kind: "message.delta", chunk: d.text }); d.text = "" }
-  }, [])
-
-  // Flush accumulated process notifications as one combined system msg.
-  const flushProcs = useCallback(() => {
-    const n = procs.current
-    if (n.timer) { clearTimeout(n.timer); n.timer = null }
-    if (!n.texts.length) return
-    const batch = n.texts.splice(0)
-    const lines = batch.map(t => `  ${formatProcessNotification(t)}`)
-    ctx.current.dispatch({
-      kind: "system",
-      text: batch.length === 1
-        ? `◆ background ${lines[0].trim()}`
-        : `◆ ${batch.length} background notifications\n${lines.join("\n")}`,
-    })
   }, [])
 
   const sync = useCallback((ms = 0) => {
@@ -128,8 +104,12 @@ export function useStream(c: Ctx) {
   const handle = useCallback((ev: GatewayEvent) => {
     const x = ctx.current
     if (ev.type === "gateway.ready") info.current = false
-    const shared = ev.type === "background.complete" ||
-      (ev.type === "status.update" && ev.payload?.kind === "process")
+    if (ev.type === "background.complete" && ev.session_id && x.sidRef.current
+        && ev.session_id !== x.sidRef.current) {
+      bg.unregister(ev.payload.task_id)
+      return
+    }
+    const shared = ev.type === "background.complete" && !ev.session_id
     if (ev.session_id && x.sidRef.current && ev.session_id !== x.sidRef.current && !ev.type.startsWith("gateway.") && !shared) return
     // The agent's stream-retry loop (run_agent._call) classifies the
     // force-closed httpx socket from an interrupt as a transient drop
@@ -175,13 +155,7 @@ export function useStream(c: Ctx) {
       },
       onBackground: (tid, text) => {
         bg.unregister(tid)
-        const head = text.split("\n")[0].slice(0, 80)
-        x.dispatch({ kind: "system", text: `◷ background task ${tid} complete — ${head}` })
-        toast.show({
-          variant: "info", title: "Background task complete", message: head,
-          duration: 8000,
-          action: { label: "view", run: () => openAlert(dialog, `Background task ${tid}`, text) },
-        })
+        x.dispatch({ kind: "system", text: `[bg ${tid}] ${text}` })
       },
       onBtw: (text) => {
         const head = text.split("\n")[0].slice(0, 80)
@@ -194,12 +168,6 @@ export function useStream(c: Ctx) {
       onStatus: (text) => x.setStatus(text),
       onApprovalRemembered: () => {
         void gw.request("approval.respond", { choice: "always" }).catch(() => {})
-      },
-      onProcessNotification: (text) => {
-        const n = procs.current
-        n.texts.push(text)
-        if (n.timer) clearTimeout(n.timer)
-        n.timer = setTimeout(flushProcs, 500)
       },
       onSkin: (s) => x.setSkin(deriveSkin(s)),
       notices: toast,
