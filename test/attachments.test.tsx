@@ -1,10 +1,18 @@
 import { describe, expect, test } from "bun:test"
 import { act } from "react"
+import { previewStrategy } from "../src/utils/terminal-image"
 import { mount, mountNode, until } from "./harness"
 import { Composer } from "../src/components/chat/Composer"
 import { LOCAL_COMMANDS } from "../src/app/slashCommands"
 
 describe("composer: image attachments (D4+D7)", () => {
+  test("composer images use the shared preview strategy", () => {
+    expect(previewStrategy({ path: "/tmp/clip_1.png", exists: true, chafa: true })).toEqual({
+      kind: "chafa",
+      reason: "chafa-supported",
+    })
+  })
+
   test("Ctrl+V → clipboard.paste → chip renders; clears on send", async () => {
     const t = await mount({
       handlers: {

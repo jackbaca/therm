@@ -9,6 +9,7 @@ import type { MouseEvent } from "@opentui/core"
 import { useTheme } from "../theme"
 import { openFile } from "../utils/open-file"
 import { renderChafa, hex, chafaBin } from "../utils/chafa"
+import { strategy } from "../utils/terminal-image"
 import { MediaChip } from "../components/chat/MediaChip"
 
 const basename = (p: string) => p.split(/[/\\]/).pop() || p
@@ -19,14 +20,14 @@ export const ChafaImage = memo(({ path, width, bare }: Props) => {
   const theme = useTheme().theme
   const [collapsed, setCollapsed] = useState(false)
   const w = Math.max(20, Math.min(80, width ?? 60))
-  const hasChafa = chafaBin() !== null
+  const bin = chafaBin()
+  const preview = strategy(path, bin !== null)
   const result = useMemo(
-    () => hasChafa ? renderChafa(path, w) : ({ err: "chafa not installed" } as const),
-    [path, w, hasChafa],
+    () => preview.kind === "chafa" ? renderChafa(path, w) : null,
+    [path, w, preview.kind],
   )
 
-  // chafa missing or render failed → stream the MediaChip, no chrome
-  if (!hasChafa || "err" in result) return <MediaChip path={path} bare={bare} />
+  if (preview.kind !== "chafa" || !result || "err" in result) return <MediaChip path={path} bare={bare} />
 
   // Collapsed → chip re-expands on click. Override MediaChip's default
   // openFile so the click does exactly one thing; stopPropagation keeps
