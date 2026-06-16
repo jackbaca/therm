@@ -28,6 +28,7 @@ export type Action =
   | { kind: "push"; message: Message }
   | { kind: "user"; text: string }
   | { kind: "system"; text: string }
+  | { kind: "background"; id: string; title?: string; text: string }
   | { kind: "message.start" }
   | { kind: "message.delta"; chunk: string }
   | { kind: "message.complete"; text?: string; usage?: Usage }
@@ -66,6 +67,9 @@ export function turnReducer(state: TurnState, a: Action): TurnState {
 
     case "system":
       return { ...state, messages: [...state.messages, systemMessage(sanitize(a.text))] }
+
+    case "background":
+      return { ...state, messages: [...state.messages, backgroundMessage(a.id, a.title, a.text)] }
 
     case "message.start":
       return { ...state, streaming: true, hasContent: false, toolActive: false }
@@ -211,6 +215,25 @@ function systemMessage(text: string): Message {
   return {
     id: mid(), role: "system",
     parts: [{ type: "text", content: text, streaming: false }],
+    timestamp: Date.now() / 1000,
+  }
+}
+
+function clip(text: string, max: number): string {
+  return text.length <= max ? text : text.slice(0, max - 1) + "…"
+}
+
+function label(text: string | undefined, max: number): string {
+  return clip(sanitize(text).replace(/\s+/g, " ").trim(), max)
+}
+
+function backgroundMessage(id: string, title: string | undefined, text: string): Message {
+  const tid = label(id, 32) || "?"
+  const name = label(title, 80)
+  return {
+    id: mid(), role: "assistant",
+    speaker: `[bg ${tid}]${name ? ` ${name}` : ""}`,
+    parts: [{ type: "text", content: sanitize(text), streaming: false }],
     timestamp: Date.now() / 1000,
   }
 }

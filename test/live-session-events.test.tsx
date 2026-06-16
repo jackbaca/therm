@@ -32,24 +32,53 @@ describe("live session event routing", () => {
     t.destroy()
   })
 
-  test("surfaces sibling process notifications while stream events stay scoped", async () => {
+  test("ignores sibling process notifications while stream events stay scoped", async () => {
     const gw = new MockGateway({
       "session.resume": p => ({ session_id: p.session_id, messages: [] }),
     })
     const t = await mount({ gw, launch: { mode: "resume", sid: "sid-b", splash: false } })
     await until(t, () => t.frame().includes("Ready"))
 
-    act(() => t.gw.push({
-      type: "status.update",
-      session_id: "sid-a",
-      payload: {
-        kind: "process",
-        text: "Background process proc_watch completed (exit code 0).\nCommand: watch-kanban",
-      },
-    }))
-    await until(t, () => t.frame().includes("proc_watch exited 0"))
+    act(() => {
+      t.gw.push({ type: "message.start", session_id: "sid-b" })
+      t.gw.push({ type: "message.delta", session_id: "sid-b", payload: { text: "B is streaming" } })
+      t.gw.push({
+        type: "status.update",
+        session_id: "sid-a",
+        payload: {
+          kind: "process",
+          text: "Background process proc_watch completed (exit code 0).\nCommand: watch-kanban",
+        },
+      })
+    })
+    await until(t, () => t.frame().includes("B is streaming"))
 
-    expect(t.frame()).toContain("watch-kanban")
+    expect(t.frame()).not.toContain("proc_watch")
+    expect(t.frame()).not.toContain("watch-kanban")
+    t.destroy()
+  })
+
+  test("sibling background completion clears badge without writing into active transcript", async () => {
+    const gw = new MockGateway({
+      "commands.catalog": () => ({ pairs: [["/background", "run in background"]] }),
+      "prompt.background": () => ({ task_id: "bg-42" }),
+      "session.resume": p => ({ session_id: p.session_id, messages: [] }),
+    })
+    const t = await mount({ gw, launch: { mode: "resume", sid: "sid-b", splash: false } })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("/background do the thing") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("▶ 1"))
+
+    act(() => t.gw.push({
+      type: "background.complete",
+      session_id: "sid-a",
+      payload: { task_id: "bg-42", text: "done elsewhere" },
+    }))
+    await until(t, () => !t.frame().includes("▶ 1"))
+
+    expect(t.frame()).not.toContain("done elsewhere")
     t.destroy()
   })
 })
