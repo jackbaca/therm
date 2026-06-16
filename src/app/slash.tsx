@@ -29,7 +29,7 @@ import { openHistory } from "../dialogs/history"
 import { openStatus, openUsage, openProfile } from "../dialogs/info"
 import { openChafa } from "../dialogs/chafa"
 import { SKINS, type SkinState } from "../context/skin"
-import { copy as clipCopy } from "../utils/clipboard"
+import { copyText as clipCopy } from "../utils/clipboard"
 import * as preferences from "../context/preferences"
 import { redraw } from "./useAppKeys"
 import { quit } from "./exit"
@@ -361,8 +361,7 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
           const m = all[n - 1]
           if (!m) { toast.show({ variant: "info", message: "nothing to copy" }); return }
           const body = msgText(m)
-          void clipCopy(body)
-          toast.show({ variant: "success", message: `copied ${body.length} chars` })
+          void clipCopy(body, toast, `copied ${body.length} chars`)
           return
         }
         case "paste": x.attachClipboard(); return

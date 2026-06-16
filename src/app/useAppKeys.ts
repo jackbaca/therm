@@ -23,6 +23,7 @@ import { print as chordPrint } from "../keys/chord"
 import { isDegradedMouseInput } from "./mouseFilter"
 import type { ComposerHandle } from "../components/chat/Composer"
 import { isVoiceToggleKey } from "../voice/platform"
+import type { ToastContext } from "../ui/toast"
 import type { VoiceKey } from "../voice/types"
 
 const INTERRUPT_MS = 5000
@@ -57,6 +58,7 @@ type Opts = {
   onQuit: () => void
   onQuitArm: (label: string) => void
   onCopyLast: () => void
+  onCopyToast: ToastContext["show"]
   onAttachClipboard: () => void
   /** Remove the last pending attachment (backspace on empty composer). */
   onDetachLast: () => boolean
@@ -112,7 +114,7 @@ export function useAppKeys(o: Opts) {
     // clears it (not the dialog, not the interrupt counter), Ctrl+C
     // copies it (not input.clear/app.exit), any other key clears it
     // unless the selection belongs to the focused textarea.
-    if (Selection.key(renderer, key)) { key.stopPropagation(); return }
+    if (Selection.key(renderer, key, { show: o.onCopyToast, clear: () => {}, error: () => {} })) { key.stopPropagation(); return }
 
     // oc parity: input_clear (ctrl+c) with non-empty buffer clears and
     // consumes; app_exit (also ctrl+c) fires on the next press. A draft
