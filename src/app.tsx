@@ -9,7 +9,7 @@ import { text as msgText } from "./types/message"
 import { CLOUD_MIN } from "./components/chat/ThoughtCloud"
 import type { AvatarState } from "./components/avatar/states"
 import { TabBar } from "./components/tabs/TabBar"
-import { Sidebar } from "./components/sidebar/Sidebar"
+import { Sidebar, hidden as hiddenSidebar } from "./components/sidebar/Sidebar"
 import { Chat } from "./tabs/Chat"
 import { SessionsGroup } from "./tabs/SessionsGroup"
 import { Automation } from "./tabs/Automation"
@@ -55,6 +55,7 @@ import { BackgroundProvider } from "./app/background"
 import { useVoice } from "./voice/useVoice"
 import { VoiceIndicator } from "./voice/Indicator"
 import { sessionCapabilities } from "./app/sessionCapabilities"
+import { useGitBranch } from "./utils/git"
 
 type AppProps = { initialTheme?: string; gateway?: Gateway; launch?: Launch; keyOverrides?: Record<string, string> }
 
@@ -852,6 +853,10 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   // Keys still reach the card via onPromptKey on the global bus.
   const inputFocused = focusRegion === "input" && !prompt
   const sidebarVisible = dims.width >= (tab === CHAT_TAB ? 120 : 140) && !hideSidebar
+  const branch = useGitBranch(info?.cwd)
+  const hidden = !sidebarVisible ? hiddenSidebar({
+    info, usage, profile: activeProfileName(), title: caption, branch,
+  }) : undefined
 
   return (
     <Profiler id="shell" onRender={perf.onRender}>
@@ -880,6 +885,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
                 focused={inputFocused} canSubmitPrompt={capabilities.canSubmitPrompt} ready={ready} streaming={turn.streaming}
                 status={status}
                 model={info?.model}
+                hidden={hidden}
                 escHint={escHint}
                 queue={queue}
                 attachments={attachments}

@@ -671,7 +671,7 @@ describe("composer: paste → file drop detection", () => {
     t.destroy()
   })
 
-  test("non-image file → wrapped text inserted, no chip", async () => {
+  test("non-image file → wrapped text inserted and chip mirrored", async () => {
     const { t, ref, attached } = await dropSetup(() => ({
       matched: true, is_image: false, path: "/tmp/report.pdf", name: "report.pdf",
       text: "[User attached file: /tmp/report.pdf]",
@@ -679,7 +679,7 @@ describe("composer: paste → file drop detection", () => {
     await act(async () => { await t.keys.pasteBracketedText("/tmp/report.pdf") })
     await until(t, () => (ref.current?.value() ?? "").length > 0)
     expect(ref.current?.value()).toBe("[User attached file: /tmp/report.pdf] ")
-    expect(attached).toEqual([])
+    expect(attached).toEqual([{ attached: true, path: "/tmp/report.pdf", name: "report.pdf" }])
     t.destroy()
   })
 

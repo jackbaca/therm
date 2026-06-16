@@ -1204,6 +1204,53 @@ describe("app", () => {
     t.destroy()
   })
 
+  test("compression lifecycle stays in the transcript while streaming", async () => {
+    const t = await mount()
+    await until(t, () => t.frame().includes("Ready"))
+    act(() => {
+      t.gw.push({ type: "message.start" })
+      t.gw.push({ type: "status.update", payload: { kind: "lifecycle", text: "📦 Preflight compression: ~230,802 tokens >= 217,600 threshold. This may take a moment." } })
+    })
+    await until(t, () => t.frame().includes("Preflight compression"))
+
+    expect(t.frame()).toContain("▰▱▱▰")
+
+    act(() => t.gw.push({ type: "message.complete", payload: { text: "done", usage: { input: 1, output: 1, total: 2 } } }))
+    await until(t, () => t.frame().includes("Ready"))
+    const done = t.frame().split("\n")
+    const line = done.find(l => l.includes("Ready")) ?? ""
+    expect(line).not.toContain("Preflight compression")
+    expect(t.frame()).toContain("Preflight compression")
+    t.destroy()
+  })
+
+  test("hidden sidebar context moves to composer tray only when sidebar is hidden", async () => {
+    const gw = new MockGateway()
+    const t = await mount({ gw, width: 160, height: 48 })
+    act(() => gw.push({
+      type: "session.info",
+      payload: {
+        model: "wide-model", session_id: "test-sid", cwd: "/tmp/herm-work", tools: {}, skills: {},
+      },
+    }))
+    await until(t, () => t.frame().includes("wide-model"))
+    expect(t.frame()).toMatch(/Profile\s+default/)
+    expect(t.frame()).not.toContain("p:default")
+
+    t.resize(100, 48)
+    await until(t, () => {
+      const f = t.frame()
+      return f.includes("default") && f.includes("wide-model") && f.includes("herm-work")
+        && !/Profile\s+default/.test(f)
+    })
+    expect(t.frame()).not.toContain("p:default")
+    expect(t.frame()).not.toContain("m:wide-model")
+    expect(t.frame()).not.toContain("b:herm-work")
+    expect(t.frame()).not.toContain("ctx:")
+    expect(t.frame()).not.toMatch(/Profile\s+default/)
+    t.destroy()
+  })
+
   test("preflight compression stderr does not end the active turn", async () => {
     const t = await mount()
     await until(t, () => t.frame().includes("Ready"))
