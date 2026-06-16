@@ -15,7 +15,7 @@ import { SessionsGroup } from "./tabs/SessionsGroup"
 import { Automation } from "./tabs/Automation"
 import { ConfigGroup } from "./tabs/ConfigGroup"
 import { EikonGroup } from "./tabs/EikonGroup"
-import { copySelection, copy as clipCopy } from "./utils/clipboard"
+import { copySelection, copyText as clipCopy } from "./utils/clipboard"
 import { ThemeProvider, useTheme } from "./theme"
 import { DialogProvider, useDialog } from "./ui/dialog"
 import { ToastProvider, useToast } from "./ui/toast"
@@ -549,8 +549,8 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
 
   const msgMenu = useCallback((m: Message) => {
     if (turnRef.current.streaming) return
-    openMessage(dialog, m, { rewind, fork })
-  }, [dialog, rewind, fork])
+    openMessage(dialog, m, { rewind, fork, toast })
+  }, [dialog, rewind, fork, toast])
   // Gateway owns the canonical list (session["attached_images"]); chips
   // are a client-side mirror. prompt.submit drains server-side, so clear
   // here too. No image.detach RPC yet — chips are display-only.
@@ -759,8 +759,9 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     onCopyLast: () => {
       const m = [...turnRef.current.messages].reverse()
         .find(x => x.role === "assistant" && msgText(x))
-      if (m) void clipCopy(msgText(m))
+      if (m) void clipCopy(msgText(m), toast)
     },
+    onCopyToast: toast.show,
     onAttachClipboard: attachClipboard,
     // Client-side drop only. Gateway's session["attached_images"] still
     // has the orphaned path until the next prompt.submit drains it, or
@@ -811,9 +812,9 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     const inner = (() => {
       switch (tab) {
         case CHAT_TAB: return <Chat messages={turn.messages} streaming={turn.streaming}
-                                    prompt={promptWire}
-                                    cloud={cloud} cloudH={cloudH} pick={pick}
-                                    onResize={setCloudH} onPick={onPick} onClose={closeCloud} onRewind={msgMenu} />
+                               prompt={promptWire}
+                               cloud={cloud} cloudH={cloudH} pick={pick}
+                               onResize={setCloudH} onPick={onPick} onClose={closeCloud} onRewind={msgMenu} />
         case SESSIONS_TAB: return <SessionsGroup focused={contentFocused}
                                                  sub={subTabs[SESSIONS_TAB] ?? 0}
                                                  setSub={sessSub}
@@ -845,7 +846,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   }
 
   const theme = themeCtx.theme
-  const onMouseUp = useCallback(() => copySelection(renderer), [renderer])
+  const onMouseUp = useCallback(() => copySelection(renderer, toast), [renderer, toast])
   // Composer defocuses while any prompt is pending. Approval/clarify
   // list-mode don't need input, and this guarantees the textarea's
   // `focused` prop flips false→true on answer so OpenTUI refocuses it

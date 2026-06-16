@@ -292,6 +292,24 @@ describe("app", () => {
     t.destroy()
   })
 
+  test("copy-last shows toast", async () => {
+    const t = await mount({ width: 130, height: 18 })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("user one") })
+    act(() => t.keys.pressEnter())
+    await t.settle()
+    act(() => {
+      t.gw.push({ type: "message.start" })
+      t.gw.push({ type: "message.complete", payload: { text: "agent one", usage: { input: 1, output: 1, total: 2 } } })
+    })
+    await until(t, () => t.frame().includes("agent one"))
+
+    act(() => { t.keys.pressKey("x", { ctrl: true }); t.keys.pressKey("y") })
+    await until(t, () => t.frame().includes("Copied to clipboard"))
+    t.destroy()
+  })
+
 
   test("marketplace detail preview does not change active sidebar preference", async () => {
     const HH = process.env.HERMES_HOME!
