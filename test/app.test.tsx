@@ -578,7 +578,7 @@ describe("app", () => {
     t.destroy()
   })
 
-  test("slash popover opens on '/' and Enter dispatches local command", async () => {
+  test("slash popover Enter completes command before local dispatch", async () => {
     const gw = new MockGateway({
       "commands.catalog": () => ({ pairs: [["/model", "Switch model"]] }),
     })
@@ -592,12 +592,36 @@ describe("app", () => {
     await act(async () => { await t.keys.typeText("cle") })
     await t.settle()
     act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("> /clear"))
+
+    expect(t.gw.last("slash.exec")).toBeUndefined()
+    expect(t.gw.last("prompt.submit")).toBeUndefined()
+    expect(t.frame().split("\n").filter(l => l.includes("/clear")).length).toBe(1)
+
+    act(() => t.keys.pressEnter())
     await t.settle()
 
-    // /clear is local — no gateway call, transcript cleared, popover closed
+    // /clear is local — no gateway call, transcript cleared, input cleared.
     expect(t.gw.last("slash.exec")).toBeUndefined()
-    expect(t.frame()).not.toContain("/clear")
+    expect(t.gw.last("prompt.submit")).toBeUndefined()
+    expect(t.frame()).not.toContain("> /clear")
 
+    t.destroy()
+  })
+
+  test("mixed prose slash command submits through prompt.submit, not local slash", async () => {
+    const t = await mount()
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("please /clear now") })
+    await until(t, () => t.frame().includes("/clear"))
+    act(() => t.keys.pressEscape())
+    await t.settle()
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.gw.last("prompt.submit") !== undefined)
+
+    expect(t.gw.last("prompt.submit")?.params.text).toBe("please /clear now")
+    expect(t.gw.last("slash.exec")).toBeUndefined()
     t.destroy()
   })
 
