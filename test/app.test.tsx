@@ -1255,8 +1255,7 @@ describe("app", () => {
       t.gw.push({ type: "status.update", payload: { kind: "lifecycle", text: "📦 Preflight compression: ~230,802 tokens >= 217,600 threshold. This may take a moment." } })
     })
     await until(t, () => t.frame().includes("Preflight compression"))
-
-    expect(t.frame()).toContain("▰▱▱▰")
+    expect(t.frame()).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/)
 
     act(() => t.gw.push({ type: "message.complete", payload: { text: "done", usage: { input: 1, output: 1, total: 2 } } }))
     await until(t, () => t.frame().includes("Ready"))

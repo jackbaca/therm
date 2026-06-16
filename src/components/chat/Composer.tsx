@@ -22,7 +22,7 @@ import { SlashPopover } from "./SlashPopover"
 import { AtRefPopover } from "./AtRefPopover"
 import { ChafaImage } from "../../ui/ChafaImage"
 import { trunc } from "../../ui/fmt"
-import { prefs } from "../../context/preferences"
+import { SpinGlyph } from "../../ui/spinner"
 import { MediaChip, classify } from "./MediaChip"
 import type { HiddenContext } from "../sidebar/Sidebar"
 
@@ -82,7 +82,6 @@ type Props = {
 
 const MAX_ROWS = 6
 const MAX_PREVIEWS = 2
-const FRAMES = ["▰▱▱▰", "▱▰▰▱", "▱▰▰▱", "▰▱▱▰"]
 
 function fmt(n: number): string {
   if (n < 1000) return String(n)
@@ -108,7 +107,6 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
   // history are disabled in shell mode.
   const [mode, setMode] = useState<"normal" | "shell">("normal")
   const modeRef = useRef(mode); modeRef.current = mode
-  const [frame, setFrame] = useState(0)
 
   // Slash and @-ref popovers are cursor-relative over the current buffer.
   // Slash command execution stays whole-buffer only; mixed prose accepts
@@ -159,12 +157,6 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     wasDirty.current = dirty
     live.current.props.onDirty?.(dirty)
   }, [input])
-
-  useEffect(() => {
-    if (!props.streaming || prefs.get("animations") === false) return
-    const id = setInterval(() => setFrame(n => (n + 1) % FRAMES.length), 160)
-    return () => clearInterval(id)
-  }, [props.streaming])
 
   // Selecting a popover entry: subcommand synthetics (name contains a
   // space) complete the input for further typing; real commands dispatch.
@@ -550,9 +542,8 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
 
       <box height={1} flexDirection="row" paddingX={1}>
         <text>
-          <span fg={dot}>● </span>
-          {props.streaming ? <span fg={theme.primary}>{prefs.get("animations") === false ? "▰▱▱▰ " : `${FRAMES[frame]} `}</span> : null}
-          <span fg={theme.textMuted}>{mode === "shell" ? "Shell" : label}</span>
+          {props.streaming ? <SpinGlyph fg={dot} /> : <span fg={dot}>●</span>}
+          <span fg={theme.textMuted}> {mode === "shell" ? "Shell" : label}</span>
           {mode === "shell"
             ? <span fg={theme.textMuted}>  esc exit shell mode</span>
             : props.streaming && props.escHint
