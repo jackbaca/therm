@@ -506,6 +506,31 @@ describe("app", () => {
     t.destroy()
   })
 
+  test("approval prompt expires when the gateway times out and the turn completes", async () => {
+    const t = await mount()
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("go") })
+    act(() => t.keys.pressEnter())
+    act(() => t.gw.push({ type: "message.start" }))
+    act(() => t.gw.push({
+      type: "approval.request",
+      payload: { command: "rm -rf /tmp/x", description: "delete temp tree" },
+    }))
+    await until(t, () => t.frame().includes("Permission required"))
+
+    act(() => t.gw.push({
+      type: "message.complete",
+      payload: { text: "approval timed out", usage: { input: 0, output: 0, total: 0 } },
+    }))
+    await until(t, () => t.frame().includes("Timed out") && !t.frame().includes("Permission required"))
+
+    act(() => t.keys.pressKey("1"))
+    await t.settle()
+    expect(t.gw.last("approval.respond")).toBeUndefined()
+    t.destroy()
+  })
+
   test("inline prompt Esc does not arm interrupt; tab-nav still works (no backdrop)", async () => {
     const t = await mount()
     await until(t, () => t.frame().includes("Ready"))
