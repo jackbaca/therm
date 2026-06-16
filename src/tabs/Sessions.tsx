@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef, memo } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef, memo, Fragment } from "react"
 import { SIDE_PIPE } from "../ui/borders"
 import { useKeyboard, useTerminalDimensions } from "@opentui/react"
 import type { ScrollBoxRenderable } from "@opentui/core"
@@ -173,7 +173,7 @@ const PeekRow = memo((props: { row: Folded }) => {
   )
 })
 
-type Peeker = (sid: string, n?: number) => PeekMsg[] | Promise<PeekMsg[]>
+type Peeker = (sid: string) => PeekMsg[] | Promise<PeekMsg[]>
 
 const Peek = memo((props: { sid: string; total: number; peek: Peeker }) => {
   const theme = useTheme().theme
@@ -181,7 +181,7 @@ const Peek = memo((props: { sid: string; total: number; peek: Peeker }) => {
   const sb = useRef<ScrollBoxRenderable | null>(null)
 
   useEffect(() => {
-    void Promise.resolve(props.peek(props.sid, 60)).then(m => setData(fold(m)))
+    void Promise.resolve(props.peek(props.sid)).then(m => setData(fold(m)))
   }, [props.sid, props.peek])
   // Pin to bottom on load — "where did this end up", not "how did
   // it start".
@@ -193,16 +193,21 @@ const Peek = memo((props: { sid: string; total: number; peek: Peeker }) => {
   if (data.turns.length === 0 && data.tools === 0) return (
     <box height={1}><text fg={theme.textMuted}>(no local transcript)</text></box>
   )
-  const more = Math.max(0, props.total - 60)
+  const gap = props.total > 4
 
   return (
     <box flexDirection="column" flexGrow={1} minHeight={5}
          border borderStyle="single" borderColor={theme.border}
-         title={` Transcript${more > 0 ? `  ·  ${more} earlier` : ""} `}
+         title={` Transcript${gap ? "  ·  first 2 / last 2" : ""} `}
          titleAlignment="left">
       <scrollbox ref={sb} scrollY flexGrow={1} minHeight={3}>
         <box flexDirection="column" width="100%">
-          {data.turns.map((r, i) => <PeekRow key={i} row={r} />)}
+          {data.turns.map((r, i) => <Fragment key={i}>
+            <PeekRow row={r} />
+            {gap && i === 1 ? (
+              <box height={1}><text fg={theme.textMuted}>  …</text></box>
+            ) : null}
+          </Fragment>)}
         </box>
       </scrollbox>
       <box height={1}>
@@ -404,6 +409,7 @@ const Item = memo((props: {
   const [x, setX] = useState(false)
   const active = r.detail?.last_active ?? r.detail?.ended_at ?? null
   const locked = props.indent || Boolean(r.live)
+  const subs = !props.indent && (r.detail?.subagent_count ?? 0) > 0
   // Parent rows get "▸ "/"  " leaders; child rows get "└─" as the tree
   // marker. Selected children still highlight via backgroundColor +
   // text color — indent is the only hierarchy signal.
@@ -417,13 +423,14 @@ const Item = memo((props: {
       <Col w={2} fg={props.selected ? theme.primary : (muted ?? theme.text)}>{leader}</Col>
       <Marquee grow active={props.selected}
                fg={props.selected ? theme.accent : (muted ?? theme.text)}
-               bold={props.selected}>
+               bold={props.selected}
+               underline={props.selected && subs}>
         {label(r)}
       </Marquee>
       <Col w={9} fg={muted ?? theme.info}>{badge(src(r))}</Col>
       <Col w={8} fg={theme.textMuted}>{stamp(r.started_at)}</Col>
       <Col w={10} fg={theme.textMuted} right>{active ? ago(active) : "—"}</Col>
-      <Col w={7} fg={theme.textMuted} right>{String(r.message_count)}</Col>
+      <Col w={7} fg={theme.textMuted} right>{subs ? `${r.detail?.subagent_count} subs` : String(r.message_count)}</Col>
       {locked ? <box width={3} /> : (
         <box width={3}
              onMouseDown={(e) => { e.stopPropagation(); props.onDelete(i) }}
@@ -565,6 +572,7 @@ export const Sessions = memo((props: Props) => {
   // on the wrong row. The numeric index consumers use (handleListKey,
   // rowActivate, etc.) is derived from visible[] each render.
   const [anchor, setAnchor] = useState<{ id: string; indent: boolean } | null>(null)
+  const [open, setOpen] = useState<string | null>(null)
   const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState("")
   const [results, setResults] = useState<SessionHit[]>([])
@@ -576,16 +584,19 @@ export const Sessions = memo((props: Props) => {
   const vscroll = useRef<ScrollBoxRenderable | null>(null)
   const seen = useRef(false)
 
-  // Expansion is derived from the anchor: if the anchor is a parent
-  // row with subagents, that parent is expanded; if the anchor is a
-  // child, the child's owning parent is expanded. Anything else = no
-  // expansion. This makes collapse/expand atomic with sel changes —
-  // no lagging effect, no clamp pass.
+  // Space arms one parent for inline children. The branch is only
+  // visible while the cursor is on that parent or one of its children,
+  // preserving the old selection-shaped traversal without making mere
+  // highlight expand rows.
   const anchored = anchor && listed.find(r => r.id === anchor.id)
-  const owner =
-    anchor?.indent
-      ? listed.find(r => kids.get(r.id)?.some(c => c.id === anchor.id))
-      : (anchored?.detail?.subagent_count ?? 0) > 0 ? anchored : undefined
+  const branch = open ? listed.find(r => r.id === open) : undefined
+  const owner = branch && (anchor?.indent
+    ? kids.get(branch.id)?.some(c => c.id === anchor.id)
+    : anchored?.id === branch.id)
+    ? branch
+    : undefined
+
+  const showDetailPanel = dims.width >= 120
 
   // Flat visible sequence = parents with `owner`'s children inlined.
   const visible = listed.flatMap((r, i) =>
@@ -594,7 +605,6 @@ export const Sessions = memo((props: Props) => {
          ...(kids.get(r.id) ?? []).map(c =>
            ({ row: c, indent: true, parentIdx: i }))]
       : [{ row: r, indent: false, parentIdx: i }])
-
   // Resolve anchor → numeric index into visible. Fallback to 0 when
   // the anchor row is gone (reload dropped it) or never set.
   const sel = anchor
@@ -851,6 +861,20 @@ export const Sessions = memo((props: Props) => {
         toast.show({ variant: "error", message: `Rename failed: ${e.message}` }))
   }, [gw, dialog, toast, sel])
 
+  const toggle = useCallback(() => {
+    const v = visible[sel]
+    if (!v) return
+    if (v.indent) {
+      const p = listed.find(r => kids.get(r.id)?.some(c => c.id === v.row.id))
+      if (!p) return
+      setAnchor({ id: p.id, indent: false })
+      setOpen(null)
+      return
+    }
+    if ((v.row.detail?.subagent_count ?? 0) <= 0) return
+    setOpen(id => id === v.row.id ? null : v.row.id)
+  }, [visible, sel, listed, kids])
+
   const count = searching ? results.length : visible.length
   // Stable ids — include row.id + indent flag so a row moving between
   // indices (because a sibling expanded above it) doesn't collide with
@@ -880,7 +904,7 @@ export const Sessions = memo((props: Props) => {
       page: Math.max(1, (vscroll.current?.viewport.height ?? 10) - 1),
       scrollTo: n => vscroll.current?.scrollChildIntoView(rowId(n)),
       onActivate: () => rowActivate(sel),
-      onToggle: () => setSort(sort === "active" ? "started" : "active"),
+      onToggle: toggle,
       onRefresh: () => { void load(); toast.show({ variant: "info", message: "Reloaded", duration: 1000 }) },
       onDelete: () => {
         const v = visible[sel]
@@ -889,6 +913,7 @@ export const Sessions = memo((props: Props) => {
       onSearch: () => { setSearching(true); setQuery(""); setResults([]); setSearchSel(0) },
     })
     if (matched) return
+    if (keys.match("sessions.sort", key)) return setSort(sort === "active" ? "started" : "active")
     if (keys.match("sessions.rename", key)) return void rename()
     const prev = keys.match("sessions.prev", key)
     const next = keys.match("sessions.next", key)
@@ -911,10 +936,10 @@ export const Sessions = memo((props: Props) => {
   const gap = (i: number) => active.length > 0 && tabs(i)
   const blank = cur?.aggregate === HOME ? "No conversations found"
     : cur ? `No ${cur.label} sessions found` : "No sessions found"
-  // Sidebar yields at <140 on non-Chat tabs (app.tsx), so detail can
-  // stay mounted down to the shell's own floor.
-  const showDetailPanel = dims.width >= 120
   const nav = views.length > 1 ? [["←→", "filter"] as [string, string]] : []
+  const sub = visible[sel]?.indent || (visible[sel]?.row.detail?.subagent_count ?? 0) > 0
+    ? [[keys.print("list.toggle"), visible[sel]?.indent || open === visible[sel]?.row.id ? "hide subs" : "show subs"] as [string, string]]
+    : []
 
   return (
     <box flexDirection="column" flexGrow={1} minWidth={0}>
@@ -995,7 +1020,8 @@ export const Sessions = memo((props: Props) => {
       {showDetailPanel && searching && results[searchSel]
         ? <SearchDetail result={results[searchSel]} />
         : showDetailPanel && !searching && visible[sel]?.row
-          ? <Detail row={visible[sel].row} lineage={io.lineage} peek={io.peek} onSwitch={lineageSwitch} />
+          ? <Detail row={visible[sel].row}
+              lineage={io.lineage} peek={io.peek} onSwitch={lineageSwitch} />
           : null}
     </box>
     <HintBar pairs={searching
@@ -1007,9 +1033,10 @@ export const Sessions = memo((props: Props) => {
       : [
           ["↑↓", "navigate"],
           ...nav,
+          ...sub,
           [`${keys.print("list.activate")}/click`, action],
           [keys.print("list.search"), "search"],
-          [keys.print("list.toggle"), `sort: ${sort}`],
+          [keys.print("sessions.sort"), `sort: ${sort}`],
           [keys.print("sessions.rename"), "rename"],
           [keys.print("list.delete"), "delete"],
           [keys.print("list.refresh"), "refresh"],
