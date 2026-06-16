@@ -304,10 +304,24 @@ function finalize(messages: Message[], final?: string, usage?: Usage): Message[]
       : final && !dup && !sameText(joinText(last.parts), final)
         ? [...last.parts, { type: "text" as const, content: final, streaming: false }]
         : seal(last.parts)
-    return [...messages.slice(0, -1), { ...last, parts, usage }]
+    return expirePrompts([...messages.slice(0, -1), { ...last, parts, usage }])
   }
-  if (!final) return messages
-  return [...messages, { ...assistant([{ type: "text", content: final, streaming: false }]), usage }]
+  const next = final
+    ? [...messages, { ...assistant([{ type: "text", content: final, streaming: false }]), usage }]
+    : messages
+  return expirePrompts(next)
+}
+
+function expirePrompts(messages: Message[]): Message[] {
+  const at = Date.now()
+  return messages.map(m => m.role === "assistant"
+    ? {
+      ...m,
+      parts: m.parts.map(p => p.type === "prompt" && !p.answered
+        ? { ...p, answered: { label: "Timed out", ok: false, at, question: promptQuestion(p.req) } }
+        : p),
+    }
+    : m)
 }
 
 function joinText(parts: Part[]): string {
