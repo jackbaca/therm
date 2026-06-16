@@ -384,7 +384,7 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
                 toast.show({ variant: "error", message: "background start failed" })
                 return
               }
-              bg.register(r.task_id)
+              bg.register(r.task_id, arg)
               x.dispatch({ kind: "system", text: `bg ${r.task_id} started` })
             })
             .catch((e: Error) => toast.show({ variant: "error", message: e.message }))

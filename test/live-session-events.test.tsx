@@ -78,7 +78,7 @@ describe("live session event routing", () => {
     }))
     await until(t, () => !t.frame().includes("▶ 1"))
 
-    expect(t.frame()).not.toContain("[bg bg-42] done elsewhere")
+    expect(t.frame()).not.toContain("done elsewhere")
     t.destroy()
   })
 })

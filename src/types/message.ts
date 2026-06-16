@@ -76,6 +76,7 @@ export type Message = {
   role: "user" | "assistant" | "system"
   parts: Part[]
   timestamp: number
+  speaker?: string
   model?: string
   duration?: number
   usage?: Usage

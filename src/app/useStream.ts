@@ -154,8 +154,9 @@ export function useStream(c: Ctx) {
         TITLE_DELAYS.forEach(sync)
       },
       onBackground: (tid, text) => {
+        const title = bg.label(tid)
         bg.unregister(tid)
-        x.dispatch({ kind: "system", text: `[bg ${tid}] ${text}` })
+        x.dispatch({ kind: "background", id: tid, title, text })
       },
       onBtw: (text) => {
         const head = text.split("\n")[0].slice(0, 80)
@@ -193,7 +194,7 @@ export function useStream(c: Ctx) {
     flush()
     if (action.kind === "error") x.setErrorPulse(true)
     x.dispatch(action)
-  }, [gw, dialog, toast, flush])
+  }, [gw, dialog, toast, flush, bg])
 
   useGatewayEvent(handle)
 
