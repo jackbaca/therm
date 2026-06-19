@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test"
 import { act } from "react"
+import { TextAttributes } from "@opentui/core"
 import { mountNode, until, MockGateway } from "./harness"
 import { Sessions, fold } from "../src/tabs/Sessions"
 import type { SessionHit } from "../src/service/hermes-home"
@@ -27,7 +28,7 @@ const detail = (over: Partial<SessionRow> & { id: string; sessionSource: string 
 })
 
 describe("Sessions tab", () => {
-  test("lists live sessions first and activates without closing siblings", async () => {
+  test("pins active sessions above history without entering an active-only view", async () => {
     const gw = new MockGateway({
       "session.active_list": p => ({ sessions: [
         { id: "live-a", title: "Working live", preview: "do the thing", message_count: 3, started_at: 1700000000, status: "working", current: p.current_session_id === "live-a" },
@@ -40,9 +41,20 @@ describe("Sessions tab", () => {
       <Sessions focused io={NOIO} currentId="live-a" onActivateLive={sid => { activated = sid }} />,
       { gw },
     )
-    await until(t, () => t.frame().includes("Live Sessions (2)"))
+    await until(t, () => t.frame().includes("Sessions (4)"))
 
-    expect(t.frame()).toContain("Working live")
+    const lines = t.frame().split("\n")
+    const live = lines.findIndex(l => l.includes("Working live"))
+    const div = lines.findIndex(l => l.includes("Conversations"))
+    const hist = lines.findIndex(l => l.includes("First session") && l.includes("TUI"))
+    expect(live).toBeGreaterThanOrEqual(0)
+    expect(div).toBeGreaterThan(live)
+    expect(hist).toBeGreaterThan(div)
+    expect(t.frame()).toContain("Second session")
+    expect(t.frame()).toContain("sort: active")
+    expect(t.frame()).not.toContain("Live Sessions")
+    expect(t.frame()).not.toContain("live 2")
+    expect(t.frame()).not.toContain("history 2")
     expect(t.gw.last("session.active_list")?.params.current_session_id).toBe("live-a")
 
     act(() => t.keys.pressEnter())
@@ -50,6 +62,98 @@ describe("Sessions tab", () => {
     expect(activated).toBe("live-a")
     expect(t.frame()).not.toContain("Load session?")
 
+    t.destroy()
+  })
+
+  test("active section keeps real source, placeholder title, and arrow navigation", async () => {
+    const gw = new MockGateway({
+      "session.active_list": () => ({ sessions: [
+        { id: "live-a", title: "", preview: "", message_count: 3, started_at: 1700000000, status: "working" },
+      ]}),
+      "session.list": () => ({ sessions: ROWS }),
+    })
+    const disk = [
+      detail({ id: "live-a", sessionSource: "tui", message_count: 3, started_at: 1700000000 }),
+    ]
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, list: () => disk }} />, { gw, width: 110 })
+    await until(t, () => t.frame().includes("Sessions (3)"))
+
+    const pos = () => {
+      const lines = t.frame().split("\n")
+      const active = lines.findIndex(l => l.includes("TUI") && l.includes("3") && l.includes("-"))
+      const top = lines.findIndex(l => l.includes("Active Session"))
+      const div = lines.findIndex(l => l.includes("Conversations"))
+      const hist = lines.findIndex(l => l.includes("First session") && l.includes("TUI"))
+      expect(top).toBeGreaterThanOrEqual(0)
+      expect(active).toBeGreaterThan(top)
+      expect(div).toBeGreaterThan(active)
+      expect(hist).toBeGreaterThan(div)
+      return { lines, active, hist }
+    }
+
+    const before = pos()
+    expect(before.lines[before.active]).toContain("▸ -")
+    expect(before.lines[before.active]).toContain("TUI")
+    expect(before.lines[before.active]).not.toContain("Live")
+    expect(t.frame()).not.toContain("live-a")
+
+    act(() => t.keys.pressArrow("down"))
+    await t.settle()
+    const after = pos()
+    expect(after.lines[after.active]).not.toContain("▸")
+    expect(after.lines[after.hist]).toContain("▸")
+
+    t.destroy()
+  })
+
+  test("active resumed session_key suppresses duplicate history row", async () => {
+    const gw = new MockGateway({
+      "session.active_list": () => ({ sessions: [
+        { id: "live-past", session_key: "past", title: "Past Root", preview: "hello", message_count: 2, started_at: 1700000000, status: "idle" },
+      ]}),
+      "session.list": () => ({ sessions: [
+        { id: "past", title: "Past Root", preview: "hello", message_count: 2, started_at: 1700000000, source: "tui" },
+      ]}),
+    })
+    const disk = [detail({ id: "past", sessionSource: "tui", title: "Past Root", message_count: 2, started_at: 1700000000 })]
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, list: () => disk }} currentId="live-past" />, { gw, width: 110 })
+    await until(t, () => t.frame().includes("Sessions (1)") && t.frame().includes("Past Root"))
+
+    expect(t.frame()).toContain("Active Session")
+    expect(t.frame()).toContain("TUI")
+    expect(t.frame()).not.toContain("Conversations")
+    expect(t.frame()).not.toContain("[←→] filter")
+    expect(t.frame()).not.toContain("History")
+
+    t.destroy()
+  })
+
+  test("Ctrl+R renames active session via session.title", async () => {
+    const calls: Array<[string, string]> = []
+    const gw = new MockGateway({
+      "session.active_list": () => ({ sessions: [
+        { id: "live-past", session_key: "past", title: "Past Root", preview: "hello", message_count: 2, started_at: 1700000000, status: "idle" },
+      ]}),
+      "session.list": () => ({ sessions: [
+        { id: "past", title: "Past Root", preview: "hello", message_count: 2, started_at: 1700000000, source: "tui" },
+      ]}),
+      "session.title": p => ({ title: p.title }),
+    })
+    const disk = [detail({ id: "past", sessionSource: "tui", title: "Past Root", message_count: 2, started_at: 1700000000 })]
+    const rename = (sid: string, title: string) => { calls.push([sid, title]); return false }
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, list: () => disk, rename }} currentId="live-past" />, { gw, width: 120 })
+    await until(t, () => t.frame().includes("Sessions (1)") && t.frame().includes("Past Root"))
+
+    act(() => t.keys.pressKey("r", { ctrl: true }))
+    await until(t, () => t.frame().includes("Rename: Past Root"))
+    await act(async () => { await t.keys.pressKey("u", { ctrl: true }) })
+    for (const c of "Renamed Active") await act(async () => { await t.keys.typeText(c) })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Renamed Active"))
+
+    expect(gw.last("session.title")?.params).toEqual({ session_id: "live-past", title: "Renamed Active" })
+    expect(calls).toEqual([])
+    expect(t.frame()).not.toContain("Past Root")
     t.destroy()
   })
 
@@ -120,7 +224,20 @@ describe("Sessions tab", () => {
     t.destroy()
   })
 
-  test("sort: defaults to last-activity; Space toggles to started and persists", async () => {
+  test("keeps 0-msg compression tips from state.db", async () => {
+    const disk = [detail({
+      id: "tip", sessionSource: "tui", title: "Compacted tip",
+      message_count: 0, started_at: 1700000000,
+      parent_session_id: "root", lineage_root_id: "root",
+    })]
+    const gw = new MockGateway({ "session.list": () => ({ sessions: [] }) })
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, list: () => disk }} />, { gw })
+    await until(t, () => t.frame().includes("Sessions (1)") && t.frame().includes("Compacted tip"))
+    expect(t.frame()).toContain("0")
+    t.destroy()
+  })
+
+  test("sort: defaults to last-activity; S toggles to started and persists", async () => {
     prefs.reset()
     // "Older Start Fresh Activity" should top "active" sort;
     // "Newer Start Idle" should top "started" sort.
@@ -163,18 +280,71 @@ describe("Sessions tab", () => {
     expect(t.frame()).toContain("sort: active")
     expect(order()).toBe("fresh-first")
 
-    // toggle → started
+    // Space no longer sorts; s toggles → started
     await act(async () => { await t.keys.typeText(" ") })
+    await t.settle()
+    expect(t.frame()).toContain("Active ▾")
+    expect(order()).toBe("fresh-first")
+
+    await act(async () => { await t.keys.typeText("s") })
     await until(t, () => t.frame().includes("Start ▾"))
     expect(t.frame()).toContain("sort: started")
     expect(order()).toBe("idle-first")
     expect(prefs.get("sessions")?.sort).toBe("started")
 
     // toggle back
-    await act(async () => { await t.keys.typeText(" ") })
+    await act(async () => { await t.keys.typeText("s") })
     await until(t, () => t.frame().includes("Active ▾"))
     expect(order()).toBe("fresh-first")
     expect(prefs.get("sessions")?.sort).toBe("active")
+
+    prefs.reset()
+    t.destroy()
+  })
+
+  test("S keeps sorting history while active sessions are pinned", async () => {
+    prefs.reset()
+    const disk = [
+      detail({ id: "older-fresh", sessionSource: "tui",
+        title: "Older Start Fresh Activity", message_count: 5,
+        started_at: 1700000000, last_active: 1700099999 }),
+      detail({ id: "newer-idle", sessionSource: "tui",
+        title: "Newer Start Idle", message_count: 3,
+        started_at: 1700050000, last_active: 1700050001 }),
+    ]
+    const gw = new MockGateway({
+      "session.active_list": () => ({ sessions: [
+        { id: "live-a", title: "Working live", preview: "do the thing", message_count: 3, started_at: 1700100000, status: "working" },
+      ]}),
+      "session.list": () => ({ sessions: [
+        { id: "older-fresh", title: "Older Start Fresh Activity", preview: "ping", message_count: 5, started_at: 1700000000, source: "tui" },
+        { id: "newer-idle", title: "Newer Start Idle", preview: "", message_count: 3, started_at: 1700050000, source: "tui" },
+      ]}),
+    })
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, list: () => disk }} />, { gw })
+    await until(t, () => t.frame().includes("Sessions (3)"))
+
+    const order = () => {
+      const lines = t.frame().split("\n")
+      const live = lines.findIndex(l => l.includes("Working live"))
+      const a = lines.findIndex(l => l.includes("Older Start Fresh Activity") && l.includes("TUI"))
+      const b = lines.findIndex(l => l.includes("Newer Start Idle") && l.includes("TUI"))
+      expect(live).toBeGreaterThanOrEqual(0)
+      expect(a).toBeGreaterThan(live)
+      expect(b).toBeGreaterThan(live)
+      return a < b ? "fresh-first" : "idle-first"
+    }
+
+    expect(t.frame()).toContain("sort: active")
+    expect(t.frame()).toContain("[S] sort: active")
+    expect(t.frame()).not.toContain("mouse")
+    expect(order()).toBe("fresh-first")
+
+    await act(async () => { await t.keys.typeText("s") })
+    await until(t, () => t.frame().includes("Start ▾"))
+    expect(t.frame()).toContain("sort: started")
+    expect(order()).toBe("idle-first")
+    expect(prefs.get("sessions")?.sort).toBe("started")
 
     prefs.reset()
     t.destroy()
@@ -551,10 +721,11 @@ describe("Sessions tab", () => {
 
 // ─── Tree expansion (herm-gsk.15) ────────────────────────────────────
 //
-// When a parent row has detail.subagent_count > 0, focusing it should
-// trigger io.subagents(parentId), render each child indented with "└─",
-// and let arrow keys traverse in/out of the child block. Only one
-// parent expands at a time; moving to another collapses the first.
+// When a parent row has detail.subagent_count > 0, Space on that
+// parent renders each child indented with "└─" and lets arrow keys
+// traverse in/out of the child block. Only one parent expands at a
+// time; moving to another hides the first until its parent is selected
+// again.
 
 describe("Sessions tab — tree expansion", () => {
   const PARENT = { id: "pid", title: "Parent with subs", preview: "", message_count: 3, started_at: 1700000000, source: "tui" }
@@ -575,30 +746,71 @@ describe("Sessions tab — tree expansion", () => {
     return []
   }
 
-  test("focusing a parent with subagents loads and renders children indented", async () => {
+  test("wide detail mode expands subagents inline with Space, not in the detail pane", async () => {
     const gw = new MockGateway({ "session.list": () => ({ sessions: [PARENT, OTHER] }) })
     const calls: string[] = []
     const io = { ...NOIO, list: listWithSubs, subagents: subsFor(calls) }
     const t = await mountNode(<Sessions focused io={io} />, { gw, width: 180, height: 30 })
     await until(t, () => t.frame().includes("Sessions (2)"))
 
-    // Selection starts on the first parent (pid) → children should load.
     await until(t, () => calls.includes("pid"))
-    await until(t, () => t.frame().includes("First subagent"))
-    const f = t.frame()
-    // Parent row unchanged, indented children below with "└─".
+    await t.settle()
+    let f = t.frame()
     expect(f).toContain("▸ Parent with subs")
+    expect(f).toContain("⎇ spawned 2 subagents")
+    expect(f).not.toContain("Sub sessions")
+    expect(f).not.toContain("First subagent")
+    expect(f).not.toContain("└─First subagent")
+    const row = f.split("\n").findIndex(l => l.includes("▸ Parent with subs"))
+    const span = (t.spans() as { lines: Array<{ spans: Array<{ text: string; attributes: number }> }> })
+      .lines[row].spans.find(s => s.text.includes("Parent with subs"))!
+    expect(span.attributes & TextAttributes.UNDERLINE).toBe(TextAttributes.UNDERLINE)
+
+    await act(async () => { await t.keys.typeText(" ") })
+    await until(t, () => t.frame().includes("└─First subagent"))
+    f = t.frame()
     expect(f).toContain("└─First subagent")
     expect(f).toContain("└─Second subagent")
-    // Header count still reflects PARENT rows only, not flat visible count.
+    expect(f).not.toContain("Sub sessions")
     expect(f).toContain("Sessions (2)")
+    t.destroy()
+  })
+
+  test("narrow mode keeps Space-expanded subagents inline and keyboard reachable", async () => {
+    const gw = new MockGateway({ "session.list": () => ({ sessions: [PARENT, OTHER] }) })
+    const io = { ...NOIO, list: listWithSubs, subagents: subsFor([]) }
+    let switched = ""
+    const t = await mountNode(
+      <Sessions focused io={io} onSwitch={sid => { switched = sid }} />,
+      { gw, width: 110, height: 30 },
+    )
+    await until(t, () => t.frame().includes("Sessions (2)"))
+    expect(t.frame()).not.toContain("First subagent")
+
+    await act(async () => { await t.keys.typeText(" ") })
+    await until(t, () => t.frame().includes("First subagent"))
+
+    expect(t.frame()).not.toContain("Session Detail")
+    expect(t.frame()).toContain("▸ Parent with subs")
+    expect(t.frame()).toContain("└─First subagent")
+    expect(t.frame()).toContain("2 subs")
+
+    act(() => t.keys.pressArrow("down"))
+    await t.settle()
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Load session?"))
+    await act(async () => { await t.keys.typeText("y") })
+    await t.settle()
+    expect(switched).toBe("sub-1")
     t.destroy()
   })
 
   test("arrow down enters children, arrow up exits", async () => {
     const gw = new MockGateway({ "session.list": () => ({ sessions: [PARENT, OTHER] }) })
     const io = { ...NOIO, list: listWithSubs, subagents: subsFor([]) }
-    const t = await mountNode(<Sessions focused io={io} />, { gw, width: 180, height: 30 })
+    const t = await mountNode(<Sessions focused io={io} />, { gw, width: 110, height: 30 })
+    await until(t, () => t.frame().includes("Sessions (2)"))
+    await act(async () => { await t.keys.typeText(" ") })
     await until(t, () => t.frame().includes("First subagent"))
 
     // ↓ once: selection moves onto the first child.
@@ -622,7 +834,7 @@ describe("Sessions tab — tree expansion", () => {
     t.destroy()
   })
 
-  test("clicking a child row switches to that child session", async () => {
+  test("clicking an inline child switches to that child session", async () => {
     const gw = new MockGateway({ "session.list": () => ({ sessions: [PARENT, OTHER] }) })
     const io = { ...NOIO, list: listWithSubs, subagents: subsFor([]) }
     let switched = ""
@@ -630,6 +842,8 @@ describe("Sessions tab — tree expansion", () => {
       <Sessions focused io={io} onSwitch={sid => { switched = sid }} />,
       { gw, width: 180, height: 30 },
     )
+    await until(t, () => t.frame().includes("Sessions (2)"))
+    await act(async () => { await t.keys.typeText(" ") })
     await until(t, () => t.frame().includes("First subagent"))
 
     const lines = t.frame().split("\n")
@@ -643,27 +857,30 @@ describe("Sessions tab — tree expansion", () => {
     t.destroy()
   })
 
-  test("detail panel reflects the selected row (parent or child)", async () => {
+  test("detail panel follows the selected list row", async () => {
     const gw = new MockGateway({ "session.list": () => ({ sessions: [PARENT, OTHER] }) })
     const io = { ...NOIO, list: listWithSubs, subagents: subsFor([]) }
     const t = await mountNode(<Sessions focused io={io} />, { gw, width: 200, height: 40 })
-    await until(t, () => t.frame().includes("First subagent"))
+    await until(t, () => t.frame().includes("Sessions (2)"))
 
-    // Parent selected → detail shows parent title.
     expect(t.frame()).toContain("Parent with subs")
-    // Move selection to first child.
     act(() => t.keys.pressArrow("down"))
     await t.settle()
-    // Detail panel should now render the child's title.
-    await until(t, () => t.frame().includes("First subagent"))
-    expect(t.frame()).toContain("First subagent")
+    await until(t, () => t.frame().includes("▸ Other parent"))
+    const lines = t.frame().split("\n")
+    const selected = lines.find(l => l.includes("▸ Other parent"))
+    const detail = lines.find(l => l.includes("Other parent") && !l.includes("▸"))
+    expect(selected).toBeDefined()
+    expect(detail).toBeDefined()
     t.destroy()
   })
 
   test("moving to a parent with no children shows no expansion", async () => {
     const gw = new MockGateway({ "session.list": () => ({ sessions: [PARENT, OTHER] }) })
     const io = { ...NOIO, list: listWithSubs, subagents: subsFor([]) }
-    const t = await mountNode(<Sessions focused io={io} />, { gw, width: 180, height: 30 })
+    const t = await mountNode(<Sessions focused io={io} />, { gw, width: 110, height: 30 })
+    await until(t, () => t.frame().includes("Sessions (2)"))
+    await act(async () => { await t.keys.typeText(" ") })
     await until(t, () => t.frame().includes("First subagent"))
 
     // Move all the way down to OTHER (3 steps: sub1, sub2, OTHER).
@@ -700,7 +917,9 @@ describe("Sessions tab — tree expansion", () => {
       detail({ id: "cid", sessionSource: "tui", title: "Third parent",     message_count: 1, started_at: 1699998000 }),
     ]
     const io = { ...NOIO, list, subagents: subsFor([]) }
-    const t = await mountNode(<Sessions focused io={io} />, { gw, width: 180, height: 30 })
+    const t = await mountNode(<Sessions focused io={io} />, { gw, width: 110, height: 30 })
+    await until(t, () => t.frame().includes("Sessions (3)"))
+    await act(async () => { await t.keys.typeText(" ") })
     await until(t, () => t.frame().includes("First subagent"))
 
     // sel=0 (PARENT) → ↓×3 = sub1, sub2, OTHER. Must NOT skip to THIRD.
@@ -717,8 +936,10 @@ describe("Sessions tab — tree expansion", () => {
     let switched = ""
     const t = await mountNode(
       <Sessions focused io={io} onSwitch={sid => { switched = sid }} />,
-      { gw, width: 180, height: 30 },
+      { gw, width: 110, height: 30 },
     )
+    await until(t, () => t.frame().includes("Sessions (2)"))
+    await act(async () => { await t.keys.typeText(" ") })
     await until(t, () => t.frame().includes("First subagent"))
 
     // Walk down through the children to OTHER, then back up one step.
@@ -727,9 +948,9 @@ describe("Sessions tab — tree expansion", () => {
     expect(t.frame()).not.toContain("First subagent")
 
     act(() => t.keys.pressArrow("up")); await t.settle()
-    // Anchor moved to PARENT in the collapsed layout; expansion is
-    // derived from anchor, so PARENT re-expands with sel on itself —
-    // not its last child. Simpler than entering children from below.
+    // Anchor moved to PARENT in the collapsed layout; the Space-armed
+    // branch is visible again with sel on the parent — not its last
+    // child. Simpler than entering children from below.
     expect(t.frame()).toContain("▸ Parent with subs")
     expect(t.frame()).toContain("└─First subagent")
     act(() => t.keys.pressEnter())
@@ -789,6 +1010,7 @@ describe("Sessions tab — lineage block", () => {
     const t = await mountNode(<Sessions focused io={io} />, { gw, width: 200, height: 40 })
     await until(t, () => t.frame().includes("Parent with subs"))
     expect(t.frame()).toContain("⎇ spawned 2 subagents")
+    expect(t.frame()).not.toContain("Sub sessions")
     t.destroy()
   })
 
@@ -953,98 +1175,112 @@ describe("Sessions tab — transcript peek", () => {
   })
 })
 
-// ─── Lineage nav (herm-ngy) ──────────────────────────────────────────
-//
-// ←/→ walk the compression chain from the focused row. Tests verify:
-//   • → jumps to compressedTo.id via onSwitch (after confirm)
-//   • ← jumps to continuesFrom.id via onSwitch (after confirm)
-//   • keys at a row without that lineage field do nothing (no confirm)
-//   • io.lineage is queried on demand per keypress (not cached at mount)
-
-describe("Sessions tab — lineage keyboard nav (herm-ngy)", () => {
-  const LINEAGE_ROWS = [
-    { id: "sid-root", title: "Root", preview: "", message_count: 5, started_at: 1700000000, source: "tui" },
-    { id: "sid-mid",  title: "Middle", preview: "", message_count: 7, started_at: 1700000100, source: "tui" },
-    { id: "sid-tip",  title: "Tip", preview: "", message_count: 3, started_at: 1700000200, source: "tui" },
+describe("Sessions tab — source filters", () => {
+  const disk = [
+    detail({ id: "chat", sessionSource: "tui", title: "Human chat",
+      message_count: 2, started_at: 1700000100 }),
+    detail({ id: "cron-run", sessionSource: "cron", title: "Nightly cron",
+      message_count: 5, started_at: 1700000200 }),
   ]
 
-  // Chain: root ← mid ← tip (tip continues from mid, which continues from root).
-  const lineageMap: Record<string, { continuesFrom?: { id: string; title: string | null }; compressedTo?: { id: string; title: string | null } }> = {
-    "sid-root": { compressedTo: { id: "sid-mid", title: "Middle" } },
-    "sid-mid":  { continuesFrom: { id: "sid-root", title: "Root" }, compressedTo: { id: "sid-tip", title: "Tip" } },
-    "sid-tip":  { continuesFrom: { id: "sid-mid", title: "Middle" } },
-  }
-  const lineage = (sid: string) => lineageMap[sid] ?? {}
+  test("builds exact source tabs from loaded history", async () => {
+    const rows = [
+      detail({ id: "tui", sessionSource: "tui", title: "TUI chat",
+        message_count: 2, started_at: 1700000100 }),
+      detail({ id: "discord", sessionSource: "discord", title: "Discord chat",
+        message_count: 3, started_at: 1700000200 }),
+      detail({ id: "bridge", sessionSource: "custom_bridge", title: "Bridge chat",
+        message_count: 4, started_at: 1700000300 }),
+      detail({ id: "cron", sessionSource: "cron", title: "Cron job",
+        message_count: 5, started_at: 1700000400 }),
+    ]
+    const gw = new MockGateway({ "session.list": () => ({ sessions: [] }) })
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, list: () => rows }} />, { gw, width: 130 })
+    await until(t, () => t.frame().includes("Custom Bridge 1"))
 
-  test("→ from root jumps forward to compressedTo via confirm", async () => {
-    const gw = new MockGateway({ "session.list": () => ({ sessions: LINEAGE_ROWS }) })
-    let switched = ""
-    const t = await mountNode(
-      <Sessions focused io={{ ...NOIO, lineage }} onSwitch={sid => { switched = sid }} />,
-      { gw },
-    )
-    await until(t, () => t.frame().includes("Sessions (3)"))
-    // Newest-first sort: visible[0] = sid-tip. Walk down to sid-root.
-    act(() => t.keys.pressArrow("down")); await t.settle()
-    act(() => t.keys.pressArrow("down")); await t.settle()
+    const f = t.frame()
+    expect(f).toContain("Conversations 3")
+    expect(f).toContain("TUI 1")
+    expect(f).toContain("Discord 1")
+    expect(f).toContain("Custom Bridge 1")
+    expect(f).toContain("Cron 1")
+    expect(f).not.toContain("Slack")
+    expect(f).not.toContain("Telegram")
+    expect(f).toContain("TUI chat")
+    expect(f).toContain("Discord chat")
+    expect(f).toContain("Bridge chat")
+    expect(f).not.toContain("Cron job")
+    t.destroy()
+  })
+
+  test("scrolls an overflowing source filter row to the selected chip", async () => {
+    const rows = Array.from({ length: 10 }, (_, i) => detail({
+      id: `source-${i}`, sessionSource: `source_${i.toString().padStart(2, "0")}`,
+      title: `Source ${i.toString().padStart(2, "0")} row`, message_count: 1,
+      started_at: 1700001000 - i,
+    }))
+    const gw = new MockGateway({ "session.list": () => ({ sessions: [] }) })
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, list: () => rows }} />, { gw, width: 70, height: 24 })
+    await until(t, () => t.frame().includes("Source 00 1"))
+
+    for (let i = 0; i < 10; i++) act(() => t.keys.pressArrow("right"))
+    await until(t, () => t.frame().includes("Source 09 1"))
+    expect(t.frame()).toContain("Source 09 row")
+    t.destroy()
+  })
+
+  test("defaults to Conversations and ←/→ switches to Cron", async () => {
+    const gw = new MockGateway({ "session.list": () => ({ sessions: [] }) })
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, list: () => disk }} />, { gw, width: 110 })
+    await until(t, () => t.frame().includes("Conversations"))
+
+    expect(t.frame()).toContain("Human chat")
+    expect(t.frame()).not.toContain("Nightly cron")
+    expect(t.frame()).toContain("Conversations 1")
+    expect(t.frame()).toContain("Cron 1")
+    expect(t.frame()).toContain("[←→] filter")
+    expect(t.frame()).not.toContain("●")
+    expect(t.frame()).not.toContain("○")
+    expect(t.frame()).not.toContain("── Conversations")
+
     act(() => t.keys.pressArrow("right"))
-    await until(t, () => t.frame().includes("Load session?"))
-    await act(async () => { await t.keys.typeText("y") })
-    await t.settle()
-    expect(switched).toBe("sid-mid")
-    t.destroy()
-  })
-
-  test("← from tip jumps backward to continuesFrom via confirm", async () => {
-    const gw = new MockGateway({ "session.list": () => ({ sessions: LINEAGE_ROWS }) })
-    let switched = ""
-    const t = await mountNode(
-      <Sessions focused io={{ ...NOIO, lineage }} onSwitch={sid => { switched = sid }} />,
-      { gw },
-    )
-    await until(t, () => t.frame().includes("Sessions (3)"))
-    // Newest-first: sel=0 is sid-tip. ← → continuesFrom (sid-mid).
-    act(() => t.keys.pressArrow("left"))
-    await until(t, () => t.frame().includes("Load session?"))
-    await act(async () => { await t.keys.typeText("y") })
-    await t.settle()
-    expect(switched).toBe("sid-mid")
-    t.destroy()
-  })
-
-  test("arrow at tip without compressedTo is a no-op (no confirm, no switch)", async () => {
-    const gw = new MockGateway({ "session.list": () => ({ sessions: LINEAGE_ROWS }) })
-    let switched = ""
-    const t = await mountNode(
-      <Sessions focused io={{ ...NOIO, lineage }} onSwitch={sid => { switched = sid }} />,
-      { gw },
-    )
-    await until(t, () => t.frame().includes("Sessions (3)"))
-    // Newest-first: sel=0 is sid-tip (no compressedTo). → should do nothing.
-    act(() => t.keys.pressArrow("right"))
-    await t.settle()
+    await until(t, () => t.frame().includes("Nightly cron"))
+    expect(t.frame()).not.toContain("Human chat")
     expect(t.frame()).not.toContain("Load session?")
-    expect(switched).toBe("")
+
+    act(() => t.keys.pressArrow("left"))
+    await until(t, () => t.frame().includes("Human chat"))
+    expect(t.frame()).not.toContain("Nightly cron")
     t.destroy()
   })
 
-  test("arrow at root without continuesFrom is a no-op", async () => {
-    const gw = new MockGateway({ "session.list": () => ({ sessions: LINEAGE_ROWS }) })
-    let switched = ""
-    const t = await mountNode(
-      <Sessions focused io={{ ...NOIO, lineage }} onSwitch={sid => { switched = sid }} />,
-      { gw },
-    )
-    await until(t, () => t.frame().includes("Sessions (3)"))
-    // Newest-first: walk down to sid-root (no continuesFrom). ← is no-op.
-    act(() => t.keys.pressArrow("down")); await t.settle()
-    act(() => t.keys.pressArrow("down")); await t.settle()
-    act(() => t.keys.pressArrow("left"))
-    await t.settle()
-    expect(t.frame()).not.toContain("Load session?")
-    expect(switched).toBe("")
+  test("active sessions stay above a source-only filter", async () => {
+    const gw = new MockGateway({
+      "session.active_list": () => ({ sessions: [
+        { id: "live", title: "Live work", preview: "", message_count: 1,
+          started_at: 1700000300, status: "working" },
+      ]}),
+      "session.list": () => ({ sessions: [] }),
+    })
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, list: () => disk.slice(1) }} />, { gw, width: 110 })
+    await until(t, () => t.frame().includes("Live work") && t.frame().includes("Cron 1"))
+
+    let lines = t.frame().split("\n")
+    expect(lines.findIndex(l => l.includes("Live work")))
+      .toBeLessThan(lines.findIndex(l => l.includes("Cron 1")))
+    expect(t.frame()).toContain("Active Session")
+    expect(t.frame()).not.toContain("── Active Session")
+    expect(t.frame()).not.toContain("Conversations")
+    expect(t.frame()).not.toContain("No conversations found")
+
+    lines = t.frame().split("\n")
+    const live = lines.findIndex(l => l.includes("Live work"))
+    const tabs = lines.findIndex(l => l.includes("Cron 1"))
+    const cron = lines.findIndex(l => l.includes("Nightly cron"))
+    expect(live).toBeGreaterThanOrEqual(0)
+    expect(tabs).toBeGreaterThan(live)
+    expect(cron).toBeGreaterThan(tabs)
     t.destroy()
   })
 })
-
 

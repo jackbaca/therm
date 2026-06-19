@@ -6,6 +6,7 @@ import { homedir } from "os"
 import { resolve, delimiter } from "path"
 import { existsSync } from "fs"
 import type { GatewayEvent } from "./wire"
+import { encode } from "../utils/unicode"
 
 const LOG_MAX = 200
 const LOG_PREVIEW = 240
@@ -249,7 +250,12 @@ export class GatewayClient extends EventEmitter {
       })
 
       try {
-        writer.write(JSON.stringify({ jsonrpc: "2.0", id: rid, method, params: merged }) + "\n")
+        const frame = encode({ jsonrpc: "2.0", id: rid, method, params: merged })
+        if (frame.issues.length) {
+          const detail = frame.issues.map(x => `${x.path}:${x.count}`).join(", ")
+          this.log(`[wire] sanitized invalid unicode for ${method}: ${detail}`)
+        }
+        writer.write(frame.text + "\n")
       } catch (e) {
         clearTimeout(timeout)
         this.pending.delete(rid)

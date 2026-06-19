@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { mkdtempSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
+import { runtimeDescriptor } from "eikon"
 import { mountNode, until } from "./harness"
 import { EikonPickerDialog } from "../src/dialogs/eikon-picker"
 
@@ -15,7 +16,7 @@ const FIXTURE = [
 describe("EikonPickerDialog", () => {
   test("lists fixture and renders live preview", async () => {
     const dir = mkdtempSync(join(tmpdir(), "eikon-pick-"))
-    writeFileSync(join(dir, "tiny.eikon"), FIXTURE)
+    writeFileSync(join(dir, "tiny.eikon"), runtimeDescriptor(FIXTURE, { encoding: "gzip" }).bytes)
 
     let picked = ""
     const t = await mountNode(
@@ -25,11 +26,11 @@ describe("EikonPickerDialog", () => {
     await until(t, () => t.frame().includes("tiny-guy"))
 
     const f = t.frame()
-    // list row: name, author, state count, dimensions
+    // list row: name, author, state count; fixed eikon dimensions are omitted.
     expect(f).toContain("tiny-guy")
     expect(f).toContain("tester")
     expect(f).toContain("1 states")
-    expect(f).toContain("10×3")
+    expect(f).not.toContain("10×3")
     // preview: frame content rendered via AnimatedAvatar
     expect(f).toMatch(/\[o_o\]|\[O_O\]/)
     expect(picked).toBe("")

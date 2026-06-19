@@ -262,12 +262,12 @@ export const byId = (id: string): SessionRow | null => {
   return r ? toRow(r) : null
 }
 
-/** Newest real TUI/CLI session that actually has messages. Target of
- *  `-c` and source of the splash continue-prompt title.
+/** Newest real TUI/CLI conversation. Target of `-c` and source of the
+ *  splash continue-prompt title.
  *
  *  Newest row with messages (root or continuation — subagents/branches
- *  excluded), then walk the compression chain to its live tip so a
- *  compressed root resolves to the continuation holding the messages. */
+ *  excluded), then walk the compression chain to its live tip. The tip
+ *  can have 0 messages when compaction rotated but no turn landed yet. */
 export const lastReal = (): SessionRow | undefined => {
   const hit = q(`
     SELECT s.id FROM sessions s
@@ -277,8 +277,7 @@ export const lastReal = (): SessionRow | undefined => {
     ORDER BY s.started_at DESC LIMIT 1
   `)?.get() as { id: string } | undefined
   if (!hit) return undefined
-  const row = byId(chainTip(hit.id))
-  return row && row.message_count > 0 ? row : undefined
+  return byId(chainTip(hit.id)) ?? undefined
 }
 
 /** Resolve any id in a compression chain to the live tip. Walks up to
@@ -394,11 +393,10 @@ function tip(sid: string): string {
   return cur
 }
 
-/** Last `n` raw message rows for a session, chronological. Content
- *  is SUBSTR(…,400)'d in SQL — the peek view renders one line per
- *  row, so anything past the first ~200 chars is wasted. Uses the
- *  (session_id, timestamp) index; sub-ms for any realistic n. */
-export function peek(sid: string, n = 60): PeekMsg[] {
+/** First two and last two raw message rows for a session, chronological.
+ *  Content is SUBSTR(…,400)'d in SQL — the peek view renders one line
+ *  per row, so anything past the first ~200 chars is wasted. */
+export function peek(sid: string, _n = 4): PeekMsg[] {
   const end = perf.mark("io:sessions.peek")
   try {
     const ext = [
@@ -411,10 +409,13 @@ export function peek(sid: string, n = 60): PeekMsg[] {
       `SELECT role, SUBSTR(content,1,400) AS content, tool_name,
               SUBSTR(tool_calls,1,400) AS tool_calls, timestamp AS at,
               ${ext.join(", ")}
-       FROM (SELECT * FROM messages WHERE session_id = ?
-             ORDER BY id DESC LIMIT ?)
+       FROM (
+         SELECT * FROM (SELECT * FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT 2)
+         UNION
+         SELECT * FROM (SELECT * FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 2)
+       )
        ORDER BY id ASC`,
-    )?.all(sid, n) ?? []) as PeekMsg[]).map((r) => ({
+    )?.all(sid, sid) ?? []) as PeekMsg[]).map((r) => ({
       role: r.role,
       content: r.content,
       tool_name: r.tool_name,

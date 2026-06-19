@@ -90,19 +90,35 @@ describe("mapEvent", () => {
     expect(b.action).toEqual({ kind: "system", text: "HTTP 404" })
   })
 
-  test("status.update kind=process routes to debounced side callback", () => {
+  test("status.update kind=process is transient status only", () => {
     const text = "[IMPORTANT: Background process proc_abc completed (exit code 0).\nCommand: bun test\nOutput:\n…long stdout…]"
     const done = map({ type: "status.update", payload: { kind: "process", text } })
     expect(done.action).toBeNull()
-    expect(done.calls.status).toEqual([text])
+    expect(done.calls.status).toEqual(["proc_abc exited 0 · bun test"])
+  })
 
-    const calls: string[] = []
-    const routed = map(
-      { type: "status.update", payload: { kind: "process", text } },
-      { onProcessNotification: t => calls.push(t) },
-    )
-    expect(routed.action).toBeNull()
-    expect(calls).toEqual([text])
+  test("notification events route to keyed notice controller", () => {
+    const seen: unknown[] = []
+    const notices = {
+      show: (o: unknown) => seen.push(["show", o]),
+      clear: (k: string) => seen.push(["clear", k]),
+      error: () => {},
+    }
+    const show = map({
+      type: "notification.show",
+      payload: { text: "Credit access paused", level: "error", kind: "sticky", key: "credits.depleted" },
+    }, { notices })
+    expect(show.action).toBeNull()
+    expect(seen[0]).toEqual(["show", {
+      key: "credits.depleted",
+      variant: "error",
+      message: "Credit access paused",
+      duration: null,
+    }])
+
+    const clear = map({ type: "notification.clear", payload: { key: "credits.depleted" } }, { notices })
+    expect(clear.action).toBeNull()
+    expect(seen[1]).toEqual(["clear", "credits.depleted"])
   })
 
   test("formatProcessNotification preserves completion and watch-pattern shapes", () => {
@@ -115,11 +131,11 @@ describe("mapEvent", () => {
     expect(formatProcessNotification("weird shape")).toBe("weird shape")
   })
 
-  test("gateway.stderr: errorish → error (full line, no slice); benign → null", () => {
-    expect(map({ type: "gateway.stderr", payload: { line: "⚠️ API call failed (HTTP 404)" } }).action?.kind)
-      .toBe("error")
-    expect(map({ type: "gateway.stderr", payload: { line: "Traceback (most recent call last):" } }).action?.kind)
-      .toBe("error")
+  test("gateway.stderr: errorish → nonfatal error (full line, no slice); benign → null", () => {
+    expect(map({ type: "gateway.stderr", payload: { line: "⚠️ API call failed (HTTP 404)" } }).action)
+      .toMatchObject({ kind: "error", fatal: false })
+    expect(map({ type: "gateway.stderr", payload: { line: "Traceback (most recent call last):" } }).action)
+      .toMatchObject({ kind: "error", fatal: false })
     expect(map({ type: "gateway.stderr", payload: { line: "INFO: loaded 5 skills" } }).action)
       .toBeNull()
     // Long tracebacks are passed through verbatim — the /logs ring (gw.tail)
@@ -127,7 +143,7 @@ describe("mapEvent", () => {
     // context to an arbitrary slice either.
     const long = "Traceback: " + "x".repeat(500)
     expect(map({ type: "gateway.stderr", payload: { line: long } }).action)
-      .toEqual({ kind: "error", text: long })
+      .toEqual({ kind: "error", text: long, fatal: false })
   })
 
   test("gateway.start_timeout / protocol_error surface", () => {

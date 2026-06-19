@@ -29,16 +29,16 @@
     "dev:control": "CONTROL=1 bun run --watch src/index.tsx",
     "dev:full": "PERF=1 CONTROL=1 bun run --watch src/index.tsx",
     "gen-schema": "bun scripts/gen-schema.ts",
-    "showcase": "scripts/showcase/record.sh",
     "build": "bun scripts/build.ts",
     "start": "bun run dist/index.js",
     "test": "bun test",
-    "typecheck": "bunx tsc --noEmit"
+    "typecheck": "bunx tsc --noEmit",
+    "screenshot:styled": "bun scripts/styled-screenshot.tsx"
   },
   "dependencies": {
     "@opentui/core": "0.2.2",
     "@opentui/react": "0.2.2",
-    "eikon": "github:liftaris/eikon#1ef397d50c0cf0980a396b98f644f9332c5e8987",
+    "eikon": "github:liftaris/eikon#03366100df3a91533b4206177a1a524a4463d5c2",
     "gpt-tokenizer": "^3.4.0",
     "open": "^11.0.0",
     "react": "^19.2.5",

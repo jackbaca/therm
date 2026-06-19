@@ -3,14 +3,14 @@
 // calls out to. Pulled from AppInner so the shell only wires setters.
 
 import type React from "react"
-import { useCallback, useRef, type RefObject } from "react"
+import { useCallback, useEffect, useRef, type RefObject } from "react"
 import * as spawnHistory from "./spawnHistory"
 import * as preferences from "../context/preferences"
 import { useGateway, useGatewayEvent } from "../context/gateway"
 import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
 import { openAlert } from "../dialogs/alert"
-import { formatProcessNotification, mapEvent } from "../context/events"
+import { mapEvent } from "../context/events"
 import { deriveSkin, type SkinState } from "../context/skin"
 import { useBackground } from "./background"
 import type { Action } from "./turnReducer"
@@ -36,6 +36,7 @@ type Ctx = {
   setStatus: (s: string) => void
   setSkin: (s: SkinState) => void
   setErrorPulse: (v: boolean) => void
+  settle: () => void
 }
 
 // Events that mutate the in-progress assistant turn. Everything else
@@ -46,6 +47,7 @@ const STREAM_EVENTS = new Set<GatewayEvent["type"]>([
   "message.delta", "reasoning.delta", "reasoning.available", "thinking.delta",
   "tool.start", "tool.progress", "tool.generating",
 ])
+const TITLE_DELAYS = [1200, 5000, 15000, 30000] as const
 
 export function useStream(c: Ctx) {
   const gw = useGateway()
@@ -53,6 +55,12 @@ export function useStream(c: Ctx) {
   const toast = useToast()
   const bg = useBackground()
   const ctx = useRef(c); ctx.current = c
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([])
+
+  useEffect(() => () => {
+    timers.current.forEach(clearTimeout)
+    timers.current = []
+  }, [])
 
   // Client-side interrupt latch: flipped on Esc×2 before the gateway
   // has confirmed the stop. Stream-mutation events still in the stdio
@@ -62,6 +70,7 @@ export function useStream(c: Ctx) {
   // emitting after the monitor thread's InterruptedError has already
   // ended the turn.
   const interrupted = useRef(false)
+  const info = useRef(false)
 
   // Delta batching: streamed text/reasoning chunks accumulate in a
   // ref and flush at most once per 16ms. Every delta otherwise
@@ -70,15 +79,6 @@ export function useStream(c: Ctx) {
   // action flushes synchronously first so part ordering is preserved.
   const deltas = useRef({ text: "", think: "", timer: null as ReturnType<typeof setTimeout> | null })
 
-  // Process notification batching: status.update/kind=process events
-  // accumulate over a 500ms window and dispatch as one combined system
-  // message. Prevents TUI lag when many background processes finish
-  // in rapid succession (each one otherwise triggers a full React
-  // re-render of the Chat transcript).
-  const procs = useRef<{ texts: string[]; timer: ReturnType<typeof setTimeout> | null }>(
-    { texts: [], timer: null },
-  )
-
   const flush = useCallback(() => {
     const d = deltas.current
     if (d.timer) { clearTimeout(d.timer); d.timer = null }
@@ -86,24 +86,31 @@ export function useStream(c: Ctx) {
     if (d.text) { ctx.current.dispatch({ kind: "message.delta", chunk: d.text }); d.text = "" }
   }, [])
 
-  // Flush accumulated process notifications as one combined system msg.
-  const flushProcs = useCallback(() => {
-    const n = procs.current
-    if (n.timer) { clearTimeout(n.timer); n.timer = null }
-    if (!n.texts.length) return
-    const batch = n.texts.splice(0)
-    const lines = batch.map(t => `  ${formatProcessNotification(t)}`)
-    ctx.current.dispatch({
-      kind: "system",
-      text: batch.length === 1
-        ? `◆ background ${lines[0].trim()}`
-        : `◆ ${batch.length} background notifications\n${lines.join("\n")}`,
-    })
-  }, [])
+  const sync = useCallback((ms = 0) => {
+    const run = () => gw.request<{ title?: string; session_key?: string }>("session.title")
+      .then(r => {
+        ctx.current.setTitle(r.title ?? "")
+        if (r.session_key) preferences.set("lastSessionId", r.session_key)
+      })
+      .catch(() => {})
+    if (ms <= 0) return run()
+    const id = setTimeout(() => {
+      timers.current = timers.current.filter(t => t !== id)
+      run()
+    }, ms)
+    timers.current.push(id)
+  }, [gw])
 
   const handle = useCallback((ev: GatewayEvent) => {
     const x = ctx.current
-    if (ev.session_id && x.sidRef.current && ev.session_id !== x.sidRef.current && !ev.type.startsWith("gateway.")) return
+    if (ev.type === "gateway.ready") info.current = false
+    if (ev.type === "background.complete" && ev.session_id && x.sidRef.current
+        && ev.session_id !== x.sidRef.current) {
+      bg.unregister(ev.payload.task_id)
+      return
+    }
+    const shared = ev.type === "background.complete" && !ev.session_id
+    if (ev.session_id && x.sidRef.current && ev.session_id !== x.sidRef.current && !ev.type.startsWith("gateway.") && !shared) return
     // The agent's stream-retry loop (run_agent._call) classifies the
     // force-closed httpx socket from an interrupt as a transient drop
     // and emits "Reconnecting…" lifecycle status before the top-of-loop
@@ -127,15 +134,13 @@ export function useStream(c: Ctx) {
         x.setInfo(si)
         x.setReady(true)
         if (si.session_id) x.setSid(si.session_id)
+        x.settle()
         const bad = (si.mcp_servers ?? []).filter(s => !s.connected)
         if (bad.length) x.dispatch({
           kind: "system",
           text: `MCP: ${bad.length} server(s) failed to connect — ${bad.map(s => s.name + (s.error ? ` (${s.error})` : "")).join(", ")}`,
         })
-        gw.request<{ title: string; session_key?: string }>("session.title").then(r => {
-          x.setTitle(r.title ?? "")
-          if (r.session_key) preferences.set("lastSessionId", r.session_key)
-        }).catch(() => {})
+        sync()
         gw.request<{ value?: string }>("config.get", { key: "busy" }).then(r => {
           const m = r.value
           if (m === "queue" || m === "steer" || m === "interrupt") x.setBusy(m)
@@ -146,16 +151,12 @@ export function useStream(c: Ctx) {
         x.setStatus("")
         spawnHistory.flush(gw, x.sidRef.current)
         x.goalHook.check(x.sidRef.current)
+        TITLE_DELAYS.forEach(sync)
       },
       onBackground: (tid, text) => {
+        const title = bg.label(tid)
         bg.unregister(tid)
-        const head = text.split("\n")[0].slice(0, 80)
-        x.dispatch({ kind: "system", text: `◷ background task ${tid} complete — ${head}` })
-        toast.show({
-          variant: "info", title: "Background task complete", message: head,
-          duration: 8000,
-          action: { label: "view", run: () => openAlert(dialog, `Background task ${tid}`, text) },
-        })
+        x.dispatch({ kind: "background", id: tid, title, text })
       },
       onBtw: (text) => {
         const head = text.split("\n")[0].slice(0, 80)
@@ -166,15 +167,17 @@ export function useStream(c: Ctx) {
         })
       },
       onStatus: (text) => x.setStatus(text),
-      onProcessNotification: (text) => {
-        const n = procs.current
-        n.texts.push(text)
-        if (n.timer) clearTimeout(n.timer)
-        n.timer = setTimeout(flushProcs, 500)
+      onApprovalRemembered: () => {
+        void gw.request("approval.respond", { choice: "always" }).catch(() => {})
       },
       onSkin: (s) => x.setSkin(deriveSkin(s)),
+      notices: toast,
     })
     if (!action) return
+    if (ev.type === "session.info") {
+      if (info.current) return
+      info.current = true
+    }
     const d = deltas.current
     if (action.kind === "message.delta") {
       if (d.think) flush()
@@ -191,7 +194,7 @@ export function useStream(c: Ctx) {
     flush()
     if (action.kind === "error") x.setErrorPulse(true)
     x.dispatch(action)
-  }, [gw, dialog, toast, flush])
+  }, [gw, dialog, toast, flush, bg])
 
   useGatewayEvent(handle)
 

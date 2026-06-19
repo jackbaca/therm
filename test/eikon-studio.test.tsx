@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test"
 import { act, useState } from "react"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+import { createHash } from "node:crypto"
 import { mountNode, until } from "./harness"
 import { EikonGroup } from "../src/tabs/EikonGroup"
+import { EikonGallery } from "../src/tabs/EikonGallery"
 import { EikonStudio, resetToolsetsCache } from "../src/tabs/EikonStudio"
 import { gen } from "../src/service/eikon-gen"
 import { eikon } from "../src/service/eikon"
@@ -12,6 +14,12 @@ import * as prefs from "../src/context/preferences"
 
 const HH = process.env.HERMES_HOME!
 const PX = new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,0,0,0,0,58,126,155,85,0,0,0,10,73,68,65,84,120,156,99,104,0,0,0,130,0,129,119,205,114,182,0,0,0,0,73,69,78,68,174,66,96,130])
+const STREAM = [
+  JSON.stringify({ type: "header", eikon: 1, size: { cols: 4, rows: 2 }, defaultSignal: "state.idle", signals: { "state.idle": { clip: "idle" } } }),
+  JSON.stringify({ type: "clip", name: "idle", fps: 12, frameCount: 1 }),
+  JSON.stringify({ type: "frame", clip: "idle", index: 0, rows: ["abcd", "efgh"] }),
+].join("\n") + "\n"
+const digest = (data: string | Uint8Array) => `sha256:${createHash("sha256").update(data).digest("hex")}`
 const run = caps.ffmpeg ? test : test.skip
 
 // Stub rasterizer — deterministic, no binaries.
@@ -26,19 +34,90 @@ const stub: Rasterizer = {
   render: async () => ({ frames: [Array.from({ length: 24 }, () => "STUB-ROW".padEnd(48))] }),
 }
 
-function seed(name: string) {
+function seed(name: string, opts: { published?: boolean } = {}) {
   const p = eikon.ensure(name)
   writeFileSync(join(p.source, "base.png"), PX)
-  writeFileSync(eikon.file(name), JSON.stringify({ eikon: 1, name, width: 48, height: 24 }) + "\n")
+  const head = { eikon: 1, name, width: 48, height: 24, ...(opts.published ? { source_url: "https://catalog.example/eikons/" + name } : {}) }
+  writeFileSync(eikon.file(name), JSON.stringify(head) + "\n")
   eikon.writeStudio(name, { rasterizer: "stub", spatial: { zoom: 1, ox: 0.5, oy: 0.5 }, tone: { contrast: 1, invert: true, flip: "none" }, fps: 16, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
+  if (opts.published) writeFileSync(join(p.dir, "manifest.json"), JSON.stringify({ name, source: "source/base.png", origin: { source: "https://catalog.example/eikons/" + name, at: "2026-05-31T00:00:00Z" } }, null, 2) + "\n")
 }
 
 describe("EikonStudio tab", () => {
+  run("published marketplace installs cannot submit from Studio", async () => {
+    const un = eikon.register(stub)
+    seed("pub", { published: true })
+    prefs.set("eikon", "pub")
+    let sub = 2
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
+      { width: 160, height: 48 },
+    )
+    await until(t, () => t.frame().includes("rasterizer"))
+    act(() => t.keys.pressKey("u"))
+    await until(t, () => t.frame().includes("Create a local draft before submitting"))
+    expect(t.frame()).not.toContain("Submit eikon")
+    un()
+  })
+
+  run("u key release does not submit from Studio", async () => {
+    const un = eikon.register(stub)
+    seed("pub", { published: true })
+    prefs.set("eikon", "pub")
+    let sub = 2
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
+      { width: 160, height: 48 },
+    )
+    await until(t, () => t.frame().includes("rasterizer"))
+    act(() => t.renderer.keyInput.processParsedKey({
+      name: "u", ctrl: false, meta: false, shift: false, option: false,
+      sequence: "u", number: false, raw: "u", eventType: "release", source: "raw",
+    }))
+    await t.settle()
+    expect(t.frame()).not.toContain("Create a local draft before submitting")
+    expect(t.frame()).not.toContain("Submit eikon")
+    un()
+  })
+
+  test("runtime-only package installs expose Studio fetch from manifest origin", async () => {
+    const srv = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const path = new URL(req.url).pathname
+        if (path.endsWith("manifest.json")) return Response.json({
+          kind: "eikon.package",
+          schemaVersion: "1.0",
+          id: "liftaris/bare",
+          name: "bare",
+          version: "1.0.0",
+          compatibility: { eikon: ">=1 <2" },
+          entrypoints: { default: "bare.eikon" },
+          files: [
+            { path: "bare.eikon", role: "runtime", mediaType: "application/vnd.eikon.stream+jsonl", size: STREAM.length, digest: digest(STREAM) },
+            { path: "source.png", role: "source.base", mediaType: "image/png", size: PX.length, digest: digest(PX) },
+          ],
+          source: { base: "source.png" },
+        })
+        if (path.endsWith("bare.eikon")) return new Response(STREAM)
+        if (path.endsWith("source.png")) return new Response(PX)
+        return new Response("404", { status: 404 })
+      },
+    })
+    await eikon.fetchSource(`http://localhost:${srv.port}/pkg/manifest.json`, { media: false })
+    prefs.set("eikon", "bare")
+
+    await using t = await mountNode(<EikonStudio focused />, { width: 160, height: 48 })
+
+    await until(t, () => t.frame().includes("Download source") && t.frame().includes("1 files"))
+    srv.stop()
+  })
+
   run("renders three panes; knob nav via handleListKey; ←→ adjusts cycle knob", async () => {
     const un = eikon.register(stub)
     seed("owl")
     prefs.set("eikon", "owl")
-    let sub = 0
+    let sub = 2
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
       { width: 160, height: 60 },
@@ -81,7 +160,7 @@ describe("EikonStudio tab", () => {
     const un = eikon.register(stub)
     seed("knb")
     prefs.set("eikon", "knb")
-    let sub = 0
+    let sub = 2
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
       { width: 160, height: 60 },
@@ -107,7 +186,7 @@ describe("EikonStudio tab", () => {
     const un = eikon.register(stub)
     seed("cat")
     prefs.set("eikon", "cat")
-    let sub = 0
+    let sub = 2
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
       { width: 160, height: 48 },
@@ -130,7 +209,7 @@ describe("EikonStudio tab", () => {
     const un = eikon.register(stub)
     seed("alpha")
     prefs.set("eikon", "alpha")
-    let sub = 0
+    let sub = 2
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
       { width: 160, height: 48 },
@@ -158,7 +237,7 @@ describe("EikonStudio tab", () => {
     const un = eikon.register(stub)
     seed("dog")
     prefs.set("eikon", "dog")
-    let sub = 0
+    let sub = 2
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
     )
@@ -178,7 +257,7 @@ describe("EikonStudio tab", () => {
     const un = eikon.register(stub)
     seed("cow")
     prefs.set("eikon", "cow")
-    let sub = 0
+    let sub = 2
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
     )
@@ -194,11 +273,77 @@ describe("EikonStudio tab", () => {
     un()
   })
 
+  run("dirty Esc → failed [s] save keeps dirty edits", async () => {
+    const bad: Rasterizer = { ...stub, name: "bad", render: async () => ({ err: "save failed" }) }
+    const un = eikon.register(bad)
+    seed("badsave")
+    eikon.writeStudio("badsave", { ...eikon.readStudio("badsave")!, rasterizer: "bad" })
+    prefs.set("eikon", "badsave")
+    let sub = 2
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
+    )
+    await until(t, () => t.frame().includes("rasterizer"))
+    for (let i = 0; i < 5; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
+    act(() => t.keys.pressArrow("right"))
+    await until(t, () => t.frame().includes("● unsaved"))
+    act(() => t.keys.pressEscape())
+    await until(t, () => t.frame().includes("Unsaved edits"))
+    act(() => t.keys.pressKey("s"))
+    await until(t, () => t.frame().includes("save failed"))
+
+    expect(t.frame()).toContain("● unsaved")
+    expect(t.frame()).not.toContain("Saved →")
+    un()
+  })
+
+  run("dirty submit prompts save and active consequence before preview", async () => {
+    const un = eikon.register(stub)
+    seed("submitdirty")
+    prefs.set("eikon", "submitdirty")
+    let sub = 2
+    await using t = await mountNode(
+      <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
+      { width: 160, height: 48 },
+    )
+    await until(t, () => t.frame().includes("rasterizer"))
+    for (let i = 0; i < 5; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
+    act(() => t.keys.pressArrow("right"))
+    await until(t, () => t.frame().includes("● unsaved"))
+    act(() => t.keys.pressKey("u"))
+    await until(t, () => t.frame().includes("Save before submit?"))
+    act(() => t.keys.pressKey("s"))
+    await until(t, () => t.frame().includes("Save active 'submitdirty' before submit?"))
+    expect(t.frame()).toContain("Submit itself will not change active selection")
+    un()
+  })
+
+  run("Ctrl+S saves without activation; Ctrl+U explicitly saves and uses", async () => {
+    const un = eikon.register(stub)
+    seed("active")
+    seed("draft")
+    prefs.set("eikon", "active")
+    await using t = await mountNode(
+      <EikonStudio focused name="draft" />,
+      { width: 160, height: 48 },
+    )
+    await until(t, () => t.frame().includes("rasterizer"))
+    for (let i = 0; i < 5; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
+    act(() => t.keys.pressArrow("right"))
+    await until(t, () => t.frame().includes("● unsaved"))
+    act(() => t.keys.pressKey("s", { ctrl: true }))
+    await until(t, () => !t.frame().includes("● unsaved"))
+    expect(prefs.get("eikon")).toBe("active")
+    act(() => t.keys.pressKey("u", { ctrl: true }))
+    await until(t, () => prefs.get("eikon") === "draft")
+    un()
+  })
+
   run("revert row appears when dirty and routes through three-way", async () => {
     const un = eikon.register(stub)
     seed("fox")
     prefs.set("eikon", "fox")
-    let sub = 0
+    let sub = 2
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
     )
@@ -214,7 +359,7 @@ describe("EikonStudio tab", () => {
     run("cold start: Enter opens New eikon; submitting seeds a session", async () => {
     const un = eikon.register(stub)
     prefs.set("eikonRasterizer", "stub")
-    let sub = 0
+    let sub = 2
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
       { width: 160, height: 48 },
@@ -260,6 +405,60 @@ describe("EikonStudio tab", () => {
     un()
   })
 
+  run("reload refreshes clean source metadata and preserves dirty drafts", async () => {
+    const un = eikon.register(stub)
+    seed("refresh")
+    prefs.set("eikon", "refresh")
+    await using t = await mountNode(<EikonGroup focused sub={2} setSub={() => {}} />, { width: 160, height: 48 })
+    await until(t, () => t.frame().includes("base.png · 1×1 · 67 B"))
+
+    writeFileSync(join(eikon.sourceDir("refresh"), "base.png"), new Uint8Array([...PX, 0]))
+    act(() => t.keys.pressKey("r"))
+    await until(t, () => t.frame().includes("base.png · 1×1 · 68 B"))
+
+    for (let i = 0; i < 5; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
+    act(() => t.keys.pressArrow("right"))
+    await until(t, () => t.frame().includes("● unsaved"))
+    writeFileSync(join(eikon.sourceDir("refresh"), "base.png"), new Uint8Array([...PX, 0, 0]))
+    act(() => t.keys.pressKey("r"))
+    await until(t, () => t.frame().includes("● unsaved") && t.frame().includes("Reload skipped"))
+    un()
+  })
+
+  run("download source action fetches published media without local path entry", async () => {
+    const srv = Bun.serve({
+      port: 0,
+      fetch(req) {
+        return new URL(req.url).pathname.endsWith("manifest.json")
+          ? Response.json({
+            kind: "eikon.package",
+            schemaVersion: "1.0",
+            id: "liftaris/remote",
+            name: "remote",
+            version: "1.0.0",
+            compatibility: { eikon: ">=1 <2" },
+            entrypoints: { default: "remote.eikon" },
+            source: { base: "base.png" },
+          })
+          : new Response(PX)
+      },
+    })
+    const un = eikon.register(stub)
+    eikon.ensure("remote")
+    writeFileSync(eikon.file("remote"), JSON.stringify({ eikon: 1, name: "remote", width: 48, height: 24, source_url: `http://localhost:${srv.port}/remote/` }) + "\n")
+    eikon.writeStudio("remote", { rasterizer: "stub", spatial: { zoom: 1, ox: 0.5, oy: 0.5 }, tone: { contrast: 1, invert: true, flip: "none" }, fps: 16, base: {}, per: {}, glyph: "◆", sources: {} })
+    prefs.set("eikon", "remote")
+    await using t = await mountNode(<EikonGroup focused sub={2} setSub={() => {}} />, { width: 160, height: 48 })
+    await until(t, () => t.frame().includes("Download source"))
+
+    for (let i = 0; i < 3; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
+    act(() => t.keys.pressEnter())
+    await until(t, () => Bun.file(join(eikon.sourceDir("remote"), "base.png")).size > 0)
+    expect(eikon.readStudio("remote")!.sources.base).toBe("base.png")
+    srv.stop()
+    un()
+  })
+
   run("Enter on source row → menu with Local file…; pick + path + Enter adopts source", async () => {
     const un = eikon.register(stub)
     seed("fox")
@@ -267,7 +466,9 @@ describe("EikonStudio tab", () => {
     // Pre-create a file we can adopt.
     const extPath = join(HH, "extra.png")
     writeFileSync(extPath, PX)
-    let sub = 0
+    resetToolsetsCache()
+    gen.setProbe(async () => ({ image: false, video: false }))
+    let sub = 2
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
       { width: 160, height: 48 },
@@ -284,7 +485,9 @@ describe("EikonStudio tab", () => {
     await until(t, () => t.frame().includes("Local file"))
     expect(t.frame()).toContain("Source for 'idle'")
 
-    // Pick "Local file…" (first/only-when-empty option).
+    // Pick fallback "Local file…" after the detected base source.
+    act(() => t.keys.pressArrow("down"))
+    await t.settle()
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Tab complete"))
 
@@ -297,6 +500,7 @@ describe("EikonStudio tab", () => {
     const adoptedDir = eikon.ensure("fox").source
     const f = Bun.file(join(adoptedDir, "idle.png"))
     expect(await f.exists()).toBe(true)
+    gen.setProbe(null)
     un()
   })
 
@@ -311,7 +515,7 @@ describe("EikonStudio tab", () => {
     gen.setProbe(async () => ({ image: true, video: false }))
     let got: { kind: string; prompt: string } | undefined
     gen.setImpl(async (kind, prompt) => { got = { kind, prompt }; return { path: genPath } })
-    let sub = 0
+    let sub = 2
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
       { width: 160, height: 60 },
@@ -363,7 +567,7 @@ describe("EikonStudio tab", () => {
     prefs.set("eikon", "nogen")
     resetToolsetsCache()
     gen.setProbe(async () => ({ image: false, video: false }))
-    let sub = 0
+    let sub = 2
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
       { width: 160, height: 48 },
@@ -385,7 +589,7 @@ describe("EikonStudio tab", () => {
     seed("helpt")
     prefs.set("eikon", "helpt")
     await using t = await mountNode(
-      <EikonGroup focused sub={0} setSub={() => {}} />,
+      <EikonGroup focused sub={2} setSub={() => {}} />,
       { width: 160, height: 48 },
     )
     await until(t, () => t.frame().includes("rasterizer"))
@@ -398,10 +602,7 @@ describe("EikonStudio tab", () => {
     expect(t.frame()).toContain("engine that turns your source")
     // ↓ to source.
     act(() => t.keys.pressArrow("down")); await t.settle()
-    expect(t.frame()).toContain("image or video file the avatar is rendered from")
-    // Bold /eikon-create recommendation may hyphen-wrap; match a run
-    // that's guaranteed contiguous.
-    expect(t.frame()).toContain("interactively (recommended)")
+    expect(t.frame()).toContain("Pick, generate, or clear source")
     // ↓↓↓ → contrast (studio-owned tone row, has a KnobDef.hint).
     for (let i = 0; i < 3; i++) { act(() => t.keys.pressArrow("down")); await t.settle() }
     expect(t.frame()).toContain("Spread pixel values around their mean")
@@ -419,7 +620,7 @@ describe("EikonStudio tab", () => {
     eikon.writeStudio("wheelt", { rasterizer: "stub", spatial: { zoom: 0.5, ox: 0.5, oy: 0.5 }, tone: { contrast: 1, invert: true, flip: "none" }, fps: 16, base: {}, per: {}, glyph: "◆", sources: { base: "base.png" } })
     prefs.set("eikon", "wheelt")
     await using t = await mountNode(
-      <EikonGroup focused sub={0} setSub={() => {}} />,
+      <EikonGroup focused sub={2} setSub={() => {}} />,
       { width: 180, height: 30 },  // short → outer scrollbox is scrollable
     )
     await until(t, () => t.frame().includes("STUB-ROW"))
@@ -456,17 +657,28 @@ describe("EikonStudio tab", () => {
 })
 
 describe("EikonGallery tab", () => {
+  test("shows installed Nous once when it shadows bundled Nous", async () => {
+    mkdirSync(join(HH, "eikons"), { recursive: true })
+    seed("nous")
+    prefs.set("eikon", "nous")
+    await using t = await mountNode(<EikonGallery focused />, { width: 160, height: 48 })
+    await until(t, () => t.frame().includes("Library (") && /●\s+nous/.test(t.frame()))
+    const rows = t.frame().split("\n").filter(l => /^│\s*(?:▸\s*)?(?:●\s*)?nous\s+│/i.test(l))
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatch(/●\s+nous/i)
+  })
+
   test("lists bundled + installed; Enter sets active eikon", async () => {
     mkdirSync(join(HH, "eikons"), { recursive: true })
     seed("galone")
-    let sub = 1
+    let sub = 0
     await using t = await mountNode(
       <EikonGroup focused sub={sub} setSub={i => { sub = i }} />,
       { width: 160, height: 48 },
     )
-    await until(t, () => t.frame().includes("Gallery ("))
+    await until(t, () => t.frame().includes("Library ("))
     expect(t.frame()).toContain("galone")
-    // Bundled dir also shows (at least default/mono/ares ship).
+    // Bundled Nous also shows when no installed eikon shadows it.
     // Move to galone and activate.
     const rows = t.frame()
     const target = rows.split("\n").findIndex(l => l.includes("galone"))

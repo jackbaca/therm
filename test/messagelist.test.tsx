@@ -70,7 +70,7 @@ describe("MessageList", () => {
     expect(msg.parts[0]).toMatchObject({ type: "text", content: "Keep, regenerate, or adjust?", streaming: false })
   })
 
-  test("renders gutter + header + trail badge; body is text-only", async () => {
+  test("renders message chrome + header + trail badge; body is text-only", async () => {
     const t: Harness = await mountNode(
       <box flexDirection="column" width="100%" height="100%">
         <MessageList messages={turn} streaming={false} />
@@ -81,7 +81,8 @@ describe("MessageList", () => {
     const f = t.frame()
 
     expect(f).toContain("run the build")
-    expect(f).toContain("│")
+    expect(f).toContain("▁")
+    expect(f).toContain("▔")
     // Agent header: "Hermes · <tokens> · <duration>" (model is shown
     // in the sidebar/status bar, not in message headers).
     expect(f).toContain("Hermes · 12→34 tok · 250ms")
@@ -91,43 +92,17 @@ describe("MessageList", () => {
     t.destroy()
   })
 
-  test("renders ─── separator above non-first user turns only", async () => {
-    const msgs: Message[] = [
-      { id: "u1", role: "user", timestamp: 0, parts: [{ type: "text", content: "first question", streaming: false }] },
-      { id: "a1", role: "assistant", timestamp: 0, parts: [{ type: "text", content: "first answer", streaming: false }] },
-      { id: "u2", role: "user", timestamp: 0, parts: [{ type: "text", content: "second question", streaming: false }] },
-      { id: "a2", role: "assistant", timestamp: 0, parts: [{ type: "text", content: "second answer", streaming: false }] },
-      { id: "u3", role: "user", timestamp: 0, parts: [{ type: "text", content: "third question", streaming: false }] },
-    ]
-    const t: Harness = await mountNode(
-      <box flexDirection="column" width="100%" height="100%">
-        <MessageList messages={msgs} streaming={false} />
-      </box>,
-      { width: 120, height: 40 },
-    )
-    await until(t, () => t.frame().includes("third question"))
-    const lines = t.frame().split("\n")
-    const y1 = lines.findIndex(l => l.includes("first question"))
-    const y2 = lines.findIndex(l => l.includes("second question"))
-    const y3 = lines.findIndex(l => l.includes("third question"))
-    // First user turn: the line directly above must NOT be a separator.
-    expect(lines[y1 - 1] ?? "").not.toContain("───")
-    // Second + third user turns: separator sits directly above.
-    expect(lines[y2 - 1]).toContain("───")
-    expect(lines[y3 - 1]).toContain("───")
-    t.destroy()
-  })
 })
 
 describe("tool/inline", () => {
-  test("terminal + read_file render icon/verb rows", async () => {
+  test("terminal + read_file render trail rows", async () => {
     let t = await tool(turn[1].parts[1] as ToolPart)
-    await until(t, () => t.frame().includes("$ bun run build"))
+    await until(t, () => t.frame().includes("● bun run build"))
     expect(t.frame()).toContain("87ms")
     t.destroy()
 
     t = await tool(turn[1].parts[2] as ToolPart)
-    await until(t, () => t.frame().includes("→ Read src/index.tsx"))
+    await until(t, () => t.frame().includes("● Read src/index.tsx"))
     t.destroy()
   })
 
@@ -148,7 +123,7 @@ describe("tool/inline", () => {
       preview: "rm -rf /", status: "error", duration: 5,
       result: "permission denied",
     })
-    await until(t, () => t.frame().includes("$ rm -rf /"))
+    await until(t, () => t.frame().includes("● rm -rf /"))
     expect(t.frame()).toContain("permission denied")
     t.destroy()
   })
@@ -192,9 +167,9 @@ describe("tool/file-edit", () => {
   test("write_file renders generic write row", async () => {
     const t = await tool({
       type: "tool", id: "tw", name: "write_file", args: "",
-      preview: "docs/README.md", status: "done", duration: 9,
+      preview: "notes/README.md", status: "done", duration: 9,
     })
-    await until(t, () => t.frame().includes("Write docs/README.md"))
+    await until(t, () => t.frame().includes("Write notes/README.md"))
     expect(t.frame()).not.toContain("changed")
     expect(t.frame()).not.toContain("┃")
     t.destroy()
@@ -206,6 +181,50 @@ describe("tool/file-edit", () => {
       status: "done", duration: 5, diff: UDIFF,
     })
     await until(t, () => t.frame().includes("Edit") && !t.frame().includes("changed"))
+    t.destroy()
+  })
+
+  test("file-edit diff preview falls back to terse edit label", async () => {
+    const t = await tool({
+      type: "tool", id: "td", name: "patch", args: "",
+      preview: UDIFF, status: "done", duration: 5, diff: UDIFF,
+    })
+    await until(t, () => t.frame().includes("Edit"))
+    const f = t.frame()
+    expect(f).not.toContain("--- a/foo.ts")
+    expect(f).not.toContain("@@")
+    expect(f).not.toContain("+new line")
+    t.destroy()
+  })
+
+  test("message diff tab click expands and collapses without picking message", async () => {
+    const picks: Message[] = []
+    const msgs: Message[] = [{
+      id: "a1", role: "assistant", timestamp: 0,
+      parts: [
+        { type: "text", content: "patched", streaming: false },
+        { type: "tool", id: "td", name: "patch", args: "",
+          preview: "src/foo.ts", status: "done", duration: 42, diff: UDIFF },
+      ],
+    }]
+    const t = await mountNode(
+      <box flexDirection="column" width="100%" height="100%">
+        <MessageList messages={msgs} streaming={false} onPick={m => picks.push(m)} />
+      </box>,
+      { width: 100, height: 18 },
+    )
+    await until(t, () => t.frame().includes("foo.ts"))
+    expect(t.frame()).not.toContain("+new line")
+
+    const hit = locate(t, "foo.ts")
+    await act(async () => { await t.mouse.click(hit.x, hit.y) })
+    await until(t, () => t.frame().includes("+new line"))
+    expect(picks).toHaveLength(0)
+
+    const again = locate(t, "foo.ts")
+    await act(async () => { await t.mouse.click(again.x, again.y) })
+    await until(t, () => !t.frame().includes("+new line"))
+    expect(picks).toHaveLength(0)
     t.destroy()
   })
 })

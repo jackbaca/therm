@@ -117,4 +117,5 @@ describe("Sidebar", () => {
     expect(f).not.toMatch(/\[░+\]/)
     t.destroy()
   })
+
 })

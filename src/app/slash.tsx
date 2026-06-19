@@ -29,7 +29,7 @@ import { openHistory } from "../dialogs/history"
 import { openStatus, openUsage, openProfile } from "../dialogs/info"
 import { openChafa } from "../dialogs/chafa"
 import { SKINS, type SkinState } from "../context/skin"
-import { copy as clipCopy } from "../utils/clipboard"
+import { copyText as clipCopy } from "../utils/clipboard"
 import * as preferences from "../context/preferences"
 import { redraw } from "./useAppKeys"
 import { quit } from "./exit"
@@ -44,6 +44,7 @@ import type { SessionInfo, TranscriptMessage, ImageAttachResponse } from "../con
 import type { Message, Usage } from "../types/message"
 import { text as msgText } from "../types/message"
 import type { useSession } from "./useSession"
+import type { SessionCapabilities } from "./sessionCapabilities"
 
 export type SlashCtx = {
   dispatch: React.Dispatch<Action>
@@ -58,7 +59,7 @@ export type SlashCtx = {
    *  gateway session.undo hard-deletes with no unrevert. */
   undone: RefObject<Message[][]>
 
-  ready: boolean
+  capabilities: SessionCapabilities
   info: SessionInfo | null
   sid: string
   title: string
@@ -74,6 +75,7 @@ export type SlashCtx = {
 
   newSession: () => Promise<void>
   switchSession: (id: string) => Promise<void>
+  activateSession: (id: string) => Promise<void>
   rewind: (m: Message) => Promise<void>
   goTo: (tab: number, sub: number) => void
   attachClipboard: () => void
@@ -143,15 +145,8 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
       .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
   }, [gw, toast])
 
-  // Compress wrapper — re-hydrates transcript + session info from the
-  // RPC response. Gateway-side `agent._compress_context` ends the old
-  // SessionDB session and opens a continuation with a new session_id;
-  // without dispatching `messages` here, `turn.messages` stays stuck on
-  // the pre-compaction list until the user reopens the session, at
-  // which point the old messages vanish, reading as corruption.
-  // Mirrors Ink TUI (ui-tui/src/app/slash/commands/session.ts). Upstream
-  // also emits status.update{kind:"compressing"} events that already
-  // feed the status bar via gatewayEvents.ts.
+  // Manual compression mutates server context only; keep the live chat
+  // transcript visually stable, matching auto-compression.
   const runCompress = useCallback(async () => {
     toast.show({ variant: "info", message: "Compressing session…" })
     const r = await ctx.current.session.compress()
@@ -169,9 +164,6 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
       return { ...(base ?? { input: 0, output: 0, total: 0 }),
                context_used: r.after_tokens, context_max: max }
     })
-    if (Array.isArray(r.messages)) {
-      ctx.current.dispatch({ kind: "load", messages: transcriptToMessages(r.messages) })
-    }
     if (!r.summary) return
     const s = r.summary
     if (s.noop) {
@@ -183,6 +175,13 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
     if (lines) ctx.current.dispatch({ kind: "system", text: lines })
     toast.show({ variant: "success",
       message: s.headline ?? `Compressed ${r.before_messages ?? 0}→${r.after_messages ?? 0} messages` })
+  }, [toast])
+
+  const branch = useCallback((name?: string) => {
+    const x = ctx.current
+    x.session.branch(name?.trim() || undefined).then(id => id
+      ? void x.activateSession(id)
+      : toast.show({ variant: "error", message: "branch failed" }))
   }, [toast])
 
   const run = useCallback((c: SlashCommand, arg = "") => {
@@ -199,7 +198,17 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
             { title: "Start a new session?", body: "Ends the current session and starts a fresh one. The existing session remains saved and resumable.", yes: "new session" },
             () => { void x.newSession() })
           return
-        case "theme": openThemePicker(dialog, themeCtx); return
+        case "theme": {
+          const mode = arg.trim().toLowerCase()
+          if (!mode) { openThemePicker(dialog, themeCtx); return }
+          if (mode === "light" || mode === "dark") {
+            themeCtx.setMode(mode)
+            x.dispatch({ kind: "system", text: `theme mode → ${mode}` })
+            return
+          }
+          toast.show({ variant: "error", message: "usage: /theme [light|dark]" })
+          return
+        }
         case "help": dialog.replace(<HelpDialog />); return
         case "keys": openKeys(dialog); return
         case "logs": openLogs(dialog); return
@@ -248,9 +257,7 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
           if (arg) { void x.switchSession(arg); return }
           x.goTo(TAB_SLASH.sessions.tab, TAB_SLASH.sessions.sub); return
         case "branch":
-          x.session.branch(arg || undefined).then(id => id
-            ? void x.switchSession(id)
-            : toast.show({ variant: "error", message: "branch failed" }))
+          branch(arg)
           return
         case "compress": void runCompress(); return
         case "undo":
@@ -289,6 +296,20 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
             .then(r => {
               if (r.warning) toast.show({ variant: "warning", message: r.warning })
               x.dispatch({ kind: "system", text: `model → ${r.value ?? arg}` })
+            })
+            .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
+          return
+        case "yolo":
+          gw.request<{ value?: string; warning?: string; info?: SessionInfo }>("config.set", { key: "yolo" })
+            .then(r => {
+              if (r.info) {
+                x.setInfo(r.info)
+                x.setUsage(r.info.usage)
+              } else {
+                x.setInfo({ ...(x.info ?? {}), yolo: !x.info?.yolo })
+              }
+              toast.show({ variant: "success", message: `yolo ${r.value ?? "toggled"}` })
+              if (r.warning) toast.show({ variant: "warning", message: r.warning })
             })
             .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
           return
@@ -340,8 +361,7 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
           const m = all[n - 1]
           if (!m) { toast.show({ variant: "info", message: "nothing to copy" }); return }
           const body = msgText(m)
-          void clipCopy(body)
-          toast.show({ variant: "success", message: `copied ${body.length} chars` })
+          void clipCopy(body, toast, `copied ${body.length} chars`)
           return
         }
         case "paste": x.attachClipboard(); return
@@ -354,13 +374,18 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
             .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
           return
         case "background":
-          if (!arg) { toast.show({ variant: "info", message: "usage: /background <prompt>" }); return }
-          gw.request<{ task_id?: string }>("prompt.background", { text: arg })
+          if (!arg) { x.dispatch({ kind: "system", text: "/background <prompt>" }); return }
+          gw.request<{ task_id?: string }>(
+            "prompt.background",
+            x.sid ? { session_id: x.sid, text: arg } : { text: arg },
+          )
             .then(r => {
-              if (r.task_id) bg.register(r.task_id)
-              toast.show(r.task_id
-                ? { variant: "success", message: `background ${r.task_id} started` }
-                : { variant: "error", message: "background start failed" })
+              if (!r.task_id) {
+                toast.show({ variant: "error", message: "background start failed" })
+                return
+              }
+              bg.register(r.task_id, arg)
+              x.dispatch({ kind: "system", text: `bg ${r.task_id} started` })
             })
             .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
           return
@@ -472,7 +497,7 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
           return
       }
     }
-    if (c.target !== "gateway" || !x.sid) return
+    if (c.target !== "gateway" || !x.capabilities.canDispatchGatewayCommand) return
     const jump = TAB_SLASH[c.name]
     if (jump !== undefined && !arg) { x.goTo(jump.tab, jump.sub); return }
     const full = `/${c.name}${arg ? " " + arg : ""}`
@@ -515,7 +540,7 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
           })
           .catch((e: Error) => x.dispatch({ kind: "system", text: `error: ${e.message}` }))
       })
-  }, [gw, dialog, toast, themeCtx, renderer, destructive, applyTitle, runCompress])
+  }, [gw, dialog, toast, themeCtx, renderer, destructive, applyTitle, runCompress, branch])
 
   // Palette entries. Closures read through `ctx.current` so the effect
   // runs once (cmd is a stable context value) instead of re-registering
@@ -554,8 +579,8 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
     { title: "Redo", value: "redo", action: "session.redo", category: "Session",
       onSelect: () => run({ name: "redo", target: "local" } as SlashCommand) },
     { title: "Branch Session", value: "branch", description: "Fork the current conversation", category: "Session",
-      onSelect: () => ctx.current.session.branch() },
-  ]), [cmd, dialog, themeCtx, gw, toast, destructive, pickEikon, runCompress, run])
+      onSelect: () => branch() },
+  ]), [cmd, dialog, themeCtx, gw, toast, destructive, pickEikon, runCompress, branch, run])
 
   return run
 }

@@ -2,7 +2,6 @@
 // preview. ↑/↓ to navigate, Enter to select, Esc closes (via DialogProvider).
 
 import { useMemo, useState } from "react"
-import { readFileSync } from "fs"
 import { homedir } from "os"
 import { join } from "path"
 import { useListKeys } from "../keys"
@@ -10,7 +9,7 @@ import { useTheme } from "../theme"
 import { useDialog } from "../ui/dialog"
 import { AnimatedAvatar } from "../components/avatar/AnimatedAvatar"
 import { BUNDLED_EIKON_DIR } from "../components/avatar/bundled"
-import { listEikons, parseEikon, type ParsedEikon } from "../components/avatar/eikon"
+import { listEikons, parseEikonFile, type ParsedEikon } from "../components/avatar/eikon"
 
 const trunc = (s: string, n: number) => s.length <= n ? s : s.slice(0, n - 1) + "…"
 
@@ -35,7 +34,7 @@ export const EikonPickerDialog = (props: {
   const cur = found[cursor]
   const parsed = useMemo<ParsedEikon | undefined>(() => {
     if (!cur) return undefined
-    try { return parseEikon(readFileSync(cur.path, "utf8")) }
+    try { return parseEikonFile(cur.path) }
     catch { return undefined }
   }, [cur])
 
@@ -71,7 +70,7 @@ export const EikonPickerDialog = (props: {
                     </box>
                     <box height={1}>
                       <text fg={theme.textMuted}>
-                        {`${e.meta.author ?? "—"} · ${e.meta.states.length} states · ${e.meta.width}×${e.meta.height}`}
+                        {`${e.meta.author ?? "—"} · ${e.meta.states.length} states`}
                       </text>
                     </box>
                   </box>

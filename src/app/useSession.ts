@@ -2,7 +2,7 @@
 
 import { useMemo, useCallback } from "react"
 import * as preferences from "../context/preferences"
-import { sdb, byId } from "../service/sessions-db"
+import { sdb } from "../service/sessions-db"
 import { useGateway } from "../context/gateway"
 import { transcriptToMessages } from "./turnReducer"
 import type { Launch } from "./launch"
@@ -16,20 +16,8 @@ import type {
 } from "../context/wire"
 import type { Message, Usage } from "../types/message"
 
-const spec = (row: ReturnType<typeof byId>) => {
-  if (!row?.model) return null
-  if (!row.billing_provider) return row.model
-  return `${row.model} --provider ${row.billing_provider}`
-}
-
-/** session.compress response shape — see upstream fc7f55f49.
- *
- *  `messages` + `info` carry the post-compaction transcript and fresh
- *  session metadata; the gateway rewrites history in place and rotates
- *  session_id (agent._compress_context ends the old DB session and opens
- *  a continuation). Callers MUST re-hydrate local transcript state from
- *  `messages` — otherwise the TUI keeps the pre-compaction list and the
- *  next resume snaps it to the compacted history, looking like data loss. */
+/** session.compress response shape. `messages` is compacted server context;
+ *  the live chat transcript intentionally stays visually unchanged. */
 export type CompressResult = {
   status?: "compressed" | "skipped"
   removed?: number
@@ -51,6 +39,8 @@ export type CompressResult = {
 type Booted = { id: string; messages: Message[]; note?: string; info?: SessionInfo }
 type Resumed = { id: string; messages: Message[]; info?: SessionInfo }
 type Activated = { id: string; messages: Message[]; info?: SessionInfo; running: boolean; status?: string; startedAt?: number }
+type Agents = { processes?: Array<{ status?: string }> }
+type Close = { preserveBackground?: boolean }
 
 export const normalize = (sid: string): string =>
   sid.trim().replace(/\.json$/i, "").replace(/^session_(?=\d{8}_)/, "")
@@ -62,7 +52,7 @@ type SessionOps = {
   resume: (sid: string) => Promise<Resumed>
   activate: (sid: string) => Promise<Activated>
   /** Finalize a gateway session (best-effort — swallows errors). */
-  close: (sid: string) => Promise<void>
+  close: (sid: string, opts?: Close) => Promise<boolean>
   interrupt: () => Promise<void>
   branch: (name?: string) => Promise<string | null>
   compress: () => Promise<CompressResult | null>
@@ -86,13 +76,10 @@ export function useSession(): SessionOps {
     // No tip-chasing here: Sessions-tab lineage walk and `/resume <id>`
     // pass exact ids on purpose; boot() resolves tips itself.
     const target = normalize(sid)
-    const row = byId(target)
     const res = await gw.request<SessionResumeResponse>("session.resume", { session_id: target })
     const id = res.session_id
     gw.setSession(id)
     preferences.set("lastSessionId", res.resumed ?? target)
-    const model = spec(row)
-    if (model) await gw.request("config.set", { key: "model", value: model }).catch(() => {})
     const messages = res.messages?.length ? transcriptToMessages(res.messages) : []
     return { id, messages, info: res.info }
   }, [gw])
@@ -137,10 +124,26 @@ export function useSession(): SessionOps {
   // useSessionLifecycle.closeSession. Pass `session_id` explicitly so
   // auto-injection doesn't close whatever sid the gateway already
   // switched to.
-  const close = useCallback(async (sid: string) => {
-    if (!sid) return
-    try { await gw.request("session.close", { session_id: sid }) } catch {}
+  const busy = useCallback(async () => {
+    try {
+      const res = await gw.request<Agents>("agents.list")
+      return res.processes?.some(p => p.status === "running") ?? false
+    } catch { return false }
   }, [gw])
+
+  const close = useCallback(async (sid: string, opts?: Close) => {
+    if (!sid) return false
+    // Hermes Agent's session.close tears down the AIAgent, which also kills
+    // terminal(background=true) processes owned by that agent. The gateway
+    // only exposes a global agents.list summary today, not owner session keys,
+    // so preserve the outgoing live session while any durable process is
+    // running rather than risking SIGTERM on a watcher during session switch.
+    if (opts?.preserveBackground && await busy()) return false
+    try {
+      await gw.request("session.close", { session_id: sid })
+      return true
+    } catch { return false }
+  }, [gw, busy])
 
   const boot = useCallback(async (launch: Launch): Promise<Booted> => {
     const fresh = async (note?: string) => ({ ...(await create()), messages: [], note })

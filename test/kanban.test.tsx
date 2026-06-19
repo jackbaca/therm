@@ -2,13 +2,15 @@ import { describe, test, expect, beforeAll, afterEach } from "bun:test"
 import { act } from "react"
 import { Database } from "bun:sqlite"
 import { mkdirSync, writeFileSync, rmSync, chmodSync } from "node:fs"
+import { join } from "node:path"
 import { mountNode, MockGateway, until } from "./harness"
 import { hermesPath } from "../src/service/hermes-home"
 import {
-  board, boardOf, detail, assignees, tailLog, q, resetKanban,
+  board, boardOf, detail, detailOf, assignees, tailLog, q, resetKanban,
   currentBoard, listBoards, parseDiagnostics, maxSeverity, sortDiags,
   boardStateOf, boardErrors, corruptBackupsOf,
 } from "../src/service/hermes-kanban"
+import { parseDispatchResult, dispatchFailures, dispatchVariant, dispatchDetails } from "../src/service/kanban-dispatch"
 import { Kanban } from "../src/tabs/Kanban"
 
 const now = Math.floor(Date.now() / 1000)
@@ -37,6 +39,10 @@ const schema = (db: Database) => {
     id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT, profile TEXT,
     status TEXT, outcome TEXT, started_at INTEGER, ended_at INTEGER,
     summary TEXT, error TEXT, worker_pid INTEGER)`)
+  db.run(`CREATE TABLE IF NOT EXISTS task_attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT,
+    filename TEXT, stored_path TEXT, content_type TEXT,
+    size INTEGER, uploaded_by TEXT, created_at INTEGER)`)
 }
 
 
@@ -81,6 +87,13 @@ beforeAll(() => {
   db.run("INSERT INTO task_links (parent_id, child_id) VALUES ('t1','t3'),('t2','t3')")
   db.run("INSERT INTO task_comments (task_id, author, body, created_at) VALUES (?,?,?,?)",
     ["t1", "kaio", "check AWS reserved pricing too", now - 1000])
+  mkdirSync(hermesPath("kanban/attachments/t1"), { recursive: true })
+  const defaultBlob = hermesPath("kanban/attachments/t1/spec.pdf")
+  writeFileSync(defaultBlob, "pdf bytes")
+  db.run(`INSERT INTO task_attachments
+    (task_id, filename, stored_path, content_type, size, uploaded_by, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ["t1", "spec.pdf", defaultBlob, "application/pdf", 9, "kaio", now - 900])
   db.close()
 
   // Second board with its own DB + log dir, and board.json metadata.
@@ -94,6 +107,13 @@ beforeAll(() => {
     `INSERT INTO tasks (id, title, status, priority, created_at)
      VALUES ('m1', 'upgrade forge', 'ready', 1, ?)`, [now - 100],
   )
+  mkdirSync(hermesPath("kanban/boards/atm10/attachments/m1"), { recursive: true })
+  const boardBlob = hermesPath("kanban/boards/atm10/attachments/m1/modpack.txt")
+  writeFileSync(boardBlob, "modpack")
+  db2.run(`INSERT INTO task_attachments
+    (task_id, filename, stored_path, content_type, size, uploaded_by, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ["m1", "modpack.txt", boardBlob, "text/plain", 7, "kaio", now - 50])
   db2.close()
   // Third board — empty, exercises collapsed-by-default + empty-last sort.
   mkdirSync(hermesPath("kanban/boards/zeta"), { recursive: true })
@@ -176,6 +196,64 @@ describe("hermes-kanban readers", () => {
     const d1 = detail("t1")!
     expect(d1.children).toEqual(["t3"])
     expect(d1.comments[0].body).toContain("AWS reserved")
+    expect(d.attachments).toEqual([])
+  })
+
+  test("detail() hydrates safe attachment metadata", () => {
+    const d = detail("t1")!
+    expect(d.attachments).toEqual([{
+      id: 1,
+      filename: "spec.pdf",
+      name: "spec.pdf",
+      size: 9,
+      created_at: now - 900,
+      stored_path: hermesPath("kanban/attachments/t1/spec.pdf"),
+      relative_path: "t1/spec.pdf",
+      path: hermesPath("kanban/attachments/t1/spec.pdf"),
+    }])
+  })
+
+  test("detailOf() uses the selected board attachment root", () => {
+    const d = detailOf("atm10", "m1")!
+    expect(d.attachments[0].path).toBe(hermesPath("kanban/boards/atm10/attachments/m1/modpack.txt"))
+  })
+
+  test("detailOf() validates stored paths against the attachment root", () => {
+    const db = new Database(hermesPath("kanban.db"))
+    db.run(`INSERT INTO task_attachments
+      (task_id, filename, stored_path, content_type, size, uploaded_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ["t1", "passwd", "/etc/passwd", "text/plain", 123, "evil", now - 800])
+    db.close()
+    resetKanban()
+
+    const bad = detail("t1")!.attachments.find(a => a.filename === "passwd")!
+    expect(bad.path).toBeNull()
+    expect(bad.relative_path).toBeNull()
+    expect(bad.stored_path).toBe("/etc/passwd")
+  })
+
+  test("detailOf() respects HERMES_KANBAN_ATTACHMENTS_ROOT", () => {
+    const root = hermesPath("custom-attachments")
+    mkdirSync(join(root, "t1"), { recursive: true })
+    const custom = join(root, "t1", "custom.txt")
+    writeFileSync(custom, "custom")
+    const db = new Database(hermesPath("kanban.db"))
+    db.run(`INSERT INTO task_attachments
+      (task_id, filename, stored_path, content_type, size, uploaded_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ["t1", "custom.txt", custom, "text/plain", 6, "kaio", now - 700])
+    db.close()
+    process.env.HERMES_KANBAN_ATTACHMENTS_ROOT = root
+    resetKanban()
+    try {
+      const d = detail("t1")!
+      expect(d.attachments.find(a => a.filename === "custom.txt")?.path).toBe(custom)
+      expect(d.attachments.find(a => a.filename === "spec.pdf")?.path).toBeNull()
+    } finally {
+      delete process.env.HERMES_KANBAN_ATTACHMENTS_ROOT
+      resetKanban()
+    }
   })
 
   test("assignees() = profiles-on-disk ∪ board assignees", () => {
@@ -223,6 +301,52 @@ describe("hermes-kanban readers", () => {
 })
 
 describe("Kanban tab", () => {
+  test("column wheel scroll does not move outer board scroll", async () => {
+    const db = new Database(hermesPath("kanban.db"), { create: true })
+    const ins = db.prepare(
+      "INSERT INTO tasks (id, title, status, priority, created_at) VALUES (?, ?, 'ready', 1, ?)",
+    )
+    for (let i = 0; i < 30; i++)
+      ins.run(`long${i}`, `long ready ${i.toString().padStart(2, "0")}`, now - i)
+    db.close()
+    resetKanban()
+
+    const t = await mountNode(<Kanban focused />, { width: 180, height: 24 })
+    try {
+      await until(t, () => t.frame().includes("long ready 00"))
+      type Node = {
+        id?: string; x: number; y: number; scrollTop: number; scrollHeight: number
+        viewport: { height: number }; getChildren?: () => unknown[]
+      }
+      const root = (t.renderer as unknown as { root: unknown }).root
+      const find = (node: unknown, id: string): Partial<Node> | null => {
+        const n = node as Partial<Node>
+        if (n.id === id) return n
+        for (const c of n.getChildren?.() ?? []) {
+          const r = find(c, id)
+          if (r) return r
+        }
+        return null
+      }
+      const outer = find(root, "kb-board-scroll") as Node | null
+      const col = find(root, "kb-col-default-ready") as Node | null
+      if (!outer || !col) throw new Error("scrollbox probe missing")
+      expect(col.scrollHeight).toBeGreaterThan(col.viewport.height)
+      expect(outer.scrollHeight).toBeGreaterThan(outer.viewport.height)
+      const top = outer.scrollTop
+      await act(async () => { await t.mouse.scroll(col.x + 1, col.y + 1, "down") })
+      await t.settle()
+      expect(col.scrollTop).toBeGreaterThan(0)
+      expect(outer.scrollTop).toBe(top)
+    } finally {
+      t.destroy()
+      const db = new Database(hermesPath("kanban.db"))
+      db.run("DELETE FROM tasks WHERE id LIKE 'long%'")
+      db.close()
+      resetKanban()
+    }
+  })
+
   test("stacks boards, empty last, chips + one-line rows", async () => {
     const t = await mountNode(<Kanban focused />, { width: 180, height: 44 })
     await until(t, () => t.frame().includes("Kanban · 3 boards · 7 tasks"))
@@ -281,6 +405,8 @@ describe("Kanban tab", () => {
     act(() => t.keys.pressEnter())
     await until(t, () => /Assignee\s+researcher/.test(t.frame()))
     expect(t.frame()).toMatch(/Children\s+t3/)
+    expect(t.frame()).toContain("spec.pdf")
+    expect(t.frame()).not.toContain(hermesPath("kanban/attachments/t1/spec.pdf"))
     expect(t.frame()).toContain("AWS reserved")
     expect(t.frame()).toMatch(/a assign\s+c comment\s+u unblock/)
     act(() => t.keys.pressEscape())
@@ -757,10 +883,25 @@ describe("Kanban tab", () => {
     t.destroy()
   })
 
-  test("D → confirm → dispatch", async () => {
+  test("D → confirm → dispatch parses telemetry", async () => {
     const cmds: string[] = []
     const gw = new MockGateway({
-      "shell.exec": p => { if (!/\bdiagnostics\b/.test(p.command as string)) cmds.push(p.command as string); return { stdout: "[]", stderr: "", code: 0 } },
+      "shell.exec": p => {
+        if (!/\bdiagnostics\b/.test(p.command as string)) cmds.push(p.command as string)
+        return { stdout: JSON.stringify({
+          reclaimed: 0,
+          promoted: 1,
+          spawned: [{ task_id: "t1", assignee: "researcher", workspace: "/tmp/w" }],
+          auto_assigned_default: ["t6"],
+          skipped_per_profile_capped: [{ task_id: "t7", assignee: "researcher", current: 2 }],
+          skipped_unassigned: [],
+          skipped_nonspawnable: [],
+          crashed: [],
+          auto_blocked: [],
+          timed_out: [],
+          stale: [],
+        }), stderr: "", code: 0 }
+      },
     })
     const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
@@ -769,7 +910,149 @@ describe("Kanban tab", () => {
     await act(async () => { await t.keys.typeText("y") })
     await until(t, () => cmds.length === 1)
     expect(cmds[0]).toBe("hermes kanban --board default dispatch --json")
+    await until(t, () => t.frame().includes("Dispatch: 1 spawned · 1 defaulted · 1 deferred"))
     t.destroy()
+  })
+
+  test("D → confirm → dispatch surfaces unassigned separately", async () => {
+    const gw = new MockGateway({
+      "shell.exec": p => /\bdiagnostics\b/.test(p.command as string)
+        ? { stdout: "[]", stderr: "", code: 0 }
+        : { stdout: JSON.stringify({
+          spawned: [],
+          skipped_unassigned: ["t8"],
+          skipped_nonspawnable: [],
+          skipped_per_profile_capped: [],
+          auto_assigned_default: [],
+          crashed: [],
+          auto_blocked: [],
+          timed_out: [],
+          stale: [],
+        }), stderr: "", code: 0 },
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    await act(async () => { await t.keys.typeText("D") })
+    await until(t, () => t.frame().includes("Dispatch · default"))
+    await act(async () => { await t.keys.typeText("y") })
+    await until(t, () => t.frame().includes("Dispatch: 0 spawned · 1 unassigned"))
+    expect(t.frame()).not.toContain("skipped")
+    t.destroy()
+  })
+
+  test("D → confirm → dispatch shows failed instead of skipped when no worker spawns", async () => {
+    const gw = new MockGateway({
+      "shell.exec": p => /\bdiagnostics\b/.test(p.command as string)
+        ? { stdout: "[]", stderr: "", code: 0 }
+        : { stdout: JSON.stringify({
+          spawned: [],
+          skipped_unassigned: [],
+          skipped_nonspawnable: [],
+          skipped_per_profile_capped: [],
+          auto_assigned_default: [],
+          crashed: ["t8"],
+          auto_blocked: [],
+          timed_out: ["t9"],
+          stale: [],
+        }), stderr: "", code: 0 },
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    await act(async () => { await t.keys.typeText("D") })
+    await until(t, () => t.frame().includes("Dispatch · default"))
+    await act(async () => { await t.keys.typeText("y") })
+    await until(t, () => t.frame().includes("Dispatch: 0 spawned · 2 failed"))
+    expect(t.frame()).not.toContain("skipped")
+    t.destroy()
+  })
+
+  test("D → confirm → dispatch separates benign and failure labels", async () => {
+    const gw = new MockGateway({
+      "shell.exec": p => /\bdiagnostics\b/.test(p.command as string)
+        ? { stdout: "[]", stderr: "", code: 0 }
+        : { stdout: JSON.stringify({
+          spawned: [{ task_id: "t1", assignee: "builder", workspace: "/tmp/w" }],
+          skipped_unassigned: [],
+          skipped_nonspawnable: [],
+          skipped_per_profile_capped: [{ task_id: "t3", assignee: "researcher", current: 2 }],
+          auto_assigned_default: [],
+          crashed: ["t6"],
+          auto_blocked: [],
+          timed_out: [],
+          stale: [],
+          respawn_guarded: [],
+        }), stderr: "", code: 0 },
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    await act(async () => { await t.keys.typeText("D") })
+    await until(t, () => t.frame().includes("Dispatch · default"))
+    await act(async () => { await t.keys.typeText("y") })
+    await until(t, () => t.frame().includes("Dispatch: 1 spawned · 1 deferred · 1 failed"))
+    expect(t.frame()).not.toContain("skipped")
+    t.destroy()
+  })
+
+  test("D → confirm → malformed dispatch json surfaces error toast", async () => {
+    const gw = new MockGateway({
+      "shell.exec": p => /\bdiagnostics\b/.test(p.command as string)
+        ? { stdout: "[]", stderr: "", code: 0 }
+        : { stdout: "not json", stderr: "", code: 0 },
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    await until(t, () => t.frame().includes("Kanban · 3 boards"))
+    await act(async () => { await t.keys.typeText("D") })
+    await until(t, () => t.frame().includes("Dispatch · default"))
+    await act(async () => { await t.keys.typeText("y") })
+    await until(t, () => t.frame().includes("JSON Parse error"))
+    t.destroy()
+  })
+
+  test("dispatch parser defaults new buckets and separates dispatch variants", () => {
+    const old = parseDispatchResult(JSON.stringify({
+      reclaimed: 0,
+      promoted: 0,
+      spawned: [{ task_id: "t1", assignee: "builder", workspace: "" }],
+      skipped_unassigned: ["t2"],
+      skipped_nonspawnable: ["t3"],
+      crashed: [],
+      auto_blocked: [],
+      timed_out: [],
+      stale: [],
+    }))
+    expect(old.auto_assigned_default).toEqual([])
+    expect(old.skipped_per_profile_capped).toEqual([])
+
+    const cur = parseDispatchResult(JSON.stringify({
+      spawned: [{ task_id: "t1", assignee: "builder", workspace: "" }],
+      skipped_per_profile_capped: [{ task_id: "t4", assignee: "builder", current: 1 }],
+      auto_assigned_default: ["t5"],
+      crashed: ["t6"],
+    }))
+    expect(cur.skipped_per_profile_capped).toEqual([{ task_id: "t4", assignee: "builder", current: 1 }])
+    expect(cur.auto_assigned_default).toEqual(["t5"])
+    expect(dispatchFailures(cur)).toEqual(["t6"])
+    expect(dispatchVariant(cur)).toBe("warning")
+    expect(dispatchVariant(parseDispatchResult(JSON.stringify({ spawned: [], crashed: ["t6"] })))).toBe("error")
+    expect(dispatchVariant(parseDispatchResult(JSON.stringify({ spawned: [], skipped_per_profile_capped: [{ task_id: "t4", assignee: "builder", current: 1 }] })))).toBe("info")
+    expect(dispatchVariant(parseDispatchResult(JSON.stringify({ spawned: [{ task_id: "t1", assignee: "builder", workspace: "" }], auto_assigned_default: ["t5"] })))).toBe("success")
+    expect(dispatchDetails(parseDispatchResult(JSON.stringify({
+      auto_assigned_default: ["t5"],
+      skipped_per_profile_capped: [{ task_id: "t4", assignee: "builder", current: 1 }],
+      skipped_unassigned: ["t2"],
+      skipped_nonspawnable: ["t3"],
+      crashed: ["t6"],
+      respawn_guarded: [["t7", "active_pr"]],
+    })))).toBe([
+      "Defaulted to kanban.default_assignee: t5",
+      "Deferred at per-profile cap:",
+      "  builder (1 running): t4",
+      "Unassigned: t2",
+      "Non-spawnable lanes: t3",
+      "Failed/reclaimed · crashed: t6",
+      "Respawn guarded: t7 (active_pr)",
+    ].join("\n"))
+    expect(() => parseDispatchResult("not json")).toThrow()
   })
 
   test("l opens log pane; Esc closes", async () => {
@@ -955,9 +1238,32 @@ describe("patchTask direct writes", () => {
     expect(String(p.journal_mode).toLowerCase()).toBe("wal")
     expect(p.synchronous).toBe(2) // FULL
     expect(p.wal_autocheckpoint).toBe(100)
+    expect(p.busy_timeout).toBe(120_000)
     expect(p.secure_delete).toBe(1)
     expect(p.cell_size_check).toBe(1)
     expect(p.foreign_keys).toBe(1)
+  })
+
+  test("write handle honors valid busy_timeout override and ignores invalid values", async () => {
+    const prev = process.env.HERMES_KANBAN_BUSY_TIMEOUT_MS
+    const { kanbanWritePragmas, resetKanban } = await import("../src/service/hermes-kanban")
+    try {
+      process.env.HERMES_KANBAN_BUSY_TIMEOUT_MS = "2500"
+      resetKanban()
+      expect(kanbanWritePragmas("default")?.busy_timeout).toBe(2500)
+
+      process.env.HERMES_KANBAN_BUSY_TIMEOUT_MS = "nope"
+      resetKanban()
+      expect(kanbanWritePragmas("default")?.busy_timeout).toBe(120_000)
+
+      process.env.HERMES_KANBAN_BUSY_TIMEOUT_MS = "0"
+      resetKanban()
+      expect(kanbanWritePragmas("default")?.busy_timeout).toBe(120_000)
+    } finally {
+      if (prev === undefined) delete process.env.HERMES_KANBAN_BUSY_TIMEOUT_MS
+      else process.env.HERMES_KANBAN_BUSY_TIMEOUT_MS = prev
+      resetKanban()
+    }
   })
 
   test("title + body in one txn ⇒ single 'edited' event", async () => {
@@ -1021,12 +1327,18 @@ describe("Kanban detail pane", () => {
     t.destroy()
   })
 
-  test("Enter on priority row in pane → DialogSelect → direct write", async () => {
-    // Re-seed t1's priority so we have a known starting value.
+  test("priority row arrows navigate; Enter opens select and writes", async () => {
     const db = new Database(hermesPath("kanban.db"))
     db.run("UPDATE tasks SET priority = 3 WHERE id = 't1'")
     db.close()
     resetKanban()
+    const prio = () => {
+      const check = new Database(hermesPath("kanban.db"), { readonly: true })
+      const row = check.query("SELECT priority FROM tasks WHERE id = 't1'")
+        .get() as { priority: number }
+      check.close()
+      return row.priority
+    }
     const t = await mountNode(<Kanban focused />, { width: 180, height: 48 })
     await until(t, () => t.frame().includes("Kanban · 3 boards"))
     act(() => t.keys.pressArrow("right")); await t.settle()
@@ -1034,22 +1346,21 @@ describe("Kanban detail pane", () => {
     act(() => t.keys.pressArrow("right")); await t.settle()
     act(() => t.keys.pressEnter())
     await until(t, () => /Assignee\s+researcher/.test(t.frame()))
-    // Tab in, then Tab twice more (title → body → assignee → priority).
     act(() => t.keys.pressTab()); await t.settle()
     act(() => t.keys.pressTab()); await t.settle()
     act(() => t.keys.pressTab()); await t.settle()
     act(() => t.keys.pressTab()); await t.settle()
-    // Priority row shows its hint when focused.
-    await until(t, () => t.frame().includes("↑↓ / Enter"))
-    // ↑ bumps priority directly (patchTask path, no dialog).
+    await until(t, () => t.frame().includes("Enter select"))
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    expect(prio()).toBe(3)
+    await until(t, () => t.frame().includes("Enter change"))
     act(() => t.keys.pressArrow("up")); await t.settle()
-    // Read back via a fresh RO handle — herm's internal cache is RW/RO
-    // split and the write went through the RW handle.
-    const check = new Database(hermesPath("kanban.db"), { readonly: true })
-    const row = check.query("SELECT priority FROM tasks WHERE id = 't1'")
-      .get() as { priority: number }
-    check.close()
-    expect(row.priority).toBe(4)
+    await until(t, () => t.frame().includes("Enter select"))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Priority for t1"))
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    act(() => t.keys.pressEnter())
+    await until(t, () => prio() === 4)
     t.destroy()
   })
 })

@@ -13,7 +13,7 @@ import { stringify as yamlStringify, parse as yamlParse } from "yaml";
 import { writeConfig, verifyWrite, maxEffect } from "../config/lane";
 import { check as checkRule } from "../config/rules";
 import { buildFields, groupOf, sections, GROUPS, EFFECT_GLYPH, type Field, type Section } from "../config";
-import { readSlots, assign, resetAux, AUX_TASKS, type Slot } from "../config/models";
+import { readSlots, assign, resetAux, AUX_TASKS, staleAuxForMain, type Slot } from "../config/models";
 import { openModelPicker } from "../dialogs/model-picker";
 import { managedSystem, makeSource } from "../service/hermes-home";
 import { FileLink } from "../components/ui/FileLink";
@@ -296,6 +296,29 @@ export const Config = memo((props: { focused?: boolean }) => {
 
   const pick = useCallback((s: Slot) => {
     if (managed) return toast.show({ variant: "error", message: `Managed by ${managed}` });
+    const warnStaleAux = async (prov: string) => {
+      const stale = staleAuxForMain(readSlots(raw), prov);
+      if (stale.length === 0) return;
+      const names = stale.map(x => x.label).join(", ");
+      const ok = await openConfirm(dialog, {
+        title: "Auxiliary models still pinned to another provider",
+        body: `${names}\n\nReset these slots to auto so they follow the main model?`,
+        yes: "reset stale", no: "keep",
+      });
+      if (!ok) {
+        toast.show({ variant: "warning", message: `Aux still pinned to another provider: ${names}. Press X to reset all to auto.` });
+        return;
+      }
+      for (const slot of stale) {
+        const r = await resetAux(gw, slot.key);
+        if (r.failed.length) {
+          toast.show({ variant: "error", message: `${slot.label}: ${r.failed.map(f => f.err).join("; ")}` });
+          return;
+        }
+      }
+      toast.show({ variant: "success", message: `Reset ${stale.length} aux slot${stale.length === 1 ? "" : "s"} → auto` });
+      load();
+    };
     openModelPicker(dialog, gw, {
       title: s.kind === "main" ? "Set main model" : `Set auxiliary · ${s.label}`,
       onApply: async (prov, model) => {
@@ -306,9 +329,10 @@ export const Config = memo((props: { focused?: boolean }) => {
           message: s.kind === "main" ? `main → ${prov} · ${model}` : `${s.key} → ${prov} · ${model}` });
         if (r.warning) toast.show({ variant: "warning", message: r.warning });
         load();
+        if (s.kind === "main") await warnStaleAux(prov);
       },
     });
-  }, [gw, dialog, toast, load, managed]);
+  }, [gw, dialog, toast, load, managed, raw]);
 
   const unset = useCallback((s: Slot) => {
     if (managed || s.kind !== "aux" || s.auto) return;

@@ -9,13 +9,13 @@ import { text as msgText } from "./types/message"
 import { CLOUD_MIN } from "./components/chat/ThoughtCloud"
 import type { AvatarState } from "./components/avatar/states"
 import { TabBar } from "./components/tabs/TabBar"
-import { Sidebar } from "./components/sidebar/Sidebar"
+import { Sidebar, hidden as hiddenSidebar } from "./components/sidebar/Sidebar"
 import { Chat } from "./tabs/Chat"
 import { SessionsGroup } from "./tabs/SessionsGroup"
 import { Automation } from "./tabs/Automation"
 import { ConfigGroup } from "./tabs/ConfigGroup"
 import { EikonGroup } from "./tabs/EikonGroup"
-import { copySelection, copy as clipCopy } from "./utils/clipboard"
+import { copySelection, copyText as clipCopy } from "./utils/clipboard"
 import { ThemeProvider, useTheme } from "./theme"
 import { DialogProvider, useDialog } from "./ui/dialog"
 import { ToastProvider, useToast } from "./ui/toast"
@@ -26,7 +26,7 @@ import { lastReal } from "./service/sessions-db"
 import { readChangelog } from "./service/hermes-home"
 import { openMessage } from "./dialogs/message"
 import { openTextPrompt } from "./dialogs/text-prompt"
-import { parseEikon, type ParsedEikon } from "./components/avatar/eikon"
+import { parseEikonFile, type ParsedEikon } from "./components/avatar/eikon"
 import { bundledEikonPath } from "./components/avatar/bundled"
 import { pending as pendingPrompt, type PromptCardHandle } from "./components/chat/PromptCard"
 import type { PromptWire } from "./components/chat/MessageItem"
@@ -54,8 +54,12 @@ import { PluginProvider, usePlugins } from "./plugins/runtime"
 import { BackgroundProvider } from "./app/background"
 import { useVoice } from "./voice/useVoice"
 import { VoiceIndicator } from "./voice/Indicator"
+import { sessionCapabilities } from "./app/sessionCapabilities"
+import { useGitBranch } from "./utils/git"
 
 type AppProps = { initialTheme?: string; gateway?: Gateway; launch?: Launch; keyOverrides?: Record<string, string> }
+
+const BUSY_RE = /session busy|waiting for model response/i
 
 export const App = (props: AppProps) => (
   <ThemeProvider initial={props.initialTheme}>
@@ -93,6 +97,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const [ready, setReady] = useState(false)
   const [sid, setSid] = useState("")
   const sidRef = useRef(sid); sidRef.current = sid
+  const capabilities = sessionCapabilities({ sid, ready, streaming: turn.streaming })
   const [tab, setTab] = useState(CHAT_TAB)
   // Sub-tab per group — Chat has none, so key 0 is unused.
   // Defensive clamp lives inside each group (SessionsGroup/Automation/
@@ -114,7 +119,8 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const [usage, setUsage] = useState<Usage | undefined>(undefined)
   const [info, setInfo] = useState<SessionInfo | null>(null)
   const [title, setTitle] = useState("")
-  const titleRef = useRef(title); titleRef.current = title
+  const caption = title.trim()
+  const titleRef = useRef(caption); titleRef.current = caption
   // Real SIGINT (terminal multiplexer, focus-stolen widget, kernel-delivered
   // ctrl+c that bypasses the React keyboard tree) goes through the same
   // quit() path as /quit so the resume banner always lands. Replaces the
@@ -198,6 +204,13 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const [pick, setPick] = useState<Message | undefined>(undefined)
   const [skin, setSkin] = useState<SkinState>(() => deriveSkin(undefined))
   const inflight = useRef(false)
+  const hold = useRef(false)
+  const [pulse, setPulse] = useState(0)
+  const settle = useCallback(() => {
+    if (!hold.current) return
+    hold.current = false
+    setPulse(n => n + 1)
+  }, [])
   // /undo snapshots the tail it pops (Message[]) so /redo can replay
   // the head user-turn's text. Client-only; gateway session.undo is a
   // hard delete with no unrevert. Cleared on reset/session-switch.
@@ -310,19 +323,26 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
         .catch(() => setQueue(q => [...q, t]))
       return
     }
-    if (busy === "interrupt") { intr.current(); return setQueue(q => [t, ...q]) }
+    if (busy === "interrupt") {
+      hold.current = true
+      setQueue(q => [t, ...q])
+      intr.current()
+      return
+    }
     setQueue(q => [...q, t])
   }, [busy, gw, toast])
   const onAttach = useCallback((r: ImageAttachResponse) => setAttachments(a => [...a, r]), [])
 
   const stream = useStream({
     dispatch, session, launchRef, sidRef, sessionStart, goalHook,
-    setSid, setInfo, setReady, setTitle, setBusy, setUsage, setStatus, setSkin, setErrorPulse,
+    setSid, setInfo, setReady, setTitle, setBusy, setUsage, setStatus, setSkin, setErrorPulse, settle,
   })
   intr.current = stream.doInterrupt
 
   const reset = useCallback(() => {
     stream.interrupted.current = false
+    hold.current = false
+    toast.clear("credits.depleted")
     undone.current = []
     dispatch({ kind: "reset" })
     setUsage(undefined)
@@ -330,7 +350,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     setStatus("")
     setTitle("")
     setAttachments([])
-  }, [])
+  }, [toast])
 
   const newSession = useCallback(async () => {
     const prev = sidRef.current
@@ -344,10 +364,11 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     // explicitly, so it isn't affected by the clear.
     gw.setSession("")
     setSid("")
-    // Close the outgoing session so the gateway finalizes it (ends the
-    // DB row, reaps its slash_worker subprocess, drops the AIAgent from
-    // `_sessions`). Fire-and-forget — create() doesn't depend on it.
-    if (prev) void session.close(prev)
+    // Close the outgoing session unless it owns a durable background process.
+    // Older gateways kill terminal(background=true) children as part of
+    // session.close; preserving the live session is safer than SIGTERM'ing a
+    // watcher while /new creates the next conversation.
+    if (prev) void session.close(prev, { preserveBackground: true })
     try {
       const r = await session.create()
       setSid(r.id)
@@ -358,7 +379,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
 
   const switchSession = useCallback(async (target: string) => {
     const prev = sidRef.current
-    reset()
     // Keep splash visible while the resume RPC lands so the user sees
     // the ornate frame instead of the empty-transcript welcome. summoned
     // suppresses the continue-prompt (we've already chosen a session);
@@ -371,6 +391,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     goToTab(CHAT_TAB)
     try {
       const res = await session.resume(target)
+      reset()
       setSid(res.id)
       if (res.info) {
         setInfo(res.info)
@@ -383,10 +404,15 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       // user in the outgoing session, which must stay live. Skip when
       // resuming self (prev === res.id), e.g. the boot path reusing an
       // empty stub.
-      if (prev && prev !== res.id) void session.close(prev)
+      if (prev && prev !== res.id) void session.close(prev, { preserveBackground: true })
       setSplash(false)
       summoned.current = false
     } catch (err) {
+      if (prev) {
+        gw.setSession(prev)
+        setSid(prev)
+        setReady(true)
+      }
       dispatch({ kind: "system", text: `Failed to resume: ${err instanceof Error ? err.message : String(err)}` })
       setSplash(false)
       summoned.current = false
@@ -403,13 +429,15 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
 
   const activateSession = useCallback(async (target: string) => {
     const prev = sidRef.current
-    reset()
     summoned.current = true
     setSplash(true)
     setSwitching(true)
+    gw.setSession("")
+    setSid("")
     goToTab(CHAT_TAB)
     try {
       const res = await session.activate(target)
+      reset()
       setSid(res.id)
       if (res.info) {
         setInfo(res.info)
@@ -423,13 +451,18 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       summoned.current = false
       if (prev && prev !== res.id) toast.show({ variant: "info", message: "switched live session" })
     } catch (err) {
+      if (prev) {
+        gw.setSession(prev)
+        setSid(prev)
+        setReady(true)
+      }
       dispatch({ kind: "system", text: `Failed to activate: ${err instanceof Error ? err.message : String(err)}` })
       setSplash(false)
       summoned.current = false
     } finally {
       setSwitching(false)
     }
-  }, [reset, session, goToTab, toast])
+  }, [reset, session, goToTab, toast, gw])
   // Rebind every HERMES_HOME reader, respawn the gateway subprocess
   // under the new env, and re-run the boot path. prefs.reload (inside
   // rehome) retints theme/eikon/keys via usePref; home.reset repaints
@@ -455,9 +488,8 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   }, [reset, goToTab, gwRestart, toast, gw])
 
   const loadEikon = useCallback((path: string) => {
-    Bun.file(path).text()
-      .then(t => setEikon(parseEikon(t)))
-      .catch(() => {})
+    try { setEikon(parseEikonFile(path)) }
+    catch { setEikon(undefined) }
   }, [])
 
   // Precedence: user pref (by name) → bundled eikon matching active
@@ -499,7 +531,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
 
   // Non-destructive: session.branch clones full history into a new
   // gateway session; undo N turns *in that session* to land at m;
-  // then switch. Original session is untouched.
+  // then activate the returned live session id. Original session is untouched.
   const fork = useCallback(async (m: Message) => {
     if (turnRef.current.streaming) return
     const n = turnsFrom(m)
@@ -509,16 +541,16 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     if (!res?.session_id) return
     for (let i = 0; i < n; i++)
       await gw.request("session.undo", { session_id: res.session_id }).catch(() => {})
-    await switchSession(res.session_id)
+    await activateSession(res.session_id)
     composer.current?.set(text)
     setFocusRegion("input")
     toast.show({ variant: "success", message: `forked → ${res.title ?? res.session_id}` })
-  }, [gw, toast, switchSession])
+  }, [gw, toast, activateSession])
 
   const msgMenu = useCallback((m: Message) => {
     if (turnRef.current.streaming) return
-    openMessage(dialog, m, { rewind, fork })
-  }, [dialog, rewind, fork])
+    openMessage(dialog, m, { rewind, fork, toast })
+  }, [dialog, rewind, fork, toast])
   // Gateway owns the canonical list (session["attached_images"]); chips
   // are a client-side mirror. prompt.submit drains server-side, so clear
   // here too. No image.detach RPC yet — chips are display-only.
@@ -536,15 +568,15 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const sendRef = useRef<(raw: string) => void>(() => {})
   const slash = useSlash({
     dispatch, session, turnRef, queueRef, sendRef, composer, summoned, undone,
-    ready, info, sid, title, skin,
+    capabilities, info, sid, title: caption, skin,
     setQueue, setFocusRegion, setSplash, setAttachments, setInfo, setUsage, setTitle,
-    newSession, switchSession, rewind, goTo, attachClipboard, voiceToggle: voice.toggle,
+    newSession, switchSession, activateSession, rewind, goTo, attachClipboard, voiceToggle: voice.toggle,
   })
   const send = useCallback(async (raw: string) => {
     // Bare exit/quit/:q — pass through as literals so a
     // reflex `exit⏎` works without the leading slash.
     if (["exit", "quit", ":q", ":q!", ":wq"].includes(raw.trim()))
-      return quit(renderer, sid, title, gw)
+      return quit(renderer, sidRef.current, titleRef.current, gw)
     // Slash-shaped input resolves against the merged catalog: exact
     // name/alias wins, else unique prefix. This covers the "typed with
     // arg" path the popover can't — e.g. `/mod gpt-4`, `/q follow-up`.
@@ -585,12 +617,31 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     const withMedia = attachments.length
       ? [...attachments.flatMap(a => a.path ? [`MEDIA:${a.path}`] : []), text].filter(Boolean).join("\n")
       : text
-    dispatch({ kind: "user", text: withMedia })
-    setAttachments([])
-    undone.current = []
-    gw.request("prompt.submit", { text }).catch(() => { inflight.current = false })
-    setTab(CHAT_TAB)
-  }, [gw, slash, attachments])
+    gw.request("prompt.submit", { text })
+      .then(() => {
+        dispatch({ kind: "user", text: withMedia })
+        setAttachments([])
+        undone.current = []
+        setTab(CHAT_TAB)
+      })
+      .catch((e: Error) => {
+        const msg = e instanceof Error ? e.message : String(e)
+        if (BUSY_RE.test(msg)) {
+          inflight.current = true
+          setQueue(q => [text, ...q])
+          setStatus("queued for next turn")
+          toast.show({ variant: "info", message: "queued for next turn" })
+          setTimeout(() => {
+            inflight.current = false
+            setPulse(n => n + 1)
+          }, 400)
+          return
+        }
+        inflight.current = false
+        dispatch({ kind: "system", text: `submit failed: ${msg}` })
+        toast.show({ variant: "error", message: msg })
+      })
+  }, [gw, slash, attachments, toast])
   sendRef.current = send
 
   // Shell mode submit — `shell.exec` is a plain subprocess (no pty,
@@ -633,12 +684,12 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   // one tick. `inflight` bridges the dispatch→message.start gap.
   useEffect(() => { if (turn.streaming) inflight.current = false }, [turn.streaming])
   useEffect(() => {
-    if (turn.streaming || inflight.current || !ready || queue.length === 0) return
+    if (!capabilities.canDrainQueue || inflight.current || hold.current || queue.length === 0) return
     const [head, ...rest] = queue
     inflight.current = true
     setQueue(rest)
     send(head)
-  }, [turn.streaming, ready, queue, send])
+  }, [capabilities.canDrainQueue, queue, send, pulse])
 
   const dequeue = useCallback((i: number) => {
     const item = queueRef.current[i]
@@ -691,11 +742,14 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       return true
     },
     onInterrupt: stream.doInterrupt,
-    // queue.flush is just an interrupt — the drain effect auto-fires
-    // the head once turn.streaming flips false.
+    // queue.flush interrupts, then drain waits for session.info so
+    // prompt.submit does not race the gateway's still-running turn.
     queued: queue.length,
-    onFlushQueue: stream.doInterrupt,
-    onQuit: () => quit(renderer, sid, title, gw),
+    onFlushQueue: () => {
+      hold.current = true
+      stream.doInterrupt()
+    },
+    onQuit: () => quit(renderer, sid, caption, gw),
     onQuitArm: (label) =>
       toast.show({ variant: "info", message: `${label} again to quit` }),
     onInterruptNotice: () => {
@@ -705,8 +759,9 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     onCopyLast: () => {
       const m = [...turnRef.current.messages].reverse()
         .find(x => x.role === "assistant" && msgText(x))
-      if (m) void clipCopy(msgText(m))
+      if (m) void clipCopy(msgText(m), toast)
     },
+    onCopyToast: toast.show,
     onAttachClipboard: attachClipboard,
     // Client-side drop only. Gateway's session["attached_images"] still
     // has the orphaned path until the next prompt.submit drains it, or
@@ -757,9 +812,9 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     const inner = (() => {
       switch (tab) {
         case CHAT_TAB: return <Chat messages={turn.messages} streaming={turn.streaming}
-                                    prompt={promptWire}
-                                    cloud={cloud} cloudH={cloudH} pick={pick}
-                                    onResize={setCloudH} onPick={onPick} onClose={closeCloud} onRewind={msgMenu} />
+                               prompt={promptWire}
+                               cloud={cloud} cloudH={cloudH} pick={pick}
+                               onResize={setCloudH} onPick={onPick} onClose={closeCloud} onRewind={msgMenu} />
         case SESSIONS_TAB: return <SessionsGroup focused={contentFocused}
                                                  sub={subTabs[SESSIONS_TAB] ?? 0}
                                                  setSub={sessSub}
@@ -768,7 +823,8 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
                                                  currentId={sid}
                                                  messages={turn.messages}
                                                  sessionStart={sessionStart.current}
-                                                 info={info ?? undefined} />
+                                                 info={info ?? undefined}
+                                                 usage={usage} />
         case AUTOMATION_TAB: return <Automation focused={contentFocused}
                                                 sub={subTabs[AUTOMATION_TAB] ?? 0}
                                                 setSub={autoSub}
@@ -790,13 +846,18 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   }
 
   const theme = themeCtx.theme
-  const onMouseUp = useCallback(() => copySelection(renderer), [renderer])
+  const onMouseUp = useCallback(() => copySelection(renderer, toast), [renderer, toast])
   // Composer defocuses while any prompt is pending. Approval/clarify
   // list-mode don't need input, and this guarantees the textarea's
   // `focused` prop flips false→true on answer so OpenTUI refocuses it
   // (a card's own <input focused> would otherwise leave it blurred).
   // Keys still reach the card via onPromptKey on the global bus.
   const inputFocused = focusRegion === "input" && !prompt
+  const sidebarVisible = dims.width >= (tab === CHAT_TAB ? 120 : 140) && !hideSidebar
+  const branch = useGitBranch(info?.cwd)
+  const hidden = !sidebarVisible ? hiddenSidebar({
+    info, usage, profile: activeProfileName(), title: caption, branch,
+  }) : undefined
 
   return (
     <Profiler id="shell" onRender={perf.onRender}>
@@ -822,9 +883,10 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
               <VoiceIndicator voice={voice.state} keyLabel={voice.keyLabel} />
               <Composer
                 ref={composer}
-                focused={inputFocused} connected={!!sid} ready={ready} streaming={turn.streaming}
+                focused={inputFocused} canSubmitPrompt={capabilities.canSubmitPrompt} ready={ready} streaming={turn.streaming}
                 status={status}
                 model={info?.model}
+                hidden={hidden}
                 escHint={escHint}
                 queue={queue}
                 attachments={attachments}
@@ -834,16 +896,15 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
                 onAttachClipboard={attachClipboard}
                 onEnqueue={onEnqueue}
                 onDequeue={dequeue}
-                onSteer={openSteer}
                 onDirty={setComposing}
                 onEmptyEnter={onEmptyEnter}
               />
             </box>
           </box>
-          {dims.width >= (tab === CHAT_TAB ? 120 : 140) && !hideSidebar ? (
+          {sidebarVisible ? (
             <Profiler id="sidebar" onRender={perf.onRender}>
               <Sidebar agentState={agentState} info={info} usage={usage} eikon={eikon} profile={activeProfileName()}
-                       title={title}
+                       title={caption}
                        cloud={tab === 0 && cloud} pulse={turn.streaming}
                        onAvatar={onAvatar} onAvatarHold={onAvatarHold} />
             </Profiler>

@@ -29,15 +29,15 @@ export type SlashCommand = {
 /**
  * Names of purely client-side commands — intercepted before gateway dispatch.
  * These are always treated as local regardless of what the gateway returns.
- * Anything that must act on the *live* gateway session (not the slash-worker
- * subprocess) belongs here — see docs/slash-parity-audit.md.
+ * Anything that must act on the *live* gateway session belongs here; the
+ * slash-worker subprocess cannot service it.
  */
 export const LOCAL_NAMES = new Set([
   "clear", "new", "theme", "help", "keys", "logs", "title",
   "rollback", "save", "history", "status", "usage", "profile", "steer",
   "reload", "reload-mcp", "reload-skills", "chafa", "splash", "skin",
   // parity: session-mutating commands the slash-worker can't service
-  "resume", "branch", "compress", "undo", "redo", "retry", "model", "quit",
+  "resume", "branch", "compress", "undo", "redo", "retry", "model", "yolo", "quit",
   "copy", "paste", "image", "background", "voice", "mouse", "redraw", "queue",
   "stash",
   // Ink-only UI toggles — local no-op with a note
@@ -54,7 +54,7 @@ export const LOCAL_NAMES = new Set([
 export const LOCAL_COMMANDS: ReadonlyArray<SlashCommand> = [
   { name: "clear", description: "Clear chat messages",       category: "Client", aliases: [],       argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "new",   description: "Start a new session",        category: "Client", aliases: ["reset"], argsHint: "", subcommands: [], source: "local", target: "local" },
-  { name: "theme", description: "Switch color theme",         category: "Client", aliases: [],       argsHint: "", subcommands: [], source: "local", target: "local" },
+  { name: "theme", description: "Switch color theme or mode", category: "Client", aliases: [],       argsHint: "[light|dark]", subcommands: [], source: "local", target: "local" },
   { name: "help",  description: "Show keyboard shortcuts",    category: "Client", aliases: [],       argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "keys",  description: "Rebind keyboard shortcuts",  category: "Client", aliases: [],       argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "logs",  description: "Show gateway stderr log",    category: "Client", aliases: [],       argsHint: "", subcommands: [], source: "local", target: "local" },
@@ -62,7 +62,7 @@ export const LOCAL_COMMANDS: ReadonlyArray<SlashCommand> = [
   { name: "rollback", description: "Browse & restore checkpoints", category: "Client", aliases: [], argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "history",  description: "Server-side transcript viewer", category: "Info",   aliases: [], argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "status",  description: "Version, model, paths",       category: "Info",   aliases: [], argsHint: "", subcommands: [], source: "local", target: "local" },
-  { name: "usage",   description: "Tokens, context fill, cost",   category: "Info",   aliases: [], argsHint: "", subcommands: [], source: "local", target: "local" },
+  { name: "usage",   description: "Credits, account status, tokens, context fill, cost", category: "Info", aliases: [], argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "profile", description: "Active profile details",       category: "Info",   aliases: [], argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "steer",   description: "Inject a note mid-turn (no interrupt)", category: "Session", aliases: [], argsHint: "[text]", subcommands: [], source: "local", target: "local" },
   { name: "reload-mcp", description: "Restart MCP servers & rediscover tools", category: "Session", aliases: [], argsHint: "[now|always]", subcommands: ["now", "always"], source: "local", target: "local" },
@@ -74,9 +74,11 @@ export const LOCAL_COMMANDS: ReadonlyArray<SlashCommand> = [
   { name: "skin",   description: "Switch Hermes skin (+ theme + eikon)", category: "Client",  aliases: [], argsHint: "[name]", subcommands: [...SKINS], source: "local", target: "local" },
   { name: "voice",  description: "Toggle voice recording",               category: "Client",  aliases: [], argsHint: "[on|off|status|tts]", subcommands: ["on", "off", "status", "tts"], source: "local", target: "local" },
   { name: "queue",  description: "Queue a prompt for the next idle turn", category: "Session", aliases: ["q"], argsHint: "[text]", subcommands: [], source: "local", target: "local" },
+  { name: "yolo",   description: "Toggle approval bypass",                 category: "Session", aliases: [], argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "quit",   description: "Exit herm",                             category: "Exit",    aliases: ["exit"], argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "stash",  description: "Park the prompt (pop/list to restore)", category: "Client",  aliases: [], argsHint: "[pop|list]", subcommands: ["pop", "list"], source: "local", target: "local" },
   { name: "redo",   description: "Re-send the last undone message",       category: "Session", aliases: [], argsHint: "", subcommands: [], source: "local", target: "local" },
+  { name: "branch", description: "Fork current conversation",              category: "Session", aliases: ["fork"], argsHint: "[name]", subcommands: [], source: "local", target: "local" },
   { name: "browser", description: "Connect/disconnect a CDP browser",      category: "Session", aliases: [], argsHint: "[connect|disconnect|status] [url]", subcommands: ["connect", "disconnect", "status"], source: "local", target: "local" },
 ]
 

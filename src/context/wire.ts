@@ -2,6 +2,19 @@
 
 import type { Usage } from "../types/message"
 
+export type NotificationShowPayload = {
+  text: string
+  level?: "info" | "warning" | "warn" | "error" | "success" | string
+  kind?: "sticky" | "toast" | "transient" | string
+  key?: string
+  ttl_ms?: number
+  duration_ms?: number
+}
+
+export type NotificationClearPayload = {
+  key?: string
+}
+
 export type GatewayEvent = ({
   session_id?: string
 } & (
@@ -18,6 +31,8 @@ export type GatewayEvent = ({
   | { type: "reasoning.delta"; payload?: { text?: string; verbose?: boolean } }
   | { type: "reasoning.available"; payload?: { text?: string; verbose?: boolean } }
   | { type: "status.update"; payload?: { text?: string; kind?: string } }
+  | { type: "notification.show"; payload?: NotificationShowPayload }
+  | { type: "notification.clear"; payload?: NotificationClearPayload }
   | { type: "tool.start"; payload: { tool_id: string; name?: string; context?: string; args_text?: string; todos?: unknown[] } }
   | { type: "tool.progress"; payload: { name?: string; preview?: string } }
   | { type: "tool.generating"; payload: { name?: string } }
@@ -184,6 +199,7 @@ export type SessionInfo = {
   context_max?: number
   context_used?: number
   credential_warning?: string
+  yolo?: boolean
   mcp_servers?: McpServer[]
   /** hermes-agent version string (e.g. "1.14.2-dev+abc123") */
   release_date?: string
@@ -259,6 +275,8 @@ export type SessionListResponse = {
 export type SessionUsageResponse = {
   model?: string
   calls?: number
+  credits_lines?: string[]
+  dev_credits_spent_micros?: number
   input?: number
   output?: number
   total?: number
@@ -306,17 +324,38 @@ export type ConfigSetResponse = {
   history_reset?: boolean
 }
 
+export type ModelPricing = {
+  input: string
+  output: string
+  cache: string | null
+  free: boolean
+}
+
+export type ModelCapabilities = {
+  fast?: boolean
+  reasoning?: boolean
+}
+
+export type ModelOptionProvider = {
+  slug: string
+  name: string
+  models?: string[]
+  total_models?: number
+  is_current?: boolean
+  warning?: string
+  authenticated?: boolean
+  auth_type?: string
+  key_env?: string
+  pricing?: Record<string, ModelPricing>
+  free_tier?: boolean
+  unavailable_models?: string[]
+  capabilities?: Record<string, ModelCapabilities>
+}
+
 export type ModelOptionsResponse = {
   provider?: string
   model?: string
-  providers?: {
-    slug: string
-    name: string
-    models?: string[]
-    total_models?: number
-    is_current?: boolean
-    warning?: string
-  }[]
+  providers?: ModelOptionProvider[]
 }
 
 export type ImageAttachResponse = {

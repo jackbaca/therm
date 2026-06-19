@@ -451,6 +451,22 @@ describe("lastReal() — compression chain walk", () => {
     expect(result?.message_count).toBe(4)
   })
 
+  test("returns zero-message tip when the chain has a real predecessor", () => {
+    const db = seed()
+    sess(db, "root", "tui", 1000, {
+      ended_at: 2000, end_reason: "compression", message_count: 296,
+    })
+    sess(db, "tip", "tui", 2100, {
+      parent_session_id: "root", message_count: 0,
+    })
+    db.close()
+    resetDb()
+
+    const result = lastReal()
+    expect(result?.id).toBe("tip")
+    expect(result?.message_count).toBe(0)
+  })
+
   test("returns CLI session when no TUI sessions exist (CLI sessions are valid for herm -c)", () => {
     const db = seed()
     sess(db, "cli-sess", "cli", 1700000000, {
@@ -584,20 +600,30 @@ describe("chainTip() — returns tip regardless of message_count", () => {
 
 afterAll(() => { wipe(); resetDb() })
 
-describe("peek() — tail N messages for a session", () => {
+describe("peek() — first/last transcript preview", () => {
   beforeEach(resetMessagesSchema)
   afterAll(wipe)
 
-  test("returns last N rows chronological, content SUBSTR'd", () => {
+  test("returns every row when the transcript has four or fewer messages", () => {
     const db = seed()
     addMessageProvenanceColumns(db)
     sess(db, "px", "tui", 1700000000)
-    for (let i = 0; i < 8; i++) msg(db, "px", "user", `m${i}`, 1000 + i)
+    for (let i = 0; i < 4; i++) msg(db, "px", "user", `m${i}`, 1000 + i)
     db.close()
 
-    const rows = peek("px", 3)
-    expect(rows.map(r => r.content)).toEqual(["m5", "m6", "m7"])
+    const rows = peek("px")
+    expect(rows.map(r => r.content)).toEqual(["m0", "m1", "m2", "m3"])
     expect(rows[0].role).toBe("user")
+  })
+
+  test("returns first two and last two rows for longer transcripts", () => {
+    const db = seed()
+    addMessageProvenanceColumns(db)
+    sess(db, "px", "tui", 1700000000)
+    for (let i = 0; i < 5; i++) msg(db, "px", "user", `m${i}`, 1000 + i)
+    db.close()
+
+    expect(peek("px").map(r => r.content)).toEqual(["m0", "m1", "m3", "m4"])
   })
 
   test("includes tool_name and tool_calls columns", () => {

@@ -22,6 +22,7 @@ import { ToastProvider } from "../src/ui/toast"
 import { CommandProvider } from "../src/ui/command"
 import { PluginProvider } from "../src/plugins/runtime"
 import { BackgroundProvider } from "../src/app/background"
+import { EikonPreviewProvider } from "../src/context/eikon-preview"
 import type { HermPlugin } from "../src/plugins/types"
 import type { GatewayEvent } from "../src/context/wire"
 
@@ -121,6 +122,8 @@ export type Harness = {
   gw: MockGateway
   /** Rendered screen as a newline-joined string. */
   frame: () => string
+  /** Rendered styled spans preserving fg/bg/attributes. */
+  spans: () => unknown
   /** Flush React + render one frame. Await after any state mutation. */
   settle: () => Promise<void>
   resize: (w: number, h: number) => void
@@ -155,7 +158,11 @@ export async function mountNode(node: ReactNode, opts: Opts = {}): Promise<Harne
             <DialogProvider>
               <CommandProvider>
                 <PluginProvider plugins={opts.plugins ?? []}>
-                  <BackgroundProvider>{node}</BackgroundProvider>
+                  <BackgroundProvider>
+                    <EikonPreviewProvider>
+                      {node}
+                    </EikonPreviewProvider>
+                  </BackgroundProvider>
                 </PluginProvider>
               </CommandProvider>
             </DialogProvider>
@@ -195,6 +202,7 @@ async function render(node: ReactNode, gw: MockGateway, opts: Opts): Promise<Har
     mouse: setup.mockMouse,
     gw,
     frame: setup.captureCharFrame,
+    spans: setup.captureSpans,
     settle,
     resize: setup.resize,
     destroy: () => setup.renderer.destroy(),

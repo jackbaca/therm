@@ -19,6 +19,8 @@ import { LEFT_BAR } from "../../ui/borders"
 import type { ParsedKey, SubmitEvent } from "@opentui/core"
 import { useTheme } from "../../theme"
 import { useGateway } from "../../context/gateway"
+import { mkApproval, remember } from "../../context/approval-memory"
+import { MaskInput } from "../../ui/mask-input"
 import type { PromptPart, PromptReq, Part } from "../../types/message"
 
 export type PromptCardHandle = {
@@ -67,13 +69,19 @@ const Pill = (p: { on: boolean; hot: string; label: string; onPick: () => void }
   )
 }
 
-const CHOICES = ["once", "session", "always", "deny"] as const
+const CHOICES = ["once", "session", "never", "deny"] as const
 type Choice = typeof CHOICES[number]
 const LABELS: Record<Choice, string> = {
   once: "Allow once",
   session: "Allow this session",
-  always: "Always allow",
+  never: "Never ask",
   deny: "Deny",
+}
+const RESPOND: Record<Choice, string> = {
+  once: "once",
+  session: "session",
+  never: "always",
+  deny: "deny",
 }
 
 const Approval = forwardRef<PromptCardHandle, {
@@ -88,10 +96,13 @@ const Approval = forwardRef<PromptCardHandle, {
   const [note, setNote] = useState("")
   const done = useRef(false)
 
+  const prompt = mkApproval(p.req)
+
   const send = (c: Choice) => {
     if (done.current) return
     done.current = true
-    void gw.request("approval.respond", { choice: c }).catch(() => {})
+    if (c === "never") remember(prompt)
+    void gw.request("approval.respond", { choice: RESPOND[c] }).catch(() => {})
     p.onAnswer(LABELS[c], c !== "deny")
   }
 
@@ -134,6 +145,7 @@ const Approval = forwardRef<PromptCardHandle, {
         <box flexDirection="row" gap={1} height={1}>
           <text fg={theme.warning}>△</text>
           <text fg={theme.text}>Permission required</text>
+          <text fg={theme.textMuted}>· {prompt.question}</text>
         </box>
         <box flexDirection="row" gap={1} paddingLeft={2} minHeight={1}>
           <text fg={theme.textMuted}>#</text>
@@ -174,6 +186,9 @@ const Approval = forwardRef<PromptCardHandle, {
                   onPick={() => send(c)} />
           ))}
           <Pill on={false} hot="s" label="Steer" onPick={() => { setSteering(true); setNote("") }} />
+          <box height={1}>
+            <text fg={theme.textMuted}>subject: {prompt.subject}</text>
+          </box>
           <box flexGrow={1} />
           <box height={1}>
             <text fg={theme.textMuted}>←/→ · enter · s steer · esc deny</text>
@@ -316,43 +331,61 @@ const Masked = forwardRef<PromptCardHandle, {
         <text fg={theme.warning}><strong>{p.title}</strong></text>
         <text fg={theme.text}>{p.note}</text>
         <box height={1} />
-        <box flexDirection="row" height={1} position="relative">
-          <text fg={theme.textMuted}>{"> "}</text>
-          <input
-            value={value} onInput={setValue}
-            onSubmit={(() => go(value)) as unknown as (e: SubmitEvent) => void}
-            focused flexGrow={1}
-            textColor={theme.backgroundElement}
-            cursorColor={theme.accent}
-            backgroundColor={theme.backgroundElement}
-            focusedBackgroundColor={theme.backgroundElement}
-          />
-          <box position="absolute" left={2} top={0} height={1}>
-            <text fg={theme.text} bg={theme.backgroundElement}>{"•".repeat(value.length)}</text>
-          </box>
-        </box>
+        <MaskInput value={value} input={setValue} submit={() => go(value)} />
         <text fg={theme.textMuted}>Enter submit · Esc cancel</text>
       </box>
     </Frame>
   )
 })
 
+function same(a: string | undefined, b: string): boolean {
+  return Boolean(a && b && b.toLowerCase().includes(a.toLowerCase()))
+}
+
+function cap(s: string, n = 160): string {
+  return s.length <= n ? s : s.slice(0, n - 1) + "…"
+}
+
+function question(part: PromptPart): string {
+  const a = part.answered?.question
+  if (a) return a
+  if (part.req.variant === "clarify") return part.req.question
+  if (part.req.variant === "approval") return mkApproval(part.req).question
+  if (part.req.variant === "sudo") return "Sudo required"
+  return part.req.env_var ? `Secret: ${part.req.env_var}` : "Secret required"
+}
+
+function outcome(part: PromptPart): { head: string; body?: string } {
+  const a = part.answered!
+  if (part.variant === "clarify") {
+    const q = cap(question(part))
+    const body = cap(a.label)
+    return same(q, a.label) ? { head: body } : { head: q, body }
+  }
+  if (part.variant === "approval") {
+    const q = cap(question(part), 96)
+    return { head: a.label, body: q }
+  }
+  if (part.variant === "sudo") return { head: `sudo ${a.label}` }
+  const req = part.req as Extract<PromptReq, { variant: "secret" }>
+  return { head: `${req.env_var ?? "secret"} ${a.label}` }
+}
+
 const Outcome = memo(({ part }: { part: PromptPart }) => {
   const theme = useTheme().theme
   const a = part.answered!
   const glyph = a.ok ? "✓" : "✗"
   const fg = a.ok ? theme.success : theme.error
-  const what =
-    part.variant === "approval" ? a.label
-    : part.variant === "clarify" ? `chose: ${a.label}`
-    : part.variant === "sudo" ? `sudo ${a.label}`
-    : `${(part.req as { env_var?: string }).env_var ?? "secret"} ${a.label}`
+  const text = outcome(part)
   return (
-    <box height={1} paddingLeft={3} marginBottom={1}>
-      <text>
-        <span fg={fg}>{glyph} </span>
-        <span fg={theme.textMuted}>{what}</span>
-      </text>
+    <box flexDirection="row" paddingLeft={3} marginBottom={1}>
+      <box width={2} flexShrink={0}>
+        <text fg={fg}>{glyph}</text>
+      </box>
+      <box flexDirection="column" flexGrow={1} flexShrink={1}>
+        <text fg={theme.textMuted} wrapMode="word">{text.head}</text>
+        {text.body ? <text fg={theme.textMuted} wrapMode="word">{text.body}</text> : null}
+      </box>
     </box>
   )
 })

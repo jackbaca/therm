@@ -69,6 +69,12 @@ export const readSlots = (raw: Record<string, unknown>): Slot[] => {
 
 export type AssignResult = WriteResult & { warning?: string }
 
+export type AuxSlot = Extract<Slot, { kind: "aux" }>
+
+export const staleAuxForMain = (slots: Slot[], provider: string): AuxSlot[] =>
+  slots.filter((s): s is AuxSlot =>
+    s.kind === "aux" && !s.auto && s.provider !== "" && s.provider !== "auto" && s.provider !== provider)
+
 /** Write a slot. Main goes via the rpc `config.set key=model` alias
  *  (same path as /model --global — live-applies and clears stale
  *  base_url/context_length upstream). Aux writes two cli-lane keys. */

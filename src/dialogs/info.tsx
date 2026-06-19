@@ -15,12 +15,19 @@ import { hermesPath } from "../service/hermes-home"
 
 type Row = [string, string | undefined, RGBA?]
 
-const InfoDialog = (props: { title: string; rows: Row[]; note?: string }) => {
+const InfoDialog = (props: { title: string; rows: Row[]; lines?: string[]; note?: string }) => {
   const theme = useTheme().theme
   const body = props.rows.filter(r => r[1] !== undefined)
   return (
     <box flexDirection="column" minWidth={52} gap={1}>
       <box height={1}><text fg={theme.primary}><strong>{props.title}</strong></text></box>
+      {props.lines?.length
+        ? <box flexDirection="column">
+            {props.lines.map((line, i) => (
+              <box key={i} height={1}><text fg={theme.text}>{line}</text></box>
+            ))}
+          </box>
+        : null}
       <box flexDirection="column"><KVBlock rows={body} /></box>
       {props.note
         ? <box height={1}><text fg={theme.textMuted}>{props.note}</text></box>
@@ -66,7 +73,7 @@ const UsageDialog = ({ gw }: { gw: Gateway }) => {
     ? `${fmt(u.context_used ?? 0)} / ${fmt(u.context_max)} (${Math.round(u.context_percent ?? 0)}%)`
     : undefined
   return (
-    <InfoDialog title="Usage" note={u.cost_status === "estimated" ? "cost is estimated" : undefined} rows={[
+    <InfoDialog title="Usage" lines={u.credits_lines} note={u.cost_status === "estimated" ? "cost is estimated" : undefined} rows={[
       ["Model",     u.model || "—"],
       ["API calls", String(u.calls ?? 0)],
       ["Input",     fmt(u.input ?? 0)],

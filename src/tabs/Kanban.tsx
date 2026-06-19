@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef, memo } from "react"
 import { useKeyboard, useTerminalDimensions } from "@opentui/react"
-import type { BorderSides, ScrollBoxRenderable } from "@opentui/core"
+import type { BorderSides, MouseEvent, ScrollBoxRenderable } from "@opentui/core"
 import {
   boardStateOf, detailOf, tailLogOf, assignees, q, STATUSES,
   currentBoard, listBoards, resetKanban, patchTask,
@@ -24,6 +24,9 @@ import { HintBar } from "../ui/hint"
 import { KVBlock } from "../ui/kv"
 import { ago, trunc } from "../ui/fmt"
 import { load as loadPrefs, set as setPref, type KanbanPrefs } from "../context/preferences"
+import { parseDispatchResult, dispatchFailures, dispatchGuarded, dispatchVariant, dispatchDetails } from "../service/kanban-dispatch"
+import { FileLink } from "../components/ui/FileLink"
+import type { Source } from "../service/hermes-home"
 
 // Operator surface for every kanban board under ~/.hermes/.
 //
@@ -93,6 +96,13 @@ const triOf = (c: Chip, m: Mask): Tri =>
   c.kind === "who" ? m.who.get(c.v) ?? "off"
   : c.kind === "pri" ? m.pri.get(c.v) ?? "off"
   : m.status.get(c.v) ?? "off"
+
+const recOf = (v: unknown): Record<string, unknown> | null =>
+  v && typeof v === "object" && !Array.isArray(v) ? v as Record<string, unknown> : null
+
+const assignedByDefault = (d: Detail): boolean =>
+  d.events.some(e => e.kind === "assigned"
+    && recOf(e.payload)?.source === "kanban.default_assignee")
 
 /** True when `v` survives the group. Absence ⇒ "off". */
 function admits<V>(g: Map<V, Tri>, v: V): boolean {
@@ -228,7 +238,8 @@ const Column = memo((p: {
           <span fg={theme.textMuted}>{`  ${p.tasks.length}`}</span>
         </text>
       </box>
-      <scrollbox ref={box} scrollY flexGrow={1} verticalScrollbarOptions={NOBAR}>
+      <scrollbox id={`kb-col-${p.slug}-${p.status}`} ref={box} scrollY flexGrow={1} verticalScrollbarOptions={NOBAR}
+                 onMouseScroll={(e: MouseEvent) => e.stopPropagation()}>
         <box flexDirection="column" width="100%">
           {p.tasks.map((t, i) => (
             <Card key={t.id} id={id(i)} t={t} on={p.on && i === p.sel}
@@ -322,15 +333,16 @@ const fieldsFor = (t: Task): PaneField[] =>
 type Pane =
   | { kind: "detail"; slug: string; d: Detail }
   | { kind: "log"; slug: string; id: string; text: string }
+  | { kind: "dispatch"; slug: string; text: string }
 
 const SidePane = memo((p: { pane: Pane; on: boolean; sel: number; diags: Diag[] }) => {
   const { theme, syntaxStyle } = useTheme()
-  if (p.pane.kind === "log") return (
+  if (p.pane.kind === "log" || p.pane.kind === "dispatch") return (
     <box flexDirection="column" padding={1} border borderColor={theme.border}
          backgroundColor={theme.backgroundPanel} width="50%">
       <box height={1}><text>
-        <span fg={theme.primary}><strong>{p.pane.id}</strong></span>
-        <span fg={theme.textMuted}>{`  ·  ${p.pane.slug}  ·  worker log (tail)`}</span>
+        <span fg={theme.primary}><strong>{p.pane.kind === "log" ? p.pane.id : "Dispatch"}</strong></span>
+        <span fg={theme.textMuted}>{`  ·  ${p.pane.slug}  ·  ${p.pane.kind === "log" ? "worker log (tail)" : "details"}`}</span>
       </text></box>
       <box height={1} />
       <scrollbox scrollY flexGrow={1}>
@@ -389,6 +401,9 @@ const SidePane = memo((p: { pane: Pane; on: boolean; sel: number; diags: Diag[] 
   // not tasks.result, so a raw ``result`` read looks empty even when
   // real work happened.
   const resultText = d.result || d.latest_summary || ""
+  const sizeText = (n: number | null) => n === null ? "size unknown"
+    : n < 1024 ? `${n} B`
+    : n < 1 << 20 ? `${(n / 1024).toFixed(0)} KB` : `${(n / (1 << 20)).toFixed(1)} MB`
   return (
     <box flexDirection="column" padding={1} border borderColor={theme.border}
          backgroundColor={theme.backgroundPanel} width="50%">
@@ -409,10 +424,12 @@ const SidePane = memo((p: { pane: Pane; on: boolean; sel: number; diags: Diag[] 
                 : <markdown content={d.body} fg={theme.markdownText} syntaxStyle={syntaxStyle} />
               : <text fg={theme.textMuted}>—</text>,
             p.on && cur === "body" ? "Enter edit (raw)" : undefined)}
-          {srow("assignee", "Assignee", d.assignee ?? "—",
+          {srow("assignee", "Assignee", d.assignee
+              ? assignedByDefault(d) ? `${d.assignee} (default)` : d.assignee
+              : "—",
             p.on && cur === "assignee" ? "Enter pick" : undefined)}
           {srow("priority", "Priority", d.priority ? `P${d.priority}` : "—",
-            p.on && cur === "priority" ? "↑↓ / Enter" : undefined)}
+            p.on && cur === "priority" ? "Enter select" : undefined)}
           {srow("status", "Status", d.status,
             p.on && cur === "status" ? "Enter change" : undefined)}
           {srow("parents", "Parents", d.parents.length ? d.parents.join(", ") : "—",
@@ -491,6 +508,28 @@ const SidePane = memo((p: { pane: Pane; on: boolean; sel: number; diags: Diag[] 
                 </box>
               </box>
             : null}
+          {d.attachments.length > 0 ? <>
+            <box height={1} marginTop={1}>
+              <text fg={theme.textMuted}>{`Attachments (${d.attachments.length})`}</text>
+            </box>
+            {d.attachments.map(a => {
+              const source: Source | null = a.path
+                ? { file: a.path, relative: a.relative_path ?? a.path, label: a.name }
+                : null
+              return (
+                <box key={a.id} flexDirection="column" paddingLeft={1}>
+                  <box height={1}><text>
+                    <span fg={theme.primary}>{`#${a.id} `}</span>
+                    <span fg={theme.text}>{a.name}</span>
+                    <span fg={theme.textMuted}>{`  ${sizeText(a.size)}  ${ago(a.created_at)}`}</span>
+                  </text></box>
+                  {source
+                    ? <box height={1} overflow="hidden"><FileLink source={source}>{source.relative}</FileLink></box>
+                    : <text wrapMode="word" fg={theme.error}>{`unsafe path omitted: ${a.stored_path}`}</text>}
+                </box>
+              )
+            })}
+          </> : null}
           {d.error
             ? <box flexDirection="column" paddingLeft={1}>
                 <box height={1}><text fg={theme.error}>Error</text></box>
@@ -965,7 +1004,33 @@ export const Kanban = memo((props: { focused?: boolean }) => {
       title: `Dispatch · ${live.current.at}`,
       body: `${ready} task${ready === 1 ? "" : "s"} in 'ready'. Spawns one worker per task (one pass).`,
       yes: "dispatch",
-    }).then(ok => { if (ok) void sh("dispatch --json", `Dispatched (${ready} ready)`) })
+    }).then(ok => {
+      if (!ok) return
+      void sh("dispatch --json").then(out => {
+        if (out == null) return
+        const r = parseDispatchResult(out)
+        const spawned = r.spawned.length
+        const deferred = r.skipped_per_profile_capped.length
+        const defaults = r.auto_assigned_default.length
+        const unassigned = r.skipped_unassigned.length
+        const nonspawnable = r.skipped_nonspawnable.length
+        const failed = dispatchFailures(r).length
+        const guarded = dispatchGuarded(r).length
+        const parts = [`${spawned} spawned`]
+        if (defaults) parts.push(`${defaults} defaulted`)
+        if (deferred) parts.push(`${deferred} deferred`)
+        if (unassigned) parts.push(`${unassigned} unassigned`)
+        if (nonspawnable) parts.push(`${nonspawnable} non-spawnable`)
+        if (failed) parts.push(`${failed} failed`)
+        if (guarded) parts.push(`${guarded} guarded`)
+        const more = dispatchDetails(r)
+        toast.show({
+          variant: dispatchVariant(r),
+          message: `Dispatch: ${parts.join(" · ")}`,
+          action: more ? { label: "details", run: () => setPane({ kind: "dispatch", slug: live.current.at, text: more }) } : undefined,
+        })
+      }).catch((e: Error) => void toast.show({ variant: "error", message: trunc(e.message, 120) }))
+    })
   }, [dialog, sh, toast])
 
   const showLog = useCallback((t: Task) => {
@@ -1116,14 +1181,6 @@ export const Kanban = memo((props: { focused?: boolean }) => {
     if (f === "comment") return void comment(t)
   }, [editTitle, editBody, assign, editPriority, editStatus, editParents, editResult, comment])
 
-  // Bump priority with ↑↓ while the priority row is focused — no
-  // modal. Mirrors the new-task form affordance.
-  const bumpPriority = useCallback((t: Task, d: 1 | -1) => {
-    const next = Math.max(0, Math.min(9, t.priority + d))
-    if (next === t.priority) return
-    patchDirect(t.id, { priority: next }, `${t.id} → P${next}`)
-  }, [patchDirect])
-
   type Act = { key: string; title: string; when: (t?: Task) => boolean; run: (t?: Task) => void }
   const ACTS = useMemo<Act[]>(() => [
     { key: "n", title: "New task",      when: () => true,            run: () => void create() },
@@ -1172,13 +1229,11 @@ export const Kanban = memo((props: { focused?: boolean }) => {
       if (!t || !paneOpen) return
       const f = paneFields[Math.min(paneSel, paneFields.length - 1)]
       if (key.name === "up") {
-        if (f === "priority") return bumpPriority(t, 1)
         const n = paneFields.length
         if (n === 0) return
         return setPaneSel(s => (s - 1 + n) % n)
       }
       if (key.name === "down") {
-        if (f === "priority") return bumpPriority(t, -1)
         const n = paneFields.length
         if (n === 0) return
         return setPaneSel(s => (s + 1) % n)
@@ -1267,7 +1322,7 @@ export const Kanban = memo((props: { focused?: boolean }) => {
       <TabShell
         title={`Kanban · ${sections.length} board${sections.length === 1 ? "" : "s"} · ${grand} task${grand === 1 ? "" : "s"}${running ? ` · ${running} running` : ""}`}
       >
-        <scrollbox ref={outer} scrollY flexGrow={1} verticalScrollbarOptions={NOBAR}>
+        <scrollbox id="kb-board-scroll" ref={outer} scrollY flexGrow={1} verticalScrollbarOptions={NOBAR}>
           <box flexDirection="column" width="100%">
             {sections.map(s => {
               const on = s.board.slug === at

@@ -2,9 +2,12 @@
 
 import * as perf from "../utils/perf"
 import * as spawnHistory from "../app/spawnHistory"
+import { shouldRemember } from "./approval-memory"
+import { showNotification, clearNotification } from "../app/notices"
 import type { GatewayEvent, GatewaySkin, SessionInfo } from "../context/wire"
 import type { Action } from "../app/turnReducer"
 import { pid, type Usage } from "../types/message"
+import type { ToastContext } from "../ui/toast"
 
 export type Side = {
   onReady?: () => void
@@ -15,12 +18,12 @@ export type Side = {
   onBtw?: (text: string) => void
   onStatus?: (text: string) => void
   onSkin?: (skin: GatewaySkin | null | undefined) => void
+  onApprovalRemembered?: () => void
   /** voice.status event — gateway VAD loop state change (listening/transcribing/idle). */
   onVoiceStatus?: (state: string) => void
   /** voice.transcript event — transcribed text from a completed voice capture. */
   onVoiceTranscript?: (text: string, noSpeechLimit: boolean) => void
-  /** status.update with kind=process — debounced client-side to prevent TUI lag. */
-  onProcessNotification?: (text: string) => void
+  notices?: ToastContext
 }
 
 function count(o: Record<string, string[]> | undefined): number {
@@ -141,6 +144,10 @@ export function mapEvent(ev: GatewayEvent, side: Side): Action | null {
                req: { variant: "clarify", ...ev.payload } }
 
     case "approval.request":
+      if (shouldRemember({ variant: "approval", ...ev.payload })) {
+        side.onApprovalRemembered?.()
+        return null
+      }
       // Approval has no request_id upstream — the gateway's approval
       // responder is a single pending slot. Mint a unique part id so
       // multiple approvals in one turn don't alias each other when
@@ -182,11 +189,11 @@ export function mapEvent(ev: GatewayEvent, side: Side): Action | null {
       // Error-ish stderr lines (tracebacks, HTTP 4xx/5xx, auth failures)
       // surface inline; benign chatter stays in gw.tail() only (/logs).
       // The full untruncated line is always in gw.logs via GatewayClient.log();
-      // the transcript row carries the line verbatim so no traceback context
-      // is lost to a slice here.
+      // stderr is a diagnostic side channel, not the turn lifecycle source
+      // of truth, so it must not end an active stream.
       const line = ev.payload.line
       if (/error|fail|traceback|exception|\b[45]\d\d\b|refused|denied|unauthori/i.test(line))
-        return { kind: "error", text: line }
+        return { kind: "error", text: line, fatal: false }
       return null
     }
 
@@ -213,19 +220,25 @@ export function mapEvent(ev: GatewayEvent, side: Side): Action | null {
     case "status.update": {
       const kind = ev.payload?.kind
       const text = ev.payload?.text ?? ""
+      if (kind === "process") {
+        side.onStatus?.(formatProcessNotification(text))
+        return null
+      }
       side.onStatus?.(text)
       // Generic "status" is cosmetic; lifecycle/error/warn carry real
       // signal (retries, fallbacks, auth failures) and must persist.
       if (!kind || kind === "status") return null
-      // process: route through debounced accumulator instead of dispatching
-      // directly — prevents TUI lag when many terminal(background=true)
-      // processes finish in rapid succession.
-      if (kind === "process") {
-        side.onProcessNotification?.(text)
-        return null
-      }
       return { kind: "system", text }
     }
+
+    case "notification.show":
+      if (side.notices) showNotification(side.notices, ev.payload)
+      return null
+
+    case "notification.clear":
+      if (side.notices) clearNotification(side.notices, ev.payload)
+      return null
+
     case "voice.status": {
       // Continuous VAD loop reports its internal state: listening,
       // transcribing, or idle. The UI uses this for the recording indicator.

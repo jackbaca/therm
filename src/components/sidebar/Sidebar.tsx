@@ -9,6 +9,14 @@ import { useGitBranch, rtrunc } from "../../utils/git"
 import { Tail } from "../chat/ThoughtCloud"
 import { ContextGauge } from "./ContextGauge"
 
+export type HiddenContext = {
+  profile?: string
+  model?: string
+  title?: string
+  place?: string
+  context?: string
+}
+
 // The pillar body carries a compact identity block, the MCP operational
 // section, and a context-usage gauge at the bottom. Stats/Memory/Recent/
 // Identity wrapper and the Plugins section were removed — they duplicated
@@ -20,6 +28,23 @@ const PAD_L = 12
 const INNER = WIDTH - 4
 
 const trunc = (s: string, max: number) => s.length <= max ? s : s.slice(0, max - 1) + "…"
+
+export function hidden(props: {
+  info?: SessionInfo | null
+  usage?: Usage
+  profile?: string
+  title?: string
+  branch?: string | null
+}): HiddenContext {
+  const cwd = props.info?.cwd?.split(/[/\\]/).filter(Boolean).pop()
+  return {
+    profile: props.profile,
+    model: props.info?.model,
+    title: props.title,
+    place: props.branch ?? cwd,
+    context: typeof props.usage?.context_percent === "number" ? `${props.usage.context_percent}%` : undefined,
+  }
+}
 
 const Section = memo((props: {
   title: string; hint?: string
@@ -47,12 +72,18 @@ const Section = memo((props: {
   )
 })
 
-const Avatar = (props: { state: AvatarState; eikon?: ParsedEikon; onHold?: (s: AvatarState) => void }) => (
-  <AnimatedAvatar state={props.state} eikon={props.eikon} onHold={props.onHold} />
+const Avatar = (props: { state: AvatarState; eikon?: ParsedEikon; id?: string; onHold?: (s: AvatarState) => void }) => (
+  <AnimatedAvatar key={props.id} state={props.state} eikon={props.eikon} onHold={props.onHold} />
 )
 
-const Row = (props: { label: string; value: string; strong?: boolean }) => {
+const Row = (props: { label: string; value: string; strong?: boolean; block?: boolean }) => {
   const theme = useTheme().theme
+  if (props.block) return (
+    <box flexDirection="column" minHeight={2} marginBottom={1}>
+      <text fg={theme.textMuted}>{`  ${props.label}`}</text>
+      <text fg={theme.text} wrapMode="word">{props.value}</text>
+    </box>
+  )
   return (
     <box height={1}>
       <text>

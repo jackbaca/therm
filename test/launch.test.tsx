@@ -156,21 +156,35 @@ describe("useSession.boot", () => {
     expect(gw.last("session.resume")?.params.session_id).toBe("real")
   })
 
-  test("mode:resume switches live model to the stored provider/model", async () => {
+  test("mode:resume targets zero-message compression tip", async () => {
     const db = seed()
-    sess(db, "past", "tui", 1005, 5, { model: "gpt-5.5", billing_provider: "openai-codex" })
+    sess(db, "root", "tui", 1000, 296, { ended_at: 2000, end_reason: "compression" })
+    sess(db, "tip", "tui", 2100, 0, { parent_session_id: "root" })
     db.close()
     resetDb()
 
-    const sets: Array<Record<string, unknown>> = []
+    const gw = new MockGateway()
+    await boot(gw, { mode: "resume" })
+    expect(gw.last("session.resume")?.params.session_id).toBe("tip")
+  })
+
+  test("mode:resume ignores stored provider/model", async () => {
+    const db = seed()
+    sess(db, "past", "tui", 1005, 5, { model: "gpt-5.5-free", billing_provider: "openai-codex" })
+    db.close()
+    resetDb()
+
     const gw = new MockGateway({
       "session.resume": p => ({ session_id: "live-past", resumed: p.session_id, messages: [] }),
-      "config.set": p => { sets.push(p); return { value: p.value } },
+      "config.set": () => { throw new Error("unexpected model switch") },
     })
-    await boot(gw, { mode: "resume", sid: "past" })
+    gw.setSession("old")
+    const r = await boot(gw, { mode: "resume", sid: "past" })
 
     expect(gw.last("session.resume")?.params.session_id).toBe("past")
-    expect(sets).toEqual([{ session_id: "live-past", key: "model", value: "gpt-5.5 --provider openai-codex" }])
+    expect(r.id).toBe("live-past")
+    expect(r.note).toBeUndefined()
+    expect(gw.calls.some(c => c.method === "config.set")).toBe(false)
   })
 
   test("mode:resume normalizes session_*.json filenames", async () => {

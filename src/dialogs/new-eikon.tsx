@@ -3,7 +3,9 @@ import { useKeyboard } from "@opentui/react"
 import { useTheme } from "../theme"
 import { knobs } from "../utils/eikon-knobs"
 import { openTextPrompt } from "./text-prompt"
+import { openConfirm } from "./confirm"
 import type { DialogContext } from "../ui/dialog"
+import { eikon } from "../service/eikon"
 
 export type NewEikon =
   | { name: string; from: "blank" }
@@ -16,10 +18,10 @@ const ORDER: readonly Field[] = ["name", "from"] as const
 const FROMS: readonly { id: From; label: string; hint: string }[] = [
   { id: "blank",   label: "blank",        hint: "author in Studio" },
   { id: "file",    label: "local file",   hint: "png / jpg / webp / gif / mp4" },
-  { id: "install", label: "install from", hint: "catalog name · git URL · http://… · local dir" },
+  { id: "install", label: "inspect/install", hint: "catalog name · github.com/u/r/name · local dir" },
 ]
 
-const INSTALL_HINT = "catalog name · github.com/u/r · git URL · http://…/ · local dir"
+const INSTALL_HINT = "catalog name · github.com/u/r/eikon-name · git URL · http://…/ · local dir"
 
 export function openNewEikon(
   dialog: DialogContext,
@@ -64,10 +66,34 @@ const Form = (props: {
       return props.done(file ? { name: slug, from: "file", file } : null)
     }
     const src = await openTextPrompt(props.dialog, {
-      title: "Install eikon",
+      title: "Inspect eikon source",
       label: INSTALL_HINT,
     })
-    props.done(src ? { name: slug, from: "install", src } : null)
+    if (!src) return props.done(null)
+    try {
+      const info = await eikon.inspectSource(src)
+      const ok = await openConfirm(props.dialog, {
+        title: `Install '${info.title ?? info.name}'?`,
+        body: [
+          `Name: ${info.name}`,
+          `Author: ${info.author ?? "unknown"}`,
+          `Version: ${info.version ?? "unknown"}`,
+          `Source: ${info.sourceLabel}`,
+          `Trust: ${info.trust}${info.reason ? ` (${info.reason})` : ""}`,
+          `Preview: ${info.previewAvailable ? "available" : "none"}; poster: ${info.posterAvailable ? "available" : "none"}`,
+          "Install does not activate; use the Library after install to select it.",
+        ].join("\n"),
+        yes: "install", no: "cancel",
+      })
+      return props.done(ok ? { name: slug, from: "install", src } : null)
+    } catch (e) {
+      await openConfirm(props.dialog, {
+        title: "Inspect failed", danger: true,
+        body: e instanceof Error ? e.message : String(e),
+        yes: "ok", no: "cancel",
+      })
+      return props.done(null)
+    }
   }
 
   useKeyboard(key => {

@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test, spyOn } from "bun:test"
 import { act } from "react"
+import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { mount as mountApp, until, MockGateway } from "./harness"
+import { tmpHome } from "./fixture/home"
 import * as prefs from "../src/context/preferences"
 import * as exit from "../src/app/exit"
 import { DOUBLE_TAB_MS, QUIT_MS } from "../src/app/useAppKeys"
@@ -47,6 +50,21 @@ describe("app", () => {
     // file is running under Bun's concurrent test scheduler. Assert the tab
     // transition itself, not a globally-empty Sessions fixture.
     await until(t, () => t.frame().includes("Sessions ("))
+
+    t.destroy()
+  })
+
+  test("sub-tab hint omits duplicate group navigation", async () => {
+    const t = await mount()
+    await until(t, () => t.frame().includes("Ready"))
+
+    act(() => t.keys.pressArrow("right", { meta: true }))
+    await until(t, () => t.frame().includes("Sessions ("))
+
+    const f = t.frame()
+    expect(f).toContain("Alt+←/Alt+→ or Ctrl+X N")
+    expect(f).toContain("shift+←/→ sub")
+    expect(f).not.toContain("Alt+←/Alt+→ group")
 
     t.destroy()
   })
@@ -274,6 +292,105 @@ describe("app", () => {
     t.destroy()
   })
 
+  test("copy-last shows toast", async () => {
+    const t = await mount({ width: 130, height: 18 })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("user one") })
+    act(() => t.keys.pressEnter())
+    await t.settle()
+    act(() => {
+      t.gw.push({ type: "message.start" })
+      t.gw.push({ type: "message.complete", payload: { text: "agent one", usage: { input: 1, output: 1, total: 2 } } })
+    })
+    await until(t, () => t.frame().includes("agent one"))
+
+    act(() => { t.keys.pressKey("x", { ctrl: true }); t.keys.pressKey("y") })
+    await until(t, () => t.frame().includes("Copied to clipboard"))
+    t.destroy()
+  })
+
+
+  test("marketplace detail preview does not change active sidebar preference", async () => {
+    const HH = process.env.HERMES_HOME!
+    const png = new Uint8Array([137, 80, 78, 71])
+    let previewHits = 0
+    const launch = (name: string, author: string, line: string) => [
+      JSON.stringify({
+        type: "header", eikon: 1, id: `liftaris/${name}`, version: "1.0", title: name,
+        author: { name: author }, size: { cols: 48, rows: 24 }, defaultSignal: "state.idle",
+        signals: { "state.idle": { clip: "idle" } },
+      }),
+      JSON.stringify({ type: "clip", name: "idle", fps: 1, frameCount: 1, loopFrom: 0 }),
+      JSON.stringify({
+        type: "frame", clip: "idle", index: 0,
+        rows: Array.from({ length: 24 }, (_, i) => (i === 0 ? line : "").padEnd(48)),
+      }),
+    ].join("\n") + "\n"
+    const marketPreview = launch("marketone", "Kaio", "MARKET-PREVIEW-LINE")
+    const activePreview = launch("activeone", "Local", "ACTIVE-EIKON-LINE")
+    const srv = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const path = new URL(req.url).pathname
+        if (path === "/eikons/index.json") return Response.json([
+          { name: "marketone", author: "Kaio", width: 48, height: 24, poster: "M1", source: "marketone/", description: "market one" },
+        ])
+        if (path === "/eikons/marketone/marketone.eikon") {
+          previewHits++
+          return new Response(marketPreview)
+        }
+        if (path === "/eikons/marketone/manifest.json") return Response.json({ name: "marketone", source: "source.png" })
+        if (path === "/eikons/marketone/source.png") return new Response(png)
+        return new Response("404", { status: 404 })
+      },
+    })
+    const prev = process.env.EIKON_URL
+    process.env.EIKON_URL = `http://localhost:${srv.port}/eikons`
+    rmSync(join(HH, "eikons"), { recursive: true, force: true })
+    mkdirSync(join(HH, "eikons", "activeone", "source"), { recursive: true })
+    writeFileSync(join(HH, "eikons", "activeone", "activeone.eikon"), activePreview)
+    prefs.set("eikon", "activeone")
+
+    const prevTestPerf = process.env.HERM_TEST_PERF
+    process.env.HERM_TEST_PERF = "1"
+    globalThis.__hermAvatarTimerStarts = 0
+    const t = await mount({ width: 180, height: 48 })
+    await until(t, () => t.frame().includes("Ready") && t.frame().includes("ACTIVE-EIKON-LINE"))
+    const startsBefore = globalThis.__hermAvatarTimerStarts ?? 0
+    act(() => { for (let i = 0; i < 4; i++) t.keys.pressArrow("right", { meta: true }) })
+    await until(t, () => t.frame().includes("Library ("))
+    act(() => t.keys.pressArrow("right", { shift: true }))
+    await until(t, () => t.frame().includes("Catalog (1)") && t.frame().includes("MARKET-PREVIEW-LINE") && t.frame().includes("ACTIVE-EIKON-LINE"))
+    expect(t.frame()).toContain("Details — marketone")
+    expect(t.frame()).toContain("by Kaio")
+    expect(t.frame()).toContain("market one")
+    expect(t.frame()).toContain("not installed")
+    expect(t.frame()).toContain("Trust")
+    expect(t.frame()).toMatch(/Profile\s+default/)
+    const lines = t.frame().split("\n")
+    const desc = lines.findIndex(l => l.includes("market one"))
+    const chip = lines.findIndex((l, i) => i > desc && l.includes("idle"))
+    const status = lines.findIndex(l => l.includes("Status"))
+    expect(desc).toBeGreaterThan(-1)
+    expect(chip).toBeGreaterThan(desc)
+    expect(chip).toBeLessThan(status)
+
+    expect(prefs.get("eikon")).toBe("activeone")
+    expect(t.frame()).toContain("ACTIVE-EIKON-LINE")
+    expect(previewHits).toBe(1)
+    expect((globalThis.__hermAvatarTimerStarts ?? 0) - startsBefore).toBeLessThanOrEqual(1)
+
+    delete globalThis.__hermAvatarTimerStarts
+    if (prevTestPerf === undefined) delete process.env.HERM_TEST_PERF
+    else process.env.HERM_TEST_PERF = prevTestPerf
+    t.destroy()
+    srv.stop()
+    process.env.EIKON_URL = prev
+    prefs.set("eikon", undefined)
+    rmSync(join(HH, "eikons"), { recursive: true, force: true })
+  })
+
   test("sidebar hides below 120 cols", async () => {
     const t = await mount({ width: 160, height: 48 })
     await until(t, () => t.frame().includes("Ready"))
@@ -341,8 +458,7 @@ describe("app", () => {
 
     const call = t.gw.last("prompt.submit")
     expect(call?.params.text).toBe("hello gateway")
-    // User messages render inside a left-side gutter.
-    expect(t.frame()).toMatch(/│ hello gateway/)
+    expect(t.frame()).toContain("hello gateway")
 
     t.destroy()
   })
@@ -387,6 +503,31 @@ describe("app", () => {
     await until(t, () => t.frame().includes("✓ Allow once"))
     expect(t.frame()).toContain("✗ Deny")
 
+    t.destroy()
+  })
+
+  test("approval prompt expires when the gateway times out and the turn completes", async () => {
+    const t = await mount()
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("go") })
+    act(() => t.keys.pressEnter())
+    act(() => t.gw.push({ type: "message.start" }))
+    act(() => t.gw.push({
+      type: "approval.request",
+      payload: { command: "rm -rf /tmp/x", description: "delete temp tree" },
+    }))
+    await until(t, () => t.frame().includes("Permission required"))
+
+    act(() => t.gw.push({
+      type: "message.complete",
+      payload: { text: "approval timed out", usage: { input: 0, output: 0, total: 0 } },
+    }))
+    await until(t, () => t.frame().includes("Timed out") && !t.frame().includes("Permission required"))
+
+    act(() => t.keys.pressKey("1"))
+    await t.settle()
+    expect(t.gw.last("approval.respond")).toBeUndefined()
     t.destroy()
   })
 
@@ -445,9 +586,10 @@ describe("app", () => {
     await act(async () => { await t.keys.typeText("2") })
     await until(t, () => t.gw.last("clarify.respond") !== undefined)
     expect(t.gw.last("clarify.respond")?.params).toMatchObject({ request_id: "c1", answer: "blue" })
-    // Outcome persists after turn ends.
+    // Outcome persists after turn ends with question context.
     act(() => t.gw.push({ type: "message.complete", payload: { text: "ok", usage: { input: 0, output: 0, total: 0 } } }))
-    await until(t, () => t.frame().includes("chose: blue"))
+    await until(t, () => t.frame().includes("blue"))
+    expect(t.frame()).toContain("which one?")
     t.destroy()
   })
 
@@ -479,7 +621,7 @@ describe("app", () => {
     t.destroy()
   })
 
-  test("slash popover opens on '/' and Enter dispatches local command", async () => {
+  test("slash popover Enter completes command before local dispatch", async () => {
     const gw = new MockGateway({
       "commands.catalog": () => ({ pairs: [["/model", "Switch model"]] }),
     })
@@ -493,12 +635,36 @@ describe("app", () => {
     await act(async () => { await t.keys.typeText("cle") })
     await t.settle()
     act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("> /clear"))
+
+    expect(t.gw.last("slash.exec")).toBeUndefined()
+    expect(t.gw.last("prompt.submit")).toBeUndefined()
+    expect(t.frame().split("\n").filter(l => l.includes("/clear")).length).toBe(1)
+
+    act(() => t.keys.pressEnter())
     await t.settle()
 
-    // /clear is local — no gateway call, transcript cleared, popover closed
+    // /clear is local — no gateway call, transcript cleared, input cleared.
     expect(t.gw.last("slash.exec")).toBeUndefined()
-    expect(t.frame()).not.toContain("/clear")
+    expect(t.gw.last("prompt.submit")).toBeUndefined()
+    expect(t.frame()).not.toContain("> /clear")
 
+    t.destroy()
+  })
+
+  test("mixed prose slash command submits through prompt.submit, not local slash", async () => {
+    const t = await mount()
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("please /clear now") })
+    await until(t, () => t.frame().includes("/clear"))
+    act(() => t.keys.pressEscape())
+    await t.settle()
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.gw.last("prompt.submit") !== undefined)
+
+    expect(t.gw.last("prompt.submit")?.params.text).toBe("please /clear now")
+    expect(t.gw.last("slash.exec")).toBeUndefined()
     t.destroy()
   })
 
@@ -510,8 +676,67 @@ describe("app", () => {
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("Title: my overnight run")) // system line
 
+    expect(t.frame()).toMatch(/Title\s+my overnight run/)
     expect(t.gw.last("session.title")?.params.title).toBe("my overnight run")
     expect(t.gw.last("prompt.submit")).toBeUndefined() // intercepted
+    t.destroy()
+  })
+
+  test("/theme light|dark sets theme mode locally", async () => {
+    await using h = await tmpHome({ prefs: { theme: "tokyonight", themeMode: "dark" } })
+    await using t = await mount()
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("/theme light") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("theme mode → light"))
+    expect(prefs.get("themeMode")).toBe("light")
+    expect(t.gw.last("prompt.submit")).toBeUndefined()
+
+    await act(async () => { await t.keys.typeText("/theme dark") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("theme mode → dark"))
+    expect(prefs.get("themeMode")).toBe("dark")
+  })
+
+  test("/branch activates the live branch session id", async () => {
+    const gw = new MockGateway({
+      "commands.catalog": () => ({ pairs: [["/branch", "Branch current session"]] }),
+      "session.branch": () => ({ session_id: "live-branch", title: "Branch 1" }),
+      "session.resume": () => { throw new Error("session not found") },
+      "session.activate": p => ({
+        session_id: p.session_id,
+        session_key: "stored-branch",
+        status: "idle",
+        info: { model: "branch-model", session_id: p.session_id, tools: {}, skills: {} },
+        messages: [{ role: "user", text: "branch seed" }],
+      }),
+    })
+    const t = await mount({ gw })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("/branch") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.gw.last("session.activate") !== undefined)
+
+    expect(t.gw.last("session.branch")?.params.session_id).toBe("test-sid")
+    expect(t.gw.last("session.activate")?.params.session_id).toBe("live-branch")
+    expect(t.gw.last("session.resume")).toBeUndefined()
+    expect(t.frame()).toContain("branch seed")
+    expect(t.frame()).not.toContain("Failed to resume")
+    t.destroy()
+  })
+
+  test("sidebar title stays unset until a session title exists", async () => {
+    const t = await mount()
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("quick title seed") })
+    act(() => t.keys.pressEnter())
+    await t.settle()
+
+    expect(t.frame()).toMatch(/Title\s+—/)
+    expect(t.frame()).not.toMatch(/Title\s+quick title seed/)
     t.destroy()
   })
 
@@ -777,10 +1002,10 @@ describe("app", () => {
     t.destroy()
   })
 
-  test("action menu → Fork → session.branch + undo-in-branch + switch", async () => {
+  test("action menu → Fork → session.branch + undo-in-branch + activate", async () => {
     const gw = new MockGateway({
       "session.branch": () => ({ session_id: "branch-sid", title: "branch 1" }),
-      "session.resume": p => ({ session_id: p.session_id, messages: [] }),
+      "session.activate": p => ({ session_id: p.session_id, messages: [], status: "idle" }),
     })
     const t = await mount({ gw })
     await until(t, () => t.frame().includes("Ready"))
@@ -809,8 +1034,8 @@ describe("app", () => {
     // Undo targets the BRANCH session, not the original.
     const u = t.gw.calls.find(c => c.method === "session.undo")
     expect(u?.params.session_id).toBe("branch-sid")
-    // Switched into it.
-    expect(t.gw.last("session.resume")?.params.session_id).toBe("branch-sid")
+    // Activated the returned live runtime session id.
+    expect(t.gw.last("session.activate")?.params.session_id).toBe("branch-sid")
     // Composer seeded.
     expect(t.frame()).toContain("> seed q")
     t.destroy()
@@ -848,13 +1073,16 @@ describe("app", () => {
     expect(t.frame()).not.toContain("⏸ 2.")        // one chip left
     expect(t.gw.calls.filter(c => c.method === "prompt.submit").length).toBe(2)
 
-    // <leader>u flushes: interrupt fires, drain effect submits head on
-    // the following message.complete.
+    // <leader>u flushes: interrupt fires, then the drain waits for the
+    // gateway's post-finally session.info settle edge before submitting.
     act(() => t.keys.pressKey("x", { ctrl: true }))
     await t.settle()
     await act(async () => { await t.keys.typeText("u") })
     await until(t, () => t.gw.calls.some(c => c.method === "session.interrupt"))
     act(() => t.gw.push({ type: "message.complete", payload: { text: "r2", usage: { input: 1, output: 1, total: 2 } } }))
+    await t.settle()
+    expect(t.gw.calls.filter(c => c.method === "prompt.submit").length).toBe(2)
+    act(() => t.gw.push({ type: "session.info", payload: { model: "test-model", session_id: "test-sid", tools: {}, skills: {} } }))
     await until(t, () => t.gw.calls.filter(c => c.method === "prompt.submit").length === 3)
     expect(t.gw.last("prompt.submit")?.params.text).toBe("follow up b")
     act(() => t.gw.push({ type: "message.start" }))
@@ -880,6 +1108,8 @@ describe("app", () => {
         model: "test-model", calls: 7, input: 1234, output: 567, total: 1801,
         cache_read: 0, cache_write: 0, cost_usd: 0.0412, cost_status: "estimated",
         context_used: 4200, context_max: 200_000, context_percent: 2,
+        credits_lines: ["Credits: 42 remaining", "Account: active"],
+        dev_credits_spent_micros: 123,
       }),
     })
     const t = await mount({ gw })
@@ -896,10 +1126,39 @@ describe("app", () => {
     expect(f).toContain("$0.04")      // cost
     expect(f).toContain("2%")         // context percent
     expect(f).toContain("estimated")  // cost_status note
+    expect(f).toContain("Credits: 42 remaining")
+    expect(f).toContain("Account: active")
+    expect(f.indexOf("Credits: 42 remaining")).toBeLessThan(f.indexOf("Account: active"))
+    expect(f).not.toContain("123")
     expect(t.gw.last("slash.exec")).toBeUndefined() // intercepted locally
 
     act(() => t.keys.pressEscape())
     await until(t, () => !t.frame().includes("API calls"))
+    t.destroy()
+  })
+
+  test("/usage renders credit lines when calls are zero", async () => {
+    const gw = new MockGateway({
+      "session.usage": () => ({
+        calls: 0,
+        credits_lines: ["Credits: access paused", "Account: update billing"],
+      }),
+    })
+    const t = await mount({ gw })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("/usage") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("API calls"))
+
+    const f = t.frame()
+    expect(f).toContain("Usage")
+    expect(f).toContain("API calls")
+    expect(f).toContain("0")
+    expect(f).toContain("Total")
+    expect(f).toContain("Credits: access paused")
+    expect(f).toContain("Account: update billing")
+    expect(f.indexOf("Credits: access paused")).toBeLessThan(f.indexOf("Account: update billing"))
     t.destroy()
   })
 
@@ -988,6 +1247,79 @@ describe("app", () => {
     t.destroy()
   })
 
+  test("compression lifecycle stays in the transcript while streaming", async () => {
+    const t = await mount()
+    await until(t, () => t.frame().includes("Ready"))
+    act(() => {
+      t.gw.push({ type: "message.start" })
+      t.gw.push({ type: "status.update", payload: { kind: "lifecycle", text: "📦 Preflight compression: ~230,802 tokens >= 217,600 threshold. This may take a moment." } })
+    })
+    await until(t, () => t.frame().includes("Preflight compression"))
+    expect(t.frame()).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/)
+
+    act(() => t.gw.push({ type: "message.complete", payload: { text: "done", usage: { input: 1, output: 1, total: 2 } } }))
+    await until(t, () => t.frame().includes("Ready"))
+    const done = t.frame().split("\n")
+    const line = done.find(l => l.includes("Ready")) ?? ""
+    expect(line).not.toContain("Preflight compression")
+    expect(t.frame()).toContain("Preflight compression")
+    t.destroy()
+  })
+
+  test("hidden sidebar context moves to composer tray only when sidebar is hidden", async () => {
+    const gw = new MockGateway()
+    const t = await mount({ gw, width: 160, height: 48 })
+    act(() => gw.push({
+      type: "session.info",
+      payload: {
+        model: "wide-model", session_id: "test-sid", cwd: "/tmp/herm-work", tools: {}, skills: {},
+      },
+    }))
+    await until(t, () => t.frame().includes("wide-model"))
+    expect(t.frame()).toMatch(/Profile\s+default/)
+    expect(t.frame()).not.toContain("p:default")
+
+    t.resize(100, 48)
+    await until(t, () => {
+      const f = t.frame()
+      return f.includes("default") && f.includes("wide-model") && f.includes("herm-work")
+        && !/Profile\s+default/.test(f)
+    })
+    expect(t.frame()).not.toContain("p:default")
+    expect(t.frame()).not.toContain("m:wide-model")
+    expect(t.frame()).not.toContain("b:herm-work")
+    expect(t.frame()).not.toContain("ctx:")
+    expect(t.frame()).not.toMatch(/Profile\s+default/)
+    t.destroy()
+  })
+
+  test("preflight compression stderr does not end the active turn", async () => {
+    const t = await mount()
+    await until(t, () => t.frame().includes("Ready"))
+
+    act(() => {
+      t.gw.push({ type: "message.start" })
+      t.gw.push({ type: "status.update", payload: { kind: "lifecycle", text: "📦 Preflight compression: ~230,802 tokens >= 217,600 threshold. This may take a moment." } })
+      t.gw.push({ type: "gateway.stderr", payload: { line: "⚠ Compression summary failed: timeout. Inserted a fallback context marker." } })
+      t.gw.push({ type: "status.update", payload: { kind: "warn", text: "⚠ Compression summary failed: timeout. Inserted a fallback context marker." } })
+      t.gw.push({ type: "reasoning.delta", payload: { text: "I need to inspect files." } })
+      t.gw.push({ type: "tool.start", payload: { tool_id: "t1", name: "read_file", context: "src/app.tsx" } })
+    })
+    await until(t, () => {
+      const f = t.frame()
+      return f.includes("Type to queue") && f.includes("I need to inspect files") && f.includes("tools 1")
+    })
+
+    act(() => t.gw.push({ type: "message.complete", payload: { text: "done", usage: { input: 1, output: 1, total: 2 } } }))
+    await t.settle()
+    const n = (t.frame().match(/Connected —/g) ?? []).length
+    act(() => t.gw.push({ type: "session.info", payload: { model: "test-model", session_id: "test-sid", tools: {}, skills: {} } }))
+    await t.settle()
+    expect(t.frame().match(/Connected —/g) ?? []).toHaveLength(n)
+
+    t.destroy()
+  })
+
   test("send() expands {!cmd} via shell.exec before prompt.submit", async () => {
     const t = await mount({ handlers: {
       "shell.exec": p => ({ stdout: `OUT<${p.command}>`, stderr: "", code: 0 }),
@@ -1037,9 +1369,8 @@ describe("app", () => {
     expect(f).not.toContain("STALE-THINK")
     expect(f).not.toContain("zz_stale_tool")   // tool part never created
     expect(f).toContain("alpha")
-    // `*[interrupted]*` → markdown strips `*` and `[]`; bare word under
-    // the assistant right-side gutter (content on the left, bar on the right).
-    expect(f).toMatch(/interrupted\s+│/)
+    // `*[interrupted]*` → markdown strips `*` and `[]`.
+    expect(f).toMatch(/^\s+interrupted\s*$/m)
 
     // Latch survives completion: the worker thread's stream-retry except
     // handler emits lifecycle "Reconnecting…" after message.complete; a

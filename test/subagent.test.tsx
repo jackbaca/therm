@@ -80,11 +80,11 @@ describe("Subagent renderer", () => {
     return t
   }
 
-  test("collapsed: goal + footer row (└ N toolcalls · dur)", async () => {
+  test("collapsed: goal + footer row (└─ N toolcalls · dur)", async () => {
     const t = await setup({})
-    await until(t, () => t.frame().includes("⊙ Task — refactor foo"))
+    await until(t, () => t.frame().includes("● Task — refactor foo"))
     const f = t.frame()
-    expect(f).toContain("└ 3 toolcalls · 4.2s")
+    expect(f).toContain("└─ 3 toolcalls · 4.2s")
     expect(f).not.toContain("├─")
     expect(f).not.toContain("bun test")
     t.destroy()
@@ -99,10 +99,23 @@ describe("Subagent renderer", () => {
     t.destroy()
   })
 
+  test("wraps long running goals without hiding continuation text", async () => {
+    const goal = "Independently inspect Herm's ThoughtCloud tool rendering path, especially delegate_task/subagent rows. Return concise findings: relevant files/components, how delegate_task is dispatched, and any focused tests that cover it. Do not modify files"
+    const t = await mountNode(
+      <box flexDirection="column" width="100%" height="100%"><Tool tool={part({ status: "running", duration: undefined, goal, preview: goal, trail: [] })} /></box>,
+      { width: 90, height: 20 },
+    )
+    await until(t, () => t.frame().includes("Task — Independently inspect"))
+    const f = t.frame()
+    expect(f).toContain("delegate_task is")
+    expect(f).toContain("dispatched, and any focused tests")
+    t.destroy()
+  })
+
   test("click expands to ├─/└─ trail with per-child glyphs + summary", async () => {
     const t = await setup({})
-    await until(t, () => t.frame().includes("⊙ Task — refactor foo"))
-    const p = locate(t, "⊙ Task")
+    await until(t, () => t.frame().includes("● Task — refactor foo"))
+    const p = locate(t, "● Task")
     await act(async () => { await t.mouse.pressDown(p.x, p.y) })
     await until(t, () => t.frame().includes("├─"))
 
@@ -111,7 +124,7 @@ describe("Subagent renderer", () => {
     expect(f).toContain("├─ $ bun test")
     expect(f).toContain("└─ ← Edit src/a.ts")
     expect(f).toContain("3 files changed")
-    expect(f).not.toContain("└ 3 toolcalls")
+    expect(f).not.toContain("└─ 3 toolcalls")
     t.destroy()
   })
 })

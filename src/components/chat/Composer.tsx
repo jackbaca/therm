@@ -11,8 +11,9 @@ import { useGateway } from "../../context/gateway"
 import type { ImageAttachResponse, DropDetectResponse } from "../../context/wire"
 import { looksLikePath } from "../../utils/drop"
 import type { SlashCommand } from "../../app/slashCommands"
-import { useSlashPopover } from "../../app/useSlashPopover"
+import { replaceSlashToken, useSlashPopover } from "../../app/useSlashPopover"
 import { useAtRefPopover, atWordAt } from "../../app/useAtRefPopover"
+import { acceptCompletion, useCompletion } from "../../app/useCompletion"
 import { frecency } from "../../app/frecency"
 import { useInputHistory, type HistEntry } from "../../app/useInputHistory"
 import { useBackground } from "../../app/background"
@@ -21,6 +22,9 @@ import { SlashPopover } from "./SlashPopover"
 import { AtRefPopover } from "./AtRefPopover"
 import { ChafaImage } from "../../ui/ChafaImage"
 import { trunc } from "../../ui/fmt"
+import { SpinGlyph } from "../../ui/spinner"
+import { MediaChip, classify } from "./MediaChip"
+import type { HiddenContext } from "../sidebar/Sidebar"
 
 export type ComposerHandle = {
   value: () => string
@@ -49,7 +53,7 @@ export type ComposerHandle = {
 
 type Props = {
   focused: boolean
-  connected?: boolean
+  canSubmitPrompt: boolean
   ready: boolean
   streaming: boolean
   status?: string
@@ -58,6 +62,7 @@ type Props = {
   escHint?: boolean
   queue?: ReadonlyArray<string>
   attachments?: ReadonlyArray<ImageAttachResponse>
+  hidden?: HiddenContext
   cmds: ReadonlyArray<SlashCommand>
   onSend: (text: string, parts?: readonly Part[]) => void
   onSlash: (cmd: SlashCommand) => void
@@ -69,7 +74,6 @@ type Props = {
   onAttachClipboard?: () => void
   onEnqueue?: (text: string) => void
   onDequeue?: (i: number) => void
-  onSteer?: () => void
   /** Enter pressed with an empty buffer. Return true to consume. */
   onEmptyEnter?: () => boolean
   /** Fires on the empty↔non-empty edge of the input buffer. */
@@ -77,6 +81,7 @@ type Props = {
 }
 
 const MAX_ROWS = 6
+const MAX_PREVIEWS = 2
 
 function fmt(n: number): string {
   if (n < 1000) return String(n)
@@ -103,17 +108,16 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
   const [mode, setMode] = useState<"normal" | "shell">("normal")
   const modeRef = useRef(mode); modeRef.current = mode
 
-  // Slash popover keys off the first line only — the grammar is a
-  // single-line prefix and a newline is a hard boundary. @-ref is
-  // cursor-relative over the full buffer so mid-prompt file mentions
-  // work on any line.
-  const head = useMemo(() => {
-    const i = input.indexOf("\n")
-    return i < 0 ? input : input.slice(0, i)
-  }, [input])
-
-  const pop = useSlashPopover(mode === "normal" ? head : "", props.cmds)
+  // Slash and @-ref popovers are cursor-relative over the current buffer.
+  // Slash command execution stays whole-buffer only; mixed prose accepts
+  // replace the token under the cursor without invoking local commands.
+  const pop = useSlashPopover(mode === "normal" ? input : "", props.cmds, caret)
+  const atSpot = mode === "normal" ? atWordAt(input, caret) : null
   const at = useAtRefPopover(mode === "normal" ? input : "", caret)
+  const slashReq = pop.spot && !pop.open && pop.spot.query
+    ? { method: "complete.slash" as const, params: { text: pop.spot.text }, replaceFrom: pop.spot.start + 1, replaceTo: pop.spot.end }
+    : null
+  const comp = useCompletion(mode === "normal" && !atSpot ? input : "", mode !== "normal" || pop.open, gw, slashReq)
 
   const write = useCallback((v: string) => {
     // clear() wipes text + extmarks via setText(""); replay v after.
@@ -141,8 +145,8 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
   ], [keys])
 
   // Hold latest pop/props in a ref so the imperative handle is stable.
-  const live = useRef({ pop, at, props, input })
-  live.current = { pop, at, props, input }
+  const live = useRef({ pop, at, comp, props, input })
+  live.current = { pop, at, comp, props, input }
 
   // Notify parent only on the empty↔non-empty edge so the splash
   // continue-prompt can hide the moment typing starts.
@@ -157,9 +161,22 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
   // Selecting a popover entry: subcommand synthetics (name contains a
   // space) complete the input for further typing; real commands dispatch.
   const select = (c: SlashCommand) => {
+    const spot = live.current.pop.spot
+    if (spot && !spot.whole) {
+      write(replaceSlashToken(live.current.input, spot, c))
+      return
+    }
     if (c.name.includes(" ")) { write(`/${c.name} `); return }
     write("")
     live.current.props.onSlash(c)
+  }
+
+  const fill = (c: SlashCommand) => {
+    const p = live.current.pop
+    if (!p.spot) return
+    const next = replaceSlashToken(live.current.input, p.spot, c)
+    p.dismiss(next)
+    write(next)
   }
 
   // Complete @-refs land as styled chips; prefix keywords that keep the
@@ -206,8 +223,9 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
   //     hits append to session["attached_images"] server-side; herm mirrors
   //     the chip and inserts only the trailing remainder text, not the
   //     `[User attached image: …]` placeholder (that's for blind clients).
-  //     Non-image hits (pdf/txt/…) insert the `[User attached file: …]`
-  //     wrapper so the agent sees the path. Any miss falls through.
+  //     Non-image hits (pdf/txt/…) mirror as chips and insert the
+  //     `[User attached file: …]` wrapper so the agent sees the path.
+  //     Any miss falls through.
   //  2. ≥5 lines → gateway writes a temp file and hands back a
   //     `[Pasted #N …]` placeholder (hermes CLI convention; expanded
   //     server-side in prompt.submit).
@@ -235,6 +253,7 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
             if (!r.text.startsWith("[User attached")) ta.current?.insertText(r.text + " ")
             return
           }
+          live.current.props.onAttach?.({ attached: true, path: r.path, name: r.name })
           ta.current?.insertText(r.text + " ")
         })
         .catch(verbatim)
@@ -252,10 +271,17 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     // /cmd prompts all resolve against the catalog.
     const a = live.current.at
     if (a.open) return atAccept()
+    const cc = live.current.comp
+    if (cc.open) {
+      const it = cc.items[cc.cursor]
+      if (!it || !it.text) return
+      write(acceptCompletion(live.current.input, it, cc.replaceFrom, cc.replaceTo))
+      return
+    }
     const p = live.current.pop
     if (p.open) {
       const c = p.popover?.[p.cursor]
-      if (c) select(c)
+      if (c) fill(c)
       return
     }
     const exp = buf.current?.expand() ?? { text: live.current.input, parts: [] }
@@ -270,7 +296,7 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     }
     const text = exp.text.trim()
     if (live.current.props.streaming) {
-      if (!text || !(live.current.props.connected ?? live.current.props.ready)) return
+      if (!text || !live.current.props.canSubmitPrompt) return
       hist.push({ input: text, parts: exp.parts })
       write("")
       // Slash-shaped input routes through onSend so send() → slash()
@@ -283,7 +309,7 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     }
     const hasAtt = (live.current.props.attachments?.length ?? 0) > 0
     if (!text && !hasAtt) { live.current.props.onEmptyEnter?.(); return }
-    if (!(live.current.props.connected ?? live.current.props.ready)) return
+    if (!live.current.props.canSubmitPrompt) return
     if (text) hist.push({ input: text, parts: exp.parts })
     write("")
     live.current.props.onSend(text, exp.parts)
@@ -299,23 +325,35 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     mode: () => modeRef.current,
     setMode,
     caret: () => ta.current?.cursorOffset ?? 0,
-    popOpen: () => live.current.pop.open || live.current.at.open,
+    popOpen: () => live.current.pop.open || live.current.at.open || live.current.comp.open,
     popNav: (d) => {
       const a = live.current.at
       if (a.open) return a.setCursor(c => Math.max(0, Math.min(a.items.length - 1, c + d)))
+      const cc = live.current.comp
+      if (cc.open) return cc.setCursor(c => Math.max(0, Math.min(cc.items.length - 1, c + d)))
       const max = (live.current.pop.popover?.length ?? 1) - 1
       pop.setCursor(c => Math.max(0, Math.min(max, c + d)))
     },
     popAccept: () => {
       const a = live.current.at
       if (a.open) return atAccept()
+      const cc = live.current.comp
+      if (cc.open) {
+        const it = cc.items[cc.cursor]
+        if (it?.text) write(acceptCompletion(live.current.input, it, cc.replaceFrom, cc.replaceTo))
+        return
+      }
       const p = live.current.pop
       const c = p.popover?.[p.cursor]
-      if (c) write(`/${c.name}${c.name.includes(" ") ? " " : ""}`)
+      if (c) fill(c)
     },
     popCancel: () => {
       const a = live.current.at
       if (a.open) return a.dismiss()
+      const cc = live.current.comp
+      if (cc.open) return cc.dismiss()
+      const p = live.current.pop
+      if (p.open && p.spot && !p.spot.whole) return p.dismiss()
       write("")
     },
     // History nav is cursor-aware: ↑ fires when the caret is on the
@@ -363,12 +401,24 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
   // Logical-line row count (wrap-induced growth ignored; yoga sizes the
   // textarea, this only positions the absolute popover above the border).
   const rows = Math.min(MAX_ROWS, Math.max(1, input.split("\n").length))
-  const lift = rows + 3
+  const all = props.attachments ?? []
+  const previews = all.filter(a => a.path && classify(a.path) === "img").slice(0, MAX_PREVIEWS)
+  const chips = all.filter(a => !previews.includes(a)).slice(0, MAX_PREVIEWS)
+  const shown = new Set([...previews, ...chips])
+  const attRows = all.length > 0 ? (previews.length > 0 ? 2 : 1) : 0
+  const lift = rows + attRows + 3
+  const more = all.filter(a => !shown.has(a)).length
+  const bits = [
+    props.hidden?.profile,
+    props.hidden?.title,
+    props.hidden?.place,
+    props.hidden?.context,
+  ].filter(Boolean)
 
   return (
     <box flexDirection="column" position="relative">
       {props.focused && pop.open ? (
-        <box position="absolute" bottom={lift} left={0} right={0}>
+        <box position="absolute" bottom={lift} left={0} right={0} zIndex={2}>
           <SlashPopover
             commands={pop.popover!}
             cursor={pop.cursor}
@@ -377,12 +427,24 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
           />
         </box>
       ) : props.focused && at.open ? (
-        <box position="absolute" bottom={lift} left={0} right={0}>
+        <box position="absolute" bottom={lift} left={0} right={0} zIndex={2}>
           <AtRefPopover
             items={at.items}
             cursor={at.cursor}
             onCursor={at.setCursor}
             onSelect={atAccept}
+          />
+        </box>
+      ) : props.focused && comp.open ? (
+        <box position="absolute" bottom={lift} left={0} right={0} zIndex={2}>
+          <AtRefPopover
+            items={comp.items}
+            cursor={comp.cursor}
+            onCursor={comp.setCursor}
+            onSelect={idx => {
+              const it = comp.items[idx]
+              if (it?.text) write(acceptCompletion(input, it, comp.replaceFrom, comp.replaceTo))
+            }}
           />
         </box>
       ) : null}
@@ -400,77 +462,79 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
         </box>
       ) : null}
 
-      {(props.attachments?.length ?? 0) > 0 ? (
-        <box flexDirection="column" paddingX={1} paddingBottom={1} gap={1}>
-          {props.attachments!.map(a => a.path
-            ? <ChafaImage key={`p-${a.path}`} path={a.path} width={60} />
-            : null)}
-        </box>
-      ) : null}
-
-      {(props.attachments?.length ?? 0) > 0 ? (
-        <box flexDirection="row" flexWrap="wrap" gap={1} paddingX={1} paddingBottom={1}>
-          {props.attachments!.map((a, i) => (
-            <text key={a.path ?? i}>
-              <span bg={theme.accent} fg={theme.background}> img </span>
-              <span bg={theme.backgroundElement} fg={theme.textMuted}> {a.name ?? `image ${i + 1}`} </span>
-              {a.width && a.height
-                ? <span bg={theme.backgroundElement} fg={theme.textMuted}>{a.width}×{a.height} </span>
-                : null}
-              {a.token_estimate
-                ? <span bg={theme.backgroundElement} fg={theme.textMuted}>~{fmt(a.token_estimate)}t </span>
-                : null}
-              <span fg={theme.textMuted}>  </span>
-              <span fg={theme.textMuted}>⌫ to detach</span>
-            </text>
-          ))}
-        </box>
-      ) : null}
-
       <box
         border
         borderStyle="single"
         borderColor={mode === "shell" ? theme.primary
           : props.focused ? theme.borderActive : theme.border}
-        flexDirection="row"
+        flexDirection="column"
         position="relative"
       >
-        <box width={1}><text fg={theme.primary}>{mode === "shell" ? "$" : ">"}</text></box>
-        <box width={1} />
-        <textarea
-          ref={taRef}
-          syntaxStyle={syntaxStyle}
-          onContentChange={() => {
-            const t = ta.current
-            setInput(t?.plainText ?? "")
-            setCaret(t?.cursorOffset ?? 0)
-          }}
-          onCursorChange={() => {
-            // Only worth a re-render when @-completion might retarget;
-            // otherwise ←/→ in a long prompt would reconcile Composer
-            // on every keystroke for no observable effect.
-            if (!live.current.input.includes("@")) return
-            const off = ta.current?.cursorOffset ?? 0
-            setCaret(c => c === off ? c : off)
-          }}
-          onSubmit={submit}
-          onPaste={paste}
-          keyBindings={bindings}
-          wrapMode="word"
-          minHeight={1}
-          maxHeight={MAX_ROWS}
-          placeholder={mode === "shell" ? "Run a shell command (30s cap, cwd) — esc or ⌫ to exit" : props.streaming ? "Type to queue... (Enter queues, click chip to edit)" : "Message Hermes... (/ for commands, Shift+Enter for newline)"}
-          focused={props.focused}
-          textColor={theme.text}
-          focusedTextColor={theme.text}
-          placeholderColor={theme.textMuted}
-          cursorColor={theme.text}
-          backgroundColor="transparent"
-          focusedBackgroundColor="transparent"
-          flexGrow={1}
-        />
-        {pop.ghost && props.focused && rows === 1 ? (
-          <box position="absolute" top={0} left={2 + input.length} height={1}>
+        {previews.length > 0 ? (
+          <box flexDirection="column" paddingX={1} maxHeight={MAX_PREVIEWS} overflow="hidden">
+            {previews.map(a => <ChafaImage key={`p-${a.path}`} path={a.path!} width={60} bare />)}
+          </box>
+        ) : null}
+        {chips.length > 0 ? (
+          <box flexDirection="row" flexWrap="wrap" gap={1} paddingX={1} paddingTop={previews.length > 0 ? 0 : 1} paddingBottom={1}>
+            {chips.map((a, i) => {
+              if (a.path) {
+                const kind = classify(a.path)
+                return (
+                  <box key={a.path} flexDirection="row" height={1}>
+                    <MediaChip path={a.path} bare={kind === "img"} />
+                    {kind !== "img" && a.token_estimate ? <text fg={theme.textMuted}> ~{fmt(a.token_estimate)}t</text> : null}
+                  </box>
+                )
+              }
+              return (
+                <text key={a.name ?? i}>
+                  <span bg={theme.secondary} fg={theme.background}> file </span>
+                  <span bg={theme.backgroundElement} fg={theme.textMuted}> {a.name ?? `file ${i + 1}`} </span>
+                </text>
+              )
+            })}
+            {more > 0 ? <text fg={theme.textMuted}>+{more}</text> : null}
+          </box>
+        ) : null}
+        <box flexDirection="row">
+          <box width={1}><text fg={theme.primary}>{mode === "shell" ? "$" : ">"}</text></box>
+          <box width={1} />
+          <textarea
+            ref={taRef}
+            syntaxStyle={syntaxStyle}
+            onContentChange={() => {
+              const t = ta.current
+              setInput(t?.plainText ?? "")
+              setCaret(t?.cursorOffset ?? 0)
+            }}
+            onCursorChange={() => {
+              // Only worth a re-render when @-completion might retarget;
+              // otherwise ←/→ in a long prompt would reconcile Composer
+              // on every keystroke for no observable effect.
+              if (!live.current.input.includes("@") && !live.current.input.includes("/")) return
+              const off = ta.current?.cursorOffset ?? 0
+              setCaret(c => c === off ? c : off)
+            }}
+            onSubmit={submit}
+            onPaste={paste}
+            keyBindings={bindings}
+            wrapMode="word"
+            minHeight={1}
+            maxHeight={MAX_ROWS}
+            placeholder={mode === "shell" ? "Run a shell command (30s cap, cwd) — esc or ⌫ to exit" : props.streaming ? "Type to queue... (Enter queues, click chip to edit)" : "Message Hermes... (/ for commands, Shift+Enter for newline)"}
+            focused={props.focused}
+            textColor={theme.text}
+            focusedTextColor={theme.text}
+            placeholderColor={theme.textMuted}
+            cursorColor={theme.text}
+            backgroundColor="transparent"
+            focusedBackgroundColor="transparent"
+            flexGrow={1}
+          />
+        </box>
+        {pop.ghost && props.focused && rows === 1 && pop.spot?.whole ? (
+          <box position="absolute" top={attRows} left={2 + input.length} height={1}>
             <text fg={theme.textMuted}>{pop.ghost}</text>
           </box>
         ) : null}
@@ -478,8 +542,8 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
 
       <box height={1} flexDirection="row" paddingX={1}>
         <text>
-          <span fg={dot}>● </span>
-          <span fg={theme.textMuted}>{mode === "shell" ? "Shell" : label}</span>
+          {props.streaming ? <SpinGlyph fg={dot} /> : <span fg={dot}>●</span>}
+          <span fg={theme.textMuted}> {mode === "shell" ? "Shell" : label}</span>
           {mode === "shell"
             ? <span fg={theme.textMuted}>  esc exit shell mode</span>
             : props.streaming && props.escHint
@@ -492,19 +556,8 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
         {props.streaming && (props.queue?.length ?? 0) > 0 ? (
           <text fg={theme.textMuted}>{keys.print("queue.flush")} to send queued now  </text>
         ) : null}
-        <box
-          height={1}
-          flexDirection="row"
-          onMouseDown={() => props.onSteer?.()}
-        >
-          <text>
-            <span fg={theme.borderSubtle}>◇ </span>
-            <span fg={theme.textMuted}>steer </span>
-            <span fg={theme.accent}>{keys.print("session.steer")}</span>
-          </text>
-        </box>
-        <text fg={theme.textMuted}>  </text>
         {bg.count > 0 ? <text fg={theme.text}>▶ {bg.count}  </text> : null}
+        {bits.length > 0 ? <text fg={theme.textMuted}>{trunc(bits.join(" · "), 56)}  </text> : null}
         {props.model ? <text fg={theme.textMuted}>{props.model}</text> : null}
       </box>
     </box>

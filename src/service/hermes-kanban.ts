@@ -35,6 +35,7 @@
 
 import { Database } from "bun:sqlite"
 import { existsSync, readdirSync, statSync, openSync, readSync, closeSync, readFileSync, fstatSync } from "node:fs"
+import { relative as pathRelative, resolve as pathResolve } from "node:path"
 import { hermesPath } from "./hermes-home"
 
 // Order matches the CLI's status enumeration so columns line up
@@ -76,11 +77,23 @@ export type Event = {
   run_id: number | null
 }
 
+export type Attachment = {
+  id: number
+  filename: string
+  name: string
+  size: number | null
+  created_at: number
+  stored_path: string
+  relative_path: string | null
+  path: string | null
+}
+
 export type Detail = Task & {
   parents: string[]; children: string[]
   comments: Array<{ author: string; body: string; at: number }>
   runs: Run[]
   events: Event[]
+  attachments: Attachment[]
   latest_summary: string | null
 }
 
@@ -213,6 +226,14 @@ export const sortDiags = (ds: Diag[]): Diag[] =>
 
 const DEFAULT = "default"
 const SLUG = /^[a-z0-9][a-z0-9_-]{0,63}$/
+const DEFAULT_BUSY_TIMEOUT_MS = 120_000
+
+const busyTimeoutMs = (): number => {
+  const raw = (process.env.HERMES_KANBAN_BUSY_TIMEOUT_MS ?? "").trim()
+  if (!raw) return DEFAULT_BUSY_TIMEOUT_MS
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_BUSY_TIMEOUT_MS
+}
 
 /** Shared Hermes root for kanban paths — mirrors upstream
  *  hermes_cli/kanban_db.py::kanban_home(). HERMES_KANBAN_HOME wins
@@ -263,6 +284,22 @@ const dbDir = (s: string) =>
 
 const logsDir = (s: string) =>
   kp(s === DEFAULT ? "kanban/logs" : `kanban/boards/${s}/logs`)
+
+const attachmentsRoot = (s: string): string => {
+  const pin = (process.env.HERMES_KANBAN_ATTACHMENTS_ROOT ?? "").trim()
+  if (pin) return pathResolve(pin)
+  return pathResolve(kp(s === DEFAULT ? "kanban/attachments" : `kanban/boards/${s}/attachments`))
+}
+
+const safeAttachmentPath = (s: string, raw: unknown): string | null => {
+  if (typeof raw !== "string" || !raw) return null
+  const root = attachmentsRoot(s)
+  const path = pathResolve(raw)
+  return path === root || path.startsWith(`${root}/`) ? path : null
+}
+
+const attachmentRelPath = (s: string, path: string | null): string | null =>
+  path ? pathRelative(attachmentsRoot(s), path) : null
 
 const pair = (s: string): Handles => {
   const cached = handles.get(s)
@@ -344,6 +381,7 @@ const rwOf = (s: string): Database | null => {
   if (hdr) { errors.set(s, hdr); return null }
   try {
     const db = new Database(path)
+    db.exec(`PRAGMA busy_timeout=${busyTimeoutMs()}`)
     try { db.exec("PRAGMA journal_mode=WAL") } catch {}
     db.exec([
       "PRAGMA synchronous=FULL",
@@ -505,6 +543,22 @@ const toEvent = (r: Record<string, unknown>): Event => {
   }
 }
 
+const toAttachment = (s: string, r: Record<string, unknown>): Attachment => {
+  const filename = String(r.filename ?? "")
+  const size = Number(r.size)
+  const path = safeAttachmentPath(s, r.stored_path)
+  return {
+    id: Number(r.id),
+    filename,
+    name: filename,
+    size: Number.isFinite(size) ? size : null,
+    created_at: Number(r.created_at) || 0,
+    stored_path: String(r.stored_path ?? ""),
+    relative_path: attachmentRelPath(s, path),
+    path,
+  }
+}
+
 /** All non-archived tasks on `s`, grouped by status column. Each
  *  column sorted by (priority desc, updated_at desc) so the
  *  dispatcher's pick-next ordering roughly matches the top of
@@ -566,10 +620,11 @@ export function detailOf(s: string, id: string): Detail | null {
     // return [] so the detail pane keeps working.
     const runs = runsOf(conn, id)
     const events = eventsOf(conn, id)
+    const attachments = attachmentsOf(conn, s, id)
     const latest = latestSummary(conn, id)
     return {
       ...toTask(row), parents, children, comments,
-      runs, events, latest_summary: latest,
+      runs, events, attachments, latest_summary: latest,
     }
   } catch { return null }
 }
@@ -593,6 +648,15 @@ const eventsOf = (conn: Database, id: string): Event[] => {
        FROM task_events WHERE task_id = ? ORDER BY id DESC LIMIT ?`,
     ).all(id, EVENT_TAIL) as Array<Record<string, unknown>>
     return rows.map(toEvent).reverse()
+  } catch { return [] }
+}
+
+const attachmentsOf = (conn: Database, s: string, id: string): Attachment[] => {
+  try {
+    return (conn.query(
+      `SELECT id, filename, stored_path, size, created_at
+       FROM task_attachments WHERE task_id = ? ORDER BY created_at ASC, id ASC`,
+    ).all(id) as Array<Record<string, unknown>>).map(r => toAttachment(s, r))
   } catch { return [] }
 }
 
@@ -669,6 +733,7 @@ export function kanbanWritePragmas(s: string = slug): Record<string, string | nu
     journal_mode: read("PRAGMA journal_mode"),
     synchronous: read("PRAGMA synchronous"),
     wal_autocheckpoint: read("PRAGMA wal_autocheckpoint"),
+    busy_timeout: read("PRAGMA busy_timeout"),
     secure_delete: read("PRAGMA secure_delete"),
     cell_size_check: read("PRAGMA cell_size_check"),
     foreign_keys: read("PRAGMA foreign_keys"),
