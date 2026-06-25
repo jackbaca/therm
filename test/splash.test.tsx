@@ -35,6 +35,38 @@ describe("splash (herm-tji.2)", () => {
     t.destroy()
   })
 
+  test("upstream no-count sentinel is not shown as a negative behind count", async () => {
+    seed()
+    const t = await mount({
+      launch: { mode: "new", splash: true },
+      handlers: { "session.create": () => ({ session_id: "test-sid", info: { update_behind: -1 } }) },
+    })
+    await until(t, () => splashUp(t.frame()))
+    expect(t.frame()).not.toContain("-1 behind")
+    expect(t.frame()).not.toContain("-1 commits behind")
+    t.destroy()
+  })
+
+  test("zero and positive behind counts stay visible", async () => {
+    seed()
+    const t = await mount({
+      launch: { mode: "new", splash: true },
+      handlers: { "session.create": () => ({ session_id: "test-sid", info: { update_behind: 0 } }) },
+    })
+    await until(t, () => t.frame().includes("up to date"))
+    expect(t.frame()).toContain("up to date")
+    t.destroy()
+
+    seed()
+    const u = await mount({
+      launch: { mode: "new", splash: true },
+      handlers: { "session.create": () => ({ session_id: "test-sid", info: { update_behind: 3 } }) },
+    })
+    await until(u, () => u.frame().includes("3 behind"))
+    expect(u.frame()).toContain("3 behind")
+    u.destroy()
+  })
+
   test("tip pinned at bottom of inner window; click cycles", async () => {
     seed()
     const t = await mount({ launch: { mode: "new", splash: true } })

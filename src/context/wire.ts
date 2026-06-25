@@ -203,7 +203,7 @@ export type SessionInfo = {
   mcp_servers?: McpServer[]
   /** hermes-agent version string (e.g. "1.14.2-dev+abc123") */
   release_date?: string
-  /** commits behind origin/main; null = unknown, 0 = up to date */
+  /** commits behind origin/main; null = unknown, negative = update available with unknown count */
   update_behind?: number | null
   /** platform-appropriate update invocation */
   update_command?: string
