@@ -1,6 +1,6 @@
 import { SKINS } from "../context/skin"
 import { SCHEMA, SCHEMA_KEYS, type ConfigEffect } from "./schema"
-import { route } from "./lane"
+import { route, TOOL_PROGRESS } from "./lane"
 
 export type FieldType = "boolean" | "select" | "number" | "string" | "readonly"
 
@@ -26,10 +26,11 @@ const SELECTS: Record<string, string[]> = {
   "display.skin": [...SKINS],
   "logging.level": ["DEBUG", "INFO", "WARNING", "ERROR"],
   "agent.reasoning_effort": ["", "none", "minimal", "low", "medium", "high", "xhigh"],
+  "agent.verify_on_stop": ["auto", "true", "false"],
   "display.busy_input_mode": ["queue", "steer", "interrupt"],
   "display.details_mode": ["hidden", "collapsed", "expanded"],
   "display.thinking_mode": ["collapsed", "truncated", "full"],
-  "display.tool_progress": ["off", "new", "all", "verbose"],
+  "display.tool_progress": [...TOOL_PROGRESS],
   "approvals.mode": ["manual", "ask", "yolo", "deny"],
   "onboarding.profile_build": ["ask", "off"],
   "streaming.transport": ["auto", "draft", "edit", "off"],
@@ -117,9 +118,10 @@ const MERGE: Record<string, string> = {
   approvals: "security", privacy: "security", secrets: "security",
   checkpoints: "agent", context: "agent", cron: "agent", network: "agent",
   model_catalog: "general", onboarding: "general",
-  human_delay: "display", dashboard: "display", gateway: "display",
+  human_delay: "display", dashboard: "display", gateway: "display", desktop: "display",
   tool_output: "agent", prompt_caching: "compression", code_execution: "terminal",
-  lsp: "agent", x_search: "agent", tools: "agent", streaming: "display",
+  goals: "agent", lsp: "agent", tool_loop_guardrails: "agent",
+  web: "agent", x_search: "agent", tools: "agent", streaming: "display",
   slack: "platforms", telegram: "platforms", mattermost: "platforms",
   discord: "platforms", whatsapp: "platforms", matrix: "platforms",
 }

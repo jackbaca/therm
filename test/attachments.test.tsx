@@ -181,6 +181,8 @@ describe("composer: image attachments (D4+D7)", () => {
     expect(t.gw.last("prompt.submit")?.params.text).toBe("")
     // Pre-send tray is gone; chip still appears in the transcript MEDIA
     // echo, which is expected.
+    act(() => t.gw.push({ type: "message.start" }))
+    act(() => t.gw.push({ type: "message.complete", payload: { status: "complete", text: "done" } }))
     await until(t, () => t.frame().includes("Ready"))
     t.destroy()
   })

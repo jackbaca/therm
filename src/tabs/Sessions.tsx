@@ -9,7 +9,7 @@ import { io as dbio } from "../io"
 import type {
   SessionListItem, SessionListResponse, SessionActiveItem, SessionActiveListResponse,
 } from "../context/wire"
-import { useGateway } from "../context/gateway"
+import { useGateway, useGatewayEvent } from "../context/gateway"
 import { useTheme } from "../theme"
 import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
@@ -654,6 +654,19 @@ export const Sessions = memo((props: Props) => {
   const pick = <T,>(m: Map<string, T>, s: SessionActiveItem) =>
     m.get(s.id) ?? m.get(s.session_key ?? "")
 
+  const patchTitle = useCallback((id?: string, title?: string) => {
+    if (!id || title === undefined) return
+    home.update("recentSessions", rows => rows.map(r => r.id === id ? { ...r, title } : r))
+    setRows(prev => prev.map(row => row.id === id ? { ...row, title, detail: row.detail ? { ...row.detail, title } : row.detail } : row))
+    setLiveRows(prev => prev.map(row => row.id === id || row.live?.session_key === id
+      ? { ...row, title, live: row.live ? { ...row.live, title } : row.live }
+      : row))
+  }, [])
+
+  useGatewayEvent(ev => {
+    if (ev.type === "session.title") patchTitle(ev.payload.session_id, ev.payload.title)
+  })
+
   // Two-stage paint. io.list is off-thread, so the mount frame commits
   // (spinner / cached rows) before it resolves; the RPC is slower still.
   // Kids (subagents per parent) fill in after the list — the tree
@@ -851,15 +864,12 @@ export const Sessions = memo((props: Props) => {
         home.invalidate("recentSessions")
         // Patch in place so the row updates without a full RPC reload
         // (session.list is the slow path). reload still happens next r.
-        setRows(prev => prev.map(row => ids.includes(row.id) ? { ...row, title } : row))
-        setLiveRows(prev => prev.map(row => row.id === r.id
-          ? { ...row, title, live: row.live ? { ...row.live, title } : row.live }
-          : row))
+        ids.forEach(id => patchTitle(id, title))
         toast.show({ variant: "success", message: "Renamed" })
       })
       .catch((e: Error) =>
         toast.show({ variant: "error", message: `Rename failed: ${e.message}` }))
-  }, [gw, dialog, toast, sel])
+  }, [gw, dialog, toast, sel, patchTitle])
 
   const toggle = useCallback(() => {
     const v = visible[sel]

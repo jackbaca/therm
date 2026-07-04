@@ -162,6 +162,72 @@ describe("model-picker", () => {
     t.destroy()
   })
 
+  test("refresh key forces model.options refresh and applies returned providers", async () => {
+    const opts = {
+      provider: "moa",
+      model: "moa/fast",
+      providers: [
+        { slug: "moa", name: "Mixture of Agents", is_current: true, total_models: 1, models: ["moa/fast"] },
+        ...OPTIONS.providers,
+      ],
+    }
+    const calls: Array<Record<string, unknown>> = []
+    const t = await mountNode(<Open />, {
+      handlers: {
+        "model.options": (p) => {
+          calls.push(p)
+          return p.refresh ? opts : { providers: [] }
+        },
+      },
+    })
+    await until(t, () => t.frame().includes("Refresh model options"))
+    expect(t.frame()).toContain("Refresh model options")
+
+    act(() => t.keys.pressEnter()); await t.settle()
+    await until(t, () => t.frame().includes("Mixture of Agents"))
+
+    expect(calls).toEqual([{}, { refresh: true }])
+    expect(t.frame()).toContain("Mixture of Agents")
+    t.destroy()
+  })
+
+  test("save-key fallback refreshes model options before warning", async () => {
+    const calls: Array<Record<string, unknown>> = []
+    const t = await mountNode(<Open />, {
+      handlers: {
+        "model.options": (p) => {
+          calls.push(p)
+          return {
+            providers: [
+              { slug: "openai", name: "OpenAI", total_models: 1, models: ["gpt-4"] },
+              {
+                slug: "anthropic",
+                name: "Anthropic",
+                total_models: calls.length > 1 ? 1 : 0,
+                models: calls.length > 1 ? ["claude-sonnet"] : [],
+                authenticated: calls.length > 1,
+                auth_type: "api_key",
+                key_env: "ANTHROPIC_API_KEY",
+                warning: calls.length > 1 ? undefined : "paste ANTHROPIC_API_KEY to activate",
+              },
+            ],
+          }
+        },
+        "model.save_key": () => ({}),
+      },
+    })
+    await until(t, () => t.frame().includes("Anthropic"))
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    act(() => t.keys.pressEnter()); await t.settle()
+    await until(t, () => t.frame().includes("Paste ANTHROPIC_API_KEY"))
+    await act(async () => { await t.keys.typeText("sk-test") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("claude-sonnet"))
+
+    expect(calls).toEqual([{}, { refresh: true }])
+    t.destroy()
+  })
+
   test("non-api-key unauthenticated providers warn without model.save_key", async () => {
     const saves: Array<Record<string, unknown>> = []
     const t = await mountNode(<Open />, {
@@ -190,6 +256,42 @@ describe("model-picker", () => {
 
     expect(saves).toHaveLength(0)
     expect(t.frame()).not.toContain("Switch Model (Google OAuth)")
+    t.destroy()
+  })
+
+  test("Vertex auth shows setup guidance without API-key prompt", async () => {
+    const saves: Array<Record<string, unknown>> = []
+    const t = await mountNode(<Open />, {
+      handlers: {
+        "model.options": () => ({
+          providers: [
+            { slug: "openai", name: "OpenAI", total_models: 1, models: ["gpt-4"] },
+            {
+              slug: "vertex",
+              name: "Vertex AI",
+              total_models: 0,
+              models: [],
+              authenticated: false,
+              auth_type: "vertex",
+              key_env: "VERTEX_CREDENTIALS_PATH",
+            },
+          ],
+        }),
+        "model.save_key": (p) => { saves.push(p); return {} },
+      },
+    })
+    await until(t, () => t.frame().includes("Vertex AI"))
+    expect(t.frame()).toContain("set VERTEX_CREDENTIALS_PATH")
+    expect(t.frame()).not.toContain("auth_type=vertex")
+    expect(t.frame()).not.toContain("paste VERTEX_CREDENTIALS_PATH")
+
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    act(() => t.keys.pressEnter()); await t.settle()
+    await until(t, () => t.frame().includes("set VERTEX_CREDENTIALS_PATH"))
+
+    expect(saves).toHaveLength(0)
+    expect(t.frame()).not.toContain("Paste VERTEX_CREDENTIALS_PATH")
+    expect(t.frame()).not.toContain("Switch Model (Vertex AI)")
     t.destroy()
   })
 

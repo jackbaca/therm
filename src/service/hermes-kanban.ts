@@ -52,6 +52,7 @@ export type Task = {
   created_at: number; updated_at: number; completed_at: number | null
   result: string | null; error: string | null
   tenant: string | null; pid: number | null
+  project_id: string | null
   workspace_kind: string | null; workspace_path: string | null
   branch_name: string | null
   skills: string[]
@@ -60,7 +61,11 @@ export type Task = {
   model_override: string | null
   session_id: string | null
   last_heartbeat_at: number | null
+  block_kind: BlockKind | null
+  block_recurrences: number
 }
+
+export type BlockKind = "dependency" | "needs_input" | "capability" | "transient"
 
 export type Run = {
   id: number; profile: string | null
@@ -227,12 +232,35 @@ export const sortDiags = (ds: Diag[]): Diag[] =>
 const DEFAULT = "default"
 const SLUG = /^[a-z0-9][a-z0-9_-]{0,63}$/
 const DEFAULT_BUSY_TIMEOUT_MS = 120_000
+const BUSY_RETRIES = 5
+const BUSY_MIN_MS = 20
+const BUSY_MAX_MS = 150
 
 const busyTimeoutMs = (): number => {
   const raw = (process.env.HERMES_KANBAN_BUSY_TIMEOUT_MS ?? "").trim()
   if (!raw) return DEFAULT_BUSY_TIMEOUT_MS
   const n = Number(raw)
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_BUSY_TIMEOUT_MS
+}
+
+const isBusy = (err: unknown): boolean => {
+  const msg = String((err as Error)?.message ?? err).toLowerCase()
+  return msg.includes("database is locked") || msg.includes("database is busy")
+}
+
+const nap = () => {
+  const ms = BUSY_MIN_MS + Math.random() * (BUSY_MAX_MS - BUSY_MIN_MS)
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+const boundary = (conn: Pick<Database, "exec">, sql: "BEGIN IMMEDIATE" | "COMMIT") => {
+  for (let i = 0; i <= BUSY_RETRIES; i++) {
+    try { conn.exec(sql); return }
+    catch (err) {
+      if (!isBusy(err) || i === BUSY_RETRIES) throw err
+      nap()
+    }
+  }
 }
 
 /** Shared Hermes root for kanban paths — mirrors upstream
@@ -474,6 +502,7 @@ const selectCol = (have: Set<string>, name: string, alias?: string): string => {
 const taskColumns = (have: Set<string>): string => [
   "id", "title", selectCol(have, "body"), selectCol(have, "assignee"),
   "status", "priority", selectCol(have, "tenant"),
+  selectCol(have, "project_id"),
   selectCol(have, "created_at"), selectCol(have, "completed_at"),
   selectCol(have, "result"), selectCol(have, "last_spawn_error"),
   selectCol(have, "worker_pid"),
@@ -483,8 +512,14 @@ const taskColumns = (have: Set<string>): string => [
   selectCol(have, "max_retries"),
   selectCol(have, "model_override"), selectCol(have, "session_id"),
   selectCol(have, "last_heartbeat_at"),
+  selectCol(have, "block_kind"), selectCol(have, "block_recurrences"),
   `${AT} AS updated_at`,
 ].join(", ")
+
+const BLOCK_KINDS = new Set<BlockKind>(["dependency", "needs_input", "capability", "transient"])
+
+const parseKind = (raw: unknown): BlockKind | null =>
+  typeof raw === "string" && BLOCK_KINDS.has(raw as BlockKind) ? raw as BlockKind : null
 
 const parseSkills = (raw: unknown): string[] => {
   if (typeof raw !== "string" || !raw) return []
@@ -506,6 +541,7 @@ const toTask = (r: Record<string, unknown>): Task => ({
   result: (r.result as string) ?? null,
   error: (r.last_spawn_error as string) ?? null,
   tenant: (r.tenant as string) ?? null,
+  project_id: (r.project_id as string) ?? null,
   pid: (r.worker_pid as number) ?? null,
   workspace_kind: (r.workspace_kind as string) ?? null,
   workspace_path: (r.workspace_path as string) ?? null,
@@ -516,6 +552,8 @@ const toTask = (r: Record<string, unknown>): Task => ({
   model_override: (r.model_override as string) ?? null,
   session_id: (r.session_id as string) ?? null,
   last_heartbeat_at: (r.last_heartbeat_at as number) ?? null,
+  block_kind: parseKind(r.block_kind),
+  block_recurrences: Math.max(0, Number(r.block_recurrences) || 0),
 })
 
 const toRun = (r: Record<string, unknown>): Run => ({
@@ -770,16 +808,22 @@ function checkFileLength(conn: Database) {
  *  kanban_db.write_txn — IMMEDIATE takes the reserved lock up front so
  *  concurrent writers fail fast instead of racing mid-txn. */
 function writeTxn<T>(conn: Database, fn: () => T): T {
-  conn.exec("BEGIN IMMEDIATE")
+  boundary(conn, "BEGIN IMMEDIATE")
+  const out = (() => {
+    try { return fn() }
+    catch (err) {
+      try { conn.exec("ROLLBACK") } catch {}
+      throw err
+    }
+  })()
   try {
-    const out = fn()
-    conn.exec("COMMIT")
-    checkFileLength(conn)
-    return out
+    boundary(conn, "COMMIT")
   } catch (err) {
     try { conn.exec("ROLLBACK") } catch {}
     throw err
   }
+  checkFileLength(conn)
+  return out
 }
 
 const now = () => Math.floor(Date.now() / 1000)
@@ -848,5 +892,7 @@ export const tailLog = (id: string, bytes?: number) => tailLogOf(slug, id, bytes
  *  and toast messages readable for plain ids). */
 export const q = (s: string): string =>
   /^[A-Za-z0-9._\/:+=-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`
+
+export const internals = { writeTxn }
 
 export * as Kanban from "./hermes-kanban"

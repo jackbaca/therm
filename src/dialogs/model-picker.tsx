@@ -30,12 +30,17 @@ type SaveKeyResponse = {
   warning?: string
 }
 
+const REFRESH = "__refresh__"
+
 const configured = (p: ModelOptionProvider) => (p.models?.length ?? 0) > 0
 
 const setupDescription = (p: ModelOptionProvider): string | undefined => {
   if (p.warning) return p.warning
   if (p.auth_type === "api_key" && p.key_env) return `paste ${p.key_env} to activate`
-  if (p.key_env) return p.key_env
+  if (p.auth_type === "vertex") return p.key_env
+    ? `set ${p.key_env} to your service-account JSON path`
+    : "configure Vertex credentials with hermes model"
+  if (p.key_env) return `set ${p.key_env} before using this provider`
   if (p.auth_type) return `run hermes model to configure (${p.auth_type})`
   return undefined
 }
@@ -47,6 +52,7 @@ const providerDescription = (p: ModelOptionProvider): string | undefined => {
 
 const providerHint = (p: ModelOptionProvider): string | undefined => {
   if (p.authenticated !== false) return undefined
+  if (p.auth_type === "vertex") return undefined
   return p.auth_type ? `auth_type=${p.auth_type}` : undefined
 }
 
@@ -67,11 +73,22 @@ const ModelPickerDialog = (props: Props) => {
   const [setupProvider, setSetupProvider] = useState<ModelOptionProvider | null>(null)
   const [global, setGlobal] = useState(false)
 
-  const refresh = useCallback(() => props.gw.request<ModelOptionsResponse>("model.options")
-    .then(setData)
-    .catch(() => setData({ providers: [] })), [props.gw])
+  const load = useCallback((force = false) => props.gw.request<ModelOptionsResponse>("model.options", force ? { refresh: true } : {})
+    .then(r => {
+      setData(d => force || !d ? r : d)
+      return r
+    })
+    .catch(() => {
+      const r = { providers: [] }
+      setData(r)
+      return r
+    }), [props.gw])
 
-  useEffect(() => { void refresh() }, [refresh])
+  const refresh = useCallback(() => {
+    void load(true)
+  }, [load])
+
+  useEffect(() => { void load() }, [load])
 
   const apply = useCallback((model: string, prov: string) => {
     if (props.onApply) return void props.onApply(prov, model)
@@ -91,8 +108,8 @@ const ModelPickerDialog = (props: Props) => {
     try {
       const r = await props.gw.request<SaveKeyResponse>("model.save_key", { slug: p.slug, api_key: key })
       if (r.warning) toast.show({ variant: "warning", message: r.warning })
-      const next = r.provider ?? (await props.gw.request<ModelOptionsResponse>("model.options"))
-        .providers?.find(pp => pp.slug === p.slug)
+      const opts = r.provider ? undefined : await load(true)
+      const next = r.provider ?? opts?.providers?.find(pp => pp.slug === p.slug)
       if (!next) {
         toast.show({ variant: "warning", message: "Provider saved; refresh model options to continue" })
         return
@@ -109,7 +126,7 @@ const ModelPickerDialog = (props: Props) => {
     } catch (e) {
       toast.show({ variant: "error", message: e instanceof Error ? e.message : String(e) })
     }
-  }, [props.gw, toast])
+  }, [props.gw, load, toast])
 
   const setup = useCallback((p: ModelOptionProvider) => {
     const msg = setupDescription(p)
@@ -122,21 +139,26 @@ const ModelPickerDialog = (props: Props) => {
   }, [toast])
 
   const onKey = useCallback((k: { name: string }) => {
+    if (k.name === "f5") { refresh(); return true }
     if (k.name === "tab" && !props.onApply) { setGlobal(g => !g); return true }
     if (k.name === "left" && step !== "provider") { setStep("provider"); return true }
     return false
-  }, [step, props.onApply])
+  }, [step, props.onApply, refresh])
 
   const footer = props.onApply
-    ? <text fg={theme.textMuted}>{step === "model" ? "←: providers" : " "}</text>
+    ? <box height={1} onMouseDown={refresh}>
+      <text fg={theme.textMuted}>{step === "model" ? "F5/Refresh row/click: reload · ←: providers" : "F5/Refresh row/click: reload"}</text>
+    </box>
     : (
-      <text fg={theme.textMuted}>
-        <span>Scope: </span>
-        <span fg={global ? theme.warning : theme.accent}>
-          {global ? "global (persists to config)" : "this session"}
-        </span>
-        <span> · Tab: toggle{step === "model" ? " · ←: providers" : ""}</span>
-      </text>
+      <box height={1} onMouseDown={refresh}>
+        <text fg={theme.textMuted}>
+          <span>Scope: </span>
+          <span fg={global ? theme.warning : theme.accent}>
+            {global ? "global (persists to config)" : "this session"}
+          </span>
+          <span> · F5/Refresh row/click: reload · Tab: toggle{step === "model" ? " · ←: providers" : ""}</span>
+        </text>
+      </box>
     )
 
   if (!data) return <box width={50} padding={1}><text>Loading models…</text></box>
@@ -148,21 +170,25 @@ const ModelPickerDialog = (props: Props) => {
   />
 
   if (step === "provider") {
-    const options: SelectOption[] = (data.providers ?? [])
-      .toSorted((a, b) => Number(Boolean(b.is_current)) - Number(Boolean(a.is_current)))
-      .map(p => ({
-        title: p.name,
-        value: p.slug,
-        description: providerDescription(p),
-        hint: providerHint(p),
-        category: p.is_current ? "Current" : p.authenticated === false ? "Setup required" : "Available",
-      }))
+    const options: SelectOption[] = [
+      ...(data.providers ?? [])
+        .toSorted((a, b) => Number(Boolean(b.is_current)) - Number(Boolean(a.is_current)))
+        .map(p => ({
+          title: p.name,
+          value: p.slug,
+          description: providerDescription(p),
+          hint: providerHint(p),
+          category: p.is_current ? "Current" : p.authenticated === false ? "Setup required" : "Available",
+        })),
+      { title: "Refresh model options", value: REFRESH, description: "force reload from gateway", hint: undefined, category: "Actions" },
+    ]
     return (
       <DialogSelect
         title={props.title ?? "Switch Provider"}
         options={options}
         current={data.provider}
         onSelect={(o) => {
+          if (o.value === REFRESH) return refresh()
           const p = data.providers?.find(pp => pp.slug === o.value)
           if (p?.authenticated === false || (p && !configured(p))) return void setup(p)
           setProvider(o.value)
@@ -176,18 +202,21 @@ const ModelPickerDialog = (props: Props) => {
   }
 
   const p = data.providers?.find(pp => pp.slug === provider)
-  const options: SelectOption[] = (p?.models ?? []).map(m => {
-    const caps = p?.capabilities?.[m]
-    const badges = [
-      caps?.fast ? "fast" : "",
-      caps?.reasoning ? "reasoning" : "",
-    ].filter(Boolean)
-    return {
-      title: m,
-      value: m,
-      hint: badges.length > 0 ? badges.join(" · ") : undefined,
-    }
-  })
+  const options: SelectOption[] = [
+    ...(p?.models ?? []).map(m => {
+      const caps = p?.capabilities?.[m]
+      const badges = [
+        caps?.fast ? "fast" : "",
+        caps?.reasoning ? "reasoning" : "",
+      ].filter(Boolean)
+      return {
+        title: m,
+        value: m,
+        hint: badges.length > 0 ? badges.join(" · ") : undefined,
+      }
+    }),
+    { title: "Refresh model options", value: REFRESH, description: "force reload from gateway", hint: undefined, category: "Actions" },
+  ]
 
   return (
     <DialogSelect
@@ -195,6 +224,7 @@ const ModelPickerDialog = (props: Props) => {
       options={options}
       current={provider === data.provider ? data.model : undefined}
       onSelect={(o) => {
+        if (o.value === REFRESH) return refresh()
         if (provider) apply(o.value, provider)
         dialog.clear()
       }}

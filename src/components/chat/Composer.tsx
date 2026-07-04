@@ -17,6 +17,7 @@ import { acceptCompletion, useCompletion } from "../../app/useCompletion"
 import { frecency } from "../../app/frecency"
 import { useInputHistory, type HistEntry } from "../../app/useInputHistory"
 import { useBackground } from "../../app/background"
+import type { VerificationModel } from "../../app/verification"
 import { PartsBuffer, styles as partStyles, type Part, type FilePart } from "../../app/parts"
 import { SlashPopover } from "./SlashPopover"
 import { AtRefPopover } from "./AtRefPopover"
@@ -56,8 +57,11 @@ type Props = {
   canSubmitPrompt: boolean
   ready: boolean
   streaming: boolean
+  starting?: boolean
   status?: string
   model?: string
+  verification?: VerificationModel | null
+  subagents?: number
   /** Set for ~5s after the first Esc of the interrupt double-tap. */
   escHint?: boolean
   queue?: ReadonlyArray<string>
@@ -279,7 +283,7 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
       return
     }
     const p = live.current.pop
-    if (p.open) {
+    if (p.open && !(p.spot?.whole && p.spot.query.includes(" "))) {
       const c = p.popover?.[p.cursor]
       if (c) fill(c)
       return
@@ -394,9 +398,19 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
   }, [])
 
   const label = !props.ready ? "Connecting..."
+    : props.starting ? (props.status || "Starting agent...")
     : props.streaming ? (props.status || "Generating...")
     : "Ready"
   const dot = props.ready ? (props.streaming ? theme.warning : theme.success) : theme.error
+  const vf = props.verification
+  const vfFg = vf?.tone === "ok" ? theme.success
+    : vf?.tone === "err" ? theme.error
+    : vf?.tone === "warn" ? theme.warning
+    : theme.textMuted
+  const subagents = typeof props.subagents === "number" ? props.subagents : 0
+  const resume = subagents > 0 && !props.streaming
+    ? subagents === 1 ? "↩ resumes when subagent finishes" : `↩ resumes when ${subagents} subagents finish`
+    : undefined
 
   // Logical-line row count (wrap-induced growth ignored; yoga sizes the
   // textarea, this only positions the absolute popover above the border).
@@ -546,6 +560,10 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
           <span fg={theme.textMuted}> {mode === "shell" ? "Shell" : label}</span>
           {mode === "shell"
             ? <span fg={theme.textMuted}>  esc exit shell mode</span>
+            : props.starting && props.escHint
+            ? <span fg={theme.warning}>  esc again to cancel</span>
+            : props.starting
+            ? <span fg={theme.textMuted}>  esc×2 cancel</span>
             : props.streaming && props.escHint
             ? <span fg={theme.warning}>  esc again to interrupt</span>
             : props.streaming
@@ -557,7 +575,9 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
           <text fg={theme.textMuted}>{keys.print("queue.flush")} to send queued now  </text>
         ) : null}
         {bg.count > 0 ? <text fg={theme.text}>▶ {bg.count}  </text> : null}
+        {resume ? <text fg={theme.textMuted}>{resume}  </text> : null}
         {bits.length > 0 ? <text fg={theme.textMuted}>{trunc(bits.join(" · "), 56)}  </text> : null}
+        {vf ? <text fg={vfFg}>{vf.glyph} {trunc(vf.detail, 42)}  </text> : null}
         {props.model ? <text fg={theme.textMuted}>{props.model}</text> : null}
       </box>
     </box>

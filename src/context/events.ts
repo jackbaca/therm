@@ -17,6 +17,7 @@ export type Side = {
   onBackground?: (task_id: string, text: string) => void
   onBtw?: (text: string) => void
   onStatus?: (text: string) => void
+  onSessionTitle?: (sid?: string, title?: string) => void
   onSkin?: (skin: GatewaySkin | null | undefined) => void
   onApprovalRemembered?: () => void
   /** voice.status event — gateway VAD loop state change (listening/transcribing/idle). */
@@ -28,6 +29,12 @@ export type Side = {
 
 function count(o: Record<string, string[]> | undefined): number {
   return o ? Object.values(o).reduce((n, v) => n + v.length, 0) : 0
+}
+
+function reference(label: string, text: string, index: number | undefined, count: number | undefined): string {
+  const head = index && count ? `◇ Reference ${index}/${count} — ${label}` : `◇ Reference — ${label}`
+  const body = text.trim()
+  return body ? `${head}\n${body}` : head
 }
 
 export function formatProcessNotification(text: string): string {
@@ -55,6 +62,10 @@ export function mapEvent(ev: GatewayEvent, side: Side): Action | null {
       if (si.credential_warning) side.onStatus?.(si.credential_warning)
       return { kind: "system", text: label }
     }
+
+    case "session.title":
+      side.onSessionTitle?.(ev.payload.session_id, ev.payload.title)
+      return null
 
     case "message.start":
       perf.count("stream:start")
@@ -121,6 +132,23 @@ export function mapEvent(ev: GatewayEvent, side: Side): Action | null {
       const text = ev.payload?.text
       if (!text) return null
       return { kind: "thinking", text, final: ev.type === "reasoning.available", verbose: ev.payload?.verbose }
+    }
+
+    case "moa.reference":
+      return {
+        kind: "reference",
+        text: reference(
+          ev.payload?.label ?? "reference",
+          ev.payload?.text ?? "",
+          ev.payload?.index,
+          ev.payload?.count,
+        ),
+      }
+
+    case "moa.aggregating": {
+      const agg = ev.payload?.aggregator
+      side.onStatus?.(agg ? `aggregating with ${agg}…` : "aggregating…")
+      return null
     }
 
     case "subagent.start":

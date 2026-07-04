@@ -157,6 +157,29 @@ describe("Sessions tab", () => {
     t.destroy()
   })
 
+  test("session.title event patches the matching sidebar row", async () => {
+    const gw = new MockGateway({
+      "session.active_list": () => ({ sessions: [
+        { id: "live-past", session_key: "past", title: "Past Root", preview: "hello", message_count: 2, started_at: 1700000000, status: "idle" },
+      ]}),
+      "session.list": () => ({ sessions: [
+        { id: "past", title: "Past Root", preview: "hello", message_count: 2, started_at: 1700000000, source: "tui" },
+      ]}),
+    })
+    const disk = [detail({ id: "past", sessionSource: "tui", title: "Past Root", message_count: 2, started_at: 1700000000 })]
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, list: () => disk }} currentId="live-past" />, { gw, width: 120 })
+    await until(t, () => t.frame().includes("Sessions (1)") && t.frame().includes("Past Root"))
+
+    act(() => gw.push({
+      type: "session.title",
+      payload: { session_id: "live-past", title: "Generated Active" },
+    }))
+    await until(t, () => t.frame().includes("Generated Active"))
+
+    expect(t.frame()).not.toContain("Past Root")
+    t.destroy()
+  })
+
   test("lists from session.list RPC and switches on Enter", async () => {
     const gw = new MockGateway({ "session.list": () => ({ sessions: ROWS }) })
     let switched = ""

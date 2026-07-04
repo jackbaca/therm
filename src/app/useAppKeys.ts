@@ -44,6 +44,7 @@ type Opts = {
   focusRegion: Region
   setFocusRegion: (r: Region | ((r: Region) => Region)) => void
   streaming: boolean
+  starting: boolean
   dialogOpen: () => boolean
   composer: RefObject<ComposerHandle | null>
   /** Offer the key to a pending inline prompt card. Return true to
@@ -207,7 +208,7 @@ export function useAppKeys(o: Opts) {
     // Only meaningful mid-stream with something queued; otherwise fall
     // through (leader was already consumed, so no stray "u" reaches the
     // textarea).
-    if (keys.match("queue.flush", key) && o.streaming && o.queued > 0) {
+    if (keys.match("queue.flush", key) && (o.streaming || o.starting) && o.queued > 0) {
       o.onFlushQueue()
       key.stopPropagation()
       return
@@ -315,8 +316,8 @@ export function useAppKeys(o: Opts) {
     }
 
     if (keys.match("session.interrupt", key)) {
-      if (!o.streaming && o.onEscape?.()) return
-      if (o.streaming) {
+      if (!o.streaming && !o.starting && o.onEscape?.()) return
+      if (o.streaming || o.starting) {
         const now = Date.now()
         if (now - lastEsc.current < INTERRUPT_MS) {
           o.onInterrupt()

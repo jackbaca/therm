@@ -34,6 +34,16 @@ describe("mapEvent", () => {
     expect(r.calls.status).toEqual(["no key"])
   })
 
+  test("session.title is side-effect only", () => {
+    const got: unknown[] = []
+    const r = map({
+      type: "session.title",
+      payload: { session_id: "sid-a", title: "Auto Title" },
+    }, { onSessionTitle: (...a) => got.push(a) })
+    expect(r.action).toBeNull()
+    expect(got).toEqual([["sid-a", "Auto Title"]])
+  })
+
   test("message.delta empty → null", () => {
     expect(map({ type: "message.delta", payload: { text: "" } }).action).toBeNull()
     expect(map({ type: "message.delta", payload: { text: "x" } }).action)
@@ -163,6 +173,22 @@ describe("mapEvent", () => {
       .toEqual({ kind: "thinking", text: "done", final: true })
     expect(map({ type: "reasoning.available", payload: { text: "done", verbose: true } }).action)
       .toEqual({ kind: "thinking", text: "done", final: true, verbose: true })
+  })
+
+  test("moa.reference maps to a visible committed reference block", () => {
+    expect(map({
+      type: "moa.reference",
+      payload: { label: "openrouter:openai/gpt-5.5", text: "Paris.", index: 1, count: 2 },
+    }).action).toEqual({
+      kind: "reference",
+      text: "◇ Reference 1/2 — openrouter:openai/gpt-5.5\nParis.",
+    })
+  })
+
+  test("moa.aggregating is transient status only", () => {
+    const r = map({ type: "moa.aggregating", payload: { aggregator: "openrouter:anthropic/claude-opus-4.8" } })
+    expect(r.action).toBeNull()
+    expect(r.calls.status).toEqual(["aggregating with openrouter:anthropic/claude-opus-4.8…"])
   })
 
   test("request events return prompt actions (no side callback)", () => {
