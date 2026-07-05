@@ -12,6 +12,8 @@ import { DialogSelect, type SelectOption } from "../ui/dialog-select"
 import { SecretPrompt } from "./secret-prompt"
 import { useTheme } from "../theme"
 import { useToast } from "../ui/toast"
+import { useKeys } from "../keys/context"
+import type { ParsedKey } from "@opentui/core"
 import type { Gateway } from "../context/gateway"
 import type { ConfigSetResponse, ModelOptionProvider, ModelOptionsResponse } from "../context/wire"
 
@@ -60,6 +62,7 @@ const replaceProvider = (
 const ModelPickerDialog = (props: Props) => {
   const dialog = useDialog()
   const toast = useToast()
+  const keys = useKeys()
   const theme = useTheme().theme
   const [data, setData] = useState<ModelOptionsResponse | null>(null)
   const [step, setStep] = useState<Step>("provider")
@@ -67,11 +70,16 @@ const ModelPickerDialog = (props: Props) => {
   const [setupProvider, setSetupProvider] = useState<ModelOptionProvider | null>(null)
   const [global, setGlobal] = useState(false)
 
-  const refresh = useCallback(() => props.gw.request<ModelOptionsResponse>("model.options")
+  const load = useCallback((refresh = false) => props.gw.request<ModelOptionsResponse>("model.options", refresh ? { refresh: true } : undefined)
     .then(setData)
     .catch(() => setData({ providers: [] })), [props.gw])
 
-  useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => { void load() }, [load])
+
+  const refresh = useCallback(() => {
+    toast.show({ variant: "info", message: "Refreshing model catalog; custom-provider probes may be slower…" })
+    void load(true)
+  }, [load, toast])
 
   const apply = useCallback((model: string, prov: string) => {
     if (props.onApply) return void props.onApply(prov, model)
@@ -91,7 +99,7 @@ const ModelPickerDialog = (props: Props) => {
     try {
       const r = await props.gw.request<SaveKeyResponse>("model.save_key", { slug: p.slug, api_key: key })
       if (r.warning) toast.show({ variant: "warning", message: r.warning })
-      const next = r.provider ?? (await props.gw.request<ModelOptionsResponse>("model.options"))
+      const next = r.provider ?? (await props.gw.request<ModelOptionsResponse>("model.options", { refresh: true }))
         .providers?.find(pp => pp.slug === p.slug)
       if (!next) {
         toast.show({ variant: "warning", message: "Provider saved; refresh model options to continue" })
@@ -121,21 +129,22 @@ const ModelPickerDialog = (props: Props) => {
     setStep("setup")
   }, [toast])
 
-  const onKey = useCallback((k: { name: string }) => {
+  const onKey = useCallback((k: ParsedKey) => {
+    if (keys.match("list.refresh", k)) { refresh(); return true }
     if (k.name === "tab" && !props.onApply) { setGlobal(g => !g); return true }
     if (k.name === "left" && step !== "provider") { setStep("provider"); return true }
     return false
-  }, [step, props.onApply])
+  }, [keys, refresh, step, props.onApply])
 
   const footer = props.onApply
-    ? <text fg={theme.textMuted}>{step === "model" ? "←: providers" : " "}</text>
+    ? <text fg={theme.textMuted}>{`${keys.print("list.refresh")}: refresh${step === "model" ? " · ←: providers" : ""}`}</text>
     : (
       <text fg={theme.textMuted}>
         <span>Scope: </span>
         <span fg={global ? theme.warning : theme.accent}>
           {global ? "global (persists to config)" : "this session"}
         </span>
-        <span> · Tab: toggle{step === "model" ? " · ←: providers" : ""}</span>
+        <span>{` · ${keys.print("list.refresh")}: refresh · Tab: toggle${step === "model" ? " · ←: providers" : ""}`}</span>
       </text>
     )
 

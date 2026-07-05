@@ -31,6 +31,51 @@ const OPTIONS = {
 }
 
 describe("model-picker", () => {
+  test("initial open requests model options without refresh", async () => {
+    const t = await mountNode(<Open />, {
+      handlers: { "model.options": () => OPTIONS },
+    })
+    await until(t, () => t.frame().includes("Anthropic"))
+
+    expect(t.gw.calls.filter(c => c.method === "model.options")).toEqual([
+      { method: "model.options", params: {} },
+    ])
+    t.destroy()
+  })
+
+  test("refresh key probes catalog with refresh and updates providers", async () => {
+    const t = await mountNode(<Open />, {
+      handlers: {
+        "model.options": p => p.refresh ? {
+          provider: "anthropic",
+          model: "claude-3",
+          providers: [
+            { slug: "anthropic", name: "Anthropic", total_models: 1, models: ["claude-3"] },
+            { slug: "custom", name: "Custom Probe", total_models: 1, models: ["custom-1"] },
+          ],
+        } : {
+          provider: "anthropic",
+          model: "claude-3",
+          providers: [
+            { slug: "anthropic", name: "Anthropic", total_models: 1, models: ["claude-3"] },
+          ],
+        },
+      },
+    })
+    await until(t, () => t.frame().includes("Anthropic"))
+    expect(t.frame()).not.toContain("Custom Probe")
+
+    act(() => t.keys.pressKey("r")); await t.settle()
+    await until(t, () => t.frame().includes("Custom Probe"))
+
+    expect(t.gw.calls.filter(c => c.method === "model.options").map(c => c.params)).toEqual([
+      {},
+      { refresh: true },
+    ])
+    expect(t.frame()).toContain("custom-provider")
+    t.destroy()
+  })
+
   test("session-scoped by default → config.set sends combined arg with session_id; Tab toggles global", async () => {
     const sets: Array<Record<string, unknown>> = []
     const t = await mountNode(<Open />, {
@@ -158,6 +203,53 @@ describe("model-picker", () => {
     await until(t, () => t.frame().includes("claude-opus"))
 
     expect(saves).toEqual([{ slug: "anthropic", api_key: "sk-test" }])
+    expect(t.frame()).toContain("Switch Model (Anthropic)")
+    t.destroy()
+  })
+
+  test("api-key setup fallback refreshes catalog before missing-provider warning", async () => {
+    const t = await mountNode(<Open />, {
+      handlers: {
+        "model.options": p => p.refresh ? {
+          providers: [
+            { slug: "openai", name: "OpenAI", total_models: 1, models: ["gpt-4"] },
+            {
+              slug: "anthropic",
+              name: "Anthropic",
+              authenticated: true,
+              total_models: 1,
+              models: ["claude-opus"],
+            },
+          ],
+        } : {
+          providers: [
+            { slug: "openai", name: "OpenAI", total_models: 1, models: ["gpt-4"] },
+            {
+              slug: "anthropic",
+              name: "Anthropic",
+              total_models: 0,
+              models: [],
+              authenticated: false,
+              auth_type: "api_key",
+              key_env: "ANTHROPIC_API_KEY",
+            },
+          ],
+        },
+        "model.save_key": () => ({}),
+      },
+    })
+    await until(t, () => t.frame().includes("Anthropic"))
+    act(() => t.keys.pressArrow("down")); await t.settle()
+    act(() => t.keys.pressEnter()); await t.settle()
+    await until(t, () => t.frame().includes("Paste ANTHROPIC_API_KEY"))
+    await act(async () => { await t.keys.typeText("sk-test") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("claude-opus"))
+
+    expect(t.gw.calls.filter(c => c.method === "model.options").map(c => c.params)).toEqual([
+      {},
+      { refresh: true },
+    ])
     expect(t.frame()).toContain("Switch Model (Anthropic)")
     t.destroy()
   })
