@@ -111,13 +111,15 @@ export const buildFields = (user: Record<string, unknown>): Field[] => {
 }
 
 // Small/satellite groups fold into a parent. This is a UX decision,
-// not derivable from source — keeps the sidebar to ~18 entries instead
-// of 34 with a dozen 1-field groups.
+// not derivable from source — keeps the sidebar from growing a long
+// tail of tiny sections.
 const MERGE: Record<string, string> = {
   approvals: "security", privacy: "security", secrets: "security",
   checkpoints: "agent", context: "agent", cron: "agent", network: "agent",
-  model_catalog: "general", onboarding: "general",
+  computer_use: "agent", goals: "agent", tool_loop_guardrails: "agent", web: "agent",
+  bedrock: "general", model_catalog: "general", onboarding: "general", vertex: "general",
   human_delay: "display", dashboard: "display", gateway: "display",
+  desktop: "display", voice: "display",
   tool_output: "agent", prompt_caching: "compression", code_execution: "terminal",
   lsp: "agent", x_search: "agent", tools: "agent", streaming: "display",
   slack: "platforms", telegram: "platforms", mattermost: "platforms",

@@ -42,14 +42,14 @@ describe("Config tab", () => {
 
   test("onboarding profile build renders as a selectable general field", async () => {
     const gw = new MockGateway({ "config.get": () => ({ config: {} }) })
-    const t = await mountNode(<Config focused />, { gw, width: 160, height: 48 })
+    const t = await mountNode(<Config focused />, { gw, width: 160, height: 80 })
     await until(t, () => t.frame().includes("general"))
     await navTo(t, {}, "onboarding.profile_build")
     expect(t.frame()).toMatch(/profile_build\s+ask/)
     expect(t.frame()).toContain("[h/l]")
     const lines = t.frame().split("\n")
     const i = lines.findIndex(l => l.includes("▸") && l.includes("profile_build"))
-    expect(lines.slice(i + 1, i + 4).join(" ")).toMatch(/first gateway message/i)
+    expect(lines.slice(i + 1, i + 4).join(" ")).toMatch(/first gateway message ever/i)
     t.destroy()
   })
 
