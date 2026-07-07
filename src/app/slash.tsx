@@ -291,6 +291,7 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
         }
         case "model":
           if (!arg) { openModelPicker(dialog, gw); return }
+          if (arg.trim() === "--refresh") { openModelPicker(dialog, gw, { refresh: true }); return }
           gw.request<{ value?: string; warning?: string }>("config.set",
             { key: "model", value: arg })
             .then(r => {

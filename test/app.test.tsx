@@ -699,6 +699,31 @@ describe("app", () => {
     expect(prefs.get("themeMode")).toBe("dark")
   })
 
+  test("/model --refresh opens picker with forced refresh", async () => {
+    const gw = new MockGateway({
+      "commands.catalog": () => ({ pairs: [["/model", "Switch model"]] }),
+      "model.options": () => ({
+        provider: "anthropic",
+        model: "claude-3",
+        providers: [{ slug: "anthropic", name: "Anthropic", is_current: true, total_models: 1, models: ["claude-3"] }],
+      }),
+      "config.set": () => { throw new Error("unexpected config.set") },
+    })
+    const t = await mount({ gw })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("/model --refresh") })
+    act(() => t.keys.pressEscape())
+    await t.settle()
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Switch Provider"))
+
+    expect(t.gw.last("model.options")?.params).toMatchObject({ refresh: true })
+    expect(t.gw.last("config.set")).toBeUndefined()
+    expect(t.gw.last("prompt.submit")).toBeUndefined()
+    t.destroy()
+  })
+
   test("/branch activates the live branch session id", async () => {
     const gw = new MockGateway({
       "commands.catalog": () => ({ pairs: [["/branch", "Branch current session"]] }),

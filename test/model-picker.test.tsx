@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { act } from "react"
-import { mountNode, until } from "./harness"
+import { mountNode, until, MockGateway } from "./harness"
 import { useDialog } from "../src/ui/dialog"
 import { useGateway } from "../src/context/gateway"
 import { openModelPicker } from "../src/dialogs/model-picker"
@@ -11,6 +11,13 @@ const Open = () => {
   const d = useDialog()
   const gw = useGateway()
   useEffect(() => { openModelPicker(d, gw) }, [])
+  return null
+}
+
+const OpenRefresh = () => {
+  const d = useDialog()
+  const gw = useGateway()
+  useEffect(() => { openModelPicker(d, gw, { refresh: true }) }, [])
   return null
 }
 
@@ -31,6 +38,36 @@ const OPTIONS = {
 }
 
 describe("model-picker", () => {
+  test("initial open uses normal options and r refreshes with refresh param", async () => {
+    const calls: Array<Record<string, unknown>> = []
+    const gw = new MockGateway({
+      "model.options": p => { calls.push(p); return OPTIONS },
+    })
+    gw.setSession("sess-abc")
+    const t = await mountNode(<Open />, { gw })
+    await until(t, () => t.frame().includes("Anthropic"))
+
+    expect(calls).toEqual([{ session_id: "sess-abc" }])
+    act(() => t.keys.pressKey("r"))
+    await until(t, () => calls.length === 2)
+    expect(calls[1]).toMatchObject({ session_id: "sess-abc", refresh: true })
+    expect(t.frame()).toContain("Anthropic")
+    t.destroy()
+  })
+
+  test("forced refresh open calls model.options with refresh param", async () => {
+    const calls: Array<Record<string, unknown>> = []
+    const t = await mountNode(<OpenRefresh />, {
+      handlers: {
+        "model.options": p => { calls.push(p); return OPTIONS },
+      },
+    })
+    await until(t, () => t.frame().includes("Anthropic"))
+
+    expect(calls).toEqual([{ refresh: true }])
+    t.destroy()
+  })
+
   test("session-scoped by default → config.set sends combined arg with session_id; Tab toggles global", async () => {
     const sets: Array<Record<string, unknown>> = []
     const t = await mountNode(<Open />, {
