@@ -49,7 +49,7 @@ describe("Config tab", () => {
     expect(t.frame()).toContain("[h/l]")
     const lines = t.frame().split("\n")
     const i = lines.findIndex(l => l.includes("▸") && l.includes("profile_build"))
-    expect(lines.slice(i + 1, i + 4).join(" ")).toMatch(/first gateway message/i)
+    expect(lines.slice(i + 1, i + 4).join(" ")).toMatch(/profile-build path/i)
     t.destroy()
   })
 
