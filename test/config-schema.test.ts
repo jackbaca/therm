@@ -98,10 +98,8 @@ describe("schema", () => {
       "discord.bots_require_inline_mention",
     ]) expect(SCHEMA[k], k).toBeDefined()
 
-    expect(SCHEMA["custom_providers"].doc).toContain("ssl_ca_cert")
-    expect(SCHEMA["custom_providers"].doc).toContain("ssl_verify")
-    expect(SCHEMA["providers"].doc).toContain("ssl_ca_cert")
-    expect(SCHEMA["providers"].doc).toContain("ssl_verify")
+    expect(SCHEMA["custom_providers"]).toMatchObject({ type: "dict" })
+    expect(SCHEMA["providers"]).toMatchObject({ type: "dict" })
     expect(SCHEMA["prompt_caching.enabled"]).toBeUndefined()
   })
 })

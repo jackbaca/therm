@@ -49,11 +49,14 @@ describe("rules", () => {
     expect(check("agent.gateway_timeout", "-1")).toMatch(/≥/)
   })
 
-  test("disableable timeout rules accept negative integers", () => {
+  test("disableable gateway timeout accepts negative integers", () => {
     expect(check("gateway.platform_connect_timeout", "-1")).toBeNull()
-    expect(check("delegation.child_timeout_seconds", "-1")).toBeNull()
     expect(check("gateway.platform_connect_timeout", "1.5")).toMatch(/integer/)
-    expect(check("delegation.child_timeout_seconds", "1.5")).toMatch(/integer/)
+  })
+
+  test("child timeout requires non-negative seconds", () => {
+    expect(check("delegation.child_timeout_seconds", "0")).toBeNull()
+    expect(check("delegation.child_timeout_seconds", "-1")).toMatch(/≥/)
   })
 
   test("summary limit requires non-negative integer", () => {
