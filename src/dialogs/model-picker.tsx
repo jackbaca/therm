@@ -7,11 +7,13 @@
 // than a provider/model pair.
 
 import { useEffect, useState, useCallback } from "react"
+import type { ParsedKey } from "@opentui/core"
 import { useDialog } from "../ui/dialog"
 import { DialogSelect, type SelectOption } from "../ui/dialog-select"
 import { SecretPrompt } from "./secret-prompt"
 import { useTheme } from "../theme"
 import { useToast } from "../ui/toast"
+import { useKeys } from "../keys/context"
 import type { Gateway } from "../context/gateway"
 import type { ConfigSetResponse, ModelOptionProvider, ModelOptionsResponse } from "../context/wire"
 
@@ -23,6 +25,7 @@ type Props = {
    *  set, the scope toggle is hidden and the caller owns the write. */
   onApply?: (provider: string, model: string) => Promise<void>
   title?: string
+  refresh?: boolean
 }
 
 type SaveKeyResponse = {
@@ -66,6 +69,7 @@ const replaceProvider = (
 const ModelPickerDialog = (props: Props) => {
   const dialog = useDialog()
   const toast = useToast()
+  const keys = useKeys()
   const theme = useTheme().theme
   const [data, setData] = useState<ModelOptionsResponse | null>(null)
   const [step, setStep] = useState<Step>("provider")
@@ -73,22 +77,25 @@ const ModelPickerDialog = (props: Props) => {
   const [setupProvider, setSetupProvider] = useState<ModelOptionProvider | null>(null)
   const [global, setGlobal] = useState(false)
 
-  const load = useCallback((force = false) => props.gw.request<ModelOptionsResponse>("model.options", force ? { refresh: true } : {})
-    .then(r => {
-      setData(d => force || !d ? r : d)
-      return r
-    })
-    .catch(() => {
-      const r = { providers: [] }
-      setData(r)
-      return r
-    }), [props.gw])
+  const load = useCallback(async (force = false, quiet = false) => {
+    try {
+      const next = await props.gw.request<ModelOptionsResponse>("model.options", force ? { refresh: true } : {})
+      setData(d => force || !d ? next : d)
+      return next
+    } catch (e) {
+      if (!quiet) toast.show({ variant: "error", message: e instanceof Error ? e.message : String(e) })
+      const empty = { providers: [] }
+      setData(d => d ?? empty)
+      return null
+    }
+  }, [props.gw, toast])
 
   const refresh = useCallback(() => {
+    toast.show({ variant: "info", message: "Refreshing model catalog; custom-provider probes may be slower…" })
     void load(true)
-  }, [load])
+  }, [load, toast])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { void load(Boolean(props.refresh), Boolean(props.refresh)) }, [load, props.refresh])
 
   const apply = useCallback((model: string, prov: string) => {
     if (props.onApply) return void props.onApply(prov, model)
@@ -108,8 +115,9 @@ const ModelPickerDialog = (props: Props) => {
     try {
       const r = await props.gw.request<SaveKeyResponse>("model.save_key", { slug: p.slug, api_key: key })
       if (r.warning) toast.show({ variant: "warning", message: r.warning })
-      const opts = r.provider ? undefined : await load(true)
-      const next = r.provider ?? opts?.providers?.find(pp => pp.slug === p.slug)
+      const opts = await load(true, true)
+      const hit = opts?.providers?.find(pp => pp.slug === p.slug)
+      const next = hit && configured(hit) ? hit : r.provider ?? hit
       if (!next) {
         toast.show({ variant: "warning", message: "Provider saved; refresh model options to continue" })
         return
@@ -138,16 +146,17 @@ const ModelPickerDialog = (props: Props) => {
     setStep("setup")
   }, [toast])
 
-  const onKey = useCallback((k: { name: string }) => {
-    if (k.name === "f5") { refresh(); return true }
+  const onKey = useCallback((k: ParsedKey) => {
+    if (k.name === "f5" || keys.match("list.refresh", k)) { refresh(); return true }
     if (k.name === "tab" && !props.onApply) { setGlobal(g => !g); return true }
     if (k.name === "left" && step !== "provider") { setStep("provider"); return true }
     return false
-  }, [step, props.onApply, refresh])
+  }, [keys, props.onApply, refresh, step])
 
+  const hint = `${keys.print("list.refresh")}/F5/Refresh row/click: refresh`
   const footer = props.onApply
     ? <box height={1} onMouseDown={refresh}>
-      <text fg={theme.textMuted}>{step === "model" ? "F5/Refresh row/click: reload · ←: providers" : "F5/Refresh row/click: reload"}</text>
+      <text fg={theme.textMuted}>{step === "model" ? `${hint} · ←: providers` : hint}</text>
     </box>
     : (
       <box height={1} onMouseDown={refresh}>
@@ -156,7 +165,7 @@ const ModelPickerDialog = (props: Props) => {
           <span fg={global ? theme.warning : theme.accent}>
             {global ? "global (persists to config)" : "this session"}
           </span>
-          <span> · F5/Refresh row/click: reload · Tab: toggle{step === "model" ? " · ←: providers" : ""}</span>
+          <span>{` · Tab: toggle · ${hint}${step === "model" ? " · ←: providers" : ""}`}</span>
         </text>
       </box>
     )
@@ -237,7 +246,7 @@ const ModelPickerDialog = (props: Props) => {
 
 export const openModelPicker = (
   dialog: ReturnType<typeof useDialog>, gw: Gateway,
-  opts?: { title?: string; onApply?: (provider: string, model: string) => Promise<void> },
+  opts?: { title?: string; onApply?: (provider: string, model: string) => Promise<void>; refresh?: boolean },
 ) => {
-  dialog.replace(<ModelPickerDialog gw={gw} title={opts?.title} onApply={opts?.onApply} />)
+  dialog.replace(<ModelPickerDialog gw={gw} title={opts?.title} onApply={opts?.onApply} refresh={opts?.refresh} />)
 }
