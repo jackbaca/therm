@@ -66,7 +66,7 @@ export const RULES: Record<string, Rule> = {
   "agent.gateway_notify_interval": nonNeg,
   "agent.restart_drain_timeout": nonNeg,
   "gateway.platform_connect_timeout": integer,
-  "delegation.child_timeout_seconds": integer,
+  "delegation.child_timeout_seconds": nonNeg,
   "browser.command_timeout": int(1, 600),
   "approvals.timeout": int(1, 3600),
   "security.tirith_timeout": int(1, 120),

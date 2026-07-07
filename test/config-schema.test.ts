@@ -48,6 +48,19 @@ describe("schema", () => {
     })
   })
 
+  test("upstream 05cbddc config keys are present", () => {
+    expect(SCHEMA["display.timestamp_format"]).toMatchObject({
+      type: "str",
+      default: "%H:%M",
+      group: "display",
+    })
+    expect(SCHEMA["secrets.onepassword.enabled"]).toMatchObject({
+      type: "bool",
+      default: false,
+      group: "secrets",
+    })
+  })
+
   test("group is first dotted segment (or 'general' for root keys)", () => {
     for (const k of SCHEMA_KEYS) {
       const want = k.includes(".") ? k.split(".")[0] : "general"
