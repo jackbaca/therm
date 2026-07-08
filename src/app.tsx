@@ -56,7 +56,6 @@ import { useVoice } from "./voice/useVoice"
 import { VoiceIndicator } from "./voice/Indicator"
 import { sessionCapabilities } from "./app/sessionCapabilities"
 import { useGitBranch } from "./utils/git"
-import { useVerification } from "./app/verification"
 
 type AppProps = { initialTheme?: string; gateway?: Gateway; launch?: Launch; keyOverrides?: Record<string, string> }
 
@@ -889,7 +888,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const inputFocused = focusRegion === "input" && !prompt
   const sidebarVisible = dims.width >= (tab === CHAT_TAB ? 120 : 140) && !hideSidebar
   const branch = useGitBranch(info?.cwd)
-  const vf = useVerification(sid, info?.cwd)
   const hidden = !sidebarVisible ? hiddenSidebar({
     info, usage, profile: activeProfileName(), title: caption, branch,
   }) : undefined
@@ -922,7 +920,6 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
                 starting={starting}
                 status={status}
                 model={info?.model}
-                verification={vf}
                 subagents={usage?.active_subagents ?? info?.usage?.active_subagents}
                 hidden={hidden}
                 escHint={escHint}

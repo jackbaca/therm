@@ -61,7 +61,6 @@ export class MockGateway extends EventEmitter implements Gateway {
     this.on$("session.history", () => ({ count: 0, messages: [] }))
     this.on$("session.save", () => ({ file: "/tmp/conv.json" }))
     this.on$("session.usage", () => ({}))
-    this.on$("verification.status", () => ({}))
     this.on$("commands.catalog", () => ({ pairs: [] }))
     this.on$("cron.manage", () => ({ jobs: [] }))
     this.on$("toolsets.list", () => ({ toolsets: [] }))

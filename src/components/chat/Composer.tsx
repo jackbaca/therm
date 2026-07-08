@@ -17,7 +17,6 @@ import { acceptCompletion, useCompletion } from "../../app/useCompletion"
 import { frecency } from "../../app/frecency"
 import { useInputHistory, type HistEntry } from "../../app/useInputHistory"
 import { useBackground } from "../../app/background"
-import type { VerificationModel } from "../../app/verification"
 import { PartsBuffer, styles as partStyles, type Part, type FilePart } from "../../app/parts"
 import { SlashPopover } from "./SlashPopover"
 import { AtRefPopover } from "./AtRefPopover"
@@ -60,7 +59,6 @@ type Props = {
   starting?: boolean
   status?: string
   model?: string
-  verification?: VerificationModel | null
   subagents?: number
   /** Set for ~5s after the first Esc of the interrupt double-tap. */
   escHint?: boolean
@@ -402,11 +400,6 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     : props.streaming ? (props.status || "Generating...")
     : "Ready"
   const dot = props.ready ? (props.streaming ? theme.warning : theme.success) : theme.error
-  const vf = props.verification
-  const vfFg = vf?.tone === "ok" ? theme.success
-    : vf?.tone === "err" ? theme.error
-    : vf?.tone === "warn" ? theme.warning
-    : theme.textMuted
   const subagents = typeof props.subagents === "number" ? props.subagents : 0
   const resume = subagents > 0 && !props.streaming
     ? subagents === 1 ? "↩ resumes when subagent finishes" : `↩ resumes when ${subagents} subagents finish`
@@ -577,7 +570,6 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
         {bg.count > 0 ? <text fg={theme.text}>▶ {bg.count}  </text> : null}
         {resume ? <text fg={theme.textMuted}>{resume}  </text> : null}
         {bits.length > 0 ? <text fg={theme.textMuted}>{trunc(bits.join(" · "), 56)}  </text> : null}
-        {vf ? <text fg={vfFg}>{vf.glyph} {trunc(vf.detail, 42)}  </text> : null}
         {props.model ? <text fg={theme.textMuted}>{props.model}</text> : null}
       </box>
     </box>

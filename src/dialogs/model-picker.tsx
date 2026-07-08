@@ -153,21 +153,17 @@ const ModelPickerDialog = (props: Props) => {
     return false
   }, [keys, props.onApply, refresh, step])
 
-  const hint = `${keys.print("list.refresh")}/F5/Refresh row/click: refresh`
+  const hint = `${keys.print("list.refresh")} refresh`
   const footer = props.onApply
-    ? <box height={1} onMouseDown={refresh}>
-      <text fg={theme.textMuted}>{step === "model" ? `${hint} · ←: providers` : hint}</text>
-    </box>
+    ? <text fg={theme.textMuted}>{step === "model" ? `${hint} · ← providers` : hint}</text>
     : (
-      <box height={1} onMouseDown={refresh}>
-        <text fg={theme.textMuted}>
-          <span>Scope: </span>
-          <span fg={global ? theme.warning : theme.accent}>
-            {global ? "global (persists to config)" : "this session"}
-          </span>
-          <span>{` · Tab: toggle · ${hint}${step === "model" ? " · ←: providers" : ""}`}</span>
-        </text>
-      </box>
+      <text fg={theme.textMuted}>
+        <span>Scope: </span>
+        <span fg={global ? theme.warning : theme.accent}>
+          {global ? "global (persists to config)" : "this session"}
+        </span>
+        <span>{` · Tab toggle · ${hint}${step === "model" ? " · ← providers" : ""}`}</span>
+      </text>
     )
 
   if (!data) return <box width={50} padding={1}><text>Loading models…</text></box>

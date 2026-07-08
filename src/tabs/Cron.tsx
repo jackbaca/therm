@@ -10,7 +10,6 @@ import { TabShell } from "../ui/shell";
 import { HintBar } from "../ui/hint";
 import { KVBlock } from "../ui/kv";
 import { Col, Hdr, VBAR } from "../ui/table";
-import { openTextPrompt } from "../dialogs/text-prompt";
 import { openCronEditor } from "../dialogs/cron-editor";
 import { ago, until } from "../ui/fmt";
 import { readCronOutput, type CronOutput } from "../service/hermes-home";
@@ -163,21 +162,17 @@ export const Cron = memo((props: { focused?: boolean }) => {
   useEffect(() => { load(); }, [load]);
 
   const create = useCallback(async () => {
-    const schedule = await openTextPrompt(dialog, {
-      title: "New Cron Job", label: "Schedule (cron expr or 'every 30m')",
+    const r = await openCronEditor(dialog, {
+      mode: "create",
+      initial: cronModel.draft(),
+      canUpdate: true,
+      canAdvanced: cap.advanced,
     });
-    if (schedule === null) return;
-    const prompt = await openTextPrompt(dialog, {
-      title: "New Cron Job", label: "Prompt",
-    });
-    if (prompt === null) return;
-    const d = { ...cronModel.draft(), schedule, prompt };
-    const msg = cronModel.validate(d);
-    if (msg) { toast.show({ variant: "error", message: msg }); return; }
-    gw.request("cron.manage", cronModel.payload("add", d))
+    if (!r) return;
+    gw.request("cron.manage", cronModel.payload("add", r.draft, { advanced: cap.advanced }))
       .then(() => { toast.show({ variant: "success", message: "Job created" }); load(); })
       .catch((e: Error) => toast.show({ variant: "error", message: e.message }));
-  }, [gw, dialog, toast, load]);
+  }, [gw, dialog, toast, load, cap.advanced]);
 
   const edit = useCallback(async () => {
     const j = live.current.jobs[live.current.sel];
@@ -189,17 +184,11 @@ export const Cron = memo((props: { focused?: boolean }) => {
       mode: j ? "edit" : "create",
       initial: cronModel.draft(j ?? undefined),
       canUpdate: cap.update,
+      canAdvanced: cap.advanced,
     });
     if (!r) return;
-    if (r.advanced && !cap.advanced) {
-      toast.show({
-        variant: "warning",
-        message: "Gateway only applies schedule+prompt today; advanced fields are documented but not forwarded by cron.manage.",
-        duration: 6000,
-      });
-    }
     const action: CronAction = j && cap.update ? "update" : "add";
-    gw.request("cron.manage", cronModel.payload(action, r.draft))
+    gw.request("cron.manage", cronModel.payload(action, r.draft, { advanced: cap.advanced }))
       .then(() => { toast.show({ variant: "success", message: action === "add" ? "Job created" : "Job updated" }); load(); })
       .catch((e: Error) => toast.show({ variant: "error", message: e.message }));
   }, [gw, dialog, toast, load, cap]);

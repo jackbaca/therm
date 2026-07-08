@@ -13,6 +13,7 @@ type Props = {
   mode: "create" | "edit"
   initial: CronDraft
   canUpdate: boolean
+  canAdvanced: boolean
   done: (r: Result | null) => void
 }
 
@@ -58,9 +59,11 @@ const HELP: Partial<Record<Field, string>> = {
 const multiline = new Set<Field>(["prompt", "skills", "context_from", "enabled_toolsets"])
 const locked = new Set<Field>(["provider", "model", "base_url", "context_from", "enabled_toolsets", "workdir", "repeat"])
 const bools = new Set<Field>(["no_agent", "attach_to_session"])
+const basic = new Set<Field>(["name", "schedule", "prompt", "submit"])
 const editable = (f: Field, p: Props) => (f !== "submit" && f !== "id" && f !== "name") || (p.mode === "create" && f === "name")
 const editableThrough = (f: Field, p: Props) => p.mode === "create" || p.canUpdate || f === "name"
 const available = (f: Field, p: Props) => {
+  if (!p.canAdvanced && !basic.has(f)) return false
   if (f === "submit") return p.mode === "create" || p.canUpdate
   return p.mode === "create" || p.canUpdate || !locked.has(f)
 }
@@ -159,6 +162,9 @@ const CronEditor = (props: Props) => {
       {props.mode === "edit" && !props.canUpdate ? (
         <text fg={theme.warning}>Current gateway has no cron.manage update; this job is read-only here.</text>
       ) : null}
+      {!props.canAdvanced ? (
+        <text fg={theme.warning}>Current gateway only accepts name, schedule, and prompt.</text>
+      ) : null}
       <box height={1} />
       <scrollbox scrollY flexGrow={1}>
         <box flexDirection="column">
@@ -173,7 +179,7 @@ const CronEditor = (props: Props) => {
 
 export function openCronEditor(
   dialog: DialogContext,
-  opts: { mode: "create" | "edit"; initial: CronDraft; canUpdate: boolean },
+  opts: { mode: "create" | "edit"; initial: CronDraft; canUpdate: boolean; canAdvanced: boolean },
 ): Promise<Result | null> {
   return new Promise(resolve => {
     dialog.replace(
@@ -181,6 +187,7 @@ export function openCronEditor(
         mode={opts.mode}
         initial={opts.initial}
         canUpdate={opts.canUpdate}
+        canAdvanced={opts.canAdvanced}
         done={r => { resolve(r); dialog.clear() }}
       />,
       () => resolve(null),

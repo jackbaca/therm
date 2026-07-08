@@ -150,16 +150,17 @@ export const validate = (d: CronDraft): string | null => {
   return null
 }
 
-export const payload = (action: CronAction, d: CronDraft): CronPayload => {
+export const payload = (action: CronAction, d: CronDraft, opts?: { advanced?: boolean }): CronPayload => {
   const out: CronPayload = {
     action,
     name: action === "add" ? d.name.trim() : d.id,
     schedule: d.schedule.trim(),
     prompt: d.prompt.trim(),
-    deliver: d.deliver.trim() || "local",
-    no_agent: d.no_agent,
-    attach_to_session: d.attach_to_session,
   }
+  if (opts?.advanced === false) return out
+  out.deliver = d.deliver.trim() || "local"
+  out.no_agent = d.no_agent
+  out.attach_to_session = d.attach_to_session
   const add = (key: string, value: unknown) => {
     if (value !== undefined) out[key] = value
   }

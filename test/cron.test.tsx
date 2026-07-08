@@ -194,7 +194,7 @@ describe("Cron tab", () => {
     })
   })
 
-  test("quick create preserves schedule plus prompt payload", async () => {
+  test("create opens editor and sends only basic fields when gateway lacks advanced support", async () => {
     const calls: Record<string, unknown>[] = []
     const gw = new MockGateway({
       "cron.manage": p => {
@@ -207,15 +207,35 @@ describe("Cron tab", () => {
     await until(t, () => t.frame().includes("No cron jobs"))
 
     await act(async () => { await t.keys.typeText("n") })
-    await until(t, () => t.frame().includes("Schedule"))
+    await until(t, () => t.frame().includes("New Cron Job"))
+    expect(t.frame()).toContain("Current gateway only accepts name, schedule, and prompt")
+    expect(t.frame()).not.toContain("No Agent")
+    expect(t.frame()).not.toContain("Provider")
     await act(async () => { await t.keys.typeText("every 5m") })
     act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("Prompt"))
     await act(async () => { await t.keys.typeText("say hi") })
-    act(() => t.keys.pressEnter())
+    act(() => t.keys.pressEnter({ ctrl: true }))
     await until(t, () => calls.some(c => c.action === "add"))
 
     expect(calls.find(c => c.action === "add")).toMatchObject({ action: "add", name: "", schedule: "every 5m", prompt: "say hi" })
+    expect(calls.find(c => c.action === "add")).not.toHaveProperty("no_agent")
+    expect(calls.find(c => c.action === "add")).not.toHaveProperty("attach_to_session")
+  })
+
+  test("create exposes advanced fields when gateway advertises them", async () => {
+    const gw = new MockGateway({
+      "cron.manage": p => p.action === "list"
+        ? { jobs: [], fields: ["script", "provider", "model", "repeat"] }
+        : { ok: true },
+    })
+    await using t = await mountNode(<Cron focused />, { gw })
+    await until(t, () => t.frame().includes("No cron jobs"))
+
+    await act(async () => { await t.keys.typeText("n") })
+    await until(t, () => t.frame().includes("New Cron Job"))
+
+    expect(t.frame()).toContain("No agent")
+    expect(t.frame()).toContain("Provider")
   })
 
   test("detail panel displays upstream execution fields from list output", async () => {
