@@ -10,25 +10,22 @@ const MUTATES = new Set([
   "image_generate",
 ])
 
-const LABELS: Record<VerificationStatus, string> = {
+const LABELS: Record<Exclude<VerificationStatus, "unverified">, string> = {
   not_applicable: "verify n/a",
-  unverified: "verify unverified",
   passed: "verify passed",
   failed: "verify failed",
   stale: "verify stale",
 }
 
-const GLYPHS: Record<VerificationStatus, string> = {
+const GLYPHS: Record<Exclude<VerificationStatus, "unverified">, string> = {
   not_applicable: "○",
-  unverified: "◇",
   passed: "✓",
   failed: "×",
   stale: "△",
 }
 
-const TONES: Record<VerificationStatus, VerificationModel["tone"]> = {
+const TONES: Record<Exclude<VerificationStatus, "unverified">, VerificationModel["tone"]> = {
   not_applicable: "muted",
-  unverified: "warn",
   passed: "ok",
   failed: "err",
   stale: "warn",
@@ -57,6 +54,7 @@ function evidence(v: unknown): string | undefined {
 
 export function model(v: VerificationState | null | undefined): VerificationModel | null {
   if (!v) return null
+  if (v.status === "unverified") return null
   const paths = v.changed_paths?.filter(Boolean) ?? []
   const detail = evidence(v.evidence)
   const stale = v.status === "stale" && paths.length > 0

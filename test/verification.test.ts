@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { model } from "../src/app/verification"
 import type { VerificationStatus, VerificationState } from "../src/context/wire"
 
-const statuses: VerificationStatus[] = ["not_applicable", "unverified", "passed", "failed", "stale"]
+const statuses: VerificationStatus[] = ["not_applicable", "passed", "failed", "stale"]
 
 describe("verification render model", () => {
   test("maps every upstream status distinctly", () => {
@@ -15,6 +15,10 @@ describe("verification render model", () => {
     expect(rows.find(r => r?.status === "passed")?.tone).toBe("ok")
     expect(rows.find(r => r?.status === "failed")?.tone).toBe("err")
     expect(rows.find(r => r?.status === "not_applicable")?.tone).toBe("muted")
+  })
+
+  test("hides unverified status", () => {
+    expect(model({ status: "unverified", evidence: "needs checks" })).toBeNull()
   })
 
   test("shows stale changed paths before evidence", () => {
