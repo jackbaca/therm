@@ -109,26 +109,6 @@ export type DelegationStatus = {
   max_concurrent_children: number
 }
 
-export type VerificationStatus = "not_applicable" | "unverified" | "passed" | "failed" | "stale"
-
-export type VerificationState = {
-  status: VerificationStatus
-  evidence?: unknown
-  root?: string
-  session_id?: string
-  changed_paths?: string[]
-}
-
-export type VerificationStatusRequest = {
-  session_id?: string
-  session_key?: string
-  cwd: string
-}
-
-export type VerificationStatusResponse = {
-  verification?: VerificationState
-}
-
 // spawn_tree.list index entries + spawn_tree.load payload
 export type SpawnTreeEntry = {
   path: string
