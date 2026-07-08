@@ -32,6 +32,8 @@ type SaveKeyResponse = {
 
 const configured = (p: ModelOptionProvider) => (p.models?.length ?? 0) > 0
 
+const params = { include_unconfigured: true }
+
 const setupDescription = (p: ModelOptionProvider): string | undefined => {
   if (p.warning) return p.warning
   if (p.auth_type === "api_key" && p.key_env) return `paste ${p.key_env} to activate`
@@ -67,7 +69,7 @@ const ModelPickerDialog = (props: Props) => {
   const [setupProvider, setSetupProvider] = useState<ModelOptionProvider | null>(null)
   const [global, setGlobal] = useState(false)
 
-  const refresh = useCallback(() => props.gw.request<ModelOptionsResponse>("model.options")
+  const refresh = useCallback(() => props.gw.request<ModelOptionsResponse>("model.options", params)
     .then(setData)
     .catch(() => setData({ providers: [] })), [props.gw])
 
@@ -91,7 +93,7 @@ const ModelPickerDialog = (props: Props) => {
     try {
       const r = await props.gw.request<SaveKeyResponse>("model.save_key", { slug: p.slug, api_key: key })
       if (r.warning) toast.show({ variant: "warning", message: r.warning })
-      const next = r.provider ?? (await props.gw.request<ModelOptionsResponse>("model.options"))
+      const next = r.provider ?? (await props.gw.request<ModelOptionsResponse>("model.options", params))
         .providers?.find(pp => pp.slug === p.slug)
       if (!next) {
         toast.show({ variant: "warning", message: "Provider saved; refresh model options to continue" })

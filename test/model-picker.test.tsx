@@ -85,12 +85,12 @@ describe("model-picker", () => {
   test("unauthenticated provider rows show setup metadata and do not advance to empty models", async () => {
     const t = await mountNode(<Open />, {
       handlers: {
-        "model.options": () => ({
+        "model.options": p => ({
           provider: "openai",
           model: "gpt-4",
           providers: [
             { slug: "openai", name: "OpenAI", total_models: 1, models: ["gpt-4"] },
-            {
+            p.include_unconfigured === true ? {
               slug: "anthropic",
               name: "Anthropic",
               total_models: 0,
@@ -99,12 +99,13 @@ describe("model-picker", () => {
               auth_type: "api_key",
               key_env: "ANTHROPIC_API_KEY",
               warning: "paste ANTHROPIC_API_KEY to activate",
-            },
-          ],
+            } : undefined,
+          ].filter(p => p !== undefined),
         }),
       },
     })
     await until(t, () => t.frame().includes("Anthropic"))
+    expect(t.gw.last("model.options")?.params).toEqual({ include_unconfigured: true })
     expect(t.frame()).toContain("Setup required")
     expect(t.frame()).toContain("paste ANTHROPIC_API_KEY to activate")
     expect(t.frame()).toContain("auth_type=")
@@ -118,12 +119,13 @@ describe("model-picker", () => {
 
   test("api-key setup calls model.save_key and advances to refreshed models", async () => {
     const saves: Array<Record<string, unknown>> = []
+    let calls = 0
     const t = await mountNode(<Open />, {
       handlers: {
-        "model.options": () => ({
+        "model.options": p => ({
           providers: [
             { slug: "openai", name: "OpenAI", total_models: 1, models: ["gpt-4"] },
-            {
+            calls++ === 0 ? {
               slug: "anthropic",
               name: "Anthropic",
               total_models: 0,
@@ -132,20 +134,18 @@ describe("model-picker", () => {
               auth_type: "api_key",
               key_env: "ANTHROPIC_API_KEY",
               warning: "paste ANTHROPIC_API_KEY to activate",
-            },
-          ],
-        }),
-        "model.save_key": (p) => {
-          saves.push(p)
-          return {
-            provider: {
+            } : p.include_unconfigured === true ? {
               slug: "anthropic",
               name: "Anthropic",
               authenticated: true,
               total_models: 1,
               models: ["claude-opus"],
-            },
-          }
+            } : undefined,
+          ],
+        }),
+        "model.save_key": (p) => {
+          saves.push(p)
+          return {}
         },
       },
     })
@@ -158,6 +158,8 @@ describe("model-picker", () => {
     await until(t, () => t.frame().includes("claude-opus"))
 
     expect(saves).toEqual([{ slug: "anthropic", api_key: "sk-test" }])
+    expect(t.gw.calls.filter(c => c.method === "model.options").map(c => c.params))
+      .toEqual([{ include_unconfigured: true }, { include_unconfigured: true }])
     expect(t.frame()).toContain("Switch Model (Anthropic)")
     t.destroy()
   })
