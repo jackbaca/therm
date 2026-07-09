@@ -39,8 +39,8 @@ const mkGw = () => new MockGateway({
   }),
 })
 
-const run = async (t: Awaited<ReturnType<typeof mount>>) => {
-  await act(async () => { await t.keys.typeText("/compress") })
+const run = async (t: Awaited<ReturnType<typeof mount>>, cmd = "compress") => {
+  await act(async () => { await t.keys.typeText(`/${cmd}`) })
   act(() => t.keys.pressEnter())
 }
 
@@ -108,6 +108,22 @@ describe("/compress", () => {
     // Messages untouched (no `messages` field in response) — original
     // turns still visible.
     expect(t.frame()).toContain("draft the rfc")
+
+    t.destroy()
+  })
+
+  test("/compact uses the same session compression path", async () => {
+    const gw = mkGw()
+    const t = await mount({ gw, launch: { mode: "resume", sid: "pre-sid", splash: false } })
+    await until(t, () => t.frame().includes("draft the rfc"))
+
+    await run(t, "compact")
+
+    await until(t, () => t.frame().includes("Compacted 4→3 messages"))
+    expect(gw.last("session.compress")).toBeDefined()
+    expect(t.frame()).toContain("8.0k → 2.5k")
+    expect(t.frame()).toContain("draft the rfc")
+    expect(t.frame()).not.toContain("has no effect in herm")
 
     t.destroy()
   })

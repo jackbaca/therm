@@ -259,7 +259,9 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
         case "branch":
           branch(arg)
           return
-        case "compress": void runCompress(); return
+        case "compress":
+        case "compact":
+          void runCompress(); return
         case "undo":
           destructive(arg,
             { title: "Undo last turn?", body: "Pops the last user + assistant pair from the transcript. /redo in this session to restore.", yes: "undo" },
@@ -430,10 +432,9 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
             .catch((e: Error) => toast.show({ variant: "error", message: `browser: ${e.message}` }))
           return
         }
-        case "compact":
         case "setup":
           x.dispatch({ kind: "system",
-            text: `/${c.name} is an Ink-TUI command and has no effect in herm` })
+            text: "/setup is an Ink-TUI command and has no effect in herm" })
           return
         case "steer": {
           const fire = (text: string) =>
