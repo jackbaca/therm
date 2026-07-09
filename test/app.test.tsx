@@ -1170,6 +1170,8 @@ describe("app", () => {
       payload: {
         model: "test-model", session_id: "sid-abc", version: "9.9.9",
         cwd: "/workspace", tools: { web: ["a", "b"], file: ["c"] }, skills: {},
+        credential_warning: "credential warning stays transient",
+        install_warning: "Herm CLI is not on PATH",
       },
     }))
     await until(t, () => t.frame().includes("Ready"))
@@ -1187,6 +1189,8 @@ describe("app", () => {
     expect(f).toContain("sid-abc")
     expect(f).toContain("/workspace")
     expect(f).toContain("3 in 2 toolsets")
+    expect(f).toContain("Herm CLI is not on PATH")
+    expect(f).not.toContain("credential warning stays transient")
     t.destroy()
   })
 
