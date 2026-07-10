@@ -370,27 +370,22 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
 
   const newSession = useCallback(async () => {
     const prev = sidRef.current
-    reset()
     summoned.current = true
     setSplash(true)
-    // Clear the gateway's active sid before session.create lands so
-    // any event emitted in the window between here and setSession(new)
-    // isn't auto-attributed to the outgoing session (stale-sid race).
-    // Mirrors switchProfile. session.close below passes prev
-    // explicitly, so it isn't affected by the clear.
     gw.setSession("")
-    setSid("")
-    // Close the outgoing session unless it owns a durable background process.
-    // Older gateways kill terminal(background=true) children as part of
-    // session.close; preserving the live session is safer than SIGTERM'ing a
-    // watcher while /new creates the next conversation.
-    if (prev) void session.close(prev, { preserveBackground: true })
     try {
       const r = await session.create()
+      reset()
       setSid(r.id)
       if (r.info) { setInfo(r.info); setUsage(r.info.usage) }
       sessionStart.current = Date.now()
-    } catch {}
+      if (prev) void session.close(prev, { preserveBackground: true })
+    } catch (err) {
+      if (prev) gw.setSession(prev)
+      setSplash(false)
+      summoned.current = false
+      dispatch({ kind: "system", text: `Failed to create session: ${err instanceof Error ? err.message : String(err)}` })
+    }
   }, [reset, session, gw])
 
   const switchSession = useCallback(async (target: string) => {

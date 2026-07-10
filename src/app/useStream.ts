@@ -139,6 +139,13 @@ export function useStream(c: Ctx) {
           x.sessionStart.current = Date.now()
           if (r.messages.length) x.dispatch({ kind: "load", messages: r.messages })
           if (r.note) toast.show({ variant: "info", message: r.note })
+        }).catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err)
+          x.setReady(false)
+          x.setStarting(false)
+          x.setStatus(`session boot failed: ${msg}`)
+          x.setErrorPulse(true)
+          x.dispatch({ kind: "system", text: `Failed to start session: ${msg}` })
         })
       },
       onSessionInfo: (si) => {

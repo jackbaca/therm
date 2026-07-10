@@ -39,4 +39,37 @@ describe("newSession stale-sid reset", () => {
 
     t.destroy()
   })
+
+  test("failed /new keeps the outgoing session active and visible", async () => {
+    const gw = new MockGateway({
+      "commands.catalog": () => ({ pairs: [["/new", "new session"]] }),
+      "session.resume": p => ({ session_id: p.session_id, messages: [] }),
+      "session.create": () => { throw new Error("create exploded") },
+    })
+    const t = await mount({ gw, launch: { mode: "resume", sid: "old-sid", splash: false } })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("/new now") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("create exploded"))
+
+    expect(gw.last("session.close")).toBeUndefined()
+    const creates = gw.calls.filter(c => c.method === "session.create")
+    expect(creates.at(-1)?.params.session_id).toBeUndefined()
+    await act(async () => { await t.keys.typeText("still here") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => gw.last("prompt.submit")?.params.text === "still here")
+    expect(gw.last("prompt.submit")?.params.session_id).toBe("old-sid")
+    t.destroy()
+  })
+
+  test("initial session boot failure surfaces the gateway error", async () => {
+    const gw = new MockGateway({
+      "session.create": () => { throw new Error("boot exploded") },
+    })
+    const t = await mount({ gw, launch: { mode: "new", splash: false } })
+    await until(t, () => t.frame().includes("Failed to start session: boot exploded"))
+    expect(gw.last("prompt.submit")).toBeUndefined()
+    t.destroy()
+  })
 })
