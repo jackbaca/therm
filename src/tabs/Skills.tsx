@@ -295,8 +295,8 @@ export const Skills = memo((props: { focused?: boolean }) => {
         rows.sort((a, b) => a.source.relative.localeCompare(b.source.relative));
         setSkills(rows);
       })
-      .catch(() => {});
-  }, [gw]);
+      .catch((err: Error) => toast.show({ variant: "error", message: err.message }));
+  }, [gw, toast]);
 
   useEffect(() => {
     load();
@@ -313,10 +313,14 @@ export const Skills = memo((props: { focused?: boolean }) => {
           setHits(r.results ?? []);
           setSelected(0);
         })
-        .catch(() => { if (seq.current === id) setHits([]) });
+        .catch((err: Error) => {
+          if (seq.current !== id) return;
+          setHits([]);
+          toast.show({ variant: "error", message: err.message });
+        });
     }, 150);
     return () => clearTimeout(t);
-  }, [gw, query, searching]);
+  }, [gw, toast, query, searching]);
 
   // Group installed skills by category. When sorted by "used", flatten
   // into a single "by-recency" group so the cross-category order is visible.

@@ -6,6 +6,15 @@ import { hermesPath } from "../src/service/hermes-home"
 import { Skills } from "../src/tabs/Skills"
 
 describe("Skills tab", () => {
+  test("list failure surfaces instead of rendering an unexplained empty tab", async () => {
+    const gw = new MockGateway({
+      "skills.manage": () => { throw new Error("skills exploded") },
+    })
+    const t = await mountNode(<Skills focused />, { gw })
+    await until(t, () => t.frame().includes("skills exploded"))
+    t.destroy()
+  })
+
   test("renders installed skills without native Map.groupBy", async () => {
     const group = Map.groupBy
     Map.groupBy = undefined as unknown as typeof Map.groupBy
