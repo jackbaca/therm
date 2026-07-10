@@ -402,13 +402,13 @@ type RowCbs = {
 }
 
 const Item = memo((props: {
-  id: string; row: Row; idx: number; selected: boolean; indent?: boolean
+  id: string; row: Row; idx: number; selected: boolean; indent?: boolean; locked?: boolean
 } & RowCbs) => {
   const theme = useTheme().theme
   const { row: r, idx: i } = props
   const [x, setX] = useState(false)
   const active = r.detail?.last_active ?? r.detail?.ended_at ?? null
-  const locked = props.indent || Boolean(r.live)
+  const locked = props.locked || props.indent || Boolean(r.live)
   const subs = !props.indent && (r.detail?.subagent_count ?? 0) > 0
   // Parent rows get "▸ "/"  " leaders; child rows get "└─" as the tree
   // marker. Selected children still highlight via backgroundColor +
@@ -814,7 +814,8 @@ export const Sessions = memo((props: Props) => {
   // guard covers the keyboard shortcut path.
   const rowDelete = useCallback((i: number) => {
     const v = live.current.visible[i]
-    if (v && !v.indent && !v.row.live) confirmDeleteRef.current(v.row)
+    if (v && !v.indent && !v.row.live && v.row.id !== live.current.currentId)
+      confirmDeleteRef.current(v.row)
   }, [])
 
   // Lineage-click switches target a SPECIFIC session (the predecessor
@@ -937,7 +938,7 @@ export const Sessions = memo((props: Props) => {
       onRefresh: () => { void load(); toast.show({ variant: "info", message: "Reloaded", duration: 1000 }) },
       onDelete: () => {
         const v = visible[sel]
-        if (v && !v.indent && !v.row.live) confirmDelete(v.row)
+        if (v && !v.indent && !v.row.live && v.row.id !== props.currentId) confirmDelete(v.row)
       },
       onSearch: () => { setSearching(true); setQuery(""); setResults([]); setSearchSel(0) },
     })
@@ -1028,6 +1029,7 @@ export const Sessions = memo((props: Props) => {
                       </> : null}
                       <Item id={rowId(i)} idx={i}
                         row={v.row} selected={i === sel} indent={v.indent}
+                        locked={v.row.id === props.currentId}
                         onActivate={rowActivate} onHover={rowHover} onDelete={rowDelete} />
                     </box>
                   ))}

@@ -523,6 +523,21 @@ describe("Sessions tab", () => {
     t.destroy()
   })
 
+  test("current session cannot enter local-delete fallback when live listing is unavailable", async () => {
+    let local = 0
+    const gw = new MockGateway({ "session.list": () => ({ sessions: ROWS }) })
+    const t = await mountNode(
+      <Sessions focused currentId="sid-a" io={{ ...NOIO, remove: () => (local++, true) }} />,
+      { gw },
+    )
+    await until(t, () => t.frame().includes("Sessions (2)"))
+    await act(async () => { await t.keys.typeText("d") })
+    await t.settle()
+    expect(t.frame()).not.toContain("Delete Session?")
+    expect(local).toBe(0)
+    t.destroy()
+  })
+
   test("session.delete unavailable falls back to io.remove", async () => {
     const deleted: string[] = []
     let listed = ROWS
