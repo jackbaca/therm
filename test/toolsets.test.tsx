@@ -182,6 +182,31 @@ describe("Toolsets tab", () => {
     t.destroy()
   })
 
+  test("failed serialized toggles restore the last authoritative state", async () => {
+    let failFirst!: (error: Error) => void
+    let failSecond!: (error: Error) => void
+    let requests = 0
+    const gw = new MockGateway({
+      "toolsets.list": () => ({ toolsets: [SETS[0]] }),
+      "tools.configure": () => new Promise((_, reject) => {
+        if (requests++ === 0) failFirst = reject
+        else failSecond = reject
+      }),
+    })
+    const t = await mountNode(<Toolsets focused />, { gw })
+    await until(t, () => t.frame().includes("Toolsets (1)"))
+    await act(async () => { await t.keys.typeText(" ") })
+    await t.settle()
+    await act(async () => { await t.keys.typeText(" ") })
+    failFirst(new Error("first failed"))
+    await until(t, () => requests === 2)
+    failSecond(new Error("second failed"))
+    await until(t, () => t.frame().includes("second failed"))
+
+    expect(strip(t.frame())).toMatch(/●\s+file\b/)
+    t.destroy()
+  })
+
   test("same-frame double toggle preserves the original state", async () => {
     let enabled = true
     const actions: string[] = []
