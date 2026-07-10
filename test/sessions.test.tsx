@@ -478,6 +478,24 @@ describe("Sessions tab", () => {
     t.destroy()
   })
 
+  test("successful search clears the previous search error", async () => {
+    const gw = new MockGateway({ "session.list": () => ({ sessions: ROWS }) })
+    const search = async (query: string) => {
+      if (query === "needle") throw new Error("old search error")
+      return [{ session_id: "fresh", title: "Fresh result", snippet: "ok", role: "user", source: "tui", model: null, started_at: 1 }]
+    }
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, search }} />, { gw })
+    await until(t, () => t.frame().includes("Sessions (2)"))
+    await act(async () => { await t.keys.typeText("/") })
+    await t.settle()
+    await act(async () => { await t.keys.typeText("needle") })
+    await until(t, () => t.frame().includes("old search error"))
+    await act(async () => { await t.keys.typeText("2") })
+    await until(t, () => t.frame().includes("Fresh result"))
+    expect(t.frame()).not.toContain("old search error")
+    t.destroy()
+  })
+
   test("d confirms then deletes via session.delete RPC and reloads", async () => {
     let listed = ROWS
     const gw = new MockGateway({

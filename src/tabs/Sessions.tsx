@@ -556,6 +556,7 @@ export const Sessions = memo((props: Props) => {
   const [rows, setRows] = useState<Row[]>(cached ? last.rows : [])
   const [liveRows, setLiveRows] = useState<Row[]>([])
   const [warn, setWarn] = useState("")
+  const [searchErr, setSearchErr] = useState("")
   const [pending, setPending] = useState(rows.length === 0)
   // Persisted, user-toggleable list ordering. roots() always returns
   // newest-started; we re-sort here so the choice can flip live
@@ -800,15 +801,17 @@ export const Sessions = memo((props: Props) => {
   // queries for free (only the most recent query value ever runs).
   useEffect(() => {
     const current = ++searchGen.current
+    setSearchErr("")
     if (!searching || !query.trim()) { setResults([]); return }
     debounce.current = setTimeout(() => {
       void Promise.resolve(io.search(query, 30)).then(r => {
         if (searchGen.current !== current) return
         setResults(r)
         setSearchSel(0)
+        setSearchErr("")
       }).catch(err => {
         if (searchGen.current === current)
-          setWarn(err instanceof Error ? err.message : String(err))
+          setSearchErr(err instanceof Error ? err.message : String(err))
       })
     }, 150)
     return () => { if (debounce.current) clearTimeout(debounce.current) }
@@ -1011,7 +1014,7 @@ export const Sessions = memo((props: Props) => {
         title={searching
           ? `Search Results (${results.length})`
           : `Sessions (${listed.length}${pending ? "…" : ""})`}
-        error={warn || null}
+        error={[warn, searchErr].filter(Boolean).join(" · ") || null}
         grow={3}
       >
         {searching ? (
