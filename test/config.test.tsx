@@ -165,6 +165,29 @@ describe("Config tab", () => {
     t.destroy()
   })
 
+  test("readback failure after save surfaces without losing the draft", async () => {
+    const cfg = { terminal: { container_persistent: false } }
+    let gets = 0
+    const gw = new MockGateway({
+      "config.get": () => {
+        if (gets++ === 0) return { config: cfg }
+        throw new Error("readback unavailable")
+      },
+      "cli.exec": () => ({ blocked: false, code: 0, output: "✓" }),
+    })
+    const t = await mountNode(<Config focused />, { gw, width: 160, height: 48 })
+    await until(t, () => t.frame().includes("general"))
+    await navTo(t, cfg, "terminal.container_persistent")
+    await act(async () => { await t.keys.typeText(" ") })
+    await until(t, () => t.frame().includes("1 unsaved"))
+    act(() => t.keys.pressKey("s", { ctrl: true }))
+    await until(t, () => t.frame().includes("Write 1 change to config.yaml?"))
+    await act(async () => { await t.keys.typeText("y") })
+    await until(t, () => t.frame().includes("readback unavailable"))
+    expect(t.frame()).toContain("1 unsaved")
+    t.destroy()
+  })
+
   test("Ctrl+S with no changes toasts 'No changes', no dialog", async () => {
     const gw = new MockGateway({ "config.get": () => ({ config: {} }) })
     const t = await mountNode(<Config focused />, { gw, width: 160, height: 48 })

@@ -259,8 +259,8 @@ export const Config = memo((props: { focused?: boolean }) => {
     if (!ok) return;
     const res = await writeConfig(gw, diffs.map(d => ({ key: d.key, to: d.to })));
     for (const w of res.warnings) toast.show({ variant: "info", message: `${w.key}: ${w.msg}` });
-    load();
     if (res.failed.length > 0) {
+      load();
       toast.show({
         variant: "error",
         message: `${res.failed.length} failed: ${res.failed.map(f => f.key).join(", ")}`,
@@ -268,11 +268,17 @@ export const Config = memo((props: { focused?: boolean }) => {
       return;
     }
     const landed = diffs.filter(d => res.ok.includes(d.key));
-    const miss = await verifyWrite(gw, landed.map(d => ({ key: d.key, to: d.to })));
+    const miss = await verifyWrite(gw, landed.map(d => ({ key: d.key, to: d.to })))
+      .catch(e => {
+        toast.show({ variant: "error", message: e instanceof Error ? e.message : String(e) });
+        return null;
+      });
+    if (!miss) return;
     if (miss.length > 0) {
       toast.show({ variant: "error", message: `Write didn't land: ${miss.join(", ")}` });
       return;
     }
+    load();
     const tier = maxEffect(res.ok);
     if (tier === "restart") {
       const go = await openConfirm(dialog, {
