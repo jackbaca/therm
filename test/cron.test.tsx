@@ -38,6 +38,31 @@ const mk = () => new MockGateway({
 })
 
 describe("Cron tab", () => {
+  test("stale list response cannot replace a newer refresh", async () => {
+    let stale!: (value: unknown) => void
+    let lists = 0
+    const gw = new MockGateway({
+      "cron.manage": p => {
+        if (p.action !== "list") return {}
+        if (lists++ === 0) return { jobs: JOBS }
+        if (lists === 2) return new Promise(resolve => { stale = resolve })
+        return { jobs: [{ ...JOBS[0], name: "fresh-job" }] }
+      },
+    })
+    await using t = await mountNode(<Cron focused />, { gw })
+    await until(t, () => t.frame().includes("Cron Jobs (3)"))
+    await act(async () => { await t.keys.typeText("r") })
+    await until(t, () => lists === 2)
+    await act(async () => { await t.keys.typeText("r") })
+    await until(t, () => t.frame().includes("fresh-job"))
+
+    stale({ jobs: [{ ...JOBS[0], name: "stale-job" }] })
+    await act(async () => { await Bun.sleep(0) })
+    await t.settle()
+    expect(t.frame()).toContain("fresh-job")
+    expect(t.frame()).not.toContain("stale-job")
+  })
+
   test("renders jobs with enabled/disabled glyphs and detail pane", async () => {
     await using t = await mountNode(<Cron focused />, { gw: mk() })
     await until(t, () => t.frame().includes("Cron Jobs (3)"))

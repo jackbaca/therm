@@ -143,22 +143,30 @@ export const Cron = memo((props: { focused?: boolean }) => {
   const [sel, setSel] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const loadGen = useRef(0);
 
   const live = useRef({ jobs, sel });
   live.current = { jobs, sel };
 
   const load = useCallback(() => {
+    const gen = ++loadGen.current;
     gw.request<ListResponse>("cron.manage", { action: "list" })
       .then(res => {
+        if (loadGen.current !== gen) return;
         setJobs((res.jobs ?? []).map(cronModel.normalize));
         setCap(caps(res));
         setErr(null);
         setReloadKey(k => k + 1);
       })
-      .catch(e => setErr(e instanceof Error ? e.message : String(e)));
+      .catch(e => {
+        if (loadGen.current === gen) setErr(e instanceof Error ? e.message : String(e));
+      });
   }, [gw]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    return () => { loadGen.current++; };
+  }, [load]);
 
   const create = useCallback(async () => {
     const r = await openCronEditor(dialog, {
