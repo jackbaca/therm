@@ -150,6 +150,38 @@ describe("Toolsets tab", () => {
     t.destroy()
   })
 
+  test("rapid toggles serialize and preserve the newer choice", async () => {
+    let first!: (value: unknown) => void
+    let second!: (value: unknown) => void
+    let requests = 0
+    const gw = new MockGateway({
+      "toolsets.list": () => ({ toolsets: SETS }),
+      "tools.configure": () => new Promise(resolve => {
+        if (requests++ === 0) first = resolve
+        else second = resolve
+      }),
+    })
+    const t = await mountNode(<Toolsets focused />, { gw })
+    await until(t, () => t.frame().includes("Toolsets (5)"))
+
+    await act(async () => { await t.keys.typeText(" ") })
+    await t.settle()
+    await act(async () => { await t.keys.typeText(" ") })
+    await t.settle()
+    expect(gw.calls.filter(c => c.method === "tools.configure").map(c => c.params.action))
+      .toEqual(["disable"])
+
+    first({ changed: ["file"], enabled_toolsets: ["hermes-cli", "mcp:linear"], missing_servers: [], unknown: [] })
+    await until(t, () => gw.calls.filter(c => c.method === "tools.configure").length === 2)
+    expect(gw.last("tools.configure")?.params.action).toBe("enable")
+    second({ changed: ["file"], enabled_toolsets: ["file", "hermes-cli", "mcp:linear"], missing_servers: [], unknown: [] })
+    await act(async () => { await Bun.sleep(0) })
+    await t.settle()
+
+    expect(strip(t.frame())).toMatch(/●\s+file\b/)
+    t.destroy()
+  })
+
   test("detail pane shows includes/requirements/tools when wire provides them", async () => {
     const gw = new MockGateway({ "toolsets.list": () => ({ toolsets: [
       { name: "safe", description: "read-only bundle", tool_count: 5, enabled: true,

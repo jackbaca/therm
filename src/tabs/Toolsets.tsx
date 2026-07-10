@@ -122,6 +122,8 @@ export const Toolsets = memo((props: { focused?: boolean }) => {
   const [list, setList] = useState<Toolset[]>([]);
   const [sel, setSel] = useState(0);
   const [err, setErr] = useState<string | null>(null);
+  const rev = useRef(0);
+  const writes = useRef(Promise.resolve());
 
   // Flat nav list derived from grouped sections, so ↑/↓ crosses section
   // boundaries in render order. `live` mirrors for callbacks that must
@@ -137,7 +139,10 @@ export const Toolsets = memo((props: { focused?: boolean }) => {
       .catch(e => setErr(e instanceof Error ? e.message : String(e)));
   }, [gw]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    return () => { rev.current++; };
+  }, [load]);
 
   // tools.configure response (tui_gateway/server.py @method("tools.configure")).
   // `enabled_toolsets` is the authoritative post-change list — reconcile
@@ -159,10 +164,14 @@ export const Toolsets = memo((props: { focused?: boolean }) => {
     }
     const action = ts.enabled ? "disable" : "enable";
     const was = ts.enabled;
+    const gen = ++rev.current;
     // optimistic flip
     setList(prev => prev.map(t => t.name === ts.name ? { ...t, enabled: !t.enabled } : t));
-    gw.request<ConfigureResult>("tools.configure", { action, names: [ts.name] })
-      .then(r => {
+    writes.current = writes.current.then(async () => {
+      if (rev.current !== gen) return;
+      try {
+        const r = await gw.request<ConfigureResult>("tools.configure", { action, names: [ts.name] });
+        if (rev.current !== gen) return;
         if (r.unknown?.includes(ts.name)) {
           // Gateway rejected the name — revert the optimistic flip and tell
           // the user why (matches config.yaml whitelist in hermes_cli/tools_config.py).
@@ -186,11 +195,12 @@ export const Toolsets = memo((props: { focused?: boolean }) => {
         } else {
           load();
         }
-      })
-      .catch((e: Error) => {
+      } catch (e) {
+        if (rev.current !== gen) return;
         setList(prev => prev.map(t => t.name === ts.name ? { ...t, enabled: was } : t));
-        toast.show({ variant: "error", message: e.message });
-      });
+        toast.show({ variant: "error", message: e instanceof Error ? e.message : String(e) });
+      }
+    });
   }, [gw, toast, load]);
 
   const count = flat.length;
