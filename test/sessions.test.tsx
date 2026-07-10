@@ -496,6 +496,26 @@ describe("Sessions tab", () => {
     t.destroy()
   })
 
+  test("failed search invalidates previous actionable results", async () => {
+    const gw = new MockGateway({ "session.list": () => ({ sessions: ROWS }) })
+    const search = async (query: string) => {
+      if (query === "ab") throw new Error("new search failed")
+      return [{ session_id: "stale", title: "Stale result", snippet: "old", role: "user", source: "tui", model: null, started_at: 1 }]
+    }
+    let switched = ""
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, search }} onSwitch={id => { switched = id }} />, { gw })
+    await until(t, () => t.frame().includes("Sessions (2)"))
+    await act(async () => { await t.keys.typeText("/") }); await t.settle()
+    await act(async () => { await t.keys.typeText("a") })
+    await until(t, () => t.frame().includes("Stale result"))
+    await act(async () => { await t.keys.typeText("b") })
+    await until(t, () => t.frame().includes("new search failed"))
+    expect(t.frame()).not.toContain("Stale result")
+    act(() => t.keys.pressEnter()); await t.settle()
+    expect(switched).toBe("")
+    t.destroy()
+  })
+
   test("d confirms then deletes via session.delete RPC and reloads", async () => {
     let listed = ROWS
     const gw = new MockGateway({

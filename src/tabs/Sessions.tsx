@@ -803,6 +803,8 @@ export const Sessions = memo((props: Props) => {
     const current = ++searchGen.current
     setSearchErr("")
     if (!searching || !query.trim()) { setResults([]); return }
+    setResults([])
+    setSearchSel(0)
     debounce.current = setTimeout(() => {
       void Promise.resolve(io.search(query, 30)).then(r => {
         if (searchGen.current !== current) return
