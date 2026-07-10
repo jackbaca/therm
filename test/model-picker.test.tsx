@@ -241,6 +241,37 @@ describe("model-picker", () => {
     t.destroy()
   })
 
+  test("stale forced refresh cannot replace newer model options", async () => {
+    let stale!: (value: unknown) => void
+    let refreshes = 0
+    const fresh = {
+      providers: [{ slug: "fresh", name: "Fresh Provider", total_models: 1, models: ["fresh/model"] }],
+    }
+    const t = await mountNode(<Open />, {
+      handlers: {
+        "model.options": p => {
+          if (!p.refresh) return OPTIONS
+          if (refreshes++ === 0) return new Promise(resolve => { stale = resolve })
+          return fresh
+        },
+      },
+    })
+    await until(t, () => t.frame().includes("Anthropic"))
+    act(() => t.keys.pressKey("r"))
+    await until(t, () => refreshes === 1)
+    act(() => t.keys.pressKey("r"))
+    await until(t, () => refreshes === 2)
+    act(() => { t.keys.pressBackspace(); t.keys.pressBackspace() })
+    await until(t, () => t.frame().includes("Fresh Provider"))
+
+    stale(OPTIONS)
+    await act(async () => { await Bun.sleep(0) })
+    await t.settle()
+    expect(t.frame()).toContain("Fresh Provider")
+    expect(t.frame()).not.toContain("Anthropic")
+    t.destroy()
+  })
+
   test("save-key fallback refreshes model options before warning", async () => {
     const calls: Array<Record<string, unknown>> = []
     const t = await mountNode(<Open />, {
