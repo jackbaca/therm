@@ -26,3 +26,19 @@ test("gateway process exit surfaces in the app transcript", async () => {
   expect(t.frame()).not.toContain("● Ready")
   t.destroy()
 })
+
+test("unexpected gateway exit restarts with bounded backoff", async () => {
+  class CountingGateway extends MockGateway {
+    starts = 0
+    override start() { this.starts++; super.start() }
+  }
+  const gw = new CountingGateway()
+  const t = await mountNode(<Ready />, { gw })
+  await until(t, () => gw.starts === 1 && t.frame().includes("gateway ready"))
+
+  gw.ok = false
+  act(() => gw.emit("exit", 7))
+  await until(t, () => t.frame().includes("gateway down"))
+  await until(t, () => gw.starts === 2 && t.frame().includes("gateway ready"), 1000)
+  t.destroy()
+})
