@@ -173,7 +173,7 @@ export function useSession(): SessionOps {
   }, [create, resume])
 
   const interrupt = useCallback(async () => {
-    try { await gw.request("session.interrupt") } catch {}
+    await gw.request("session.interrupt")
   }, [gw])
 
   const branch = useCallback(async (name?: string) => {

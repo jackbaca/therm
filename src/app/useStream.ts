@@ -239,8 +239,11 @@ export function useStream(c: Ctx) {
     const d = deltas.current
     if (d.timer) { clearTimeout(d.timer); d.timer = null }
     d.text = ""; d.think = ""
-    ctx.current.session.interrupt()
-  }, [])
+    void ctx.current.session.interrupt().catch((err: Error) => {
+      interrupted.current = false
+      toast.show({ variant: "error", message: err.message })
+    })
+  }, [toast])
 
   return { interrupted, doInterrupt }
 }

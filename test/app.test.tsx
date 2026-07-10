@@ -1462,6 +1462,29 @@ describe("app", () => {
     t.destroy()
   })
 
+  test("failed interrupt reopens the stream gate", async () => {
+    const t = await mount({ handlers: {
+      "session.interrupt": () => { throw new Error("interrupt exploded") },
+    }})
+    await until(t, () => t.frame().includes("Ready"))
+    act(() => {
+      t.gw.push({ type: "message.start" })
+      t.gw.push({ type: "message.delta", payload: { text: "before " } })
+    })
+    await until(t, () => t.frame().includes("Generating"))
+
+    act(() => t.keys.pressEscape()); await t.settle()
+    act(() => t.keys.pressEscape())
+    await until(t, () => t.frame().includes("interrupt exploded"))
+
+    act(() => {
+      t.gw.push({ type: "message.delta", payload: { text: "continued" } })
+      t.gw.push({ type: "message.complete", payload: { text: "before continued", usage: { input: 1, output: 1, total: 2 } } })
+    })
+    await until(t, () => t.frame().includes("before continued"))
+    t.destroy()
+  })
+
   test("interrupt: post-Esc stream events are dropped; complete passes; next send reopens gate", async () => {
     const t = await mount()
     await until(t, () => t.frame().includes("Ready"))
