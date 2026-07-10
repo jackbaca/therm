@@ -464,6 +464,20 @@ describe("Sessions tab", () => {
     t.destroy()
   })
 
+  test("search failure renders inside the tab", async () => {
+    const gw = new MockGateway({ "session.list": () => ({ sessions: ROWS }) })
+    const search = async () => { throw new Error("search exploded") }
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, search }} />, { gw })
+    await until(t, () => t.frame().includes("Sessions (2)"))
+
+    await act(async () => { await t.keys.typeText("/") })
+    await t.settle()
+    await act(async () => { await t.keys.typeText("needle") })
+    await until(t, () => t.frame().includes("search exploded"))
+    expect(t.frame()).toContain("Search Results")
+    t.destroy()
+  })
+
   test("d confirms then deletes via session.delete RPC and reloads", async () => {
     let listed = ROWS
     const gw = new MockGateway({
@@ -768,6 +782,44 @@ describe("Sessions tab — tree expansion", () => {
     if (pid === "pid") return [SUB1, SUB2]
     return []
   }
+
+  test("subagent query failure stays inside the tab error boundary", async () => {
+    const gw = new MockGateway({ "session.list": () => ({ sessions: [PARENT, OTHER] }) })
+    const io = {
+      ...NOIO,
+      list: listWithSubs,
+      subagents: async () => { throw new Error("children exploded") },
+    }
+    const t = await mountNode(<Sessions focused io={io} />, { gw, width: 140, height: 30 })
+    await until(t, () => t.frame().includes("children exploded"))
+    expect(t.frame()).toContain("Parent with subs")
+    t.destroy()
+  })
+
+  test("late list results cannot replace a newer refresh", async () => {
+    const stale = [detail({ id: "stale", sessionSource: "tui", title: "Stale session", message_count: 2 })]
+    const fresh = [detail({ id: "fresh", sessionSource: "tui", title: "Fresh session", message_count: 2 })]
+    let release!: () => void
+    let calls = 0
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const list = async () => {
+      calls++
+      if (calls === 1) { await gate; return stale }
+      return fresh
+    }
+    const gw = new MockGateway({ "session.list": () => ({ sessions: [] }) })
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, list }} />, { gw, width: 140 })
+    await until(t, () => calls === 1)
+
+    await act(async () => { await t.keys.typeText("r") })
+    await until(t, () => t.frame().includes("Fresh session"))
+    release()
+    await gate
+    await t.settle()
+    expect(t.frame()).toContain("Fresh session")
+    expect(t.frame()).not.toContain("Stale session")
+    t.destroy()
+  })
 
   test("wide detail mode expands subagents inline with Space, not in the detail pane", async () => {
     const gw = new MockGateway({ "session.list": () => ({ sessions: [PARENT, OTHER] }) })

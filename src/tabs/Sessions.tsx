@@ -514,7 +514,7 @@ export const Sessions = memo((props: Props) => {
   const dims = useTerminalDimensions()
 
   const cached = props.io == null
-  const io: IO = {
+  const io = useMemo<IO>(() => ({
     list: props.io?.list ?? dbio.roots,
     search: props.io?.search ?? dbio.search,
     subagents: props.io?.subagents ?? dbio.children,
@@ -522,7 +522,7 @@ export const Sessions = memo((props: Props) => {
     peek: props.io?.peek ?? dbio.peek,
     remove: props.io?.remove ?? sdb.remove,
     rename: props.io?.rename ?? sdb.rename,
-  }
+  }), [props.io])
 
   const [rows, setRows] = useState<Row[]>(cached ? last.rows : [])
   const [liveRows, setLiveRows] = useState<Row[]>([])
@@ -581,8 +581,10 @@ export const Sessions = memo((props: Props) => {
   // with subagent_count > 0 so render stays pure (no sync fetch).
   const [kids, setKids] = useState<Map<string, Row[]>>(cached ? last.kids : new Map())
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const searchGen = useRef(0)
   const vscroll = useRef<ScrollBoxRenderable | null>(null)
   const seen = useRef(false)
+  const gen = useRef(0)
 
   // Space arms one parent for inline children. The branch is only
   // visible while the cursor is on that parent or one of its children,
@@ -672,6 +674,7 @@ export const Sessions = memo((props: Props) => {
   // Kids (subagents per parent) fill in after the list — the tree
   // expands by anchor, so until then it just doesn't expand.
   const load = useCallback(async () => {
+    const current = ++gen.current
     setPending(true)
     const rpc = gw.request<SessionListResponse>("session.list", { limit: LIMIT })
       .then(r => ({ ok: true as const, v: r }))
@@ -682,21 +685,14 @@ export const Sessions = memo((props: Props) => {
     const fs = Promise.resolve(io.list(LIMIT)).catch(() => [])
 
     const disk = await fs
+    if (gen.current !== current) return
     const local = new Map(disk.map(r => [r.id, r]))
     const diskRows = disk.filter(keep).map(toRow)
     setRows(diskRows)
     if (cached) last.rows = diskRows
 
-    const fillKids = async (list: Row[]) => {
-      const ps = list.filter(r => (r.detail?.subagent_count ?? 0) > 0)
-      const cs = await Promise.all(ps.map(r => io.subagents(r.id)))
-      const m = new Map(ps.map((r, i) => [r.id, cs[i].map(toRow)]))
-      setKids(m)
-      if (cached) last.kids = m
-    }
-    void fillKids(diskRows)
-
-    const a = await active
+    const [a, r] = await Promise.all([active, rpc])
+    if (gen.current !== current) return
     const live = a.ok ? (a.v.sessions ?? []) : []
     if (a.ok) {
       setLiveRows(live.map(s => toLiveRow(s, pick(local, s))))
@@ -708,7 +704,7 @@ export const Sessions = memo((props: Props) => {
     // be stale, over-filtered, or ordered differently, but they are
     // still useful when herm is pointed at a remote/mismatched state.
     // Order is applied by the `sorted` memo, not here.
-    const r = await rpc
+    let final = diskRows
     if (r.ok && r.v.sessions?.length) {
       const seen = new Set(diskRows.map(s => s.id))
       const merged = [
@@ -717,21 +713,36 @@ export const Sessions = memo((props: Props) => {
           .filter(s => (s.message_count ?? 0) > 0 && !seen.has(s.id))
           .map(s => ({ ...s, detail: local.get(s.id) })),
       ]
+      final = merged
       setRows(merged)
       if (cached) last.rows = merged
       const found = new Map(merged.map(s => [s.id, s]))
       if (live.length) setLiveRows(live.map(s => toLiveRow(s, pick(local, s), pick(found, s))))
-      void fillKids(merged)
     }
+
+    let kidsError = ""
+    try {
+      const parents = final.filter(row => (row.detail?.subagent_count ?? 0) > 0)
+      const children = await Promise.all(parents.map(row => io.subagents(row.id)))
+      if (gen.current !== current) return
+      const next = new Map(parents.map((row, i) => [row.id, children[i].map(toRow)]))
+      setKids(next)
+      if (cached) last.kids = next
+    } catch (err) {
+      kidsError = err instanceof Error ? err.message : String(err)
+    }
+    if (gen.current !== current) return
     setPending(false)
-    setWarn(!r.ok
+    const listError = !r.ok
       ? local.size
         ? `gateway session.list failed (${r.e.message}) — listing state.db directly; rows may not resume`
         : r.e.message
-      : "")
-  }, [gw, props.currentId])
+      : ""
+    setWarn([listError, kidsError].filter(Boolean).join(" · "))
+  }, [gw, props.currentId, io, cached])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => () => { gen.current++ }, [])
 
   // Seed anchor once rows arrive. If active rows arrive after the
   // optimistic history paint, promote the untouched first row to active.
@@ -750,20 +761,25 @@ export const Sessions = memo((props: Props) => {
     seen.current = on
   }, [listed, active, hist, anchor])
 
-  // Search is a synchronous FTS5 query on state.db, so debounce —
-  // running it on every keystroke blocks the render thread. The
+  // Search is an FTS5 query on state.db, so debounce to avoid flooding
+  // the worker on every keystroke. The
   // cleanup clears the pending timer, which also drops superseded
   // queries for free (only the most recent query value ever runs).
   useEffect(() => {
+    const current = ++searchGen.current
     if (!searching || !query.trim()) { setResults([]); return }
     debounce.current = setTimeout(() => {
       void Promise.resolve(io.search(query, 30)).then(r => {
+        if (searchGen.current !== current) return
         setResults(r)
         setSearchSel(0)
+      }).catch(err => {
+        if (searchGen.current === current)
+          setWarn(err instanceof Error ? err.message : String(err))
       })
     }, 150)
     return () => { if (debounce.current) clearTimeout(debounce.current) }
-  }, [query, searching])
+  }, [query, searching, io])
   // Hover-to-select is onMouseMove, not onMouseOver — the latter fires
   // when scrollChildIntoView moves rows under a stationary cursor and
   // would snap sel back during ↓-repeat (the "stutter"). Mouse motion
