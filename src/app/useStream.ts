@@ -197,7 +197,9 @@ export function useStream(c: Ctx) {
       onStatus: (text) => x.setStatus(text),
       onSessionTitle: retitle,
       onApprovalRemembered: (fallback) => {
+        const sid = x.sidRef.current
         void gw.request("approval.respond", { choice: "always" }).catch((err: Error) => {
+          if (ctx.current.sidRef.current !== sid) return
           x.dispatch(fallback)
           toast.show({ variant: "error", message: err.message })
         })
