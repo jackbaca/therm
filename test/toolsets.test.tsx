@@ -182,6 +182,32 @@ describe("Toolsets tab", () => {
     t.destroy()
   })
 
+  test("same-frame double toggle preserves the original state", async () => {
+    let enabled = true
+    const actions: string[] = []
+    const gw = new MockGateway({
+      "toolsets.list": () => ({ toolsets: [SETS[0]] }),
+      "tools.configure": p => {
+        actions.push(p.action as string)
+        enabled = p.action === "enable"
+        return { changed: ["file"], enabled_toolsets: enabled ? ["file"] : [], missing_servers: [], unknown: [] }
+      },
+    })
+    const t = await mountNode(<Toolsets focused />, { gw })
+    await until(t, () => t.frame().includes("Toolsets (1)"))
+
+    act(() => {
+      void t.keys.typeText(" ")
+      void t.keys.typeText(" ")
+    })
+    await until(t, () => actions.length > 0)
+    await t.settle()
+
+    expect(actions.at(-1)).toBe("enable")
+    expect(strip(t.frame())).toMatch(/●\s+file\b/)
+    t.destroy()
+  })
+
   test("stale refresh cannot overwrite a completed toggle", async () => {
     let refresh!: (value: unknown) => void
     let lists = 0

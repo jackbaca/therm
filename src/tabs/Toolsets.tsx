@@ -169,12 +169,17 @@ export const Toolsets = memo((props: { focused?: boolean }) => {
       toast.show({ variant: "warning", message: `${ts.name} is unavailable` });
       return;
     }
-    const action = ts.enabled ? "disable" : "enable";
     const was = ts.enabled;
+    const enabled = !was;
+    const action = enabled ? "enable" : "disable";
     const gen = ++rev.current;
     loads.current++;
     // optimistic flip
-    setList(prev => prev.map(t => t.name === ts.name ? { ...t, enabled: !t.enabled } : t));
+    live.current = {
+      ...live.current,
+      flat: live.current.flat.map(t => t.name === ts.name ? { ...t, enabled } : t),
+    };
+    setList(prev => prev.map(t => t.name === ts.name ? { ...t, enabled } : t));
     writes.current = writes.current.then(async () => {
       if (rev.current !== gen) return;
       try {
