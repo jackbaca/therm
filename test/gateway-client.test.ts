@@ -110,6 +110,44 @@ describe("GatewayClient", () => {
     }
   })
 
+  test("startup timeout terminates the wedged gateway", async () => {
+    const spawn = Bun.spawn
+    const clock = globalThis.setTimeout
+    let kills = 0
+    let done!: (code: number) => void
+    const exited = new Promise<number>(resolve => { done = resolve })
+    const proc = {
+      stdin: { write() { return 0 } },
+      stdout: null,
+      stderr: null,
+      exited,
+      exitCode: null as number | null,
+      kill() {
+        kills++
+        this.exitCode = 1
+        done(1)
+      },
+    }
+    ;(Bun as unknown as { spawn: typeof Bun.spawn }).spawn = (() => proc as never) as typeof Bun.spawn
+    const fast = (handler: () => void, ms?: number) => clock(handler, ms === 15_000 ? 0 : ms)
+    globalThis.setTimeout = fast as unknown as typeof setTimeout
+    const gw = new GatewayClient()
+    let exits = 0
+    gw.on("exit", () => { exits++ })
+    gw.drain()
+    try {
+      gw.start()
+      await Bun.sleep(20)
+      expect(gw.tail()).toContain("timed out")
+      expect(kills).toBe(1)
+      expect(exits).toBe(1)
+    } finally {
+      gw.kill()
+      globalThis.setTimeout = clock
+      ;(Bun as unknown as { spawn: typeof Bun.spawn }).spawn = spawn
+    }
+  })
+
   test("passes Python source root to gateway child env", () => {
     const prev = Bun.spawn
     const root = tmp()

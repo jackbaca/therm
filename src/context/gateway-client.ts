@@ -164,6 +164,16 @@ export class GatewayClient extends EventEmitter {
       if (this.ok) return
       this.log(`[startup] timed out (python=${bin}, cwd=${cwd})`)
       this.push({ type: "gateway.start_timeout", payload: { cwd, python: bin } })
+      const proc = this.proc
+      if (!proc || proc.exitCode !== null) return
+      try { proc.kill() }
+      catch (err) {
+        this.proc = null
+        const failure = new Error(`gateway startup timeout: ${err instanceof Error ? err.message : String(err)}`)
+        this.fail(failure)
+        if (this.sub) this.emit("exit", null)
+        else this.exit = null
+      }
     }, STARTUP_MS)
 
     const proc = (() => {
