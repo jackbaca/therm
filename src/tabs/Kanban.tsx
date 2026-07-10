@@ -744,6 +744,42 @@ export const Kanban = memo((props: { focused?: boolean }) => {
   const [blocks, setBlocks] = useState<Map<string, BlockSupport>>(() => new Map())
 
   const outer = useRef<ScrollBoxRenderable | null>(null)
+  const diag = useRef({ busy: false, pending: null as Board[] | null, gen: 0 })
+
+  const refreshDiags = useCallback(async (next: Board[]) => {
+    const state = diag.current
+    state.gen++
+    if (state.busy) { state.pending = next; return }
+    state.busy = true
+    let boards: Board[] | null = next
+    while (boards) {
+      const current = boards
+      const gen = state.gen
+      state.pending = null
+      const pairs = await Promise.all(current.map(async board => {
+        const rows = await gw.request<Sh>("shell.exec", {
+          command: `hermes kanban --board ${q(board.slug)} diagnostics --json`,
+        }).then(res => res.code === 0 ? indexDiags(parseDiagnostics(res.stdout)) : null)
+          .catch(() => null)
+        return [board.slug, rows] as const
+      }))
+      if (state.gen === gen) {
+        setDiags(prev => {
+          const active = new Set(current.map(board => board.slug))
+          const out = new Map([...prev].filter(([slug]) => active.has(slug)))
+          for (const [slug, rows] of pairs) if (rows) out.set(slug, rows)
+          return out
+        })
+      }
+      boards = state.pending
+    }
+    state.busy = false
+  }, [gw])
+
+  useEffect(() => () => {
+    diag.current.gen++
+    diag.current.pending = null
+  }, [])
 
   const load = useCallback(() => {
     const bs = listBoards()
@@ -751,20 +787,8 @@ export const Kanban = memo((props: { focused?: boolean }) => {
     setData(new Map(bs.map(b => [b.slug, boardStateOf(b.slug)])))
     setPane(p => p?.kind === "detail"
       ? (d => d ? { ...p, d } : null)(detailOf(p.slug, p.d.id)) : p)
-    // Diagnostics: one shell.exec per board. Compute in parallel; any
-    // per-board failure (CLI absent, board not initialized) falls back
-    // to "no diags" for that slug rather than blocking the others. A
-    // single request object is built per-board so stale fetches from a
-    // previous `load()` can't clobber newer results — `setDiags`
-    // replaces the map atomically per call.
-    Promise.all(bs.map(b =>
-      gw.request<Sh>("shell.exec",
-          { command: `hermes kanban --board ${q(b.slug)} diagnostics --json` })
-        .then(r => r.code === 0 ? parseDiagnostics(r.stdout) : [])
-        .catch(() => [] as ReturnType<typeof parseDiagnostics>)
-        .then(rows => [b.slug, indexDiags(rows)] as const),
-    )).then(pairs => setDiags(new Map(pairs)))
-  }, [gw])
+    void refreshDiags(bs)
+  }, [refreshDiags])
   useEffect(load, [load])
 
   // Persist masks + open set whenever either changes.

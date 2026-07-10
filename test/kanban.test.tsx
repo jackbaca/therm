@@ -1827,6 +1827,30 @@ describe("Kanban diagnostics UI", () => {
     return JSON.stringify(byBoard[slug] ?? [])
   }
 
+  test("diagnostics refreshes serialize and collapse to the latest request", async () => {
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const gw = new MockGateway({
+      "shell.exec": async p => {
+        if (/\bdiagnostics\b/.test(p.command as string)) await gate
+        return { stdout: "[]", stderr: "", code: 0 }
+      },
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    const count = listBoards().length
+    const calls = () => gw.calls.filter(c => c.method === "shell.exec" && /\bdiagnostics\b/.test(String(c.params.command))).length
+    await until(t, () => calls() === count)
+
+    await act(async () => { await t.keys.typeText("rr") })
+    await t.settle()
+    expect(calls()).toBe(count)
+
+    release()
+    await until(t, () => calls() === count * 2)
+    expect(calls()).toBe(count * 2)
+    t.destroy()
+  })
+
   test("Card prefixes severity glyph; SidePane renders Diagnostics block + suggested action", async () => {
     const fixture = {
       default: [{
