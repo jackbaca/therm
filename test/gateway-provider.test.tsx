@@ -46,3 +46,19 @@ test("unexpected gateway exit restarts with bounded backoff", async () => {
   await until(t, () => gw.starts === 2 && t.frame().includes("gateway ready"), 1000)
   t.destroy()
 })
+
+test("unexpected gateway restart resumes the active session", async () => {
+  const resumed: string[] = []
+  const gw = new MockGateway({
+    "session.resume": p => {
+      resumed.push(p.session_id as string)
+      return { session_id: p.session_id, messages: [] }
+    },
+  })
+  const t = await mount({ gw, launch: { mode: "new", splash: false } })
+  await until(t, () => t.frame().includes("Ready"))
+  act(() => gw.emit("exit", 7))
+  await until(t, () => resumed.length > 0, 1000)
+  expect(resumed).toEqual(["test-sid"])
+  t.destroy()
+})

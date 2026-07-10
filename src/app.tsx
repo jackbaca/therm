@@ -264,6 +264,8 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   useEffect(() => {
     const exit = (code: number | null) => {
       const text = `gateway exited${code === null ? "" : ` (${code})`}`
+      const sid = sidRef.current
+      if (sid) launchRef.current = { mode: "resume", sid, splash: false }
       gw.setSession("")
       setReady(false)
       setStarting(false)
