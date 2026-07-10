@@ -3,11 +3,12 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/react"
 import type { BorderSides, MouseEvent, ScrollBoxRenderable } from "@opentui/core"
 import {
   boardStateOf, detailOf, tailLogOf, assignees, q, STATUSES,
-  currentBoard, listBoards, resetKanban, patchTask,
+  currentBoard, listBoards, resetKanban,
   parseDiagnostics, maxSeverity, sortDiags,
   type Task, type Status, type Detail, type Board, type BlockKind,
-  type Diag, type Severity, type BoardError,
+  type Diag, type Severity, type BoardError, type PatchFields,
 } from "../service/hermes-kanban"
+import { patch as patchTask } from "../io/kanban"
 import { useKeys } from "../keys"
 import { useTheme } from "../theme"
 import { useGateway } from "../context/gateway"
@@ -897,17 +898,17 @@ export const Kanban = memo((props: { focused?: boolean }) => {
       }).catch((e: Error) => void toast.show({ variant: "error", message: trunc(e.message, 120) }))
   }, [gw, toast, load])
 
-  // Direct bun:sqlite patch — title/body/priority only. Mirrors
-  // dashboard PATCH /tasks/:id. Refreshes on success (no shell round-trip).
-  const patchDirect = useCallback((id: string, p: Parameters<typeof patchTask>[2], ok: string) => {
-    try {
-      if (!patchTask(at, id, p))
-        return void toast.show({ variant: "error", message: `no such task: ${id}` })
+  const writes = useRef(Promise.resolve())
+  const patchDirect = useCallback((id: string, p: PatchFields, ok: string) => {
+    const board = at
+    writes.current = writes.current.then(async () => {
+      if (!await patchTask(board, id, p))
+        throw new Error(`no such task: ${id}`)
       toast.show({ variant: "success", message: ok })
       load()
-    } catch (e) {
-      toast.show({ variant: "error", message: trunc((e as Error).message, 120) })
-    }
+    }).catch((e: Error) => {
+      toast.show({ variant: "error", message: trunc(e.message, 120) })
+    })
   }, [at, toast, load])
   // enterTop/enterBottom land on the first/last reachable tier of
   // the target section so ↑↓ read as one continuous vertical walk.

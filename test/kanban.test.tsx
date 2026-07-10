@@ -1477,6 +1477,28 @@ describe("patchTask direct writes", () => {
     expect(read("t4")!.priority).toBe(0)
   })
 
+  test("kanban worker facade mirrors the service write contract", async () => {
+    const { patch } = await import("../src/io/kanban")
+    expect(await patch("default", "t4", { priority: 6 })).toBe(true)
+    expect(read("t4")!.priority).toBe(6)
+    expect(await patch("default", "missing-task", { priority: 6 })).toBe(false)
+  })
+
+  test("real kanban worker patches the sandbox board", async () => {
+    const prev = process.env.HERM_IO_INLINE
+    process.env.HERM_IO_INLINE = ""
+    // @ts-expect-error Bun query-string specifier creates a fresh module instance.
+    const fresh = await import("../src/io/kanban?worker") as typeof import("../src/io/kanban")
+    try {
+      expect(await fresh.patch("default", "t4", { priority: 8 })).toBe(true)
+      expect(read("t4")!.priority).toBe(8)
+    } finally {
+      fresh.close()
+      if (prev === undefined) delete process.env.HERM_IO_INLINE
+      else process.env.HERM_IO_INLINE = prev
+    }
+  })
+
   test("empty title rejected, unknown id returns false", async () => {
     const { patchTask } = await import("../src/service/hermes-kanban")
     expect(() => patchTask("default", "t4", { title: "   " })).toThrow(/empty/)
