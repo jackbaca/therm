@@ -54,9 +54,12 @@ const CuratorDialog = () => {
 
   const refreshArchived = useCallback(() => {
     gw.request<Sh>("shell.exec", { command: "hermes curator list-archived" })
-      .then(r => { if (r.code === 0) setArchived(parseList(r.stdout)) })
-      .catch(() => {})
-  }, [gw])
+      .then(r => {
+        if (r.code !== 0) throw new Error((r.stderr || r.stdout || `exit ${r.code}`).trim())
+        setArchived(parseList(r.stdout))
+      })
+      .catch(e => toast.show({ variant: "error", message: trunc(e instanceof Error ? e.message : String(e), 120) }))
+  }, [gw, toast])
 
   useEffect(() => { refreshArchived() }, [refreshArchived])
 

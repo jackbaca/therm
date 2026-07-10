@@ -169,4 +169,16 @@ describe("curator dialog", () => {
     expect(f).not.toContain("a archived skills")
     t.destroy()
   })
+
+  test("archived list failure is visible", async () => {
+    const gw = new MockGateway({
+      "shell.exec": p => {
+        if (p.command === "hermes curator list-archived") throw new Error("archive list unavailable")
+        return { stdout: "", stderr: "", code: 0 }
+      },
+    })
+    const t = await mountNode(<Open />, { width: 130, height: 40, gw })
+    await until(t, () => t.frame().includes("archive list unavailable"))
+    t.destroy()
+  })
 })
