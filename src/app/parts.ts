@@ -39,8 +39,8 @@ export type PartsSnapshot = {
   parts: Part[]
 }
 
-export const TYPE = "prompt-part"
-export const STYLE = {
+const TYPE = "prompt-part"
+const STYLE = {
   file: "extmark.file",
   agent: "extmark.agent",
   paste: "extmark.paste",

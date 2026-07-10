@@ -28,7 +28,7 @@ export function classify(path: string): MediaKind {
   return "file"
 }
 
-export const basename = (p: string) => p.split(/[/\\]/).pop() || p
+const basename = (p: string) => p.split(/[/\\]/).pop() || p
 
 export type Seg = { md: string } | { media: string } | { code: string; lang?: string }
 

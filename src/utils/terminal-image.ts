@@ -11,7 +11,7 @@ export function image(path: string): boolean {
   return IMAGE_EXT.has((path.split(/[?#]/)[0].split(".").pop() ?? "").toLowerCase())
 }
 
-export function remote(path: string): boolean {
+function remote(path: string): boolean {
   return URL_RE.test(path)
 }
 
