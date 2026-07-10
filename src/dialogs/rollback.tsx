@@ -41,6 +41,7 @@ const RollbackDialog = (props: Props) => {
   const [opened, setOpened] = useState<Checkpoint | null>(null)
   const [confirm, setConfirm] = useState(false)
   const seq = useRef(0)
+  const restoring = useRef(false)
 
   useEffect(() => {
     if (props.initial) return
@@ -80,6 +81,8 @@ const RollbackDialog = (props: Props) => {
   }
 
   const restore = (cp: Checkpoint) => {
+    if (restoring.current) return
+    restoring.current = true
     props.gw.request<RestoreRes>("rollback.restore", { hash: cp.hash })
       .then(r => {
         if (!r.success) throw new Error("restore rejected")
@@ -92,6 +95,7 @@ const RollbackDialog = (props: Props) => {
         props.toast.show({ variant: "error", message: `Restore failed: ${e.message}` })
         props.dialog.clear()
       })
+      .finally(() => { restoring.current = false })
   }
 
   const keys = useKeys()

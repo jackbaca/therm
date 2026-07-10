@@ -113,6 +113,29 @@ describe("Rollback dialog", () => {
     t.destroy()
   })
 
+  test("restore confirmation cannot dispatch twice", async () => {
+    let restores = 0
+    const gw = new MockGateway({
+      "rollback.list": () => ({ enabled: true, checkpoints: POINTS }),
+      "rollback.diff": () => ({ stat: "stat", diff: "diff" }),
+      "rollback.restore": () => { restores++; return new Promise(() => {}) },
+    })
+    const t = await mountNode(<Host />, { gw })
+    await until(t, () => t.frame().includes("2 checkpoints"))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("[r] restore"))
+    await act(async () => { await t.keys.typeText("r") })
+    await until(t, () => t.frame().includes("Restore this checkpoint?"))
+
+    act(() => {
+      t.keys.pressKey("y")
+      t.keys.pressKey("y")
+    })
+    await until(t, () => restores > 0)
+    expect(restores).toBe(1)
+    t.destroy()
+  })
+
   test("Esc in diff view returns to list", async () => {
     const gw = new MockGateway({
       "rollback.list": () => ({ enabled: true, checkpoints: POINTS }),
