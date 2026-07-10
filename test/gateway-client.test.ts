@@ -92,6 +92,24 @@ describe("python", () => {
 })
 
 describe("GatewayClient", () => {
+  test("synchronous spawn failure reports exit without throwing", () => {
+    const prev = Bun.spawn
+    ;(Bun as unknown as { spawn: typeof Bun.spawn }).spawn = (() => {
+      throw new Error("spawn exploded")
+    }) as typeof Bun.spawn
+    const gw = new GatewayClient()
+    let exits = 0
+    gw.on("exit", () => { exits++ })
+    gw.drain()
+    try {
+      expect(() => gw.start()).not.toThrow()
+      expect(exits).toBe(1)
+      expect(gw.tail()).toContain("spawn exploded")
+    } finally {
+      ;(Bun as unknown as { spawn: typeof Bun.spawn }).spawn = prev
+    }
+  })
+
   test("passes Python source root to gateway child env", () => {
     const prev = Bun.spawn
     const root = tmp()

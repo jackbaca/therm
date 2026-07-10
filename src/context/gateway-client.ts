@@ -164,13 +164,27 @@ export class GatewayClient extends EventEmitter {
       this.push({ type: "gateway.start_timeout", payload: { cwd, python: bin } })
     }, STARTUP_MS)
 
-    const proc = Bun.spawn([bin, "-u", "-m", "tui_gateway.entry"], {
-      cwd,
-      env,
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
-    })
+    const proc = (() => {
+      try {
+        return Bun.spawn([bin, "-u", "-m", "tui_gateway.entry"], {
+          cwd,
+          env,
+          stdin: "pipe",
+          stdout: "pipe",
+          stderr: "pipe",
+        })
+      } catch (err) {
+        if (this.timer) { clearTimeout(this.timer); this.timer = null }
+        this.proc = null
+        const message = err instanceof Error ? err.message : String(err)
+        this.log(`[startup] spawn failed: ${message}`)
+        this.push({ type: "gateway.stderr", payload: { line: message } })
+        if (this.sub) this.emit("exit", null)
+        else this.exit = null
+        return null
+      }
+    })()
+    if (!proc) return
     this.proc = proc
 
     // Read stdout lines — Bun returns ReadableStream
