@@ -126,6 +126,13 @@ test("POST /send waits for the bridge acknowledgement", async () => {
     body: JSON.stringify({ message: "hello" }),
   }))
   expect(await Promise.race([pending.then(() => false), Bun.sleep(5).then(() => true)])).toBe(true)
+  const concurrent = internals.handle(new Request("http://localhost/send", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ message: "second" }),
+  }))
+  const blocked = await Promise.race([concurrent, Bun.sleep(5).then(() => null)])
+  expect(blocked?.status).toBe(409)
   release()
   expect((await pending).status).toBe(200)
 })
