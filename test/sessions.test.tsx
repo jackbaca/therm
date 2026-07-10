@@ -563,6 +563,21 @@ describe("Sessions tab", () => {
     t.destroy()
   })
 
+  test("session.delete timeout fails closed because server outcome is unknown", async () => {
+    const gw = new MockGateway({
+      "session.list": () => ({ sessions: ROWS }),
+      "session.delete": () => { throw new Error("timeout: session.delete") },
+    })
+    let local = 0
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, remove: () => (local++, true) }} />, { gw })
+    await until(t, () => t.frame().includes("Sessions (2)"))
+    await act(async () => { await t.keys.typeText("d") })
+    await act(async () => { await t.keys.typeText("y") })
+    await until(t, () => t.frame().includes("timeout: session.delete"))
+    expect(local).toBe(0)
+    t.destroy()
+  })
+
   test("Ctrl+R renames selected session via io.rename, patches row in place", async () => {
     const calls: Array<[string, string]> = []
     const gw = new MockGateway({ "session.list": () => ({ sessions: ROWS }) })

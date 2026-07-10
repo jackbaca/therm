@@ -849,7 +849,7 @@ export const Sessions = memo((props: Props) => {
             toast.show({ variant: "error", message: "Can't delete the active session" })
             return false
           }
-          if (/method not found|unknown method|gateway not running|gateway exited|timeout: session\.delete/i.test(e.message))
+          if (/method not found|unknown method|gateway not running|gateway exited/i.test(e.message))
             return io.remove(r.id)
           toast.show({ variant: "error", message: e.message })
           return false
