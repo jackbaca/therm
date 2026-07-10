@@ -4,7 +4,7 @@ import type { BorderSides, MouseEvent, ScrollBoxRenderable } from "@opentui/core
 import {
   boardStateOf, detailOf, tailLogOf, assignees, q, STATUSES,
   currentBoard, listBoards, resetKanban,
-  parseDiagnostics, maxSeverity, sortDiags,
+  maxSeverity,
   type Task, type Status, type Detail, type Board, type BlockKind,
   type Diag, type Severity, type BoardError, type PatchFields,
 } from "../service/hermes-kanban"
@@ -28,13 +28,14 @@ import { load as loadPrefs, set as setPref, type KanbanPrefs } from "../context/
 import { parseDispatchResult, dispatchFailures, dispatchGuarded, dispatchVariant, dispatchDetails } from "../service/kanban-dispatch"
 import { FileLink } from "../components/ui/FileLink"
 import type { Source } from "../service/hermes-home"
+import { useKanbanDiagnostics } from "./kanban-diagnostics"
 
 // Operator surface for every kanban board under ~/.hermes/.
 //
 // Boards stack vertically; each is a collapsible section (▾/▸
 // header + filter-chip bar + capped-height row of status columns).
 // Reads are sidecar SQLite per board. Writes split by kind:
-//   - title/body/priority: direct bun:sqlite (patchTask) inside a
+//   - title/body/priority: worker-backed bun:sqlite inside a
 //     BEGIN IMMEDIATE txn + task_events row, mirroring dashboard
 //     plugin_api PATCH /tasks/:id.
 //   - status transitions / assign / link / edit / comment / dispatch:
@@ -118,15 +119,6 @@ const pass = (t: Task, m: Mask) =>
   admits(m.who, t.assignee ?? null as unknown as string)
   && admits(m.pri, t.priority)
 
-/** Index parsed diagnostic rows by task_id for O(1) lookup from the
- *  card renderer. Empty rows are stripped so maxSeverity() on an
- *  absent map entry is always null. */
-const indexDiags = (rows: ReturnType<typeof parseDiagnostics>): Map<string, Diag[]> => {
-  const out = new Map<string, Diag[]>()
-  for (const r of rows)
-    if (r.diagnostics.length > 0) out.set(r.task_id, sortDiags(r.diagnostics))
-  return out
-}
 // Masks + open-set round-trip through ~/.config/herm/tui.json under
 // the `kanban` key. Keyed by slug. Maps/Sets flatten to entry arrays
 // for JSON.
@@ -714,12 +706,8 @@ export const Kanban = memo((props: { focused?: boolean }) => {
   const [data, setData] = useState<Map<string, ReturnType<typeof boardStateOf>>>(
     () => new Map(boards.map(b => [b.slug, boardStateOf(b.slug)])),
   )
-  // diag[slug][taskId] = Diag[]. Shape keeps card lookup O(1) and
-  // lets the SidePane pull the current task's diagnostics without a
-  // second fetch. Missing slug / missing taskId both mean "none".
-  const [diags, setDiags] = useState<Map<string, Map<string, Diag[]>>>(
-    () => new Map(),
-  )
+  const diagnostics = useKanbanDiagnostics(gw)
+  const diags = diagnostics.data
   const [masks, setMasks] = useState<Map<string, Mask>>(() =>
     maskFromPrefs(loadPrefs().kanban?.masks))
   const [open, setOpen] = useState<Set<string>>(() => {
@@ -744,42 +732,6 @@ export const Kanban = memo((props: { focused?: boolean }) => {
   const [blocks, setBlocks] = useState<Map<string, BlockSupport>>(() => new Map())
 
   const outer = useRef<ScrollBoxRenderable | null>(null)
-  const diag = useRef({ busy: false, pending: null as Board[] | null, gen: 0 })
-
-  const refreshDiags = useCallback(async (next: Board[]) => {
-    const state = diag.current
-    state.gen++
-    if (state.busy) { state.pending = next; return }
-    state.busy = true
-    let boards: Board[] | null = next
-    while (boards) {
-      const current = boards
-      const gen = state.gen
-      state.pending = null
-      const pairs = await Promise.all(current.map(async board => {
-        const rows = await gw.request<Sh>("shell.exec", {
-          command: `hermes kanban --board ${q(board.slug)} diagnostics --json`,
-        }).then(res => res.code === 0 ? indexDiags(parseDiagnostics(res.stdout)) : null)
-          .catch(() => null)
-        return [board.slug, rows] as const
-      }))
-      if (state.gen === gen) {
-        setDiags(prev => {
-          const active = new Set(current.map(board => board.slug))
-          const out = new Map([...prev].filter(([slug]) => active.has(slug)))
-          for (const [slug, rows] of pairs) if (rows) out.set(slug, rows)
-          return out
-        })
-      }
-      boards = state.pending
-    }
-    state.busy = false
-  }, [gw])
-
-  useEffect(() => () => {
-    diag.current.gen++
-    diag.current.pending = null
-  }, [])
 
   const load = useCallback(() => {
     const bs = listBoards()
@@ -787,8 +739,8 @@ export const Kanban = memo((props: { focused?: boolean }) => {
     setData(new Map(bs.map(b => [b.slug, boardStateOf(b.slug)])))
     setPane(p => p?.kind === "detail"
       ? (d => d ? { ...p, d } : null)(detailOf(p.slug, p.d.id)) : p)
-    void refreshDiags(bs)
-  }, [refreshDiags])
+    void diagnostics.refresh(bs)
+  }, [diagnostics.refresh])
   useEffect(load, [load])
 
   // Persist masks + open set whenever either changes.
