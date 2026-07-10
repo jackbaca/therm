@@ -156,6 +156,17 @@ test("gateway voice events drive the indicator and submit transcripts", async ()
   await until(t, () => t.gw.last("prompt.submit")?.params.text === "spoken prompt")
 })
 
+test("no-speech limit disables voice without submitting", async () => {
+  await using t = await mount()
+  await until(t, () => t.frame().includes("Ready"))
+  act(() => t.gw.push({ type: "voice.status", payload: { state: "listening" } }))
+  await until(t, () => t.frame().includes("recording"))
+  act(() => t.gw.push({ type: "voice.transcript", payload: { no_speech_limit: true } }))
+  await until(t, () => t.frame().includes("voice: disabled after repeated silence"))
+  expect(t.frame()).not.toContain("recording")
+  expect(t.gw.last("prompt.submit")).toBeUndefined()
+})
+
 test("old record completion cannot unlock a newer pending request", async () => {
   let api: VoiceApi | undefined
   let failOld!: (error: Error) => void
