@@ -211,12 +211,17 @@ export function openGenerate(
   opts: Opts,
 ): Promise<{ path: string; prompt: string } | null> {
   return new Promise(resolve => {
+    let token = 0
     dialog.replace(
       <Generate
         {...opts} run={run}
-        onDone={(p, txt) => { resolve(p ? { path: p, prompt: txt } : null); dialog.clear() }}
+        onDone={(p, txt) => {
+          resolve(p ? { path: p, prompt: txt } : null)
+          if (dialog.version() === token) dialog.clear()
+        }}
       />,
       () => resolve(null),
     )
+    token = dialog.version()
   })
 }
