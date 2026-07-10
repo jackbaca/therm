@@ -1311,6 +1311,32 @@ describe("Sessions tab — transcript peek", () => {
     t.destroy()
   })
 
+  test("late peek response cannot replace the selected session", async () => {
+    let release!: (rows: PeekMsg[]) => void
+    const first = new Promise<PeekMsg[]>(resolve => { release = resolve })
+    const gw = new MockGateway({ "session.list": () => ({ sessions: ROWS }) })
+    const peek = (sid: string) => sid === "sid-a" ? first : Promise.resolve([pm("user", "beta content")])
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, peek }} />, { gw, width: 200, height: 50 })
+    await until(t, () => t.frame().includes("Sessions (2)"))
+    act(() => t.keys.pressArrow("down"))
+    await until(t, () => t.frame().includes("beta content"))
+
+    release([pm("user", "stale alpha content")])
+    await first
+    await t.settle()
+    expect(t.frame()).toContain("beta content")
+    expect(t.frame()).not.toContain("stale alpha content")
+    t.destroy()
+  })
+
+  test("peek failure stays visible in the detail pane", async () => {
+    const gw = new MockGateway({ "session.list": () => ({ sessions: ROWS }) })
+    const peek = async () => { throw new Error("transcript unavailable") }
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, peek }} />, { gw, width: 200, height: 50 })
+    await until(t, () => t.frame().includes("transcript unavailable"))
+    t.destroy()
+  })
+
   test("tool-only session still shows footer (not 'no local transcript')", async () => {
     const gw = new MockGateway({ "session.list": () => ({ sessions: ROWS }) })
     const peek = (): PeekMsg[] => [

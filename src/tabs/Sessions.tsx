@@ -184,10 +184,20 @@ type Peeker = (sid: string) => PeekMsg[] | Promise<PeekMsg[]>
 const Peek = memo((props: { sid: string; total: number; peek: Peeker }) => {
   const theme = useTheme().theme
   const [data, setData] = useState<{ turns: Folded[]; tools: number } | null>(null)
+  const [err, setErr] = useState("")
   const sb = useRef<ScrollBoxRenderable | null>(null)
+  const gen = useRef(0)
 
   useEffect(() => {
-    void Promise.resolve(props.peek(props.sid)).then(m => setData(fold(m)))
+    const current = ++gen.current
+    setData(null)
+    setErr("")
+    void Promise.resolve(props.peek(props.sid))
+      .then(m => { if (gen.current === current) setData(fold(m)) })
+      .catch(e => {
+        if (gen.current === current) setErr(e instanceof Error ? e.message : String(e))
+      })
+    return () => { gen.current++ }
   }, [props.sid, props.peek])
   // Pin to bottom on load — "where did this end up", not "how did
   // it start".
@@ -195,6 +205,7 @@ const Peek = memo((props: { sid: string; total: number; peek: Peeker }) => {
     if (data && sb.current) sb.current.scrollTop = sb.current.scrollHeight
   }, [data])
 
+  if (err) return <box height={1}><text fg={theme.error}>{err}</text></box>
   if (data === null) return null
   if (data.turns.length === 0 && data.tools === 0) return (
     <box height={1}><text fg={theme.textMuted}>(no local transcript)</text></box>
