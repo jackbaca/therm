@@ -32,6 +32,32 @@ describe("Skills tab", () => {
     }
   })
 
+  test("stale list response cannot replace a newer refresh", async () => {
+    let stale!: (value: unknown) => void
+    let lists = 0
+    const gw = new MockGateway({
+      "skills.manage": p => {
+        if (p.action !== "list") return {}
+        if (lists++ === 0) return { skills: { general: ["initial"] } }
+        if (lists === 2) return new Promise(resolve => { stale = resolve })
+        return { skills: { general: ["fresh"] } }
+      },
+    })
+    const t = await mountNode(<Skills focused />, { gw, width: 160 })
+    await until(t, () => t.frame().includes("initial"))
+    await act(async () => { await t.keys.typeText("r") })
+    await until(t, () => lists === 2)
+    await act(async () => { await t.keys.typeText("r") })
+    await until(t, () => t.frame().includes("fresh"))
+
+    stale({ skills: { general: ["stale"] } })
+    await act(async () => { await Bun.sleep(0) })
+    await t.settle()
+    expect(t.frame()).toContain("fresh")
+    expect(t.frame()).not.toContain("stale")
+    t.destroy()
+  })
+
   test("enriches description/tags from SKILL.md frontmatter on disk", async () => {
     const dir = hermesPath("skills/general/local-skill")
     mkdirSync(dir, { recursive: true })

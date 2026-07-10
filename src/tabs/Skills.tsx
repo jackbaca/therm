@@ -274,10 +274,13 @@ export const Skills = memo((props: { focused?: boolean }) => {
   const [sort, setSort] = useState<Sort>("name");
   const [history, setHistory] = useState(false);
   const seq = useRef(0);
+  const listSeq = useRef(0);
 
   const load = useCallback(() => {
+    const id = ++listSeq.current;
     gw.request<{ skills: Record<string, string[]> }>("skills.manage", { action: "list" })
       .then(res => {
+        if (listSeq.current !== id) return;
         const raw = res.skills ?? {};
         const rows: SkillInfo[] = Object.entries(raw).flatMap(([cat, names]) =>
           names.map(n => {
@@ -295,11 +298,14 @@ export const Skills = memo((props: { focused?: boolean }) => {
         rows.sort((a, b) => a.source.relative.localeCompare(b.source.relative));
         setSkills(rows);
       })
-      .catch((err: Error) => toast.show({ variant: "error", message: err.message }));
+      .catch((err: Error) => {
+        if (listSeq.current === id) toast.show({ variant: "error", message: err.message });
+      });
   }, [gw, toast]);
 
   useEffect(() => {
     load();
+    return () => { listSeq.current++; };
   }, [load]);
 
   // Hub search — debounced, drop stale responses via seq ref.
