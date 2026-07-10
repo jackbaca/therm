@@ -212,6 +212,26 @@ const STATUS = (over: Partial<DelegationStatus> = {}): DelegationStatus => ({
 })
 
 describe("Agents tab", () => {
+  test("late delegation poll cannot replace a newer snapshot", async () => {
+    let release!: () => void
+    let calls = 0
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const stale = STATUS({ active: [{ ...RECS()[0], goal: "stale delegation" }] })
+    const gw = new MockGateway({
+      "delegation.status": () => calls++ === 0 ? gate.then(() => stale) : STATUS({ active: [] }),
+    })
+    const t = await mountNode(<Agents focused sessionId="test-sid" />, { gw, width: 200 })
+    await until(t, () => calls === 1)
+    act(() => gw.push({ type: "subagent.start", payload: { subagent_id: "new", task_index: 0, goal: "new" } }))
+    await until(t, () => calls === 2 && t.frame().includes("Delegation (0)"))
+
+    release()
+    await gate
+    await t.settle()
+    expect(t.frame()).not.toContain("stale delegation")
+    t.destroy()
+  })
+
   test("loads profiles (fs) + delegation (RPC), preorder sort; is_active from gateway", async () => {
     const gw = new MockGateway({
       "delegation.status": () => STATUS(),

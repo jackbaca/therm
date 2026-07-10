@@ -313,6 +313,7 @@ export const Agents = memo((props: Props) => {
   const [pSel, setPSel] = useState(0)
   const [dSel, setDSel] = useState(0)
   const [err, setErr] = useState("")
+  const delegGen = useRef(0)
 
   const active = preorder(deleg?.active ?? [])
   // Aggregates: rebuild the tree from the same snapshot + live
@@ -356,12 +357,18 @@ export const Agents = memo((props: Props) => {
   }, [gw, loadProfiles])
 
   const loadDeleg = useCallback(() => {
+    const current = ++delegGen.current
     gw.request<DelegationStatus>("delegation.status")
-      .then(r => { setDeleg(r); setNow(Date.now() / 1000) })
-      .catch(() => setDeleg({ active: [], paused: false, max_spawn_depth: 0, max_concurrent_children: 0 }))
+      .then(r => {
+        if (delegGen.current !== current) return
+        setDeleg(r)
+        setNow(Date.now() / 1000)
+      })
+      .catch(() => {})
   }, [gw])
 
   useEffect(loadDeleg, [loadDeleg])
+  useEffect(() => () => { delegGen.current++ }, [])
 
   // Poll delegation while focused + agents are live; back off when idle.
   useEffect(() => {
