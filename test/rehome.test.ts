@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test"
+import { describe, test, expect, beforeAll, afterAll, spyOn } from "bun:test"
 import { mkdirSync, mkdtempSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
@@ -138,6 +138,17 @@ describe("rehome", () => {
     cache.set(7, { days: 7 } as never)
     rehome(A)
     expect(cache.size).toBe(0)
+  })
+
+  test("closes the kanban write worker", async () => {
+    const kanban = await import("../src/io/kanban")
+    const close = spyOn(kanban, "close")
+    try {
+      rehome(A)
+      expect(close).toHaveBeenCalledTimes(1)
+    } finally {
+      close.mockRestore()
+    }
   })
 
   test("preferences.reload notifies usePref subscribers", async () => {
