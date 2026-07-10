@@ -123,6 +123,7 @@ export const Toolsets = memo((props: { focused?: boolean }) => {
   const [sel, setSel] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const rev = useRef(0);
+  const loads = useRef(0);
   const writes = useRef(Promise.resolve());
 
   // Flat nav list derived from grouped sections, so ↑/↓ crosses section
@@ -134,14 +135,20 @@ export const Toolsets = memo((props: { focused?: boolean }) => {
   live.current = { flat, sel };
 
   const load = useCallback(() => {
+    const gen = ++loads.current;
     gw.request<{ toolsets?: Toolset[] }>("toolsets.list", {})
-      .then(r => { setList(r.toolsets ?? []); setErr(null); })
-      .catch(e => setErr(e instanceof Error ? e.message : String(e)));
+      .then(r => {
+        if (loads.current !== gen) return;
+        setList(r.toolsets ?? []); setErr(null);
+      })
+      .catch(e => {
+        if (loads.current === gen) setErr(e instanceof Error ? e.message : String(e));
+      });
   }, [gw]);
 
   useEffect(() => {
     load();
-    return () => { rev.current++; };
+    return () => { rev.current++; loads.current++; };
   }, [load]);
 
   // tools.configure response (tui_gateway/server.py @method("tools.configure")).
@@ -165,6 +172,7 @@ export const Toolsets = memo((props: { focused?: boolean }) => {
     const action = ts.enabled ? "disable" : "enable";
     const was = ts.enabled;
     const gen = ++rev.current;
+    loads.current++;
     // optimistic flip
     setList(prev => prev.map(t => t.name === ts.name ? { ...t, enabled: !t.enabled } : t));
     writes.current = writes.current.then(async () => {

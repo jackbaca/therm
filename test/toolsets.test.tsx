@@ -182,6 +182,36 @@ describe("Toolsets tab", () => {
     t.destroy()
   })
 
+  test("stale refresh cannot overwrite a completed toggle", async () => {
+    let refresh!: (value: unknown) => void
+    let lists = 0
+    const gw = new MockGateway({
+      "toolsets.list": () => {
+        if (lists++ === 0) return { toolsets: SETS }
+        return new Promise(resolve => { refresh = resolve })
+      },
+      "tools.configure": () => ({
+        changed: ["file"],
+        enabled_toolsets: ["hermes-cli", "mcp:linear"],
+        missing_servers: [],
+        unknown: [],
+      }),
+    })
+    const t = await mountNode(<Toolsets focused />, { gw })
+    await until(t, () => t.frame().includes("Toolsets (5)"))
+
+    await act(async () => { await t.keys.typeText("r") })
+    await until(t, () => lists === 2)
+    await act(async () => { await t.keys.typeText(" ") })
+    await until(t, () => strip(t.frame()).match(/○\s+file\b/) !== null)
+    refresh({ toolsets: SETS })
+    await act(async () => { await Bun.sleep(0) })
+    await t.settle()
+
+    expect(strip(t.frame())).toMatch(/○\s+file\b/)
+    t.destroy()
+  })
+
   test("detail pane shows includes/requirements/tools when wire provides them", async () => {
     const gw = new MockGateway({ "toolsets.list": () => ({ toolsets: [
       { name: "safe", description: "read-only bundle", tool_count: 5, enabled: true,
