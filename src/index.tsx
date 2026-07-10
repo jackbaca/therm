@@ -62,6 +62,7 @@ const main = async () => {
     targetFps: prefs.targetFps ?? 30,
     gatherStats: false,
   });
+  renderer.setMaxListeners(64)
   end()
 
   // OpenTUI's setupTerminal emits CSI >4;1m (modifyOtherKeys=1), then
