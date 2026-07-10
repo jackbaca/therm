@@ -1,13 +1,16 @@
-import { useState, memo, type ReactNode } from "react"
+import { useState, memo, type ReactNode, useRef } from "react"
 import { AnimatedAvatar } from "../avatar/AnimatedAvatar"
 import type { ParsedEikon } from "../avatar/eikon"
 import { useTheme } from "../../theme"
 import type { AvatarState } from "../avatar/states"
 import type { SessionInfo } from "../../context/wire"
 import type { Usage } from "../../types/message"
-import { useGitBranch, rtrunc } from "../../utils/git"
+import { git } from "../../utils/git"
 import { Tail } from "../chat/ThoughtCloud"
 import { ContextGauge } from "./ContextGauge"
+import { useDialog } from "../../ui/dialog"
+import { useKeyboard } from "@opentui/react"
+import { useKeys } from "../../keys"
 
 export type HiddenContext = {
   profile?: string
@@ -96,6 +99,34 @@ const Row = (props: { label: string; value: string; strong?: boolean; block?: bo
   )
 }
 
+const ChangesDialog = memo((props: { files: git.File[] }) => {
+  const theme = useTheme().theme
+
+  return (
+    <box flexDirection="column" width={70}>
+      <text fg={theme.text}>
+        <strong>{`Changed Files (${props.files.length})`}</strong>
+      </text>
+      <box height={1} />
+      <scrollbox scrollY maxHeight={20} paddingRight={1}
+        contentOptions={{ flexDirection: "column" }}>
+        {props.files.map(f => (
+          <box key={f.file} height={1} paddingRight={1}>
+            <text>
+              <span fg={theme.textMuted}> </span>
+              <span fg={f.code[0] === "?" ? theme.diffAdded
+                : f.code[0] === "A" || f.code[1] === "A" ? theme.diffAdded
+                : f.code[0] === "D" || f.code[1] === "D" ? theme.diffRemoved
+                : theme.warning}>{f.code}</span>
+              <span fg={theme.textMuted}>{"  " + f.file}</span>
+            </text>
+          </box>
+        ))}
+      </scrollbox>
+    </box>
+  )
+})
+
 export const Sidebar = memo((props: {
   agentState?: AvatarState
   info?: SessionInfo | null
@@ -114,8 +145,25 @@ export const Sidebar = memo((props: {
 
   const [mcpOpen, setMcpOpen] = useState(false)
 
+  const dialog = useDialog()
   const cwd = info?.cwd ?? process.cwd()
-  const branch = useGitBranch(cwd)
+  const branch = git.useGitBranch(cwd)
+  const changes = git.useGitStatus(cwd)
+  const keys = useKeys()
+  const ref = useRef(changes)
+  ref.current = changes
+
+  const show = () => {
+    const cur = ref.current
+    if (!cur || cur.files.length === 0 || dialog.open()) return
+    dialog.replace(<ChangesDialog files={cur.files} />)
+  }
+
+  useKeyboard((key) => {
+    if (dialog.open() || !keys.match("sidebar.changes", key)) return
+    key.stopPropagation()
+    show()
+  })
 
   return (
     <box width={WIDTH} flexDirection="column">
@@ -146,7 +194,17 @@ export const Sidebar = memo((props: {
              strong={!!props.profile && props.profile !== "default"} />
         <Row label="Model" value={info?.model ?? "—"} />
         {info?.cwd ? <Row label="cwd" value={info.cwd} /> : null}
-        {branch ? <Row label="Branch" value={rtrunc(branch, INNER - PAD_L - 2)} /> : null}
+        {branch ? <Row label="Branch" value={git.rtrunc(branch, INNER - PAD_L - 2)} /> : null}
+
+        {changes && (changes.added + changes.modified + changes.deleted) > 0 ? (
+          <box height={1} onMouseDown={show}>
+            <text>
+              <span fg={theme.textMuted}>{"▸ "}</span>
+              <span fg={theme.text}><strong>Changes</strong></span>
+              <span fg={theme.textMuted}>{`  +${changes.added} ~${changes.modified} -${changes.deleted}`}</span>
+            </text>
+          </box>
+        ) : null}
 
         {(info?.mcp_servers?.length ?? 0) > 0 ? (() => {
           const srv = info!.mcp_servers!
