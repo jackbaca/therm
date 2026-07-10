@@ -184,7 +184,6 @@ export const Toolsets = memo((props: { focused?: boolean }) => {
     };
     setList(prev => prev.map(t => t.name === ts.name ? { ...t, enabled } : t));
     writes.current = writes.current.then(async () => {
-      if (rev.current !== gen) return;
       try {
         const r = await gw.request<ConfigureResult>("tools.configure", { action, names: [ts.name] });
         const authoritative = Array.isArray(r.enabled_toolsets) ? new Set(r.enabled_toolsets) : null;
@@ -194,16 +193,14 @@ export const Toolsets = memo((props: { focused?: boolean }) => {
         if (r.unknown?.includes(ts.name)) {
           // Gateway rejected the name — revert the optimistic flip and tell
           // the user why (matches config.yaml whitelist in hermes_cli/tools_config.py).
-          const value = known.current.get(ts.name) ?? was;
-          setList(prev => prev.map(t => t.name === ts.name ? { ...t, enabled: value } : t));
+          setList(prev => prev.map(t => ({ ...t, enabled: known.current.get(t.name) ?? t.enabled })));
           toast.show({ variant: "warning", message: `${ts.name} is not configurable` });
           return;
         }
         if (r.missing_servers?.length && ts.name.includes(":")) {
           const server = ts.name.split(":", 1)[0];
           if (r.missing_servers.includes(server)) {
-            const value = known.current.get(ts.name) ?? was;
-            setList(prev => prev.map(t => t.name === ts.name ? { ...t, enabled: value } : t));
+            setList(prev => prev.map(t => ({ ...t, enabled: known.current.get(t.name) ?? t.enabled })));
             toast.show({ variant: "warning", message: `MCP server '${server}' not in config` });
             return;
           }
@@ -217,8 +214,7 @@ export const Toolsets = memo((props: { focused?: boolean }) => {
         }
       } catch (e) {
         if (rev.current !== gen) return;
-        const value = known.current.get(ts.name) ?? was;
-        setList(prev => prev.map(t => t.name === ts.name ? { ...t, enabled: value } : t));
+        setList(prev => prev.map(t => ({ ...t, enabled: known.current.get(t.name) ?? t.enabled })));
         toast.show({ variant: "error", message: e instanceof Error ? e.message : String(e) });
       }
     });
