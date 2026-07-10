@@ -164,18 +164,19 @@ export const payload = (action: CronAction, d: CronDraft, opts?: { fields?: Read
   const add = (key: string, value: unknown) => {
     if (value !== undefined) out[key] = value
   }
+  const scalar = (value: string) => value.trim() || (action === "update" ? "" : undefined)
   const skills = split(d.skills)
   const refs = split(d.context_from)
   const tools = split(d.enabled_toolsets)
   if (allowed("skills") && (action === "update" || skills.length > 0)) add("skills", skills)
   if (allowed("context_from") && (action === "update" || refs.length > 0)) add("context_from", refs)
   if (allowed("enabled_toolsets") && (action === "update" || tools.length > 0)) add("enabled_toolsets", tools)
-  if (allowed("provider")) add("provider", d.provider.trim() || undefined)
-  if (allowed("model")) add("model", d.model.trim() || undefined)
-  if (allowed("base_url")) add("base_url", base(d.base_url) || undefined)
-  if (allowed("script")) add("script", d.script.trim() || undefined)
-  if (allowed("workdir")) add("workdir", d.workdir.trim() || undefined)
-  if (allowed("repeat")) add("repeat", d.repeat.trim() ? Number(d.repeat.trim()) : undefined)
+  if (allowed("provider")) add("provider", scalar(d.provider))
+  if (allowed("model")) add("model", scalar(d.model))
+  if (allowed("base_url")) add("base_url", base(d.base_url) || (action === "update" ? "" : undefined))
+  if (allowed("script")) add("script", scalar(d.script))
+  if (allowed("workdir")) add("workdir", scalar(d.workdir))
+  if (allowed("repeat")) add("repeat", d.repeat.trim() ? Number(d.repeat.trim()) : action === "update" ? 0 : undefined)
   return out
 }
 

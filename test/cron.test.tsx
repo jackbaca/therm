@@ -196,6 +196,14 @@ describe("Cron tab", () => {
     expect(limited).toMatchObject({ action: "update", name: "adv1", script: "jobs/ping.py" })
     expect(limited).not.toHaveProperty("provider")
     expect(limited).not.toHaveProperty("no_agent")
+
+    const cleared = cronModel.payload("update", {
+      ...cronModel.draft(cronModel.normalize(ADV_JOB)),
+      provider: "", model: "", base_url: "", script: "", workdir: "", repeat: "",
+    })
+    expect(cleared).toMatchObject({
+      provider: "", model: "", base_url: "", script: "", workdir: "", repeat: 0,
+    })
   })
 
   test("create opens editor and sends only basic fields when gateway lacks advanced support", async () => {
