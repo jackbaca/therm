@@ -56,6 +56,20 @@ describe("editInEditor", () => {
     rmSync(script, { force: true })
   })
 
+  test("uses requested temp suffix", async () => {
+    const script = join(tmpdir(), `herm-fake-editor-suffix-${Date.now()}.sh`)
+    await Bun.write(script, `#!/bin/sh\ncase "$1" in *.txt) printf 'txt file' > "$1" ;; *) printf 'wrong' > "$1" ;; esac\n`)
+    await Bun.$`chmod +x ${script}`.quiet()
+    process.env.VISUAL = script
+
+    const f = fake()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const out = await editInEditor(f.renderer as any, "seed", ".txt")
+    expect(out).toBe("txt file")
+
+    rmSync(script, { force: true })
+  })
+
   test("handles $EDITOR with args (split on space)", async () => {
     // `sh -c 'printf hello > "$0"'` — $0 is the appended path arg.
     process.env.VISUAL = ""

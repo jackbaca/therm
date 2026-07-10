@@ -145,6 +145,7 @@ export class GatewayClient extends EventEmitter {
     if (!env.TERMINAL_CWD) env.TERMINAL_CWD = cwd
     const pp = env.PYTHONPATH?.trim()
     env.PYTHONPATH = pp ? `${root}${delimiter}${pp}` : root
+    env.HERMES_PYTHON_SRC_ROOT = root
 
     // Reset state
     this.ok = false

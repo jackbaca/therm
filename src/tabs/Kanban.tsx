@@ -5,7 +5,7 @@ import {
   boardStateOf, detailOf, tailLogOf, assignees, q, STATUSES,
   currentBoard, listBoards, resetKanban, patchTask,
   parseDiagnostics, maxSeverity, sortDiags,
-  type Task, type Status, type Detail, type Board,
+  type Task, type Status, type Detail, type Board, type BlockKind,
   type Diag, type Severity, type BoardError,
 } from "../service/hermes-kanban"
 import { useKeys } from "../keys"
@@ -59,6 +59,7 @@ import type { Source } from "../service/hermes-home"
 
 type Sh = { stdout: string; stderr: string; code: number }
 type Tier = "head" | "filter" | "grid" | "pane"
+type BlockSupport = "unknown" | "yes" | "no"
 
 // Column scrollbars hidden — the column border + ↑↓ are enough
 // signal at kanban card density; the bar steals a col per status.
@@ -183,11 +184,52 @@ type SevTheme = { warning: import("@opentui/core").RGBA; error: import("@opentui
 const sevColor = (sev: Severity, theme: SevTheme) =>
   sev === "warning" ? theme.warning : theme.error
 
+const KIND: Record<BlockKind, string> = {
+  dependency: "dependency-wait",
+  needs_input: "needs-input",
+  capability: "capability",
+  transient: "transient",
+}
+const MARK: Record<BlockKind, string> = {
+  dependency: "dep",
+  needs_input: "input",
+  capability: "cap",
+  transient: "tmp",
+}
+
+const blockText = (t: Pick<Task, "block_kind" | "block_recurrences">): string => {
+  const kind = t.block_kind ? KIND[t.block_kind] : ""
+  const loop = t.block_recurrences > 1 ? `loop×${t.block_recurrences}` : ""
+  if (kind && loop) return `${kind} · ${loop}`
+  return kind || loop
+}
+
+const cardMark = (t: Pick<Task, "block_kind" | "block_recurrences">): string => {
+  if (t.block_kind) return `[${MARK[t.block_kind]}${t.block_recurrences > 1 ? `×${t.block_recurrences}` : ""}]`
+  return t.block_recurrences > 1 ? `[loop×${t.block_recurrences}]` : ""
+}
+
+const statusText = (t: Task): string => {
+  const block = blockText(t)
+  return block ? `${t.status} · ${block}` : t.status
+}
+
+const supportsKind = (r: Sh): boolean =>
+  r.code === 0 && /--kind\b/.test(r.stdout)
+
+const unsupportedKind = (r: Sh): boolean => {
+  const s = `${r.stderr}\n${r.stdout}`.toLowerCase()
+  return r.code !== 0 && s.includes("--kind")
+    && (s.includes("unrecognized") || s.includes("no such option")
+      || s.includes("unknown option") || s.includes("invalid option"))
+}
+
 const Card = memo((p: {
   id: string; t: Task; on: boolean; hov: boolean; sev: Severity | null
   onHover: () => void; onPick: () => void
 }) => {
   const theme = useTheme().theme
+  const mark = cardMark(p.t)
   return (
     <box id={p.id} height={2} flexDirection="row" paddingLeft={1}
          border={RULE} borderStyle="single" borderColor={theme.borderSubtle}
@@ -195,6 +237,7 @@ const Card = memo((p: {
          onMouseDown={p.onPick}
          onMouseMove={p.onHover}>
       <Ticker active={p.on || p.hov} fg={p.on ? theme.accent : theme.text}>
+        {mark ? <><span fg={theme.warning}>{mark}</span>{" "}</> : null}
         {p.sev
           ? <><span fg={sevColor(p.sev, theme)}>{SEV_GLYPH[p.sev]}</span>{" "}</>
           : null}
@@ -410,7 +453,7 @@ const SidePane = memo((p: { pane: Pane; on: boolean; sel: number; diags: Diag[] 
       <box height={1}>
         <text>
           <span fg={theme.primary}><strong>{d.id}</strong></span>
-          <span fg={theme.textMuted}>{`  ·  ${p.pane.slug}  ·  ${d.status}  ·  ${ago(d.updated_at)}`}</span>
+          <span fg={theme.textMuted}>{`  ·  ${p.pane.slug}  ·  ${statusText(d)}  ·  ${ago(d.updated_at)}`}</span>
         </text>
       </box>
       <scrollbox scrollY flexGrow={1}>
@@ -430,7 +473,7 @@ const SidePane = memo((p: { pane: Pane; on: boolean; sel: number; diags: Diag[] 
             p.on && cur === "assignee" ? "Enter pick" : undefined)}
           {srow("priority", "Priority", d.priority ? `P${d.priority}` : "—",
             p.on && cur === "priority" ? "Enter select" : undefined)}
-          {srow("status", "Status", d.status,
+          {srow("status", "Status", statusText(d),
             p.on && cur === "status" ? "Enter change" : undefined)}
           {srow("parents", "Parents", d.parents.length ? d.parents.join(", ") : "—",
             p.on && cur === "parents" ? "Enter add/remove" : undefined)}
@@ -439,6 +482,14 @@ const SidePane = memo((p: { pane: Pane; on: boolean; sel: number; diags: Diag[] 
                 <box width={10} flexShrink={0}><text fg={theme.textMuted}>Children</text></box>
                 <box flexGrow={1} minWidth={0} overflow="hidden">
                   <text fg={theme.textMuted}>{d.children.join(", ")}</text>
+                </box>
+              </box>
+            : null}
+          {d.project_id
+            ? <box height={1} flexDirection="row" paddingLeft={1}>
+                <box width={10} flexShrink={0}><text fg={theme.textMuted}>Project</text></box>
+                <box flexGrow={1} minWidth={0} overflow="hidden">
+                  <text fg={theme.textMuted}>{d.project_id}</text>
                 </box>
               </box>
             : null}
@@ -689,6 +740,7 @@ export const Kanban = memo((props: { focused?: boolean }) => {
   const [chip, setChip] = useState(0)
   const [paneSel, setPaneSel] = useState(0)
   const [pane, setPane] = useState<Pane | null>(null)
+  const [blocks, setBlocks] = useState<Map<string, BlockSupport>>(() => new Map())
 
   const outer = useRef<ScrollBoxRenderable | null>(null)
 
@@ -808,6 +860,43 @@ export const Kanban = memo((props: { focused?: boolean }) => {
     }).catch((e: Error) => void toast.show({ variant: "error", message: trunc(e.message, 120) })),
   [gw, toast, load, at])
 
+  const blockSupport = useCallback(async (s: string): Promise<BlockSupport> => {
+    const cur = blocks.get(s)
+    if (cur === "yes" || cur === "no") return cur
+    const next = await gw.request<Sh>("shell.exec", { command: `hermes kanban --board ${q(s)} block --help` })
+      .then(r => supportsKind(r) ? "yes" as const : "no" as const)
+      .catch(() => "no" as const)
+    setBlocks(m => {
+      const out = new Map(m)
+      out.set(s, next)
+      return out
+    })
+    return next
+  }, [blocks, gw])
+
+  const runBlock = useCallback((t: Task, reason: string | null, kind: string) => {
+    const slug = live.current.at
+    const arg = reason ? ` ${q(reason)}` : ""
+    const suffix = kind ? ` --kind ${q(kind)}` : ""
+    const ok = kind === "dependency" ? `Dependency-wait ${t.id}` : `Blocked ${t.id}`
+    return gw.request<Sh>("shell.exec", { command: `hermes kanban --board ${q(slug)} block ${q(t.id)}${arg}${suffix}` })
+      .then(r => {
+        if (unsupportedKind(r) && kind) {
+          setBlocks(m => {
+            const out = new Map(m)
+            out.set(slug, "no")
+            return out
+          })
+          throw new Error("active Hermes CLI does not support typed block kinds; choose generic block")
+        }
+        if (r.code !== 0) throw new Error((r.stderr || r.stdout || `exit ${r.code}`).trim())
+        toast.show({ variant: "success", message: ok })
+        resetKanban()
+        load()
+        return r.stdout
+      }).catch((e: Error) => void toast.show({ variant: "error", message: trunc(e.message, 120) }))
+  }, [gw, toast, load])
+
   // Direct bun:sqlite patch — title/body/priority only. Mirrors
   // dashboard PATCH /tasks/:id. Refreshes on success (no shell round-trip).
   const patchDirect = useCallback((id: string, p: Parameters<typeof patchTask>[2], ok: string) => {
@@ -903,6 +992,7 @@ export const Kanban = memo((props: { focused?: boolean }) => {
         d.parent ? `--parent ${q(d.parent)}` : "",
         d.triage ? "--triage" : "",
         d.tenant ? `--tenant ${q(d.tenant)}` : "",
+        d.project ? `--project ${q(d.project)}` : "",
         ws,
         d.maxRuntime ? `--max-runtime ${q(d.maxRuntime)}` : "",
         ...d.skills.map(s => `--skill ${q(s)}`),
@@ -1084,6 +1174,35 @@ export const Kanban = memo((props: { focused?: boolean }) => {
     })
   }, [dialog, sh, toast])
 
+  const block = useCallback((t: Task) => {
+    void blockSupport(live.current.at).then(support => {
+      if (support === "no") {
+        return openTextPrompt(dialog, {
+          title: `Block ${t.id}`,
+          label: "Reason (optional; generic block — active CLI has no --kind)",
+        }).then(r => { if (r !== null) void runBlock(t, r, "") })
+      }
+      const opts: Array<{ title: string; value: string; description?: string }> = [
+        { title: "generic", value: "", description: "legacy block without --kind" },
+        { title: "needs input", value: "needs_input", description: "human answer required" },
+        { title: "dependency", value: "dependency", description: "wait in todo until parents finish" },
+        { title: "capability", value: "capability", description: "missing tool, credential, or profile capability" },
+        { title: "transient", value: "transient", description: "temporary/flaky condition" },
+      ]
+      dialog.replace(
+        <DialogSelect title={`Block kind for ${t.id}`} options={opts}
+          current={t.block_kind ?? ""} filterable={false}
+          onSelect={async o => {
+            dialog.clear()
+            const r = await openTextPrompt(dialog, {
+              title: `Block ${t.id}`, label: "Reason (optional, posted as comment)",
+            })
+            if (r !== null) void runBlock(t, r, o.value)
+          }} />,
+      )
+    })
+  }, [dialog, blockSupport, runBlock])
+
   const editStatus = useCallback((t: Task) => {
     // Only expose transitions the CLI has verbs for. 'unblock' covers
     // both blocked (human-waiting) and scheduled (time-waiting) per
@@ -1093,7 +1212,7 @@ export const Kanban = memo((props: { focused?: boolean }) => {
     if (t.status !== "done") opts.push({ title: "done", value: "complete",
       description: "mark complete (prompts for result)" })
     if (t.status !== "blocked") opts.push({ title: "blocked", value: "block",
-      description: "mark blocked (prompts for reason)" })
+      description: "mark blocked (choose kind, prompts for reason)" })
     if (t.status !== "scheduled") opts.push({ title: "scheduled", value: "schedule",
       description: "park until externally unblocked (prompts for reason)" })
     if (t.status === "blocked" || t.status === "scheduled")
@@ -1114,14 +1233,7 @@ export const Kanban = memo((props: { focused?: boolean }) => {
             void sh(`complete ${q(t.id)}${flag}`, `Completed ${t.id}`)
             return
           }
-          if (o.value === "block") {
-            const r = await openTextPrompt(dialog, {
-              title: `Block ${t.id}`, label: "Reason (optional, posted as comment)",
-            })
-            const arg = r ? ` ${q(r)}` : ""
-            void sh(`block ${q(t.id)}${arg}`, `Blocked ${t.id}`)
-            return
-          }
+          if (o.value === "block") return block(t)
           if (o.value === "schedule") {
             const r = await openTextPrompt(dialog, {
               title: `Schedule ${t.id}`, label: "Reason (optional, posted as comment)",
@@ -1135,7 +1247,7 @@ export const Kanban = memo((props: { focused?: boolean }) => {
           if (o.value === "archive") return void archive(t)
         }} />,
     )
-  }, [dialog, sh, archive])
+  }, [dialog, sh, archive, block])
 
   const editParents = useCallback((t: Task) => {
     // Parents live on Detail, not Task; look up the current pane

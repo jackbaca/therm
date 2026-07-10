@@ -214,6 +214,13 @@ export class HomeStore {
     for (const dep of DEPENDENTS.get(k) ?? []) this.invalidate(dep)
   }
 
+  update<K extends SliceKey>(k: K, fn: (v: HomeState[K]) => HomeState[K]): void {
+    if (!(k in this.data)) return
+    this.data[k] = fn(this.data[k] as HomeState[K])
+    this.notify(k)
+    for (const dep of DEPENDENTS.get(k) ?? []) this.invalidate(dep)
+  }
+
   /** Dispose all watchers and timers. Tests must call this. */
   close(): void {
     for (const ws of this.watchers.values()) for (const w of ws) w.close()

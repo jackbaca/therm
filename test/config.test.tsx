@@ -49,7 +49,45 @@ describe("Config tab", () => {
     expect(t.frame()).toContain("[h/l]")
     const lines = t.frame().split("\n")
     const i = lines.findIndex(l => l.includes("▸") && l.includes("profile_build"))
-    expect(lines.slice(i + 1, i + 4).join(" ")).toMatch(/first gateway message/i)
+    expect(lines.slice(i + 1, i + 4).join(" ")).toMatch(/profile-build path/i)
+    t.destroy()
+  })
+
+  test("new upstream keys render and search with controls", async () => {
+    const gw = new MockGateway({ "config.get": () => ({ config: {} }) })
+    const t = await mountNode(<Config focused />, { gw, width: 160, height: 48 })
+    await until(t, () => t.frame().includes("general"))
+
+    await navTo(t, {}, "agent.verify_on_stop")
+    expect(t.frame()).toMatch(/verify_on_stop\s+auto/)
+    expect(t.frame()).toContain("[h/l]")
+    expect(t.frame()).toMatch(/Verification closure/i)
+
+    await act(async () => { await t.keys.typeText("/") })
+    await t.settle()
+    await act(async () => { await t.keys.typeText("platform_connect_timeout") })
+    await until(t, () => t.frame().includes("platform_connect_timeout"))
+    expect(t.frame()).toContain("gateway")
+    expect(t.frame()).toMatch(/platform_connect_timeout\s+30/)
+
+    act(() => t.keys.pressEscape())
+    await t.settle()
+    await act(async () => { await t.keys.typeText("/") })
+    await t.settle()
+    await act(async () => { await t.keys.typeText("friendly_tool_labels") })
+    await until(t, () => t.frame().includes("friendly_tool_labels"))
+    expect(t.frame()).toContain("display")
+    expect(t.frame()).toMatch(/✓ ON/)
+
+    act(() => t.keys.pressEscape())
+    await t.settle()
+    await act(async () => { await t.keys.typeText("/") })
+    await t.settle()
+    await act(async () => { await t.keys.typeText("vertex") })
+    await until(t, () => t.frame().includes("project_id") && t.frame().includes("region"))
+    expect(t.frame()).toContain("vertex")
+    expect(t.frame()).toMatch(/region\s+global/)
+
     t.destroy()
   })
 

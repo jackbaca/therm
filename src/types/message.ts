@@ -62,6 +62,7 @@ export type Usage = {
   input: number
   output: number
   total: number
+  active_subagents?: number
   // Context-compression fields — populated when the agent has a
   // ContextCompressor attached (default). Absent on sessions without
   // compression, so consumers must guard with `typeof x === "number"`.

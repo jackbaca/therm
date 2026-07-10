@@ -12,6 +12,7 @@ import { useToast } from "../ui/toast"
 import { openAlert } from "../dialogs/alert"
 import { mapEvent } from "../context/events"
 import { deriveSkin, type SkinState } from "../context/skin"
+import { home } from "../home"
 import { useBackground } from "./background"
 import type { Action } from "./turnReducer"
 import type { useSession } from "./useSession"
@@ -32,11 +33,13 @@ type Ctx = {
   setReady: (r: boolean) => void
   setTitle: (t: string) => void
   setBusy: (m: "queue" | "steer" | "interrupt") => void
+  setStarting: (v: boolean) => void
   setUsage: (u: Usage | undefined) => void
   setStatus: (s: string) => void
   setSkin: (s: SkinState) => void
   setErrorPulse: (v: boolean) => void
   settle: () => void
+  start: () => void
 }
 
 // Events that mutate the in-progress assistant turn. Everything else
@@ -45,6 +48,7 @@ type Ctx = {
 const STREAM_EVENTS = new Set<GatewayEvent["type"]>([
   "message.start",
   "message.delta", "reasoning.delta", "reasoning.available", "thinking.delta",
+  "moa.reference", "moa.aggregating",
   "tool.start", "tool.progress", "tool.generating",
 ])
 const TITLE_DELAYS = [1200, 5000, 15000, 30000] as const
@@ -101,9 +105,16 @@ export function useStream(c: Ctx) {
     timers.current.push(id)
   }, [gw])
 
+  const retitle = useCallback((sid?: string, title?: string) => {
+    if (!sid || title === undefined) return
+    if (sid === ctx.current.sidRef.current) ctx.current.setTitle(title)
+    home.update("recentSessions", rows => rows.map(r => r.id === sid ? { ...r, title } : r))
+  }, [])
+
   const handle = useCallback((ev: GatewayEvent) => {
     const x = ctx.current
     if (ev.type === "gateway.ready") info.current = false
+    if (ev.type === "message.start") x.start()
     if (ev.type === "background.complete" && ev.session_id && x.sidRef.current
         && ev.session_id !== x.sidRef.current) {
       bg.unregister(ev.payload.task_id)
@@ -132,7 +143,13 @@ export function useStream(c: Ctx) {
       },
       onSessionInfo: (si) => {
         x.setInfo(si)
+        if (si.usage) x.setUsage(si.usage)
         x.setReady(true)
+        if (si.running === false) {
+          x.start()
+          x.setStarting(false)
+          x.setStatus("")
+        }
         if (si.session_id) x.setSid(si.session_id)
         x.settle()
         const bad = (si.mcp_servers ?? []).filter(s => !s.connected)
@@ -148,6 +165,7 @@ export function useStream(c: Ctx) {
       },
       onUsage: (u) => x.setUsage(u),
       onTurnComplete: () => {
+        x.setStarting(false)
         x.setStatus("")
         spawnHistory.flush(gw, x.sidRef.current)
         x.goalHook.check(x.sidRef.current)
@@ -167,6 +185,7 @@ export function useStream(c: Ctx) {
         })
       },
       onStatus: (text) => x.setStatus(text),
+      onSessionTitle: retitle,
       onApprovalRemembered: () => {
         void gw.request("approval.respond", { choice: "always" }).catch(() => {})
       },
@@ -192,9 +211,14 @@ export function useStream(c: Ctx) {
       return
     }
     flush()
+    if (action.kind === "message.start") {
+      x.setStarting(false)
+      x.setStatus("")
+    }
+    if (action.kind === "error") x.setStarting(false)
     if (action.kind === "error") x.setErrorPulse(true)
     x.dispatch(action)
-  }, [gw, dialog, toast, flush, bg])
+  }, [gw, dialog, toast, flush, bg, retitle])
 
   useGatewayEvent(handle)
 
