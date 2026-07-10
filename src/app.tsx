@@ -721,6 +721,8 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     () => [...TABS, ...extra.map(r => ({ name: r.name, description: r.description ?? "Plugin" }))],
     [extra],
   )
+  const routeName = useRef<string | undefined>(undefined)
+  const routesRef = useRef(extra)
   const tabMax = all.length - 1
   // Late-bind the plugin router to this shell's tab navigator so
   // `api.route.navigate(name)` can drive `goTo`. `bind` is idempotent.
@@ -728,8 +730,16 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     plugins.bind(goTo, () => all[tab]?.name)
   }, [plugins, goTo, all, tab])
   useEffect(() => {
-    if (tab >= all.length) goToTab(CHAT_TAB)
-  }, [tab, all.length, goToTab])
+    const changed = routesRef.current !== extra
+    routesRef.current = extra
+    if (changed && tab >= TABS.length) {
+      const next = extra.findIndex(route => route.name === routeName.current)
+      if (next < 0) { goToTab(CHAT_TAB); return }
+      const index = TABS.length + next
+      if (index !== tab) { goToTab(index); return }
+    }
+    routeName.current = all[tab]?.name
+  }, [extra, all, tab, goToTab])
   const subCount = SUB_TABS[tab]?.length ?? 0
   const cycleSub = useCallback((dir: -1 | 1) => {
     const labels = SUB_TABS[tab]

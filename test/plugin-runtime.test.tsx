@@ -127,6 +127,34 @@ describe("PluginProvider", () => {
     expect(t.frame()).not.toContain("short route body")
   })
 
+  test("removing an earlier route preserves the active route by name", async () => {
+    let api: HermPluginApi | undefined
+    let removeFirst: (() => void) | undefined
+    const plugin: HermPlugin = {
+      id: "route-order",
+      tui(value) {
+        api = value
+        removeFirst = value.route.register([{
+          name: "FirstRoute",
+          render: () => <text>first route body</text>,
+        }])
+        value.route.register([{
+          name: "SecondRoute",
+          render: () => <text>second route body</text>,
+        }])
+      },
+    }
+    await using t = await mount({ plugins: [plugin] })
+    await until(t, () => api !== undefined && removeFirst !== undefined)
+    await act(async () => { await Bun.sleep(50) })
+    act(() => api!.route.navigate("SecondRoute"))
+    await until(t, () => t.frame().includes("second route body"))
+
+    act(() => removeFirst!())
+    await until(t, () => api!.route.current === "SecondRoute")
+    expect(t.frame()).toContain("second route body")
+  })
+
   test("failing tui() is isolated — later plugins still activate", async () => {
     const bad: HermPlugin = { id: "bad", tui() { throw new Error("nope") } }
     await using t = await mountNode(<Host />, {
