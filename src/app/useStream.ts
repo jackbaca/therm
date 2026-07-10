@@ -38,6 +38,8 @@ type Ctx = {
   setStatus: (s: string) => void
   setSkin: (s: SkinState) => void
   setErrorPulse: (v: boolean) => void
+  onVoiceStatus: (state: string) => void
+  onVoiceTranscript: (text: string, noSpeechLimit: boolean) => void
   settle: () => void
   start: () => void
 }
@@ -205,6 +207,8 @@ export function useStream(c: Ctx) {
         })
       },
       onSkin: (s) => x.setSkin(deriveSkin(s)),
+      onVoiceStatus: x.onVoiceStatus,
+      onVoiceTranscript: x.onVoiceTranscript,
       notices: toast,
     })
     if (!action) return

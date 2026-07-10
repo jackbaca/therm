@@ -367,6 +367,20 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const stream = useStream({
     dispatch, session, launchRef, sidRef, sessionStart, goalHook,
     setSid, setInfo, setReady, setTitle, setBusy, setStarting, setUsage, setStatus, setSkin, setErrorPulse, settle,
+    onVoiceStatus: state => {
+      voice.setRecording(state === "listening" || state === "recording")
+      voice.setProcessing(state === "transcribing" || state === "processing")
+    },
+    onVoiceTranscript: (text, noSpeechLimit) => {
+      voice.setRecording(false)
+      voice.setProcessing(false)
+      if (noSpeechLimit) {
+        voice.setEnabled(false)
+        sys("voice: disabled after repeated silence")
+        return
+      }
+      voice.onTranscript?.(text)
+    },
     start,
   })
   const interrupt = useCallback(() => {

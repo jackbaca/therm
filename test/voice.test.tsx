@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { act } from "react"
-import { mountNode } from "./harness"
+import { mount, mountNode, until } from "./harness"
 import { useVoice, type VoiceApi } from "../src/voice/useVoice"
 
 test("failed voice stop restores recording state", async () => {
@@ -142,4 +142,16 @@ test("late record failure cannot revive voice after toggle off", async () => {
   await act(async () => { await Bun.sleep(20) })
   await t.settle()
   expect(t.frame()).toContain("enabled:false recording:false")
+})
+
+test("gateway voice events drive the indicator and submit transcripts", async () => {
+  await using t = await mount()
+  await until(t, () => t.frame().includes("Ready"))
+
+  act(() => t.gw.push({ type: "voice.status", payload: { state: "listening" } }))
+  await until(t, () => t.frame().includes("recording"))
+  act(() => t.gw.push({ type: "voice.status", payload: { state: "transcribing" } }))
+  await until(t, () => t.frame().includes("transcribing"))
+  act(() => t.gw.push({ type: "voice.transcript", payload: { text: "spoken prompt" } }))
+  await until(t, () => t.gw.last("prompt.submit")?.params.text === "spoken prompt")
 })
