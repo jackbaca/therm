@@ -546,6 +546,23 @@ describe("Sessions tab", () => {
     t.destroy()
   })
 
+  test("session.delete safety failure does not fall back to direct deletion", async () => {
+    const gw = new MockGateway({
+      "session.list": () => ({ sessions: ROWS }),
+      "session.delete": () => { throw new Error("could not enumerate active sessions") },
+    })
+    let local = 0
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, remove: () => (local++, true) }} />, { gw })
+    await until(t, () => t.frame().includes("Sessions (2)"))
+    await act(async () => { await t.keys.typeText("d") })
+    await act(async () => { await t.keys.typeText("y") })
+    await until(t, () => t.frame().includes("could not enumerate active sessions"))
+
+    expect(local).toBe(0)
+    expect(t.frame()).toContain("Sessions (2)")
+    t.destroy()
+  })
+
   test("Ctrl+R renames selected session via io.rename, patches row in place", async () => {
     const calls: Array<[string, string]> = []
     const gw = new MockGateway({ "session.list": () => ({ sessions: ROWS }) })

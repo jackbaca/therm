@@ -845,11 +845,14 @@ export const Sessions = memo((props: Props) => {
       const done = await gw.request<{ deleted: string }>("session.delete", { session_id: r.id })
         .then(() => true)
         .catch((e: Error) => {
-          if (/active session/i.test(e.message)) {
+          if (/cannot delete an active session/i.test(e.message)) {
             toast.show({ variant: "error", message: "Can't delete the active session" })
             return false
           }
-          return io.remove(r.id)
+          if (/method not found|unknown method|gateway not running|gateway exited|timeout: session\.delete/i.test(e.message))
+            return io.remove(r.id)
+          toast.show({ variant: "error", message: e.message })
+          return false
         })
       if (!done) return
       home.invalidate("recentSessions")
