@@ -179,18 +179,4 @@ export const payload = (action: CronAction, d: CronDraft, opts?: { advanced?: bo
   return out
 }
 
-export const advanced = (d: CronDraft): boolean =>
-  d.script.trim().length > 0
-  || d.no_agent
-  || d.attach_to_session
-  || split(d.skills).length > 0
-  || d.provider.trim().length > 0
-  || d.model.trim().length > 0
-  || base(d.base_url).length > 0
-  || split(d.context_from).length > 0
-  || split(d.enabled_toolsets).length > 0
-  || d.workdir.trim().length > 0
-  || d.deliver.trim() !== "" && d.deliver.trim() !== "local"
-  || d.repeat.trim().length > 0
-
 export * as cronModel from "./cron-model"

@@ -79,7 +79,9 @@ const ModelPickerDialog = (props: Props) => {
 
   const load = useCallback(async (force = false, quiet = false) => {
     try {
-      const next = await props.gw.request<ModelOptionsResponse>("model.options", force ? { refresh: true } : {})
+      const next = await props.gw.request<ModelOptionsResponse>("model.options", force
+        ? { refresh: true, include_unconfigured: true }
+        : { include_unconfigured: true })
       setData(d => force || !d ? next : d)
       return next
     } catch (e) {

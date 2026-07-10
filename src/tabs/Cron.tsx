@@ -165,7 +165,6 @@ export const Cron = memo((props: { focused?: boolean }) => {
     const r = await openCronEditor(dialog, {
       mode: "create",
       initial: cronModel.draft(),
-      canUpdate: true,
       canAdvanced: cap.advanced,
     });
     if (!r) return;
@@ -183,7 +182,6 @@ export const Cron = memo((props: { focused?: boolean }) => {
     const r = await openCronEditor(dialog, {
       mode: j ? "edit" : "create",
       initial: cronModel.draft(j ?? undefined),
-      canUpdate: cap.update,
       canAdvanced: cap.advanced,
     });
     if (!r) return;

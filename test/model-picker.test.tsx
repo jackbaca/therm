@@ -47,10 +47,10 @@ describe("model-picker", () => {
     const t = await mountNode(<Open />, { gw })
     await until(t, () => t.frame().includes("Anthropic"))
 
-    expect(calls).toEqual([{ session_id: "sess-abc" }])
+    expect(calls).toEqual([{ session_id: "sess-abc", include_unconfigured: true }])
     act(() => t.keys.pressKey("r"))
     await until(t, () => calls.length === 2)
-    expect(calls[1]).toMatchObject({ session_id: "sess-abc", refresh: true })
+    expect(calls[1]).toMatchObject({ session_id: "sess-abc", refresh: true, include_unconfigured: true })
     expect(t.frame()).toContain("Anthropic")
     t.destroy()
   })
@@ -64,7 +64,7 @@ describe("model-picker", () => {
     })
     await until(t, () => t.frame().includes("Anthropic"))
 
-    expect(calls).toEqual([{ refresh: true }])
+    expect(calls).toEqual([{ refresh: true, include_unconfigured: true }])
     t.destroy()
   })
 
@@ -122,12 +122,12 @@ describe("model-picker", () => {
   test("unauthenticated provider rows show setup metadata and do not advance to empty models", async () => {
     const t = await mountNode(<Open />, {
       handlers: {
-        "model.options": () => ({
+        "model.options": p => ({
           provider: "openai",
           model: "gpt-4",
           providers: [
             { slug: "openai", name: "OpenAI", total_models: 1, models: ["gpt-4"] },
-            {
+            p.include_unconfigured === true ? {
               slug: "anthropic",
               name: "Anthropic",
               total_models: 0,
@@ -136,12 +136,13 @@ describe("model-picker", () => {
               auth_type: "api_key",
               key_env: "ANTHROPIC_API_KEY",
               warning: "paste ANTHROPIC_API_KEY to activate",
-            },
-          ],
+            } : undefined,
+          ].filter(p => p !== undefined),
         }),
       },
     })
     await until(t, () => t.frame().includes("Anthropic"))
+    expect(t.gw.last("model.options")?.params).toMatchObject({ include_unconfigured: true })
     expect(t.frame()).toContain("Setup required")
     expect(t.frame()).toContain("paste ANTHROPIC_API_KEY to activate")
     expect(t.frame()).toContain("auth_type=")
@@ -223,7 +224,10 @@ describe("model-picker", () => {
     act(() => t.keys.pressEnter()); await t.settle()
     await until(t, () => t.frame().includes("Mixture of Agents"))
 
-    expect(calls).toEqual([{}, { refresh: true }])
+    expect(calls).toEqual([
+      { include_unconfigured: true },
+      { refresh: true, include_unconfigured: true },
+    ])
     expect(t.frame()).toContain("Mixture of Agents")
     t.destroy()
   })
@@ -261,7 +265,10 @@ describe("model-picker", () => {
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("claude-sonnet"))
 
-    expect(calls).toEqual([{}, { refresh: true }])
+    expect(calls).toEqual([
+      { include_unconfigured: true },
+      { refresh: true, include_unconfigured: true },
+    ])
     t.destroy()
   })
 

@@ -202,6 +202,7 @@ export type SessionInfo = {
   context_max?: number
   context_used?: number
   credential_warning?: string
+  install_warning?: string
   running?: boolean
   yolo?: boolean
   mcp_servers?: McpServer[]

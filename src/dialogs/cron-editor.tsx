@@ -7,12 +7,11 @@ import type { CronDraft } from "../tabs/cron-model"
 import { cronModel } from "../tabs/cron-model"
 
 type Field = keyof CronDraft | "submit"
-type Result = { draft: CronDraft; advanced: boolean }
+type Result = { draft: CronDraft }
 
 type Props = {
   mode: "create" | "edit"
   initial: CronDraft
-  canUpdate: boolean
   canAdvanced: boolean
   done: (r: Result | null) => void
 }
@@ -57,16 +56,10 @@ const HELP: Partial<Record<Field, string>> = {
 }
 
 const multiline = new Set<Field>(["prompt", "skills", "context_from", "enabled_toolsets"])
-const locked = new Set<Field>(["provider", "model", "base_url", "context_from", "enabled_toolsets", "workdir", "repeat"])
 const bools = new Set<Field>(["no_agent", "attach_to_session"])
 const basic = new Set<Field>(["name", "schedule", "prompt", "submit"])
 const editable = (f: Field, p: Props) => (f !== "submit" && f !== "id" && f !== "name") || (p.mode === "create" && f === "name")
-const editableThrough = (f: Field, p: Props) => p.mode === "create" || p.canUpdate || f === "name"
-const available = (f: Field, p: Props) => {
-  if (!p.canAdvanced && !basic.has(f)) return false
-  if (f === "submit") return p.mode === "create" || p.canUpdate
-  return p.mode === "create" || p.canUpdate || !locked.has(f)
-}
+const available = (f: Field, p: Props) => p.canAdvanced || basic.has(f)
 
 const value = (d: CronDraft, f: Field) => f === "submit" ? "" : d[f]
 const height = (f: Field) => multiline.has(f) ? 3 : 1
@@ -122,7 +115,7 @@ const CronEditor = (props: Props) => {
   const submit = () => {
     const msg = cronModel.validate(draft)
     if (msg) { setErr(msg); return }
-    props.done({ draft, advanced: cronModel.advanced(draft) })
+    props.done({ draft })
   }
   const append = (raw: string) => setDraft(d => {
     const v = value(d, field)
@@ -142,7 +135,7 @@ const CronEditor = (props: Props) => {
     if (key.name === "up") return move(-1)
     if (key.name === "down") return move(1)
     if (field === "submit" && key.name === "return") return submit()
-    if (!editable(field, props) || !editableThrough(field, props)) return
+    if (!editable(field, props)) return
     if (bools.has(field) && (key.name === "space" || key.name === "return")) {
       setDraft(d => set(d, field, !value(d, field)))
       return
@@ -159,16 +152,13 @@ const CronEditor = (props: Props) => {
   return (
     <box flexDirection="column" width={84} maxHeight={34}>
       <box height={1}><text fg={theme.primary}><strong>{props.mode === "create" ? "New Cron Job" : "Edit Cron Job"}</strong></text></box>
-      {props.mode === "edit" && !props.canUpdate ? (
-        <text fg={theme.warning}>Current gateway has no cron.manage update; this job is read-only here.</text>
-      ) : null}
       {!props.canAdvanced ? (
         <text fg={theme.warning}>Current gateway only accepts name, schedule, and prompt.</text>
       ) : null}
       <box height={1} />
       <scrollbox scrollY flexGrow={1}>
         <box flexDirection="column">
-          {fields.map(f => <FieldRow key={f} field={f} draft={draft} active={f === field} disabled={!editableThrough(f, props)} theme={theme} />)}
+          {fields.map(f => <FieldRow key={f} field={f} draft={draft} active={f === field} disabled={false} theme={theme} />)}
         </box>
       </scrollbox>
       {err ? <text fg={theme.error}>{err}</text> : null}
@@ -179,14 +169,13 @@ const CronEditor = (props: Props) => {
 
 export function openCronEditor(
   dialog: DialogContext,
-  opts: { mode: "create" | "edit"; initial: CronDraft; canUpdate: boolean; canAdvanced: boolean },
+  opts: { mode: "create" | "edit"; initial: CronDraft; canAdvanced: boolean },
 ): Promise<Result | null> {
   return new Promise(resolve => {
     dialog.replace(
       <CronEditor
         mode={opts.mode}
         initial={opts.initial}
-        canUpdate={opts.canUpdate}
         canAdvanced={opts.canAdvanced}
         done={r => { resolve(r); dialog.clear() }}
       />,
