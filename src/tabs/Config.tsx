@@ -172,6 +172,7 @@ export const Config = memo((props: { focused?: boolean }) => {
   const [query, setQuery] = useState("");
   const [focus, setFocus] = useState<"categories" | "fields">("categories");
   const [managed, setManaged] = useState<string | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
 
   useEffect(() => { managedSystem().then(setManaged) }, []);
 
@@ -183,12 +184,9 @@ export const Config = memo((props: { focused?: boolean }) => {
         setOriginal(structuredClone(parsed));
         setYaml(yamlStringify(parsed));
         setErr({});
+        setLoadErr(null);
       })
-      .catch(() => {
-        setRaw({});
-        setOriginal({});
-        setYaml("");
-      });
+      .catch(e => setLoadErr(e instanceof Error ? e.message : String(e)));
   }, [gw]);
 
   useEffect(() => { load(); }, [load]);
@@ -478,7 +476,7 @@ export const Config = memo((props: { focused?: boolean }) => {
   if (mode === "yaml") {
     return (
       <box flexDirection="column" flexGrow={1} minWidth={0}>
-      <TabShell title="Config · YAML">
+      <TabShell title="Config · YAML" error={loadErr}>
         <scrollbox scrollY flexGrow={1}>
           <text wrapMode="word">
             <span fg={theme.text}>{yaml}</span>
@@ -545,7 +543,7 @@ export const Config = memo((props: { focused?: boolean }) => {
         <TabShell
           title={onSlots ? "models · applies immediately"
             : searching ? "Search" : nChanged > 0 ? `${active} · ${nChanged} unsaved` : active}
-          grow={3} focus={focus === "fields" || searching}
+          grow={3} focus={focus === "fields" || searching} error={loadErr}
         >
           {managed ? (
             <box height={1} flexDirection="row" gap={1}>

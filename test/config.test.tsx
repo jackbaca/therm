@@ -24,6 +24,13 @@ const navTo = async (t: H, cfg: Record<string, unknown>, key: string) => {
 describe("Config tab", () => {
   afterEach(() => { delete process.env.HERMES_MANAGED })
 
+  test("load failure surfaces the gateway error", async () => {
+    const gw = new MockGateway({ "config.get": () => { throw new Error("config unavailable") } })
+    const t = await mountNode(<Config focused />, { gw, width: 160, height: 48 })
+    await until(t, () => t.frame().includes("config unavailable"))
+    t.destroy()
+  })
+
   test("every schema key renders; defaults shown with empty user config", async () => {
     const gw = new MockGateway({ "config.get": () => ({ config: {} }) })
     const t = await mountNode(<Config focused />, { gw, width: 160, height: 48 })
