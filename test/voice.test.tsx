@@ -54,3 +54,34 @@ test("turning voice off clears the active recording state", async () => {
   await t.settle()
   expect(t.frame()).toContain("enabled:false recording:false")
 })
+
+test("record presses serialize while the gateway request is pending", async () => {
+  let api: VoiceApi | undefined
+  let release!: () => void
+  let records = 0
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const rpc = async <T,>(method: string): Promise<T> => {
+    if (method === "voice.toggle") return { enabled: true, record_key: "ctrl+b" } as T
+    if (method === "voice.record") {
+      records++
+      await gate
+      return { status: "recording" } as T
+    }
+    throw new Error(`unexpected ${method}`)
+  }
+  const Probe = () => {
+    api = useVoice(rpc, () => {})
+    return <text>{`recording:${api.state.recording}`}</text>
+  }
+  await using t = await mountNode(<Probe />)
+  await act(async () => { await api!.toggle("on", "sid") })
+  await t.settle()
+
+  act(() => {
+    void api!.record("sid")
+    void api!.record("sid")
+  })
+  expect(records).toBe(1)
+  release()
+  await t.settle()
+})

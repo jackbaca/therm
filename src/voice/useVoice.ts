@@ -2,7 +2,7 @@
 // Manages runtime voice state: enabled/recording/processing flags,
 // record key parsing from config, and actions (toggle, record start/stop).
 
-import { useState, useCallback, useMemo } from "react"
+import { useState, useCallback, useMemo, useRef } from "react"
 import type { VoiceState, VoiceToggleResponse, VoiceRecordResponse } from "./types"
 import { parseVoiceRecordKey, formatVoiceRecordKey } from "./platform"
 
@@ -37,6 +37,7 @@ export function useVoice(gw: GwRpc, sys: (text: string) => void): VoiceApi {
   const [recordKeyRaw, setRecordKeyRaw] = useState<string>()
   const [tts, setTts] = useState(false)
   const [onTranscript, setTranscript] = useState<((text: string) => void) | null>(null)
+  const pending = useRef(false)
   const setOnTranscript = useCallback((fn: ((text: string) => void) | null) =>
     setTranscript(fn ? () => fn : null), [])
 
@@ -82,6 +83,8 @@ export function useVoice(gw: GwRpc, sys: (text: string) => void): VoiceApi {
       sys("voice: mode is off — enable with /voice on")
       return
     }
+    if (pending.current) return
+    pending.current = true
     const starting = !recording
     const action = starting ? "start" : "stop"
     // Optimistic UI update
@@ -107,6 +110,8 @@ export function useVoice(gw: GwRpc, sys: (text: string) => void): VoiceApi {
     } catch (e) {
       setRecording(!starting)
       sys(`voice error: ${e instanceof Error ? e.message : "gateway error"}`)
+    } finally {
+      pending.current = false
     }
   }, [enabled, recording, gw, sys])
 
