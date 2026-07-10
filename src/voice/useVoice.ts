@@ -23,6 +23,8 @@ export type VoiceApi = {
   setProcessing: (v: boolean) => void
   /** Update record key from config (called after voice.toggle response). */
   setRecordKey: (raw: string | undefined) => void
+  /** Reset runtime-only state after the gateway process is replaced. */
+  reset: () => void
   /** Formatted display string for the record key (e.g. "Ctrl+B"). */
   keyLabel: string
   /** Callback for voice transcript — inserts text into composer. */
@@ -42,6 +44,15 @@ export function useVoice(gw: GwRpc, sys: (text: string) => void): VoiceApi {
   const toggleGen = useRef(0)
   const setOnTranscript = useCallback((fn: ((text: string) => void) | null) =>
     setTranscript(fn ? () => fn : null), [])
+  const reset = useCallback(() => {
+    toggleGen.current++
+    recordGen.current++
+    pending.current = false
+    setEnabled(false)
+    setRecording(false)
+    setProcessing(false)
+    setTts(false)
+  }, [])
 
   const recordKey = useMemo(
     () => parseVoiceRecordKey(recordKeyRaw),
@@ -128,6 +139,7 @@ export function useVoice(gw: GwRpc, sys: (text: string) => void): VoiceApi {
     state, toggle, record,
     setEnabled, setRecording, setProcessing,
     setRecordKey: setRecordKeyRaw,
+    reset,
     keyLabel,
     onTranscript, setOnTranscript,
   }

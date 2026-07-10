@@ -21,9 +21,13 @@ test("gateway process exit surfaces in the app transcript", async () => {
   const t = await mount({ gw, launch: { mode: "new", splash: false } })
   await until(t, () => t.frame().includes("Ready"))
 
+  act(() => gw.push({ type: "voice.status", payload: { state: "listening" } }))
+  await until(t, () => t.frame().includes("recording"))
+
   act(() => gw.emit("exit", 7))
   await until(t, () => t.frame().includes("gateway exited (7)"))
   expect(t.frame()).not.toContain("● Ready")
+  expect(t.frame()).not.toContain("recording")
   t.destroy()
 })
 

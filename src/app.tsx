@@ -269,6 +269,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       setStarting(false)
       setStatus(text)
       setErrorPulse(true)
+      voice.reset()
       dispatch({ kind: "system", text })
     }
     gw.on("exit", exit)
@@ -521,6 +522,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   // tabs. The session is NOT preserved — it belongs to the old
   // profile's state.db. Confirm step lives in the Agents tab.
   const switchProfile = useCallback((newHome: string, name: string) => {
+    voice.reset()
     rehome(newHome)
     reset()
     gw.setSession("")
