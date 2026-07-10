@@ -31,6 +31,23 @@ describe("Config tab", () => {
     t.destroy()
   })
 
+  test("late initial load cannot erase a local draft", async () => {
+    let resolve!: (value: unknown) => void
+    const gw = new MockGateway({ "config.get": () => new Promise(done => { resolve = done }) })
+    const t = await mountNode(<Config focused />, { gw, width: 160, height: 48 })
+    await until(t, () => t.frame().includes("general"))
+    await navTo(t, {}, "terminal.container_persistent")
+    await act(async () => { await t.keys.typeText(" ") })
+    await until(t, () => t.frame().includes("1 unsaved"))
+
+    resolve({ config: { terminal: { container_persistent: false } } })
+    await act(async () => { await Bun.sleep(0) })
+    await t.settle()
+    expect(t.frame()).toContain("1 unsaved")
+    expect(t.frame()).toContain("✓ ON")
+    t.destroy()
+  })
+
   test("every schema key renders; defaults shown with empty user config", async () => {
     const gw = new MockGateway({ "config.get": () => ({ config: {} }) })
     const t = await mountNode(<Config focused />, { gw, width: 160, height: 48 })

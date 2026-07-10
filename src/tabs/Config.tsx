@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, memo, type ReactNode } from "react";
+import { useState, useEffect, useCallback, useRef, memo, type ReactNode } from "react";
 import { useKeyboard } from "@opentui/react";
 import { useKeys, handleListKey, useFollow } from "../keys";
 import { useGateway } from "../context/gateway";
@@ -173,12 +173,15 @@ export const Config = memo((props: { focused?: boolean }) => {
   const [focus, setFocus] = useState<"categories" | "fields">("categories");
   const [managed, setManaged] = useState<string | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
+  const loads = useRef(0);
 
   useEffect(() => { managedSystem().then(setManaged) }, []);
 
   const load = useCallback(() => {
+    const gen = ++loads.current;
     gw.request<{ config?: Record<string, unknown> }>("config.get", { key: "full" })
       .then(res => {
+        if (loads.current !== gen) return;
         const parsed = res.config ?? {};
         setRaw(structuredClone(parsed));
         setOriginal(structuredClone(parsed));
@@ -186,10 +189,15 @@ export const Config = memo((props: { focused?: boolean }) => {
         setErr({});
         setLoadErr(null);
       })
-      .catch(e => setLoadErr(e instanceof Error ? e.message : String(e)));
+      .catch(e => {
+        if (loads.current === gen) setLoadErr(e instanceof Error ? e.message : String(e));
+      });
   }, [gw]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    return () => { loads.current++; };
+  }, [load]);
 
   const all = buildFields(raw);
   const grouped = all.reduce((map, f) => {
@@ -223,6 +231,7 @@ export const Config = memo((props: { focused?: boolean }) => {
   const nChanged = all.reduce((n, f) => n + (changed(f.key) ? 1 : 0), 0);
 
   const update = (key: string, val: unknown) => {
+    loads.current++;
     const next = structuredClone(raw);
     setNested(next, key, val);
     setRaw(next);
@@ -374,9 +383,10 @@ export const Config = memo((props: { focused?: boolean }) => {
     if (keys.match("config.save", key)) return void save();
 
     if (mode === "yaml") {
-      if (key.name === "backspace") { setYaml(prev => prev.slice(0, -1)); return; }
-      if (key.name === "return") { setYaml(prev => prev + "\n"); return; }
+      if (key.name === "backspace") { loads.current++; setYaml(prev => prev.slice(0, -1)); return; }
+      if (key.name === "return") { loads.current++; setYaml(prev => prev + "\n"); return; }
       if (key.raw && key.raw.length === 1 && key.raw >= " ") {
+        loads.current++;
         setYaml(prev => prev + key.raw);
         return;
       }
