@@ -99,7 +99,7 @@ export function useVoice(gw: GwRpc, sys: (text: string) => void): VoiceApi {
         }
       }
     } catch (e) {
-      if (starting) setRecording(false)
+      setRecording(!starting)
       sys(`voice error: ${e instanceof Error ? e.message : "gateway error"}`)
     }
   }, [enabled, recording, gw, sys])
