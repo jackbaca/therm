@@ -15,7 +15,7 @@ import { ago, until } from "../ui/fmt";
 import { readCronOutput, type CronOutput } from "../service/hermes-home";
 import { cronModel, type CronAction, type CronJob, type RawJob } from "./cron-model";
 
-type Caps = { update: boolean; advanced: boolean }
+type Caps = { update: boolean; fields?: ReadonlySet<string> }
 type ListResponse = {
   jobs?: RawJob[]
   actions?: string[]
@@ -30,12 +30,11 @@ const FIELDS = [
 
 const caps = (r: ListResponse): Caps => {
   const actions = new Set(r.actions ?? [])
-  const fields = new Set(r.fields ?? [])
+  const fields = new Set((r.fields ?? []).filter(f => FIELDS.includes(f)))
+  const broad = r.capabilities?.advanced === true || r.capabilities?.advanced_create === true
   return {
     update: r.capabilities?.update === true || actions.has("update"),
-    advanced: r.capabilities?.advanced === true
-      || r.capabilities?.advanced_create === true
-      || FIELDS.some(f => fields.has(f)),
+    fields: broad && fields.size === 0 ? undefined : fields,
   }
 }
 
@@ -140,7 +139,7 @@ export const Cron = memo((props: { focused?: boolean }) => {
   const toast = useToast();
   const dims = useTerminalDimensions();
   const [jobs, setJobs] = useState<CronJob[]>([]);
-  const [cap, setCap] = useState<Caps>({ update: false, advanced: false });
+  const [cap, setCap] = useState<Caps>({ update: false, fields: new Set() });
   const [sel, setSel] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -165,13 +164,13 @@ export const Cron = memo((props: { focused?: boolean }) => {
     const r = await openCronEditor(dialog, {
       mode: "create",
       initial: cronModel.draft(),
-      canAdvanced: cap.advanced,
+      fields: cap.fields,
     });
     if (!r) return;
-    gw.request("cron.manage", cronModel.payload("add", r.draft, { advanced: cap.advanced }))
+    gw.request("cron.manage", cronModel.payload("add", r.draft, { fields: cap.fields }))
       .then(() => { toast.show({ variant: "success", message: "Job created" }); load(); })
       .catch((e: Error) => toast.show({ variant: "error", message: e.message }));
-  }, [gw, dialog, toast, load, cap.advanced]);
+  }, [gw, dialog, toast, load, cap.fields]);
 
   const edit = useCallback(async () => {
     const j = live.current.jobs[live.current.sel];
@@ -182,11 +181,11 @@ export const Cron = memo((props: { focused?: boolean }) => {
     const r = await openCronEditor(dialog, {
       mode: j ? "edit" : "create",
       initial: cronModel.draft(j ?? undefined),
-      canAdvanced: cap.advanced,
+      fields: cap.fields,
     });
     if (!r) return;
     const action: CronAction = j && cap.update ? "update" : "add";
-    gw.request("cron.manage", cronModel.payload(action, r.draft, { advanced: cap.advanced }))
+    gw.request("cron.manage", cronModel.payload(action, r.draft, { fields: cap.fields }))
       .then(() => { toast.show({ variant: "success", message: action === "add" ? "Job created" : "Job updated" }); load(); })
       .catch((e: Error) => toast.show({ variant: "error", message: e.message }));
   }, [gw, dialog, toast, load, cap]);

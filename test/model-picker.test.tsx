@@ -145,7 +145,6 @@ describe("model-picker", () => {
     expect(t.gw.last("model.options")?.params).toMatchObject({ include_unconfigured: true })
     expect(t.frame()).toContain("Setup required")
     expect(t.frame()).toContain("paste ANTHROPIC_API_KEY to activate")
-    expect(t.frame()).toContain("auth_type=")
 
     act(() => t.keys.pressArrow("down")); await t.settle()
     act(() => t.keys.pressEnter()); await t.settle()

@@ -150,32 +150,32 @@ export const validate = (d: CronDraft): string | null => {
   return null
 }
 
-export const payload = (action: CronAction, d: CronDraft, opts?: { advanced?: boolean }): CronPayload => {
+export const payload = (action: CronAction, d: CronDraft, opts?: { fields?: ReadonlySet<string> }): CronPayload => {
   const out: CronPayload = {
     action,
     name: action === "add" ? d.name.trim() : d.id,
     schedule: d.schedule.trim(),
     prompt: d.prompt.trim(),
   }
-  if (opts?.advanced === false) return out
-  out.deliver = d.deliver.trim() || "local"
-  out.no_agent = d.no_agent
-  out.attach_to_session = d.attach_to_session
+  const allowed = (key: string) => opts?.fields === undefined || opts.fields.has(key)
+  if (allowed("deliver")) out.deliver = d.deliver.trim() || "local"
+  if (allowed("no_agent")) out.no_agent = d.no_agent
+  if (allowed("attach_to_session")) out.attach_to_session = d.attach_to_session
   const add = (key: string, value: unknown) => {
     if (value !== undefined) out[key] = value
   }
   const skills = split(d.skills)
   const refs = split(d.context_from)
   const tools = split(d.enabled_toolsets)
-  if (action === "update" || skills.length > 0) add("skills", skills)
-  if (action === "update" || refs.length > 0) add("context_from", refs)
-  if (action === "update" || tools.length > 0) add("enabled_toolsets", tools)
-  add("provider", d.provider.trim() || undefined)
-  add("model", d.model.trim() || undefined)
-  add("base_url", base(d.base_url) || undefined)
-  add("script", d.script.trim() || undefined)
-  add("workdir", d.workdir.trim() || undefined)
-  add("repeat", d.repeat.trim() ? Number(d.repeat.trim()) : undefined)
+  if (allowed("skills") && (action === "update" || skills.length > 0)) add("skills", skills)
+  if (allowed("context_from") && (action === "update" || refs.length > 0)) add("context_from", refs)
+  if (allowed("enabled_toolsets") && (action === "update" || tools.length > 0)) add("enabled_toolsets", tools)
+  if (allowed("provider")) add("provider", d.provider.trim() || undefined)
+  if (allowed("model")) add("model", d.model.trim() || undefined)
+  if (allowed("base_url")) add("base_url", base(d.base_url) || undefined)
+  if (allowed("script")) add("script", d.script.trim() || undefined)
+  if (allowed("workdir")) add("workdir", d.workdir.trim() || undefined)
+  if (allowed("repeat")) add("repeat", d.repeat.trim() ? Number(d.repeat.trim()) : undefined)
   return out
 }
 

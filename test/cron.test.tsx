@@ -192,6 +192,10 @@ describe("Cron tab", () => {
       enabled_toolsets: [],
       attach_to_session: true,
     })
+    const limited = cronModel.payload("update", d, { fields: new Set(["script"]) })
+    expect(limited).toMatchObject({ action: "update", name: "adv1", script: "jobs/ping.py" })
+    expect(limited).not.toHaveProperty("provider")
+    expect(limited).not.toHaveProperty("no_agent")
   })
 
   test("create opens editor and sends only basic fields when gateway lacks advanced support", async () => {
@@ -234,8 +238,11 @@ describe("Cron tab", () => {
     await act(async () => { await t.keys.typeText("n") })
     await until(t, () => t.frame().includes("New Cron Job"))
 
-    expect(t.frame()).toContain("No agent")
+    expect(t.frame()).toContain("Script")
     expect(t.frame()).toContain("Provider")
+    expect(t.frame()).toContain("Model")
+    expect(t.frame()).toContain("Repeat")
+    expect(t.frame()).not.toContain("No agent")
   })
 
   test("detail panel displays upstream execution fields from list output", async () => {

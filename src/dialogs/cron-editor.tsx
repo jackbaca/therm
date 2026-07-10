@@ -12,7 +12,7 @@ type Result = { draft: CronDraft }
 type Props = {
   mode: "create" | "edit"
   initial: CronDraft
-  canAdvanced: boolean
+  fields?: ReadonlySet<string>
   done: (r: Result | null) => void
 }
 
@@ -59,7 +59,7 @@ const multiline = new Set<Field>(["prompt", "skills", "context_from", "enabled_t
 const bools = new Set<Field>(["no_agent", "attach_to_session"])
 const basic = new Set<Field>(["name", "schedule", "prompt", "submit"])
 const editable = (f: Field, p: Props) => (f !== "submit" && f !== "id" && f !== "name") || (p.mode === "create" && f === "name")
-const available = (f: Field, p: Props) => p.canAdvanced || basic.has(f)
+const available = (f: Field, p: Props) => basic.has(f) || p.fields === undefined || p.fields.has(f)
 
 const value = (d: CronDraft, f: Field) => f === "submit" ? "" : d[f]
 const height = (f: Field) => multiline.has(f) ? 3 : 1
@@ -152,7 +152,7 @@ const CronEditor = (props: Props) => {
   return (
     <box flexDirection="column" width={84} maxHeight={34}>
       <box height={1}><text fg={theme.primary}><strong>{props.mode === "create" ? "New Cron Job" : "Edit Cron Job"}</strong></text></box>
-      {!props.canAdvanced ? (
+      {props.fields?.size === 0 ? (
         <text fg={theme.warning}>Current gateway only accepts name, schedule, and prompt.</text>
       ) : null}
       <box height={1} />
@@ -169,14 +169,14 @@ const CronEditor = (props: Props) => {
 
 export function openCronEditor(
   dialog: DialogContext,
-  opts: { mode: "create" | "edit"; initial: CronDraft; canAdvanced: boolean },
+  opts: { mode: "create" | "edit"; initial: CronDraft; fields?: ReadonlySet<string> },
 ): Promise<Result | null> {
   return new Promise(resolve => {
     dialog.replace(
       <CronEditor
         mode={opts.mode}
         initial={opts.initial}
-        canAdvanced={opts.canAdvanced}
+        fields={opts.fields}
         done={r => { resolve(r); dialog.clear() }}
       />,
       () => resolve(null),

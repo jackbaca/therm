@@ -53,12 +53,6 @@ const providerDescription = (p: ModelOptionProvider): string | undefined => {
   return p.total_models ? `${p.total_models} models` : undefined
 }
 
-const providerHint = (p: ModelOptionProvider): string | undefined => {
-  if (p.authenticated !== false) return undefined
-  if (p.auth_type === "vertex") return undefined
-  return p.auth_type ? `auth_type=${p.auth_type}` : undefined
-}
-
 const replaceProvider = (
   data: ModelOptionsResponse, slug: string, next: ModelOptionProvider,
 ): ModelOptionsResponse => ({
@@ -184,7 +178,6 @@ const ModelPickerDialog = (props: Props) => {
           title: p.name,
           value: p.slug,
           description: providerDescription(p),
-          hint: providerHint(p),
           category: p.is_current ? "Current" : p.authenticated === false ? "Setup required" : "Available",
         })),
       { title: "Refresh model options", value: REFRESH, description: "force reload from gateway", hint: undefined, category: "Actions" },
