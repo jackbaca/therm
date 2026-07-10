@@ -53,6 +53,7 @@ const BINDS: KeyBinding[] = [
 const Generate = (props: Props) => {
   const theme = useTheme().theme
   const ta = useRef<TextareaRenderable | null>(null)
+  const flight = useRef(false)
   const [prompt, setPrompt] = useState(props.lastPrompt ?? BASE)
   const [useSeed, setUseSeed] = useState(!!props.seed)
   const [secs, setSecs] = useState(2)
@@ -76,10 +77,11 @@ const Generate = (props: Props) => {
     // Blank line 1 with only the pre-filled style hints below = no
     // subject described yet. Don't submit.
     const bare = !props.lastPrompt && p === BASE.trim()
-    if (!p || bare || busy) {
+    if (!p || bare || flight.current) {
       if (bare) setErr("describe the subject on line 1")
       return
     }
+    flight.current = true
     setBusy(true); setErr(null)
     void props.run(props.kind, p, {
       seed: props.seed && useSeed ? props.seed : undefined,
@@ -88,7 +90,10 @@ const Generate = (props: Props) => {
     }).then(r => {
       if ("err" in r) { setErr(r.err); setBusy(false); return }
       props.onDone(r.path, p)
-    })
+    }).catch(e => {
+      setErr(e instanceof Error ? e.message : String(e))
+      setBusy(false)
+    }).finally(() => { flight.current = false })
   }
 
   useKeyboard(key => {
