@@ -106,4 +106,18 @@ describe("editInEditor", () => {
     await expect(editInEditor(f.renderer as never, "seed")).rejects.toThrow("editor exited")
     expect(f.calls).toEqual(["suspend", "clear", "clear", "resume", "request"])
   })
+
+  test("initial buffer clear failure still resumes the renderer", async () => {
+    process.env.VISUAL = "/bin/true"
+    const f = fake()
+    let clears = 0
+    f.renderer.currentRenderBuffer.clear = () => {
+      f.calls.push("clear")
+      if (clears++ === 0) throw new Error("clear exploded")
+      return f.calls.length
+    }
+
+    await expect(editInEditor(f.renderer as never, "seed")).rejects.toThrow("clear exploded")
+    expect(f.calls).toEqual(["suspend", "clear", "clear", "resume", "request"])
+  })
 })

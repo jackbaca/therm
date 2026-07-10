@@ -14,9 +14,11 @@ export async function editInEditor(renderer: CliRenderer, seed: string, suffix =
   const path = join(tmpdir(), `herm-${Date.now()}${suffix}`)
   await Bun.write(path, seed)
 
-  renderer.suspend()
-  renderer.currentRenderBuffer.clear()
+  let suspended = false
   try {
+    renderer.suspend()
+    suspended = true
+    renderer.currentRenderBuffer.clear()
     const argv = process.platform === "win32"
       ? ["cmd.exe", "/d", "/s", "/c", `${cmd} "${path.replaceAll('"', '""')}"`]
       : ["/bin/sh", "-c", `exec ${cmd} "$1"`, "herm-editor", path]
@@ -30,10 +32,12 @@ export async function editInEditor(renderer: CliRenderer, seed: string, suffix =
   } finally {
     await rm(path, { force: true }).catch(() => {})
     // destroy() frees the native buffer pointer; never resume a dead renderer.
-    if (!renderer.isDestroyed) {
-      renderer.currentRenderBuffer.clear()
-      renderer.resume()
-      renderer.requestRender()
+    if (suspended && !renderer.isDestroyed) {
+      try { renderer.currentRenderBuffer.clear() }
+      finally {
+        renderer.resume()
+        renderer.requestRender()
+      }
     }
   }
 }
