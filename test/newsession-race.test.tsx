@@ -36,6 +36,7 @@ describe("newSession stale-sid reset", () => {
     // prev explicitly, so the gateway-level sid clear doesn't affect it.
     await until(t, () => gw.last("session.close") !== undefined)
     expect(gw.last("session.close")?.params.session_id).toBe("sid-1")
+    await until(t, () => t.frame().includes("Ready"))
 
     t.destroy()
   })

@@ -399,6 +399,9 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       reset()
       setSid(r.id)
       if (r.info) { setInfo(r.info); setUsage(r.info.usage) }
+      setReady(true)
+      setStarting(false)
+      setStatus("")
       sessionStart.current = Date.now()
       if (prev) void session.close(prev, { preserveBackground: true })
     } catch (err) {
