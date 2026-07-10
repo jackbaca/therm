@@ -73,4 +73,25 @@ describe("newSession stale-sid reset", () => {
     expect(gw.last("prompt.submit")).toBeUndefined()
     t.destroy()
   })
+
+  test("/new recovers when initial boot has no session id", async () => {
+    let calls = 0
+    const gw = new MockGateway({
+      "session.create": () => {
+        calls++
+        if (calls === 1) throw new Error("boot exploded")
+        return { session_id: "recovered-sid" }
+      },
+    })
+    const t = await mount({ gw, launch: { mode: "new", splash: false } })
+    await until(t, () => t.frame().includes("Failed to start session: boot exploded"))
+
+    await act(async () => { await t.keys.typeText("/new") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Start a new session?"))
+    await act(async () => { await t.keys.typeText("y") })
+    await until(t, () => calls === 2 && t.frame().includes("Ready"))
+    expect(gw.last("prompt.submit")).toBeUndefined()
+    t.destroy()
+  })
 })
