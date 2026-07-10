@@ -1,3 +1,27 @@
+# [1.10.0](https://github.com/liftaris/herm/compare/v1.9.0...v1.10.0) (2026-07-10)
+
+
+### Bug Fixes
+
+* align config tests with refreshed schema ([2cde508](https://github.com/liftaris/herm/commit/2cde508016f660111ffb469d2ebad21303d4adb2))
+* bound integration hot paths ([1c2b7f9](https://github.com/liftaris/herm/commit/1c2b7f9c315d42a4788a431b26d05d4d4934b201))
+* break session.title ↔ session.info feedback loop causing 96% CPU ([85e5f68](https://github.com/liftaris/herm/commit/85e5f68ddf1f54087d291e3f414ba577caa6659c))
+* clean up noisy PR 219 surfaces ([ed86276](https://github.com/liftaris/herm/commit/ed862764dcedbb1c2a7f5a1590959377113782ff))
+* finish integration polish ([78a5d48](https://github.com/liftaris/herm/commit/78a5d485653fffa87760b410f67687c9b54c3f4b))
+* hide unknown splash behind count ([003c581](https://github.com/liftaris/herm/commit/003c581ea4fbb71431d7d9092c072c540c5fd917))
+* hide unverified verification status ([0908e0b](https://github.com/liftaris/herm/commit/0908e0bb1eb126ac08c76d3733ec11fa2709decc))
+* honor advertised cron fields ([44e7cb3](https://github.com/liftaris/herm/commit/44e7cb3f79b9e3f8835181455203014ef81b1a25))
+* preserve setup providers in model picker ([726c954](https://github.com/liftaris/herm/commit/726c954f1fcdfe088e8cec1823d57dfa11580794))
+* refresh model picker catalog explicitly ([7d5bd0f](https://github.com/liftaris/herm/commit/7d5bd0fc8c2690f9bd2c3a6cbcf59700787db98d))
+* route compact through session compression ([da0d8df](https://github.com/liftaris/herm/commit/da0d8df0c053bcf63c3519a17c7998cfda934f9b))
+
+
+### Features
+
+* integrate recent Herm updates ([52990a2](https://github.com/liftaris/herm/commit/52990a23f90277ff15e40901af0327030457ebc5))
+* refresh model picker options ([1faec76](https://github.com/liftaris/herm/commit/1faec76cb1b8019a6a617e0bd6f4b16a0434a172))
+* show install warning in status dialog ([c04180d](https://github.com/liftaris/herm/commit/c04180d67ab6ef4bb15249bb0c0400ef1f8218b9))
+
 # [1.9.0](https://github.com/liftaris/herm/compare/v1.8.1...v1.9.0) (2026-06-19)
 
 
