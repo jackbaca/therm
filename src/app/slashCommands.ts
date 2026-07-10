@@ -10,7 +10,7 @@
  * otherwise "gateway" (forwarded as /{name} to the Hermes API).
  */
 
-import { SKINS } from "../context/skin"
+import { SKINS, skins } from "../context/skin"
 
 export type SlashSource = "command" | "skill" | "plugin" | "mcp" | "local"
 
@@ -34,7 +34,7 @@ export type SlashCommand = {
 export const LOCAL_COMMANDS: ReadonlyArray<SlashCommand> = [
   { name: "clear", description: "Clear chat messages",       category: "Client", aliases: [],       argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "new",   description: "Start a new session",        category: "Client", aliases: ["reset"], argsHint: "", subcommands: [], source: "local", target: "local" },
-  { name: "theme", description: "Switch color theme or mode", category: "Client", aliases: [],       argsHint: "[light|dark]", subcommands: [], source: "local", target: "local" },
+  { name: "theme", description: "Switch color theme or mode", category: "Client", aliases: [],       argsHint: "[name|light|dark]", subcommands: [], source: "local", target: "local" },
   { name: "help",  description: "Show keyboard shortcuts",    category: "Client", aliases: [],       argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "keys",  description: "Rebind keyboard shortcuts",  category: "Client", aliases: [],       argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "logs",  description: "Show gateway stderr log",    category: "Client", aliases: [],       argsHint: "", subcommands: [], source: "local", target: "local" },
@@ -66,6 +66,10 @@ export const LOCAL_COMMANDS: ReadonlyArray<SlashCommand> = [
   { name: "compress", description: "Compress conversation context",         category: "Session", aliases: ["compact"], argsHint: "[here [N] | focus topic | --preview|--dry-run]", subcommands: [], source: "local", target: "local" },
   { name: "browser", description: "Connect/disconnect a CDP browser",      category: "Session", aliases: [], argsHint: "[connect|disconnect|status] [url]", subcommands: ["connect", "disconnect", "status"], source: "local", target: "local" },
 ]
+
+export function fallbacks(): ReadonlyArray<SlashCommand> {
+  return LOCAL_COMMANDS.map(c => c.name === "skin" ? { ...c, subcommands: skins() } : c)
+}
 
 // These arrive from the gateway catalog but still execute in-process because
 // they mutate live TUI/session state that slash.exec cannot own.
