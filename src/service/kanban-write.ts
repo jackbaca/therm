@@ -1,12 +1,12 @@
 import { Database } from "bun:sqlite"
-import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs"
+import { closeSync, fstatSync, openSync, readSync, statSync } from "node:fs"
 
 const DEFAULT_BUSY_TIMEOUT_MS = 120_000
 const BUSY_RETRIES = 5
 const BUSY_BUDGET_MS = 5_000
 const BUSY_MIN_MS = 20
 const BUSY_MAX_MS = 150
-const handles = new Map<string, Database>()
+const handles = new Map<string, { db: Database; ino: number }>()
 
 export type PatchFields = {
   title?: string
@@ -48,8 +48,16 @@ const pathOf = (root: string, board: string) =>
 const open = (root: string, board: string) => {
   const path = pathOf(root, board)
   const cached = handles.get(path)
-  if (cached) return cached
-  if (!existsSync(path)) return null
+  const ino = (() => {
+    try { return statSync(path).ino }
+    catch { return null }
+  })()
+  if (cached?.ino === ino) return cached.db
+  if (cached) {
+    cached.db.close()
+    handles.delete(path)
+  }
+  if (ino === null) return null
   try {
     const db = new Database(path)
     db.exec(`PRAGMA busy_timeout=${timeout()}`)
@@ -61,7 +69,7 @@ const open = (root: string, board: string) => {
       "PRAGMA cell_size_check=ON",
       "PRAGMA foreign_keys=ON",
     ].join(";"))
-    handles.set(path, db)
+    handles.set(path, { db, ino })
     return db
   } catch {
     return null
@@ -168,7 +176,7 @@ export function writePragmas(root: string, board: string): Record<string, string
 }
 
 export function resetWrites(): void {
-  for (const db of handles.values()) db.close()
+  for (const handle of handles.values()) handle.db.close()
   handles.clear()
 }
 

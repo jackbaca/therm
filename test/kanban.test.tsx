@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeAll, afterEach, spyOn } from "bun:test"
 import { act } from "react"
 import { Database } from "bun:sqlite"
-import { mkdirSync, writeFileSync, rmSync, chmodSync } from "node:fs"
+import { mkdirSync, writeFileSync, rmSync, chmodSync, renameSync } from "node:fs"
 import { join } from "node:path"
 import { mountNode, MockGateway, until } from "./harness"
 import { hermesPath } from "../src/service/hermes-home"
@@ -12,6 +12,7 @@ import {
 } from "../src/service/hermes-kanban"
 import { parseDispatchResult, dispatchFailures, dispatchVariant, dispatchDetails } from "../src/service/kanban-dispatch"
 import { Kanban } from "../src/tabs/Kanban"
+import { patchAt, resetWrites } from "../src/service/kanban-write"
 
 const now = Math.floor(Date.now() / 1000)
 
@@ -1496,6 +1497,34 @@ describe("patchTask direct writes", () => {
       fresh.close()
       if (prev === undefined) delete process.env.HERM_IO_INLINE
       else process.env.HERM_IO_INLINE = prev
+    }
+  })
+
+  test("write handle reopens when a board database is replaced", () => {
+    const root = hermesPath("kanban-replace")
+    const path = join(root, "kanban.db")
+    const old = `${path}.old`
+    mkdirSync(root, { recursive: true })
+    const seed = (priority: number) => {
+      const db = new Database(path, { create: true })
+      schema(db)
+      db.query("INSERT INTO tasks (id, title, status, priority, created_at) VALUES (?, ?, ?, ?, ?)")
+        .run("replace-me", "Replace me", "ready", priority, now)
+      db.close()
+    }
+    try {
+      seed(0)
+      expect(patchAt(root, "default", "replace-me", { priority: 1 })).toBe(true)
+      renameSync(path, old)
+      seed(0)
+
+      expect(patchAt(root, "default", "replace-me", { priority: 7 })).toBe(true)
+      const db = new Database(path)
+      expect((db.query("SELECT priority FROM tasks WHERE id = ?").get("replace-me") as { priority: number }).priority).toBe(7)
+      db.close()
+    } finally {
+      resetWrites()
+      rmSync(root, { recursive: true, force: true })
     }
   })
 
