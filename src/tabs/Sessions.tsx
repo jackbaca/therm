@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef, memo, Fragment } from "react"
 import { SIDE_PIPE } from "../ui/borders"
-import { useKeyboard, useTerminalDimensions } from "@opentui/react"
+import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react"
 import type { ScrollBoxRenderable } from "@opentui/core"
 import { useKeys, handleListKey } from "../keys"
 import { sdb } from "../service/sessions-db"
@@ -82,6 +82,7 @@ const FilterRow = memo((p: {
 }) => {
   const theme = useTheme().theme
   const ref = useRef<ScrollBoxRenderable | null>(null)
+  const renderer = useRenderer()
   useEffect(() => {
     const move = () => {
       const node = ref.current
@@ -95,9 +96,14 @@ const FilterRow = memo((p: {
       node.scrollLeft = Math.max(0, left < pos ? left : left + w > pos + port ? left + w - port : pos)
     }
     move()
-    const id = setTimeout(move, 0)
-    return () => clearTimeout(id)
-  }, [p.view, p.views])
+    let frames = 0
+    const frame = async () => {
+      move()
+      if (++frames >= 2) renderer.removeFrameCallback(frame)
+    }
+    renderer.setFrameCallback(frame)
+    return () => renderer.removeFrameCallback(frame)
+  }, [p.view, p.views, renderer])
   return (
     <scrollbox ref={ref} scrollX height={1} paddingLeft={2}
                horizontalScrollbarOptions={HBAR} contentOptions={ROW}>
