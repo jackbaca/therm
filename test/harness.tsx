@@ -22,7 +22,6 @@ import { ToastProvider } from "../src/ui/toast"
 import { CommandProvider } from "../src/ui/command"
 import { PluginProvider } from "../src/plugins/runtime"
 import { BackgroundProvider } from "../src/app/background"
-import { EikonPreviewProvider } from "../src/context/eikon-preview"
 import type { HermPlugin } from "../src/plugins/types"
 import type { GatewayEvent } from "../src/context/wire"
 
@@ -160,9 +159,7 @@ export async function mountNode(node: ReactNode, opts: Opts = {}): Promise<Harne
               <CommandProvider>
                 <PluginProvider plugins={opts.plugins ?? []}>
                   <BackgroundProvider>
-                    <EikonPreviewProvider>
-                      {node}
-                    </EikonPreviewProvider>
+                    {node}
                   </BackgroundProvider>
                 </PluginProvider>
               </CommandProvider>
