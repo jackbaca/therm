@@ -158,6 +158,27 @@ describe("curator dialog", () => {
     t.destroy()
   })
 
+  test("same-frame restore confirmation dispatches once", async () => {
+    const calls: string[] = []
+    const gw = new MockGateway({
+      "shell.exec": p => {
+        const cmd = String(p.command)
+        calls.push(cmd)
+        return { stdout: cmd.endsWith("list-archived") ? "dead-skill\n" : "ok", stderr: "", code: 0 }
+      },
+    })
+    const t = await mountNode(<Open />, { width: 130, height: 40, gw })
+    await until(t, () => t.frame().includes("Archived     1"))
+    await act(async () => { await t.keys.typeText("a") })
+    act(() => {
+      t.keys.pressEnter()
+      t.keys.pressEnter()
+    })
+    await until(t, () => calls.some(c => c.includes("restore")))
+    expect(calls.filter(c => c.includes("restore"))).toHaveLength(1)
+    t.destroy()
+  })
+
   test("no archived skills: 'a' hint hidden, no Archived row", async () => {
     const gw = new MockGateway({
       "shell.exec": () => ({ stdout: "", stderr: "", code: 0 }),
