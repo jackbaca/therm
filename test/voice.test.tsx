@@ -85,3 +85,30 @@ test("record presses serialize while the gateway request is pending", async () =
   release()
   await t.settle()
 })
+
+test("out-of-order voice toggles keep the latest action", async () => {
+  let api: VoiceApi | undefined
+  let on!: (value: unknown) => void
+  let off!: (value: unknown) => void
+  const enabled = new Promise(resolve => { on = resolve })
+  const disabled = new Promise(resolve => { off = resolve })
+  const rpc = async <T,>(_method: string, params: Record<string, unknown>): Promise<T> =>
+    (params.action === "on" ? enabled : disabled) as Promise<T>
+  const Probe = () => {
+    api = useVoice(rpc, () => {})
+    return <text>{`enabled:${api.state.enabled}`}</text>
+  }
+  await using t = await mountNode(<Probe />)
+
+  act(() => {
+    void api!.toggle("on", "sid")
+    void api!.toggle("off", "sid")
+  })
+  off({ enabled: false, record_key: "ctrl+b" })
+  await act(async () => { await disabled })
+  on({ enabled: true, record_key: "ctrl+b" })
+  await act(async () => { await enabled })
+  await t.settle()
+
+  expect(t.frame()).toContain("enabled:false")
+})

@@ -38,6 +38,7 @@ export function useVoice(gw: GwRpc, sys: (text: string) => void): VoiceApi {
   const [tts, setTts] = useState(false)
   const [onTranscript, setTranscript] = useState<((text: string) => void) | null>(null)
   const pending = useRef(false)
+  const toggleGen = useRef(0)
   const setOnTranscript = useCallback((fn: ((text: string) => void) | null) =>
     setTranscript(fn ? () => fn : null), [])
 
@@ -56,11 +57,13 @@ export function useVoice(gw: GwRpc, sys: (text: string) => void): VoiceApi {
   }), [enabled, recording, processing, recordKey, tts])
 
   const toggle = useCallback(async (action: string, sid: string) => {
+    const current = ++toggleGen.current
     try {
       const r = await gw<VoiceToggleResponse>("voice.toggle", {
         action,
         session_id: sid,
       })
+      if (toggleGen.current !== current) return
       if (r.enabled !== undefined) {
         setEnabled(r.enabled)
         if (!r.enabled) {
@@ -74,6 +77,7 @@ export function useVoice(gw: GwRpc, sys: (text: string) => void): VoiceApi {
       const ttsMsg = r.tts ? " · tts on" : ""
       sys(`voice ${r.enabled ? "on" : "off"}${ttsMsg} [${label}]`)
     } catch (e) {
+      if (toggleGen.current !== current) return
       sys(`voice: ${e instanceof Error ? e.message : "gateway error"}`)
     }
   }, [gw, sys])
