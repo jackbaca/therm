@@ -201,3 +201,22 @@ test("old record completion cannot unlock a newer pending request", async () => 
   finishNew({ status: "recording" })
   await t.settle()
 })
+
+test("voice status reports missing provider details", async () => {
+  let api: VoiceApi | undefined
+  const messages: string[] = []
+  const rpc = async <T,>(): Promise<T> => ({
+    enabled: false,
+    available: false,
+    record_key: "ctrl+b",
+    details: "STT provider missing",
+  }) as T
+  const Probe = () => {
+    api = useVoice(rpc, text => messages.push(text))
+    return <text>voice</text>
+  }
+  await using _t = await mountNode(<Probe />)
+
+  await act(async () => { await api!.toggle("status", "sid") })
+  expect(messages.at(-1)).toContain("STT provider missing")
+})

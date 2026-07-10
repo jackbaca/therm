@@ -88,7 +88,8 @@ export function useVoice(gw: GwRpc, sys: (text: string) => void): VoiceApi {
       if (r.record_key) setRecordKeyRaw(r.record_key)
       const label = formatVoiceRecordKey(parseVoiceRecordKey(r.record_key))
       const ttsMsg = r.tts ? " · tts on" : ""
-      sys(`voice ${r.enabled ? "on" : "off"}${ttsMsg} [${label}]`)
+      const details = action === "status" && r.details?.trim() ? ` · ${r.details.trim()}` : ""
+      sys(`voice ${r.enabled ? "on" : "off"}${ttsMsg} [${label}]${details}`)
     } catch (e) {
       if (toggleGen.current !== current) return
       sys(`voice: ${e instanceof Error ? e.message : "gateway error"}`)
