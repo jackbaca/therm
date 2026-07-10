@@ -340,6 +340,7 @@ export const Config = memo((props: { focused?: boolean }) => {
     openModelPicker(dialog, gw, {
       title: s.kind === "main" ? "Set main model" : `Set auxiliary · ${s.label}`,
       onApply: async (prov, model) => {
+        const token = dialog.version();
         const r = await assign(gw, s.key, prov, model);
         if (r.failed.length)
           return toast.show({ variant: "error", message: r.failed.map(f => f.err).join("; ") });
@@ -347,7 +348,7 @@ export const Config = memo((props: { focused?: boolean }) => {
           message: s.kind === "main" ? `main → ${prov} · ${model}` : `${s.key} → ${prov} · ${model}` });
         if (r.warning) toast.show({ variant: "warning", message: r.warning });
         load();
-        if (s.kind === "main") await warnStaleAux(prov);
+        if (s.kind === "main" && dialog.version() === token) await warnStaleAux(prov);
       },
     });
   }, [gw, dialog, toast, load, managed, raw]);

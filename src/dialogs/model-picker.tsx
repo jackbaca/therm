@@ -233,8 +233,8 @@ const ModelPickerDialog = (props: Props) => {
       current={provider === data.provider ? data.model : undefined}
       onSelect={(o) => {
         if (o.value === REFRESH) return refresh()
-        if (provider) apply(o.value, provider)
         dialog.clear()
+        if (provider) apply(o.value, provider)
       }}
       onKey={onKey}
       placeholder="Search models..."
