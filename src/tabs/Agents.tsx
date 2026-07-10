@@ -471,12 +471,11 @@ export const Agents = memo((props: Props) => {
       toast.show({ variant: "success", message: `Updated '${p.name}'` })
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err))
-      if (!p.is_active || !props.onSwitchProfile) {
+      if (!p.is_active || !props.onSwitchProfile
+          || !/gateway (?:exited|restarted)/i.test(error.message)) {
         toast.show({ variant: "error", message: error.message })
         return
       }
-      if (!/gateway (?:exited|restarted)/i.test(error.message))
-        toast.show({ variant: "error", message: error.message })
     }
     if (p.is_active && props.onSwitchProfile) {
       props.onSwitchProfile(p.path, p.name)

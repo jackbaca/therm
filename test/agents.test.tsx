@@ -867,6 +867,35 @@ describe("Agents tab", () => {
     t.destroy()
   })
 
+  test("active profile update does not reconnect after an ordinary command failure", async () => {
+    writeFileSync(join(ROOT, "profiles", "coder", "distribution.yaml"),
+      "name: acme-coder\nversion: 0.9.0\nsource: https://github.com/acme/coder\n")
+    const switched: Array<[string, string]> = []
+    const gw = new MockGateway({
+      "shell.exec": () => ({ stdout: "", stderr: "permission denied", code: 1 }),
+      "config.get": p => p.key === "profile"
+        ? { home: join(ROOT, "profiles", "coder"), display: "coder" }
+        : { config: {} },
+    })
+    const t = await mountNode(
+      <Agents focused sessionId="test-sid"
+              onSwitchProfile={(home, name) => switched.push([home, name])} />,
+      { gw, width: 200 },
+    )
+    await until(t, () => t.frame().includes("Profiles (2)"))
+    act(() => t.keys.pressArrow("down"))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Profile · coder (active)"))
+    for (const c of "update") await act(async () => { await t.keys.typeText(c) })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Update distribution?"))
+    await act(async () => { await t.keys.typeText("y") })
+
+    await until(t, () => t.frame().includes("permission denied"))
+    expect(switched).toEqual([])
+    t.destroy()
+  })
+
   test("distribution menu entries absent on profiles without a manifest", async () => {
     const t = await mountNode(<Agents focused sessionId="test-sid" />, { gw: new MockGateway(), width: 200 })
     await until(t, () => t.frame().includes("Profiles (2)"))
