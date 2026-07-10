@@ -56,6 +56,20 @@ herm       # fresh session
 herm -c    # resume last session
 ```
 
+Attach to an already-running Hermes dashboard instead of spawning a local
+gateway subprocess:
+
+```bash
+herm --gateway-url 'ws://127.0.0.1:9119/api/ws?token=...'
+```
+
+HTTP(S) dashboard URLs are normalized to WS(S) and `/api/ws` is appended after
+any path prefix. The URL must already carry a reusable `token` or `internal`
+credential. OAuth-gated dashboards use single-use tickets and require an
+authenticated client that can mint a fresh ticket for every reconnect. For
+persistent configuration, set `HERM_GATEWAY_URL`. Herm also accepts the
+upstream-injected `HERMES_TUI_GATEWAY_URL`.
+
 Or run from source:
 
 ```bash
