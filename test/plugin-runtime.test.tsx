@@ -83,6 +83,26 @@ describe("PluginProvider", () => {
     await until(t, () => t.frame().includes("route blurred"))
   })
 
+  test("throwing route renderer is isolated from the shell", async () => {
+    let api: HermPluginApi | undefined
+    const plugin: HermPlugin = {
+      id: "bad-route",
+      tui(value) {
+        api = value
+        value.route.register([{
+          name: "BadRoute",
+          render: () => { throw new Error("route exploded") },
+        }])
+      },
+    }
+    await using t = await mount({ plugins: [plugin] })
+    await until(t, () => api !== undefined)
+    await act(async () => { await Bun.sleep(50) })
+    act(() => api!.route.navigate("BadRoute"))
+    await until(t, () => t.frame().includes("route exploded"))
+    expect(t.frame()).toContain("Ready")
+  })
+
   test("failing tui() is isolated — later plugins still activate", async () => {
     const bad: HermPlugin = { id: "bad", tui() { throw new Error("nope") } }
     await using t = await mountNode(<Host />, {
