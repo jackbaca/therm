@@ -256,7 +256,7 @@ export const Config = memo((props: { focused?: boolean }) => {
       toast.show({ variant: "error", message: `${nErr} invalid field${nErr === 1 ? "" : "s"}` });
       return;
     }
-    const target = mode === "yaml" ? (yamlParse(yaml) ?? {}) : raw;
+    const target = mode === "yaml" ? (yamlParse(yaml) ?? {}) : rawRef.current;
     const flat = flatten(target as Record<string, unknown>);
     const diffs = flat
       .filter(([key]) => JSON.stringify(getNested(target as Record<string, unknown>, key)) !== JSON.stringify(getNested(original, key)))

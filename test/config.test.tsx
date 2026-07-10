@@ -236,6 +236,21 @@ describe("Config tab", () => {
     t.destroy()
   })
 
+  test("same-frame edit and save reads the live draft", async () => {
+    const cfg = { terminal: { container_persistent: false } }
+    const gw = new MockGateway({ "config.get": () => ({ config: cfg }) })
+    const t = await mountNode(<Config focused />, { gw, width: 160, height: 48 })
+    await until(t, () => t.frame().includes("general"))
+    await navTo(t, cfg, "terminal.container_persistent")
+    act(() => {
+      void t.keys.typeText(" ")
+      t.keys.pressKey("s", { ctrl: true })
+    })
+    await until(t, () => t.frame().includes("Write 1 change to config.yaml?"))
+    expect(t.frame()).not.toContain("No changes")
+    t.destroy()
+  })
+
   // '/' collapses the categories pane; query row sits above the results
   // shell; each hit carries its resolved group badge.
   test("search: single-pane, query row above, group badge per hit", async () => {
