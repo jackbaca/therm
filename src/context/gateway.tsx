@@ -24,7 +24,7 @@ type Ctx = {
   ready: boolean
   /** Kill and respawn the gateway subprocess. Reads process.env fresh —
    *  call after rehome() so the new process sees the new HERMES_HOME. */
-  restart: () => void
+  restart: (mode?: "resume" | "new") => void
 }
 
 const Gw = createContext<Ctx | null>(null)
@@ -64,10 +64,11 @@ export const GatewayProvider = ({ client, children }: { client?: Gateway; childr
     }
   }, [])
 
-  const restart = useCallback(() => {
+  const restart = useCallback((mode: "resume" | "new" = "resume") => {
     if (retry.current.timer) clearTimeout(retry.current.timer)
     retry.current = { attempts: 0 }
     setReady(false)
+    ref.current!.emit("restart", mode)
     ref.current!.start()
   }, [])
 
@@ -108,7 +109,7 @@ export function useGatewayReady(): boolean {
 }
 
 /** Kill + respawn the gateway subprocess under the current process.env. */
-export function useGatewayRestart(): () => void {
+export function useGatewayRestart(): (mode?: "resume" | "new") => void {
   const ctx = useContext(Gw)
   if (!ctx) throw new Error("useGatewayRestart() must be inside <GatewayProvider>")
   return ctx.restart

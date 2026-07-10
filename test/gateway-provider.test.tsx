@@ -62,3 +62,20 @@ test("unexpected gateway restart resumes the active session", async () => {
   expect(resumed).toEqual(["test-sid"])
   t.destroy()
 })
+
+test("explicit resume restart preserves the active session", async () => {
+  const resumed: string[] = []
+  const gw = new MockGateway({
+    "session.resume": p => {
+      resumed.push(p.session_id as string)
+      return { session_id: p.session_id, messages: [] }
+    },
+  })
+  const t = await mount({ gw, launch: { mode: "new", splash: false } })
+  await until(t, () => t.frame().includes("Ready"))
+  act(() => gw.emit("restart", "resume"))
+  act(() => gw.push({ type: "gateway.ready" }))
+  await until(t, () => resumed.length > 0)
+  expect(resumed).toEqual(["test-sid"])
+  t.destroy()
+})

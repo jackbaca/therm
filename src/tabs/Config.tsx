@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, memo, type ReactNode } from "react";
 import { useKeyboard } from "@opentui/react";
 import { useKeys, handleListKey, useFollow } from "../keys";
-import { useGateway } from "../context/gateway";
+import { useGateway, useGatewayRestart } from "../context/gateway";
 import { useTheme } from "../theme";
 import { useToast } from "../ui/toast";
 import { useDialog } from "../ui/dialog";
@@ -157,6 +157,7 @@ const SlotRow = memo((p: { id: string; s: Slot; on: boolean }) => {
 export const Config = memo((props: { focused?: boolean }) => {
   const theme = useTheme().theme;
   const gw = useGateway();
+  const restartGateway = useGatewayRestart();
   const toast = useToast();
   const dialog = useDialog();
   const [raw, setRaw] = useState<Record<string, unknown>>({});
@@ -296,7 +297,7 @@ export const Config = memo((props: { focused?: boolean }) => {
         yes: "restart now", no: "later", danger: true,
       });
       if (go) {
-        gw.start();
+        restartGateway("resume");
         toast.show({ variant: "info", message: "Gateway restarting…" });
       }
       return;

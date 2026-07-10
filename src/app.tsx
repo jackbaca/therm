@@ -262,6 +262,15 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const [errorPulse, setErrorPulse] = useState(false)
 
   useEffect(() => {
+    const restart = (mode: "resume" | "new" = "resume") => {
+      const sid = sidRef.current
+      if (mode === "resume" && sid) launchRef.current = { mode: "resume", sid, splash: false }
+      gw.setSession("")
+      setReady(false)
+      setStarting(false)
+      setStatus("gateway restarting")
+      voice.reset()
+    }
     const exit = (code: number | null) => {
       const text = `gateway exited${code === null ? "" : ` (${code})`}`
       const sid = sidRef.current
@@ -274,8 +283,9 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       voice.reset()
       dispatch({ kind: "system", text })
     }
+    gw.on("restart", restart)
     gw.on("exit", exit)
-    return () => { gw.off("exit", exit) }
+    return () => { gw.off("restart", restart); gw.off("exit", exit) }
   }, [gw])
 
   const agentState: AvatarState = errorPulse
@@ -540,7 +550,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     launchRef.current = { mode: "new", splash: true }
     toast.show({ variant: "info", message: `Switching to '${name}'…` })
     goToTab(CHAT_TAB)
-    gwRestart()
+    gwRestart("new")
   }, [reset, goToTab, gwRestart, toast, gw])
 
   const loadEikon = useCallback((path: string) => {
