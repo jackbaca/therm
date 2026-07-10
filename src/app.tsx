@@ -3,7 +3,7 @@ import { Profiler, useState, useEffect, useRef, useCallback, useMemo, useReducer
 import * as perf from "./utils/perf"
 import { hasInterp, interpolate } from "./utils/interpolate"
 import { GatewayProvider, useGateway, useGatewayRestart, type Gateway } from "./context/gateway"
-import type { SessionInfo, TranscriptMessage, ImageAttachResponse } from "./context/wire"
+import type { SessionInfo, ImageAttachResponse } from "./context/wire"
 import type { Message, Usage } from "./types/message"
 import { text as msgText } from "./types/message"
 import { CLOUD_MIN } from "./components/chat/ThoughtCloud"
@@ -24,7 +24,6 @@ import { KeysProvider } from "./keys"
 import { Splash } from "./ui/Splash"
 import { lastReal } from "./service/sessions-db"
 import { readChangelog } from "./service/hermes-home"
-import { openMessage } from "./dialogs/message"
 import { openTextPrompt } from "./dialogs/text-prompt"
 import { parseEikonFile, type ParsedEikon } from "./components/avatar/eikon"
 import { bundledEikonPath } from "./components/avatar/bundled"
@@ -38,7 +37,7 @@ import { useBridge } from "./app/bridge"
 import * as control from "./app/control"
 import { Composer, type ComposerHandle } from "./components/chat/Composer"
 import * as preferences from "./context/preferences"
-import { turnReducer, initialTurn, transcriptToMessages } from "./app/turnReducer"
+import { turnReducer, initialTurn } from "./app/turnReducer"
 import { useSession } from "./app/useSession"
 import { SkinProvider, deriveSkin, type SkinState } from "./context/skin"
 import { useAppKeys } from "./app/useAppKeys"
@@ -56,8 +55,8 @@ import { useVoice } from "./voice/useVoice"
 import { VoiceIndicator } from "./voice/Indicator"
 import { sessionCapabilities } from "./app/sessionCapabilities"
 import { useGitBranch } from "./utils/git"
-import { undo as undoTurns } from "./app/undo"
 import type { HermPlugin } from "./plugins/types"
+import { useMessageActions } from "./app/useMessageActions"
 
 type AppProps = {
   initialTheme?: string
@@ -540,61 +539,12 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     if (p) loadEikon(p); else setEikon(undefined)
   }, [eikonName, eikonRev, skin.skin?.name, loadEikon])
 
-  // turnsFrom counts user turns at-or-after m — each session.undo pops
-  // one user+assistant pair server-side. Reads turnRef (not turn) so
-  // rewind/fork/msgMenu stay identity-stable across streaming deltas;
-  // they gate on turnRef.current.streaming at call time instead.
-  const turnsFrom = (m: Message) => {
-    const msgs = turnRef.current.messages
-    const at = msgs.findIndex(x => x.id === m.id)
-    return at < 0 ? 0 : msgs.slice(at).filter(x => x.role === "user").length
-  }
-
-  const rewind = useCallback(async (m: Message) => {
-    if (turnRef.current.streaming) return
-    const n = turnsFrom(m)
-    if (n === 0) return
-    const text = m.parts.filter(p => p.type === "text").map(p => p.content).join("")
-    try {
-      await undoTurns(gw, n)
-      const r = await gw.request<{ messages: TranscriptMessage[] }>("session.history")
-      dispatch({ kind: "load", messages: transcriptToMessages(r.messages ?? []) })
-      composer.current?.set(text)
-      setFocusRegion("input")
-    } catch (err) {
-      toast.show({ variant: "error", message: err instanceof Error ? err.message : String(err) })
-    }
-  }, [gw, toast])
-
-  // Non-destructive: session.branch clones full history into a new
-  // gateway session; undo N turns *in that session* to land at m;
-  // then activate the returned live session id. Original session is untouched.
-  const fork = useCallback(async (m: Message) => {
-    if (turnRef.current.streaming) return
-    const n = turnsFrom(m)
-    const text = m.parts.filter(p => p.type === "text").map(p => p.content).join("")
-    const res = await gw.request<{ session_id: string; title?: string }>("session.branch", {})
-      .catch((e: Error) => { toast.show({ variant: "error", message: `branch failed: ${e.message}` }); return null })
-    if (!res?.session_id) return
-    try {
-      await undoTurns(gw, n, res.session_id)
-      if (!await activateSession(res.session_id)) {
-        await session.close(res.session_id)
-        return
-      }
-      composer.current?.set(text)
-      setFocusRegion("input")
-      toast.show({ variant: "success", message: `forked → ${res.title ?? res.session_id}` })
-    } catch (err) {
-      await session.close(res.session_id)
-      toast.show({ variant: "error", message: err instanceof Error ? err.message : String(err) })
-    }
-  }, [gw, toast, activateSession, session])
-
-  const msgMenu = useCallback((m: Message) => {
-    if (turnRef.current.streaming) return
-    openMessage(dialog, m, { rewind, fork, toast })
-  }, [dialog, rewind, fork, toast])
+  const messageActions = useMessageActions({
+    gw, dialog, toast, session, activate: activateSession,
+    composer, turn: turnRef, dispatch, focus: setFocusRegion,
+  })
+  const rewind = messageActions.rewind
+  const msgMenu = messageActions.menu
   // Gateway owns the canonical list (session["attached_images"]); chips
   // are a client-side mirror. prompt.submit drains server-side, so clear
   // here too. No image.detach RPC yet — chips are display-only.
