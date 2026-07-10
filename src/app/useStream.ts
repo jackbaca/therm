@@ -196,8 +196,11 @@ export function useStream(c: Ctx) {
       },
       onStatus: (text) => x.setStatus(text),
       onSessionTitle: retitle,
-      onApprovalRemembered: () => {
-        void gw.request("approval.respond", { choice: "always" }).catch(() => {})
+      onApprovalRemembered: (fallback) => {
+        void gw.request("approval.respond", { choice: "always" }).catch((err: Error) => {
+          x.dispatch(fallback)
+          toast.show({ variant: "error", message: err.message })
+        })
       },
       onSkin: (s) => x.setSkin(deriveSkin(s)),
       notices: toast,

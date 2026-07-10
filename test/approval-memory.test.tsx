@@ -92,6 +92,24 @@ describe("approval memory", () => {
     t.destroy()
   })
 
+  test("failed remembered response restores the approval prompt", async () => {
+    prefsAny.set("neverPrompts", [
+      { group: "approval", question: "Run dangerous command?", subject: "rm_recursive|tmp_write" },
+    ])
+    const gw = new MockGateway({
+      "approval.respond": () => { throw new Error("approval wire down") },
+    })
+    const t = await mount({ gw })
+    await until(t, () => t.frame().includes("Ready"))
+    act(() => gw.push({
+      type: "approval.request",
+      payload: { command: "rm -rf /tmp/retry", description: "Run dangerous command?", pattern_keys: ["rm_recursive", "tmp_write"] },
+    }))
+
+    await until(t, () => t.frame().includes("approval wire down") && t.frame().includes("$ rm -rf /tmp/retry"))
+    t.destroy()
+  })
+
   test("does not reuse memory for a different question or different subject", async () => {
     const t = await mount()
     await until(t, () => t.frame().includes("Ready"))
