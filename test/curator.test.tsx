@@ -138,6 +138,26 @@ describe("curator dialog", () => {
     t.destroy()
   })
 
+  test("archived skill names are shell quoted on restore", async () => {
+    const calls: string[] = []
+    const gw = new MockGateway({
+      "shell.exec": p => {
+        const cmd = String(p.command)
+        calls.push(cmd)
+        if (cmd === "hermes curator list-archived")
+          return { stdout: "bad; echo PWN\n", stderr: "", code: 0 }
+        return { stdout: "ok", stderr: "", code: 0 }
+      },
+    })
+    const t = await mountNode(<Open />, { width: 130, height: 40, gw })
+    await until(t, () => t.frame().includes("Archived     1"))
+    await act(async () => { await t.keys.typeText("a") })
+    await act(async () => { await t.keys.pressEnter() })
+    await until(t, () => calls.length === 2)
+    expect(calls[1]).toBe("hermes curator restore 'bad; echo PWN'")
+    t.destroy()
+  })
+
   test("no archived skills: 'a' hint hidden, no Archived row", async () => {
     const gw = new MockGateway({
       "shell.exec": () => ({ stdout: "", stderr: "", code: 0 }),

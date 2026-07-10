@@ -29,6 +29,7 @@ type Verb = "run" | "pause" | "resume" | "list-archived" | "restore"
 
 const parseList = (stdout: string): string[] =>
   stdout.split("\n").map(s => s.trim()).filter(s => s.length > 0 && !s.startsWith("("))
+const shq = (s: string) => /^[A-Za-z0-9._-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`
 
 const CuratorDialog = () => {
   const { theme, syntaxStyle } = useTheme()
@@ -75,7 +76,7 @@ const CuratorDialog = () => {
   const restore = useCallback((name: string) => {
     if (busy) return
     setBusy("restore")
-    gw.request<Sh>("shell.exec", { command: `hermes curator restore ${name}` })
+    gw.request<Sh>("shell.exec", { command: `hermes curator restore ${shq(name)}` })
       .then(r => {
         if (r.code !== 0) throw new Error((r.stderr || r.stdout || `exit ${r.code}`).trim())
         toast.show({ variant: "success", message: `Restored ${name}` })
