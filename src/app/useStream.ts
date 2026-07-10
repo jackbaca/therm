@@ -93,8 +93,11 @@ export function useStream(c: Ctx) {
   }, [])
 
   const sync = useCallback((ms = 0) => {
-    const run = () => gw.request<{ title?: string; session_key?: string }>("session.title")
+    const sid = ctx.current.sidRef.current
+    if (!sid) return
+    const run = () => gw.request<{ title?: string; session_key?: string }>("session.title", { session_id: sid })
       .then(r => {
+        if (ctx.current.sidRef.current !== sid) return
         ctx.current.setTitle(r.title ?? "")
         if (r.session_key) preferences.set("lastSessionId", r.session_key)
       })

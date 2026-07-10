@@ -64,6 +64,38 @@ describe("newSession stale-sid reset", () => {
     t.destroy()
   })
 
+  test("late title sync cannot overwrite a newer session", async () => {
+    let n = 0
+    let resolveTitle!: (value: unknown) => void
+    const title = new Promise(resolve => { resolveTitle = resolve })
+    const gw = new MockGateway({
+      "commands.catalog": () => ({ pairs: [["/new", "new session"]] }),
+      "session.create": () => ({ session_id: `sid-${++n}` }),
+      "session.title": () => title,
+    })
+    const t = await mount({ gw, launch: { mode: "new", splash: false } })
+    await until(t, () => t.frame().includes("Ready"))
+
+    const clock = globalThis.setTimeout
+    const fast = (handler: () => void, ms?: number) => clock(handler, ms === 1_200 ? 0 : ms)
+    globalThis.setTimeout = fast as unknown as typeof setTimeout
+    try {
+      act(() => gw.push({ type: "message.complete", session_id: "sid-1", payload: { status: "complete" } }))
+      await until(t, () => gw.calls.some(c => c.method === "session.title"))
+    } finally {
+      globalThis.setTimeout = clock
+    }
+
+    await act(async () => { await t.keys.typeText("/new now") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => n === 2 && t.frame().includes("Ready"))
+    resolveTitle({ title: "Old session title", session_key: "sid-1" })
+    await act(async () => { await Bun.sleep(0) })
+    await t.settle()
+    expect(t.frame()).not.toContain("Old session title")
+    t.destroy()
+  })
+
   test("initial session boot failure surfaces the gateway error", async () => {
     const gw = new MockGateway({
       "session.create": () => { throw new Error("boot exploded") },
