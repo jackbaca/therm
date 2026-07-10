@@ -79,6 +79,7 @@ export const LOCAL_COMMANDS: ReadonlyArray<SlashCommand> = [
   { name: "yolo",   description: "Toggle approval bypass",                 category: "Session", aliases: [], argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "quit",   description: "Exit herm",                             category: "Exit",    aliases: ["exit"], argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "stash",  description: "Park the prompt (pop/list to restore)", category: "Client",  aliases: [], argsHint: "[pop|list]", subcommands: ["pop", "list"], source: "local", target: "local" },
+  { name: "undo",   description: "Remove the last conversation turn",     category: "Session", aliases: [], argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "redo",   description: "Re-send the last undone message",       category: "Session", aliases: [], argsHint: "", subcommands: [], source: "local", target: "local" },
   { name: "branch", description: "Fork current conversation",              category: "Session", aliases: ["fork"], argsHint: "[name]", subcommands: [], source: "local", target: "local" },
   { name: "compress", description: "Compress conversation context",         category: "Session", aliases: ["compact"], argsHint: "[here [N] | focus topic | --preview|--dry-run]", subcommands: [], source: "local", target: "local" },

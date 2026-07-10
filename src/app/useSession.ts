@@ -186,12 +186,11 @@ export function useSession(): SessionOps {
   const compress = useCallback(async (arg = ""): Promise<CompressResult | null> => {
     const raw = arg.trim()
     const params = raw ? { raw_args: raw, focus_topic: raw } : {}
-    try { return await gw.request<CompressResult>("session.compress", params) }
-    catch { return null }
+    return gw.request<CompressResult>("session.compress", params)
   }, [gw])
 
   const undo = useCallback(async () => {
-    try { await gw.request("session.undo") } catch {}
+    await gw.request("session.undo")
   }, [gw])
 
   return useMemo(

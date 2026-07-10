@@ -972,6 +972,48 @@ describe("app", () => {
     t.destroy()
   })
 
+  test("/compress surfaces gateway failure", async () => {
+    const gw = new MockGateway({
+      "session.compress": () => { throw new Error("compress exploded") },
+    })
+    const t = await mount({ gw })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("/compress") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("compress exploded"))
+    t.destroy()
+  })
+
+  test("failed /undo does not create a redo snapshot", async () => {
+    const gw = new MockGateway({
+      "session.undo": () => { throw new Error("undo exploded") },
+    })
+    const t = await mount({ gw })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("seed") })
+    act(() => t.keys.pressEnter())
+    await t.settle()
+    act(() => {
+      gw.push({ type: "message.start" })
+      gw.push({ type: "message.complete", payload: { text: "reply", usage: { input: 1, output: 1, total: 2 } } })
+    })
+    await until(t, () => t.frame().includes("reply") && t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("/undo") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Undo last turn?"))
+    await act(async () => { await t.keys.typeText("y") })
+    await until(t, () => t.frame().includes("undo exploded"))
+    expect(gw.last("session.history")).toBeUndefined()
+
+    await act(async () => { await t.keys.typeText("/redo") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("nothing to redo"))
+    t.destroy()
+  })
+
 
   test("click user message → action menu → Rewind → N×session.undo → composer seeded", async () => {
     // History after rewind: server-authoritative via session.history.

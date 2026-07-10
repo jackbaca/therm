@@ -208,7 +208,10 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
       return
     }
     toast.show({ variant: "info", message: "Compressing session…" })
-    const r = await ctx.current.session.compress(raw)
+    const r = await ctx.current.session.compress(raw).catch((err: Error) => {
+      toast.show({ variant: "error", message: err.message })
+      return null
+    })
     if (!r) return
     if (r.info) ctx.current.setInfo(r.info)
     const out = r.lines?.length ? r.lines : r.message ? [r.message] : []
@@ -336,11 +339,14 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
               // message onward (user + assistant[+tool] run).
               const msgs = x.turnRef.current.messages
               const at = msgs.map(m => m.role).lastIndexOf("user")
-              if (at >= 0) x.undone.current.push(msgs.slice(at))
-              x.session.undo().then(() =>
-                gw.request<{ messages: TranscriptMessage[] }>("session.history")
-                  .then(r => x.dispatch({ kind: "load", messages: transcriptToMessages(r.messages ?? []) }))
-                  .catch(() => {}))
+              const tail = at >= 0 ? msgs.slice(at) : []
+              x.session.undo()
+                .then(() => {
+                  if (tail.length) x.undone.current.push(tail)
+                  return gw.request<{ messages: TranscriptMessage[] }>("session.history")
+                })
+                .then(r => x.dispatch({ kind: "load", messages: transcriptToMessages(r.messages ?? []) }))
+                .catch((err: Error) => toast.show({ variant: "error", message: err.message }))
             })
           return
         case "redo": {
