@@ -152,12 +152,15 @@ export function useStream(c: Ctx) {
         }
         if (si.session_id) x.setSid(si.session_id)
         x.settle()
+        // Use title from session.info directly — avoids a redundant
+        // session.title RPC that would re-emit session.info and create
+        // a feedback loop (config.get ↔ session.title ↔ session.info).
+        if (si.title !== undefined) x.setTitle(si.title)
         const bad = (si.mcp_servers ?? []).filter(s => !s.connected)
         if (bad.length) x.dispatch({
           kind: "system",
           text: `MCP: ${bad.length} server(s) failed to connect — ${bad.map(s => s.name + (s.error ? ` (${s.error})` : "")).join(", ")}`,
         })
-        sync()
         gw.request<{ value?: string }>("config.get", { key: "busy" }).then(r => {
           const m = r.value
           if (m === "queue" || m === "steer" || m === "interrupt") x.setBusy(m)

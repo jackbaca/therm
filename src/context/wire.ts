@@ -212,6 +212,8 @@ export type SessionInfo = {
   update_behind?: number | null
   /** platform-appropriate update invocation */
   update_command?: string
+  /** Live session title from gateway (avoids redundant session.title RPC) */
+  title?: string
 }
 
 export type SessionCreateResponse = {
