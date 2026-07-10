@@ -96,6 +96,33 @@ describe("newSession stale-sid reset", () => {
     t.destroy()
   })
 
+  test("overlapping /new commands create only one replacement session", async () => {
+    let calls = 0
+    let resolve!: (value: unknown) => void
+    const gate = new Promise(resolveGate => { resolve = resolveGate })
+    const gw = new MockGateway({
+      "commands.catalog": () => ({ pairs: [["/new", "new session"]] }),
+      "session.create": () => {
+        if (++calls === 1) return { session_id: "old-sid" }
+        return gate
+      },
+    })
+    const t = await mount({ gw, launch: { mode: "new", splash: false } })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("/new now") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => calls === 2)
+    await act(async () => { await t.keys.typeText("/new now") })
+    act(() => t.keys.pressEnter())
+    await act(async () => { await Bun.sleep(0) })
+    expect(calls).toBe(2)
+
+    resolve({ session_id: "new-sid" })
+    await until(t, () => t.frame().includes("Ready"))
+    t.destroy()
+  })
+
   test("initial session boot failure surfaces the gateway error", async () => {
     const gw = new MockGateway({
       "session.create": () => { throw new Error("boot exploded") },

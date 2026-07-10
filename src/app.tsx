@@ -195,6 +195,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const [splash, setSplash] = useState(launch.splash !== false)
   const [switching, setSwitching] = useState(false)
   const summoned = useRef(false)
+  const creating = useRef(false)
   const [composing, setComposing] = useState(false)
   const splashLast = useMemo(
     () => launch.mode === "new" ? lastReal() : undefined,
@@ -418,6 +419,9 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   }, [toast])
 
   const newSession = useCallback(async () => {
+    if (creating.current) return
+    creating.current = true
+    setSwitching(true)
     const prev = sidRef.current
     summoned.current = true
     setSplash(true)
@@ -437,6 +441,9 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       setSplash(false)
       summoned.current = false
       dispatch({ kind: "system", text: `Failed to create session: ${err instanceof Error ? err.message : String(err)}` })
+    } finally {
+      creating.current = false
+      setSwitching(false)
     }
   }, [reset, session, gw])
 
