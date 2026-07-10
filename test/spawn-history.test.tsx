@@ -1,4 +1,4 @@
-import { test } from "bun:test"
+import { expect, test } from "bun:test"
 import { useEffect } from "react"
 import { useDialog } from "../src/ui/dialog"
 import { useGateway } from "../src/context/gateway"
@@ -17,6 +17,24 @@ test("spawn history list failure stays visible", async () => {
     handlers: { "spawn_tree.list": () => { throw new Error("spawn list unavailable") } },
   })
   await until(t, () => t.frame().includes("spawn list unavailable"))
+  t.destroy()
+})
+
+test("closing the loading dialog prevents a late list from reopening it", async () => {
+  let resolve!: (value: unknown) => void
+  const t = await mountNode(<Host />, {
+    handlers: { "spawn_tree.list": () => new Promise(done => { resolve = done }) },
+  })
+  await t.settle()
+  t.keys.pressEscape()
+  await t.settle()
+  resolve({ entries: [{
+    path: "/tmp/late.json", session_id: "sid", count: 1,
+    label: "late tree", finished_at: Date.now() / 1000,
+  }] })
+  await new Promise(done => setTimeout(done, 20))
+  await t.settle()
+  expect(t.frame()).not.toContain("late tree")
   t.destroy()
 })
 

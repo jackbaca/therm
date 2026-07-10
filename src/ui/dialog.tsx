@@ -26,6 +26,8 @@ export type DialogContext = {
    *  (stale closure in the tab's useKeyboard) and leaks through.
    *  `open()` reads a ref set synchronously by replace()/clear(). */
   readonly open: () => boolean
+  /** Monotonic token for guarding async replace() calls after close/replacement. */
+  readonly version: () => number
   readonly subscribe: (listener: () => void) => () => void
 }
 
@@ -86,6 +88,7 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
   }, [renderer])
 
   const clear = useCallback(() => {
+    const at = ++gen.current
     setStack(cur => {
       for (const e of cur) e.onClose?.()
       return []
@@ -96,7 +99,6 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
     // here would let the Esc that closed the dialog fall through to
     // tab-scope handlers as if no dialog had been open. `gen` guards
     // against a replace() that chained synchronously after clear().
-    const at = gen.current
     queueMicrotask(() => {
       if (gen.current !== at) return
       gate.current = false
@@ -106,6 +108,7 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
   }, [refocus])
 
   const open = useCallback(() => gate.current, [])
+  const version = useCallback(() => gen.current, [])
   const subscribe = useCallback((listener: () => void) => {
     listeners.current.add(listener)
     return () => { listeners.current.delete(listener) }
@@ -129,8 +132,8 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
   })
 
   const value = useMemo<DialogContext>(
-    () => ({ replace, clear, get stack() { return stackRef.current }, open, subscribe }),
-    [replace, clear, open, subscribe])
+    () => ({ replace, clear, get stack() { return stackRef.current }, open, version, subscribe }),
+    [replace, clear, open, version, subscribe])
   const top = stack[stack.length - 1]
 
   return (

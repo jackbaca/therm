@@ -57,8 +57,11 @@ const SnapshotView = (props: { entry: SpawnTreeEntry; snap: SpawnTreeSnapshot })
 }
 
 export function openSpawnHistory(dialog: DialogContext, gw: Gateway, sessionId: string): void {
+  dialog.replace(<box width={40} height={3}><text>Loading spawn history…</text></box>)
+  const listToken = dialog.version()
   gw.request<{ entries: SpawnTreeEntry[] }>("spawn_tree.list", { session_id: sessionId, limit: 50 })
     .then(r => {
+      if (dialog.version() !== listToken) return
       const entries = r.entries ?? []
       dialog.replace(
         <DialogSelect
@@ -73,12 +76,19 @@ export function openSpawnHistory(dialog: DialogContext, gw: Gateway, sessionId: 
           onSelect={opt => {
             const entry = entries.find(e => e.path === opt.value)!
             dialog.replace(<box width={40} height={3}><text>Loading spawn tree…</text></box>)
+            const token = dialog.version()
             gw.request<SpawnTreeSnapshot>("spawn_tree.load", { path: entry.path })
-              .then(snap => dialog.replace(<SnapshotView entry={entry} snap={snap} />))
-              .catch(e => openAlert(dialog, "Spawn history", e instanceof Error ? e.message : String(e)))
+              .then(snap => {
+                if (dialog.version() === token) dialog.replace(<SnapshotView entry={entry} snap={snap} />)
+              })
+              .catch(e => {
+                if (dialog.version() === token) openAlert(dialog, "Spawn history", e instanceof Error ? e.message : String(e))
+              })
           }}
         />,
       )
     })
-    .catch(e => openAlert(dialog, "Spawn history", e instanceof Error ? e.message : String(e)))
+    .catch(e => {
+      if (dialog.version() === listToken) openAlert(dialog, "Spawn history", e instanceof Error ? e.message : String(e))
+    })
 }
