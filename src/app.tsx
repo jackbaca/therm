@@ -17,7 +17,7 @@ import { ConfigGroup } from "./tabs/ConfigGroup"
 import { EikonGroup } from "./tabs/EikonGroup"
 import { copySelection, copyText as clipCopy } from "./utils/clipboard"
 import { ThemeProvider, useTheme } from "./theme"
-import { DialogProvider, useDialog } from "./ui/dialog"
+import { DialogProvider, useDialog, useDialogOpen } from "./ui/dialog"
 import { ToastProvider, useToast } from "./ui/toast"
 import { CommandProvider } from "./ui/command"
 import { KeysProvider } from "./keys"
@@ -92,6 +92,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   const gw = useGateway()
   const gwRestart = useGatewayRestart()
   const dialog = useDialog()
+  const dialogOpen = useDialogOpen()
   const themeCtx = useTheme()
   const toast = useToast()
   const renderer = useRenderer()
@@ -809,7 +810,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     setTab, setFocusRegion, dispatch, composer,
   })
 
-  const contentFocused = focusRegion === "content" && !active
+  const contentFocused = focusRegion === "content" && !active && !dialogOpen
   // At most one pending prompt (gateway blocks on the answer). The
   // card mounts inside MessageList; key routing and composer-defocus
   // live here because the shell owns both. `prompt` is computed above
@@ -866,7 +867,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   // `focused` prop flips false→true on answer so OpenTUI refocuses it
   // (a card's own <input focused> would otherwise leave it blurred).
   // Keys still reach the card via onPromptKey on the global bus.
-  const inputFocused = focusRegion === "input" && !prompt
+  const inputFocused = focusRegion === "input" && !prompt && !dialogOpen
   const sidebarVisible = dims.width >= (tab === CHAT_TAB ? 120 : 140) && !hideSidebar
   const branch = useGitBranch(info?.cwd)
   const hidden = !sidebarVisible ? hiddenSidebar({

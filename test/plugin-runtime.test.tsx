@@ -72,6 +72,11 @@ describe("PluginProvider", () => {
     act(() => api!.route.navigate("FocusRoute"))
     await until(t, () => t.frame().includes("route focused"))
 
+    act(() => api!.ui.dialog.replace(<text>route dialog</text>))
+    await until(t, () => t.frame().includes("route dialog") && t.frame().includes("route blurred"))
+    act(() => api!.ui.dialog.clear())
+    await until(t, () => t.frame().includes("route focused"))
+
     act(() => t.keys.pressTab())
     await act(async () => { await Bun.sleep(50) })
     act(() => t.keys.pressTab())

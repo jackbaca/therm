@@ -1,4 +1,4 @@
-import { Component, createContext, useState, useCallback, useMemo, useRef } from "react"
+import { Component, createContext, useState, useCallback, useMemo, useRef, useSyncExternalStore } from "react"
 import { makeUse } from "../context/helper"
 import type { ErrorInfo, ReactNode } from "react"
 import { useKeyboard, useTerminalDimensions, useRenderer } from "@opentui/react"
@@ -26,6 +26,7 @@ export type DialogContext = {
    *  (stale closure in the tab's useKeyboard) and leaks through.
    *  `open()` reads a ref set synchronously by replace()/clear(). */
   readonly open: () => boolean
+  readonly subscribe: (listener: () => void) => () => void
 }
 
 const Ctx = createContext<DialogContext | null>(null)
@@ -39,6 +40,7 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
   const stackRef = useRef<ReadonlyArray<Entry>>(stack)
   stackRef.current = stack
   const gate = useRef(false)
+  const listeners = useRef(new Set<() => void>())
   const gen = useRef(0)
   const prev = useRef<Renderable | null>(null)
 
@@ -76,6 +78,7 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
     }
     gate.current = true
     gen.current++
+    for (const listener of listeners.current) listener()
     setStack(cur => {
       for (const e of cur) e.onClose?.()
       return [{ element, onClose, ownCancel: opts?.ownCancel }]
@@ -94,11 +97,19 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
     // tab-scope handlers as if no dialog had been open. `gen` guards
     // against a replace() that chained synchronously after clear().
     const at = gen.current
-    queueMicrotask(() => { if (gen.current === at) gate.current = false })
+    queueMicrotask(() => {
+      if (gen.current !== at) return
+      gate.current = false
+      for (const listener of listeners.current) listener()
+    })
     refocus()
   }, [refocus])
 
   const open = useCallback(() => gate.current, [])
+  const subscribe = useCallback((listener: () => void) => {
+    listeners.current.add(listener)
+    return () => { listeners.current.delete(listener) }
+  }, [])
 
   const onError = useCallback((err: Error) => {
     clear()
@@ -118,8 +129,8 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
   })
 
   const value = useMemo<DialogContext>(
-    () => ({ replace, clear, get stack() { return stackRef.current }, open }),
-    [replace, clear, open])
+    () => ({ replace, clear, get stack() { return stackRef.current }, open, subscribe }),
+    [replace, clear, open, subscribe])
   const top = stack[stack.length - 1]
 
   return (
@@ -200,3 +211,8 @@ const Overlay = ({ entry, onClose }: { entry: Entry; onClose: () => void }) => {
 }
 
 export const useDialog = makeUse(Ctx, "useDialog")
+
+export const useDialogOpen = () => {
+  const dialog = useDialog()
+  return useSyncExternalStore(dialog.subscribe, dialog.open, dialog.open)
+}
