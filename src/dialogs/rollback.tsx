@@ -20,7 +20,7 @@ import { ago, trunc } from "../ui/fmt"
 type Toast = ReturnType<typeof useToast>
 
 type Checkpoint = { hash: string; timestamp: number; message: string }
-type ListRes = { enabled: boolean; checkpoints: Checkpoint[] }
+type ListRes = { enabled: boolean; checkpoints: Checkpoint[]; err?: string }
 type DiffRes = { stat: string; diff: string; rendered?: string }
 type RestoreRes = { success: boolean; history_removed?: number }
 
@@ -46,7 +46,7 @@ const RollbackDialog = (props: Props) => {
     if (props.initial) return
     props.gw.request<ListRes>("rollback.list")
       .then(setData)
-      .catch((e: Error) => setData({ enabled: false, checkpoints: [], ...{ err: e.message } } as ListRes))
+      .catch((e: Error) => setData({ enabled: false, checkpoints: [], err: e.message }))
   }, [props.gw, props.initial])
   useEffect(() => () => { seq.current++ }, [])
 
@@ -123,9 +123,9 @@ const RollbackDialog = (props: Props) => {
 
   if (!data.enabled) return (
     <box flexDirection="column" width={60} height={5}>
-      <box height={1}><text fg={theme.warning}><strong>Checkpoints disabled</strong></text></box>
+      <box height={1}><text fg={theme.warning}><strong>{data.err ? "Rollback unavailable" : "Checkpoints disabled"}</strong></text></box>
       <box height={1} />
-      <box height={1}><text fg={theme.textMuted}>Enable checkpoints in config to use /rollback.</text></box>
+      <box height={1}><text fg={theme.textMuted}>{data.err ?? "Enable checkpoints in config to use /rollback."}</text></box>
       <box height={1} />
       <box height={1}><text fg={theme.textMuted}>Esc to close</text></box>
     </box>

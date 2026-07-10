@@ -20,6 +20,15 @@ const Host = () => {
 }
 
 describe("Rollback dialog", () => {
+  test("list failure surfaces the gateway error", async () => {
+    const gw = new MockGateway({
+      "rollback.list": () => { throw new Error("rollback unavailable") },
+    })
+    const t = await mountNode(<Host />, { gw })
+    await until(t, () => t.frame().includes("rollback unavailable"))
+    t.destroy()
+  })
+
   test("disabled → shows notice", async () => {
     const gw = new MockGateway({
       "rollback.list": () => ({ enabled: false, checkpoints: [] }),
