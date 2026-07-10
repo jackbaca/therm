@@ -32,6 +32,7 @@ export type Action =
   | { kind: "message.start" }
   | { kind: "message.delta"; chunk: string }
   | { kind: "message.complete"; text?: string; usage?: Usage }
+  | { kind: "reference"; text: string }
   | { kind: "tool.start"; id: string; name: string; preview?: string; args?: string }
   | { kind: "tool.progress"; name?: string; preview?: string }
   | { kind: "tool.generating"; name?: string }
@@ -93,6 +94,17 @@ export function turnReducer(state: TurnState, a: Action): TurnState {
         toolActive: false,
         messages: finalize(state.messages, a.text != null ? sanitize(a.text) : undefined, a.usage),
       }
+
+    case "reference": {
+      const text = sanitize(a.text)
+      if (!text) return state
+      return {
+        ...state,
+        hasContent: true,
+        toolActive: false,
+        messages: appendPart(state.messages, { type: "text", key: pid(), content: text, streaming: false }, true),
+      }
+    }
 
     case "tool.start": {
       // `context` carries the raw tool input; when JSON-shaped we keep it

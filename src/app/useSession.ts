@@ -19,12 +19,14 @@ import type { Message, Usage } from "../types/message"
 /** session.compress response shape. `messages` is compacted server context;
  *  the live chat transcript intentionally stays visually unchanged. */
 export type CompressResult = {
-  status?: "compressed" | "skipped"
+  status?: "compressed" | "skipped" | "preview" | "unsupported"
   removed?: number
   before_messages?: number
   after_messages?: number
   before_tokens?: number
   after_tokens?: number
+  lines?: string[]
+  message?: string
   messages?: TranscriptMessage[]
   info?: SessionInfo
   usage?: Usage
@@ -55,7 +57,7 @@ type SessionOps = {
   close: (sid: string, opts?: Close) => Promise<boolean>
   interrupt: () => Promise<void>
   branch: (name?: string) => Promise<string | null>
-  compress: () => Promise<CompressResult | null>
+  compress: (arg?: string) => Promise<CompressResult | null>
   undo: () => Promise<void>
 }
 
@@ -181,8 +183,10 @@ export function useSession(): SessionOps {
     } catch { return null }
   }, [gw])
 
-  const compress = useCallback(async (): Promise<CompressResult | null> => {
-    try { return await gw.request<CompressResult>("session.compress") }
+  const compress = useCallback(async (arg = ""): Promise<CompressResult | null> => {
+    const raw = arg.trim()
+    const params = raw ? { raw_args: raw, focus_topic: raw } : {}
+    try { return await gw.request<CompressResult>("session.compress", params) }
     catch { return null }
   }, [gw])
 
