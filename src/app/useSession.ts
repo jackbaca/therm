@@ -18,7 +18,7 @@ import type { Message, Usage } from "../types/message"
 
 /** session.compress response shape. `messages` is compacted server context;
  *  the live chat transcript intentionally stays visually unchanged. */
-export type CompressResult = {
+type CompressResult = {
   status?: "compressed" | "skipped" | "preview" | "unsupported"
   removed?: number
   before_messages?: number

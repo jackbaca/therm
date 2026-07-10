@@ -62,6 +62,8 @@ const main = async () => {
     targetFps: prefs.targetFps ?? 30,
     gatherStats: false,
   });
+  // Multi-pane screens legitimately mount more than EventEmitter's default
+  // ten selection-aware scrollboxes. Set the budget before React subscribes.
   renderer.setMaxListeners(64)
   end()
 

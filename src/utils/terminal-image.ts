@@ -1,7 +1,7 @@
 import { existsSync } from "fs"
 
-export type PreviewKind = "chafa" | "chip"
-export type PreviewReason = "chafa-supported" | "no-renderer" | "missing" | "unsupported" | "remote"
+type PreviewKind = "chafa" | "chip"
+type PreviewReason = "chafa-supported" | "no-renderer" | "missing" | "unsupported" | "remote"
 export type PreviewStrategy = { kind: PreviewKind; reason: PreviewReason }
 
 const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp"])

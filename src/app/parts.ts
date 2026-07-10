@@ -4,7 +4,7 @@
 
 import type { TextareaRenderable, ExtmarksController, SyntaxStyle, ColorInput } from "@opentui/core"
 
-export type PartKind = "file" | "agent" | "text"
+type PartKind = "file" | "agent" | "text"
 
 export type FilePart = {
   type: "file"

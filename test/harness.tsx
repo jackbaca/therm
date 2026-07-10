@@ -194,6 +194,7 @@ async function render(node: ReactNode, gw: MockGateway, opts: Opts): Promise<Har
       env.IS_REACT_ACT_ENVIRONMENT = false
     },
   })
+  // Match production before root.render() mounts selection-aware scrollboxes.
   setup.renderer.setMaxListeners(64)
   root = createRoot(setup.renderer)
   act(() => { root?.render(node) })
