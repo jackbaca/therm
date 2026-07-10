@@ -76,7 +76,7 @@ export type SlashCtx = {
   newSession: () => Promise<void>
   switchSession: (id: string) => Promise<void>
   activateSession: (id: string) => Promise<boolean>
-  rewind: (m: Message) => Promise<void>
+  rewind: (m: Message) => Promise<boolean>
   goTo: (tab: number, sub: number) => void
   attachClipboard: () => void
   voiceToggle: (action: string, sid: string) => Promise<void>
@@ -359,7 +359,7 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
         case "retry": {
           const last = [...x.turnRef.current.messages].reverse().find(m => m.role === "user")
           if (!last) { toast.show({ variant: "info", message: "nothing to retry" }); return }
-          void x.rewind(last).then(() => x.sendRef.current(msgText(last)))
+          void x.rewind(last).then(ok => { if (ok) x.sendRef.current(msgText(last)) })
           return
         }
         case "model":

@@ -1014,6 +1014,30 @@ describe("app", () => {
     t.destroy()
   })
 
+  test("/retry does not resubmit when rewind fails", async () => {
+    const gw = new MockGateway({
+      "session.undo": () => { throw new Error("retry rewind exploded") },
+    })
+    const t = await mount({ gw })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("seed") })
+    act(() => t.keys.pressEnter())
+    await t.settle()
+    act(() => {
+      gw.push({ type: "message.start" })
+      gw.push({ type: "message.complete", payload: { text: "reply", usage: { input: 1, output: 1, total: 2 } } })
+    })
+    await until(t, () => t.frame().includes("reply") && t.frame().includes("Ready"))
+    const before = gw.calls.filter(call => call.method === "prompt.submit").length
+
+    await act(async () => { await t.keys.typeText("/retry") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("retry rewind exploded"))
+    expect(gw.calls.filter(call => call.method === "prompt.submit")).toHaveLength(before)
+    t.destroy()
+  })
+
 
   test("click user message → action menu → Rewind → N×session.undo → composer seeded", async () => {
     // History after rewind: server-authoritative via session.history.

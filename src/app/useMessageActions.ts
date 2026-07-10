@@ -31,17 +31,19 @@ export function useMessageActions(args: Args) {
   }, [args.turn])
 
   const rewind = useCallback(async (message: Message) => {
-    if (args.turn.current.streaming) return
+    if (args.turn.current.streaming) return false
     const count = turns(message)
-    if (!count) return
+    if (!count) return false
     try {
       await undo(args.gw, count)
       const result = await args.gw.request<{ messages: import("../context/wire").TranscriptMessage[] }>("session.history")
       args.dispatch({ kind: "load", messages: transcriptToMessages(result.messages ?? []) })
       args.composer.current?.set(textOf(message))
       args.focus("input")
+      return true
     } catch (err) {
       args.toast.show({ variant: "error", message: err instanceof Error ? err.message : String(err) })
+      return false
     }
   }, [args.gw, args.toast, args.turn, args.dispatch, args.composer, args.focus, turns])
 
