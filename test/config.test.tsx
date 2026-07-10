@@ -148,6 +148,7 @@ describe("Config tab", () => {
 
   test("toggle dirties; Ctrl+S → cli.exec; restart-tier opens confirm", async () => {
     let cfg: Record<string, unknown> = { terminal: { container_persistent: false } }
+    const restarts: string[] = []
     const gw = new MockGateway({
       "config.get": () => ({ config: cfg }),
       "cli.exec": (p) => {
@@ -157,6 +158,7 @@ describe("Config tab", () => {
         return { blocked: false, code: 0, output: "✓" }
       },
     })
+    gw.on("restart", mode => { restarts.push(mode) })
     const t = await mountNode(<Config focused />, { gw, width: 160, height: 48 })
     await until(t, () => t.frame().includes("general"))
     await navTo(t, cfg, "terminal.container_persistent")
@@ -176,7 +178,9 @@ describe("Config tab", () => {
 
     await until(t, () => t.frame().includes("need a gateway restart"))
     expect(t.frame()).toContain("interrupts any running turn")
-    await act(async () => { await t.keys.typeText("n") })
+    await act(async () => { await t.keys.typeText("y") })
+    await until(t, () => restarts.length === 1)
+    expect(restarts).toEqual(["resume"])
     await t.settle()
     expect(t.frame()).not.toContain("unsaved")
     t.destroy()
