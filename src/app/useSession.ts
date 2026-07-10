@@ -130,7 +130,7 @@ export function useSession(): SessionOps {
     try {
       const res = await gw.request<Agents>("agents.list")
       return res.processes?.some(p => p.status === "running") ?? false
-    } catch { return false }
+    } catch { return true }
   }, [gw])
 
   const close = useCallback(async (sid: string, opts?: Close) => {
