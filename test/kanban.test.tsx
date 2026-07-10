@@ -1483,8 +1483,40 @@ describe("patchTask direct writes", () => {
     expect(patchTask("default", "does-not-exist", { title: "x" })).toBe(false)
   })
 
+  const retries = () => {
+    const prev = process.env.HERMES_KANBAN_BUSY_TIMEOUT_MS
+    process.env.HERMES_KANBAN_BUSY_TIMEOUT_MS = "1"
+    return () => {
+      if (prev === undefined) delete process.env.HERMES_KANBAN_BUSY_TIMEOUT_MS
+      else process.env.HERMES_KANBAN_BUSY_TIMEOUT_MS = prev
+    }
+  }
+
+  test("default busy timeout does not stack application retries", async () => {
+    const { internals } = await import("../src/service/hermes-kanban")
+    const prev = process.env.HERMES_KANBAN_BUSY_TIMEOUT_MS
+    delete process.env.HERMES_KANBAN_BUSY_TIMEOUT_MS
+    const wait = spyOn(Atomics, "wait").mockImplementation((() => "timed-out") as never)
+    const sqls: string[] = []
+    const err = new Error("database is busy")
+    const conn = {
+      exec(sql: string) { sqls.push(sql); throw err },
+      query() { return { get: () => null } },
+    }
+    try {
+      expect(() => internals.writeTxn(conn as never, () => {})).toThrow(err)
+      expect(sqls).toEqual(["BEGIN IMMEDIATE"])
+      expect(wait).not.toHaveBeenCalled()
+    } finally {
+      wait.mockRestore()
+      if (prev === undefined) delete process.env.HERMES_KANBAN_BUSY_TIMEOUT_MS
+      else process.env.HERMES_KANBAN_BUSY_TIMEOUT_MS = prev
+    }
+  })
+
   test("BEGIN IMMEDIATE retries transient BUSY before running body", async () => {
     const { internals } = await import("../src/service/hermes-kanban")
+    const restore = retries()
     const waits: number[] = []
     const wait = spyOn(Atomics, "wait").mockImplementation(((arr: Int32Array, idx: number, val: number, timeout?: number) => {
       void arr; void idx; void val
@@ -1508,11 +1540,12 @@ describe("patchTask direct writes", () => {
       expect(waits.length).toBe(1)
       expect(waits[0]).toBeGreaterThanOrEqual(20)
       expect(waits[0]).toBeLessThanOrEqual(150)
-    } finally { wait.mockRestore() }
+    } finally { wait.mockRestore(); restore() }
   })
 
   test("COMMIT retries transient BUSY without replaying body", async () => {
     const { internals } = await import("../src/service/hermes-kanban")
+    const restore = retries()
     const wait = spyOn(Atomics, "wait").mockImplementation((() => "timed-out") as never)
     let body = 0
     const sqls: string[] = []
@@ -1528,11 +1561,12 @@ describe("patchTask direct writes", () => {
       internals.writeTxn(conn as never, () => { body++ })
       expect(body).toBe(1)
       expect(sqls).toEqual(["BEGIN IMMEDIATE", "COMMIT", "COMMIT"])
-    } finally { wait.mockRestore() }
+    } finally { wait.mockRestore(); restore() }
   })
 
   test("persistent COMMIT BUSY rolls back and preserves original error", async () => {
     const { internals } = await import("../src/service/hermes-kanban")
+    const restore = retries()
     const wait = spyOn(Atomics, "wait").mockImplementation((() => "timed-out") as never)
     let body = 0
     const sqls: string[] = []
@@ -1552,7 +1586,7 @@ describe("patchTask direct writes", () => {
         "COMMIT", "COMMIT", "COMMIT", "COMMIT", "COMMIT", "COMMIT",
         "ROLLBACK",
       ])
-    } finally { wait.mockRestore() }
+    } finally { wait.mockRestore(); restore() }
   })
 })
 

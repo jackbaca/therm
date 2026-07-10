@@ -91,7 +91,7 @@ const ModelPickerDialog = (props: Props) => {
     void load(true)
   }, [load, toast])
 
-  useEffect(() => { void load(Boolean(props.refresh), Boolean(props.refresh)) }, [load, props.refresh])
+  useEffect(() => { void load(Boolean(props.refresh)) }, [load, props.refresh])
 
   const apply = useCallback((model: string, prov: string) => {
     if (props.onApply) return void props.onApply(prov, model)
@@ -111,9 +111,10 @@ const ModelPickerDialog = (props: Props) => {
     try {
       const r = await props.gw.request<SaveKeyResponse>("model.save_key", { slug: p.slug, api_key: key })
       if (r.warning) toast.show({ variant: "warning", message: r.warning })
-      const opts = await load(true, true)
+      const direct = r.provider && configured(r.provider) ? r.provider : null
+      const opts = direct ? null : await load(true, true)
       const hit = opts?.providers?.find(pp => pp.slug === p.slug)
-      const next = hit && configured(hit) ? hit : r.provider ?? hit
+      const next = direct ?? (hit && configured(hit) ? hit : r.provider ?? hit)
       if (!next) {
         toast.show({ variant: "warning", message: "Provider saved; refresh model options to continue" })
         return

@@ -176,6 +176,24 @@ describe("Journey", () => {
     await until(fail, () => fail.frame().includes("learning.frames failed"))
   })
 
+  test("ignores stale frame responses after resize", async () => {
+    const pending: Array<(value: LearningFramesResponse) => void> = []
+    const gw = new MockGateway({
+      "learning.frames": () => new Promise<LearningFramesResponse>(resolve => pending.push(resolve)),
+    })
+    await using t = await mountNode(<Journey focused />, { gw, width: 100, height: 24 })
+    await until(t, () => pending.length === 1)
+
+    t.resize(140, 36)
+    await until(t, () => pending.length === 2)
+    await act(async () => { pending[1]!(oldFrames()); await Promise.resolve() })
+    await until(t, () => t.frame().includes("Newest memory"))
+
+    await act(async () => { pending[0]!(frames()); await Promise.resolve() })
+    await t.settle()
+    expect(t.frame()).toContain("Newest memory")
+  })
+
   test("delete uses confirm dialog and refreshes after mutation", async () => {
     let n = 0
     const gw = new MockGateway({

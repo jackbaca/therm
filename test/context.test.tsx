@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test"
 import { act } from "react"
-import { mountNode, MockGateway } from "./harness"
+import { mountNode, until, MockGateway } from "./harness"
 import { Context, contextBreakdown, contextMeter, remoteSegments } from "../src/tabs/Context"
 import { build } from "../src/service/context-segments"
 import type { SessionInfo } from "../src/context/wire"
@@ -112,7 +112,7 @@ describe("Context tab", () => {
       }),
     })
     const t = await mountNode(<Context info={{ session_id: "s1", model: "test", context_max: 10_000, context_used: 1000 }} />, { gw })
-    await t.settle()
+    await until(t, () => strip(t.frame()).includes("Context · 5.0k / 20k (25%)"))
     const f = strip(t.frame())
     expect(gw.last("session.context_breakdown")?.params).toEqual({ session_id: "s1" })
     expect(f).toContain("Context · 5.0k / 20k (25%)")
@@ -126,7 +126,7 @@ describe("Context tab", () => {
   test("falls back to local estimate when context_breakdown errors", async () => {
     const gw = new MockGateway({ "session.context_breakdown": () => { throw new Error("old gateway") } })
     const t = await mountNode(<Context info={{ session_id: "s1", model: "test", context_max: 10_000, context_used: 1000 }} />, { gw })
-    await t.settle()
+    await until(t, () => gw.last("session.context_breakdown") !== undefined)
     const f = strip(t.frame())
     expect(gw.last("session.context_breakdown")?.params).toEqual({ session_id: "s1" })
     expect(f).toContain("Context · 1.0k / 10k (10%)")

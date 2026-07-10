@@ -88,6 +88,7 @@ export const Journey = memo((props: { focused?: boolean }) => {
   const cols = Math.max(40, dims.width - 8)
   const follow = useFollow("journey", i => rid(rows[i], i))
   const scroll = useRef<ScrollBoxRenderable | null>(null)
+  const seq = useRef(0)
 
   const jump = useCallback((i: number) => {
     const n = snap(rows, i)
@@ -116,25 +117,27 @@ export const Journey = memo((props: { focused?: boolean }) => {
     return () => renderer.removeFrameCallback(cb)
   }, [renderer, rows, sel])
 
-  const load = useCallback(() => {
+  useEffect(() => {
+    const n = ++seq.current
     setErr(null)
     setBusy(true)
-    gw.request<LearningFramesResponse>("learning.frames", { cols, rows: h, frames: 2 })
-      .then(r => {
-        setData(r)
-        const tree = buildJourneyRows(r.buckets ?? [])
-        setSel(latest(tree))
-        setDetail(null)
-        setPane("list")
-      })
-      .catch((e: unknown) => setErr(message(e)))
-      .finally(() => setBusy(false))
-  }, [gw, cols, h])
+    const timer = setTimeout(() => {
+      void gw.request<LearningFramesResponse>("learning.frames", { cols, rows: h, frames: 2 })
+        .then(r => {
+          if (n !== seq.current) return
+          setData(r)
+          const tree = buildJourneyRows(r.buckets ?? [])
+          setSel(latest(tree))
+          setDetail(null)
+          setPane("list")
+        })
+        .catch((e: unknown) => { if (n === seq.current) setErr(message(e)) })
+        .finally(() => { if (n === seq.current) setBusy(false) })
+    }, 120)
+    return () => { clearTimeout(timer); seq.current++ }
+  }, [gw, cols, h, tick])
 
-  useEffect(() => load(), [load, tick])
-
-  const open = useCallback(async (target = node) => {
-    if (!target) return
+  const open = useCallback(async (target: LearningNode) => {
     setBusy(true)
     setErr(null)
     try {
@@ -147,7 +150,7 @@ export const Journey = memo((props: { focused?: boolean }) => {
     } finally {
       setBusy(false)
     }
-  }, [gw, node, toast])
+  }, [gw, toast])
 
   const edit = useCallback(async () => {
     if (!node) return
@@ -217,8 +220,8 @@ export const Journey = memo((props: { focused?: boolean }) => {
       count: rows.length,
       setSel: setListSel,
       ...follow.opts,
-      onActivate: () => void open(),
-      onToggle: () => void open(),
+      onActivate: () => { if (node) void open(node) },
+      onToggle: () => { if (node) void open(node) },
       onRefresh: () => setTick(n => n + 1),
       onDelete: () => void del(),
     })
@@ -251,7 +254,7 @@ export const Journey = memo((props: { focused?: boolean }) => {
               <box height={1} />
               <scrollbox ref={follow.ref} scrollY flexGrow={1}>
                 <box flexDirection="column">
-                  {rows.map((r, i) => <Row key={rid(r, i)} id={follow.id(i)} row={r} active={i === sel} theme={theme} set={() => rowPick(i)} act={() => rowOpen(i)} />)}
+                  {rows.map((r, i) => <Row key={rid(r, i)} id={follow.id(i)} row={r} index={i} active={i === sel} theme={theme} pick={rowPick} open={rowOpen} />)}
                 </box>
               </scrollbox>
             </box>
@@ -298,12 +301,12 @@ const Chart = ({ rows, theme }: { rows: LearningRun[][]; theme: Theme }) => (
   </box>
 )
 
-const Row = (props: { id: string; row: JourneyRow; active: boolean; theme: Theme; set: () => void; act: () => void }) => {
+const Row = memo((props: { id: string; row: JourneyRow; index: number; active: boolean; theme: Theme; pick: (i: number) => void; open: (i: number) => void }) => {
   const bg = props.active ? props.theme.backgroundElement : undefined
   const caret = props.active ? "▸ " : "  "
   if (props.row.kind === "gap") return <box id={props.id} height={1} />
   if (props.row.kind === "slice") return (
-    <box id={props.id} height={1} backgroundColor={bg} onMouseMove={props.set} onMouseDown={props.act} overflow="hidden">
+    <box id={props.id} height={1} backgroundColor={bg} onMouseMove={() => props.pick(props.index)} onMouseDown={() => props.open(props.index)} overflow="hidden">
       <text wrapMode="none">
         <span fg={props.theme.textMuted}>{caret}</span>
         <span fg={props.active ? props.theme.accent : props.theme.primary}>{props.row.bucket.label}</span>
@@ -312,7 +315,7 @@ const Row = (props: { id: string; row: JourneyRow; active: boolean; theme: Theme
     </box>
   )
   return (
-    <box id={props.id} height={1} backgroundColor={bg} onMouseMove={props.set} onMouseDown={props.act} overflow="hidden">
+    <box id={props.id} height={1} backgroundColor={bg} onMouseMove={() => props.pick(props.index)} onMouseDown={() => props.open(props.index)} overflow="hidden">
       <text wrapMode="none">
         <span fg={props.theme.textMuted}>{caret}</span>
         <span fg={props.theme.textMuted}>{props.row.last ? "  └─ " : "  ├─ "}</span>
@@ -321,7 +324,7 @@ const Row = (props: { id: string; row: JourneyRow; active: boolean; theme: Theme
       </text>
     </box>
   )
-}
+})
 
 const Detail = (props: { detail: LearningDetailResponse; box: React.RefObject<ScrollBoxRenderable | null>; focus: boolean; theme: Theme }) => (
   <TabShell title={props.detail.ok ? `${props.detail.kind} · ${props.detail.label}` : "Detail"} focus={props.focus} grow={1}>

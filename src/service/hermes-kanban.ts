@@ -233,6 +233,7 @@ const DEFAULT = "default"
 const SLUG = /^[a-z0-9][a-z0-9_-]{0,63}$/
 const DEFAULT_BUSY_TIMEOUT_MS = 120_000
 const BUSY_RETRIES = 5
+const BUSY_BUDGET_MS = 5_000
 const BUSY_MIN_MS = 20
 const BUSY_MAX_MS = 150
 
@@ -253,11 +254,14 @@ const nap = () => {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 }
 
+// SQLite already waits up to busy_timeout per exec. Only add retries when
+// that timeout is short enough to keep the combined wait within one budget.
 const boundary = (conn: Pick<Database, "exec">, sql: "BEGIN IMMEDIATE" | "COMMIT") => {
-  for (let i = 0; i <= BUSY_RETRIES; i++) {
+  const attempts = Math.max(1, Math.min(BUSY_RETRIES + 1, Math.ceil(BUSY_BUDGET_MS / busyTimeoutMs())))
+  for (let i = 0; i < attempts; i++) {
     try { conn.exec(sql); return }
     catch (err) {
-      if (!isBusy(err) || i === BUSY_RETRIES) throw err
+      if (!isBusy(err) || i === attempts - 1) throw err
       nap()
     }
   }

@@ -423,6 +423,9 @@ export const Context = memo(({ messages = NO_MESSAGES as Message[], info, usage,
     setWire(next)
   }, [messages])
 
+  const rev = usage?.context_used ?? info?.usage?.context_used ?? info?.context_used
+  // Context accounting is expensive upstream; wait for usage/message bursts
+  // to settle and ignore superseded responses.
   useEffect(() => {
     const sid = info?.session_id
     if (!sid) {
@@ -430,11 +433,13 @@ export const Context = memo(({ messages = NO_MESSAGES as Message[], info, usage,
       return
     }
     let done = false
-    void gw.request<ContextBreakdownResponse>("session.context_breakdown", { session_id: sid })
-      .then(data => { if (!done) setRemote(contextBreakdown(data)) })
-      .catch(() => { if (!done) setRemote(null) })
-    return () => { done = true }
-  }, [gw, info?.session_id, info?.context_used, info?.usage?.context_used, messages.length, usage?.context_used])
+    const timer = setTimeout(() => {
+      void gw.request<ContextBreakdownResponse>("session.context_breakdown", { session_id: sid })
+        .then(data => { if (!done) setRemote(contextBreakdown(data)) })
+        .catch(() => { if (!done) setRemote(null) })
+    }, 300)
+    return () => { done = true; clearTimeout(timer) }
+  }, [gw, info?.session_id, info?.usage?.compressions, messages.length, rev])
 
   // Derived
   const localMeter = contextMeter(usage, info, config ?? null)

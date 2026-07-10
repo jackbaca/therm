@@ -68,6 +68,15 @@ describe("model-picker", () => {
     t.destroy()
   })
 
+  test("forced refresh open surfaces model.options errors", async () => {
+    const t = await mountNode(<OpenRefresh />, {
+      handlers: { "model.options": () => { throw new Error("catalog unavailable") } },
+    })
+    await until(t, () => t.frame().includes("catalog unavailable"))
+    expect(t.frame()).toContain("Refresh model options")
+    t.destroy()
+  })
+
   test("session-scoped by default → config.set sends combined arg with session_id; Tab toggles global", async () => {
     const sets: Array<Record<string, unknown>> = []
     const t = await mountNode(<Open />, {
@@ -195,6 +204,7 @@ describe("model-picker", () => {
     await until(t, () => t.frame().includes("claude-opus"))
 
     expect(saves).toEqual([{ slug: "anthropic", api_key: "sk-test" }])
+    expect(t.gw.calls.filter(c => c.method === "model.options")).toHaveLength(1)
     expect(t.frame()).toContain("Switch Model (Anthropic)")
     t.destroy()
   })
