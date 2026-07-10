@@ -155,3 +155,38 @@ test("gateway voice events drive the indicator and submit transcripts", async ()
   act(() => t.gw.push({ type: "voice.transcript", payload: { text: "spoken prompt" } }))
   await until(t, () => t.gw.last("prompt.submit")?.params.text === "spoken prompt")
 })
+
+test("old record completion cannot unlock a newer pending request", async () => {
+  let api: VoiceApi | undefined
+  let failOld!: (error: Error) => void
+  let finishNew!: (value: unknown) => void
+  let records = 0
+  const old = new Promise<never>((_resolve, reject) => { failOld = reject })
+  const fresh = new Promise(resolve => { finishNew = resolve })
+  const rpc = async <T,>(method: string): Promise<T> => {
+    if (method === "voice.toggle") return { enabled: true, record_key: "ctrl+b" } as T
+    if (method === "voice.record") return (++records === 1 ? old : fresh) as Promise<T>
+    throw new Error(`unexpected ${method}`)
+  }
+  const Probe = () => {
+    api = useVoice(rpc, () => {})
+    return <text>{`recording:${api.state.recording}`}</text>
+  }
+  await using t = await mountNode(<Probe />)
+  await act(async () => { await api!.toggle("on", "sid") })
+  await t.settle()
+  act(() => { void api!.record("sid") })
+
+  act(() => api!.reset())
+  await act(async () => { await api!.toggle("on", "sid") })
+  await t.settle()
+  act(() => { void api!.record("sid") })
+  expect(records).toBe(2)
+
+  failOld(new Error("old request ended"))
+  await act(async () => { await Bun.sleep(20) })
+  act(() => { void api!.record("sid") })
+  expect(records).toBe(2)
+  finishNew({ status: "recording" })
+  await t.settle()
+})

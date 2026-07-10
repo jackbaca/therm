@@ -39,7 +39,7 @@ export function useVoice(gw: GwRpc, sys: (text: string) => void): VoiceApi {
   const [recordKeyRaw, setRecordKeyRaw] = useState<string>()
   const [tts, setTts] = useState(false)
   const [onTranscript, setTranscript] = useState<((text: string) => void) | null>(null)
-  const pending = useRef(false)
+  const pending = useRef(0)
   const recordGen = useRef(0)
   const toggleGen = useRef(0)
   const setOnTranscript = useCallback((fn: ((text: string) => void) | null) =>
@@ -47,7 +47,7 @@ export function useVoice(gw: GwRpc, sys: (text: string) => void): VoiceApi {
   const reset = useCallback(() => {
     toggleGen.current++
     recordGen.current++
-    pending.current = false
+    pending.current = 0
     setEnabled(false)
     setRecording(false)
     setProcessing(false)
@@ -101,8 +101,8 @@ export function useVoice(gw: GwRpc, sys: (text: string) => void): VoiceApi {
       return
     }
     if (pending.current) return
-    pending.current = true
     const current = ++recordGen.current
+    pending.current = current
     const starting = !recording
     const action = starting ? "start" : "stop"
     // Optimistic UI update
@@ -131,7 +131,7 @@ export function useVoice(gw: GwRpc, sys: (text: string) => void): VoiceApi {
       setRecording(!starting)
       sys(`voice error: ${e instanceof Error ? e.message : "gateway error"}`)
     } finally {
-      pending.current = false
+      if (pending.current === current) pending.current = 0
     }
   }, [enabled, recording, gw, sys])
 
