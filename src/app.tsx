@@ -56,6 +56,7 @@ import { useVoice } from "./voice/useVoice"
 import { VoiceIndicator } from "./voice/Indicator"
 import { sessionCapabilities } from "./app/sessionCapabilities"
 import { useGitBranch } from "./utils/git"
+import { undo as undoTurns } from "./app/undo"
 
 type AppProps = { initialTheme?: string; gateway?: Gateway; launch?: Launch; keyOverrides?: Record<string, string> }
 
@@ -475,6 +476,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       setSplash(false)
       summoned.current = false
       if (prev && prev !== res.id) toast.show({ variant: "info", message: "switched live session" })
+      return true
     } catch (err) {
       if (prev) {
         gw.setSession(prev)
@@ -484,6 +486,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       dispatch({ kind: "system", text: `Failed to activate: ${err instanceof Error ? err.message : String(err)}` })
       setSplash(false)
       summoned.current = false
+      return false
     } finally {
       setSwitching(false)
     }
@@ -545,14 +548,16 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     const n = turnsFrom(m)
     if (n === 0) return
     const text = m.parts.filter(p => p.type === "text").map(p => p.content).join("")
-    for (let i = 0; i < n; i++) await gw.request("session.undo").catch(() => {})
-    const r = await gw.request<{ messages: TranscriptMessage[] }>("session.history").catch(() => null)
-    const msgs = turnRef.current.messages
-    const at = msgs.findIndex(x => x.id === m.id)
-    dispatch({ kind: "load", messages: r ? transcriptToMessages(r.messages ?? []) : msgs.slice(0, at) })
-    composer.current?.set(text)
-    setFocusRegion("input")
-  }, [gw])
+    try {
+      await undoTurns(gw, n)
+      const r = await gw.request<{ messages: TranscriptMessage[] }>("session.history")
+      dispatch({ kind: "load", messages: transcriptToMessages(r.messages ?? []) })
+      composer.current?.set(text)
+      setFocusRegion("input")
+    } catch (err) {
+      toast.show({ variant: "error", message: err instanceof Error ? err.message : String(err) })
+    }
+  }, [gw, toast])
 
   // Non-destructive: session.branch clones full history into a new
   // gateway session; undo N turns *in that session* to land at m;
@@ -564,13 +569,20 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     const res = await gw.request<{ session_id: string; title?: string }>("session.branch", {})
       .catch((e: Error) => { toast.show({ variant: "error", message: `branch failed: ${e.message}` }); return null })
     if (!res?.session_id) return
-    for (let i = 0; i < n; i++)
-      await gw.request("session.undo", { session_id: res.session_id }).catch(() => {})
-    await activateSession(res.session_id)
-    composer.current?.set(text)
-    setFocusRegion("input")
-    toast.show({ variant: "success", message: `forked → ${res.title ?? res.session_id}` })
-  }, [gw, toast, activateSession])
+    try {
+      await undoTurns(gw, n, res.session_id)
+      if (!await activateSession(res.session_id)) {
+        await session.close(res.session_id)
+        return
+      }
+      composer.current?.set(text)
+      setFocusRegion("input")
+      toast.show({ variant: "success", message: `forked → ${res.title ?? res.session_id}` })
+    } catch (err) {
+      await session.close(res.session_id)
+      toast.show({ variant: "error", message: err instanceof Error ? err.message : String(err) })
+    }
+  }, [gw, toast, activateSession, session])
 
   const msgMenu = useCallback((m: Message) => {
     if (turnRef.current.streaming) return

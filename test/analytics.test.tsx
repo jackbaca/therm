@@ -1,9 +1,16 @@
 import { describe, test, expect, beforeAll } from "bun:test"
-import { act } from "react"
+import { act, useEffect } from "react"
 import { mountNode, until } from "./harness"
 import { openStateDb } from "./fixtures/state-db"
 import { analytics, cache } from "../src/service/hermes-analytics"
 import { Analytics } from "../src/tabs/Analytics"
+import { useDialog } from "../src/ui/dialog"
+
+const AnalyticsWithDialog = () => {
+  const dialog = useDialog()
+  useEffect(() => dialog.replace(<text>analytics modal</text>), [])
+  return <Analytics focused />
+}
 
 // ─── fixture ─────────────────────────────────────────────────────────
 // preload.ts pointed HERMES_HOME at a sandbox tmpdir before hermes-home
@@ -92,6 +99,18 @@ describe("analytics()", () => {
 // ─── Analytics tab ───────────────────────────────────────────────────
 
 describe("Analytics tab", () => {
+  test("open dialog owns period keys", async () => {
+    cache.clear()
+    const t = await mountNode(<AnalyticsWithDialog />)
+    await until(t, () => t.frame().includes("analytics modal") && t.frame().includes("Analytics · 7d"))
+
+    await act(async () => { await t.keys.typeText("1") })
+    await t.settle()
+    expect(t.frame()).toContain("Analytics · 7d")
+    expect(t.frame()).toContain("analytics modal")
+    t.destroy()
+  })
+
   test("renders title totals, chart, model table, tool/source ranks; period keys", async () => {
     cache.clear()
     const t = await mountNode(<Analytics focused />)

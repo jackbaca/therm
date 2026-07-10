@@ -176,6 +176,7 @@ const EmptyState = memo((props: { searching: boolean }) => {
 
 const HistoryPanel = memo((props: { focused: boolean }) => {
   const { theme, syntaxStyle } = useTheme();
+  const dialog = useDialog();
   const keys = useKeys();
   const follow = useFollow("skills-history");
   const [runs, setRuns] = useState<CuratorRun[]>(() => listCuratorRuns());
@@ -199,7 +200,7 @@ const HistoryPanel = memo((props: { focused: boolean }) => {
   }, []);
 
   useKeyboard(key => {
-    if (!props.focused) return;
+    if (!props.focused || dialog.open()) return;
     handleListKey(keys, key, {
       count: runs.length, setSel: moveSel, ...follow.opts,
       onActivate: () => setOpen(o => !o),

@@ -5,6 +5,7 @@ import { cache, type Analytics as Data, type NameRow } from "../service/hermes-a
 import { io } from "../io"
 import { useKeys } from "../keys"
 import { useTheme } from "../theme"
+import { useDialog } from "../ui/dialog"
 import { Spinner } from "../ui/spinner"
 import { TabShell } from "../ui/shell"
 import { HintBar } from "../ui/hint"
@@ -90,6 +91,7 @@ const Rank = memo((p: { title: string; rows: NameRow[] | null; fg: RGBA; n?: num
 
 export const Analytics = memo((props: { focused?: boolean }) => {
   const theme = useTheme().theme
+  const dialog = useDialog()
   const dims = useTerminalDimensions()
   const [days, setDays] = useState(7)
   // io.analytics runs bun:sqlite in a worker; the main thread never
@@ -126,7 +128,7 @@ export const Analytics = memo((props: { focused?: boolean }) => {
 
   const keys = useKeys()
   useKeyboard((key) => {
-    if (!props.focused) return
+    if (!props.focused || dialog.open()) return
     if (keys.match("list.refresh", key)) { cache.delete(days); return setTick(n => n + 1) }
     if (key.raw === "1") return setDays(1)
     if (key.raw === "7") return setDays(7)

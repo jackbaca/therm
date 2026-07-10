@@ -75,7 +75,7 @@ export type SlashCtx = {
 
   newSession: () => Promise<void>
   switchSession: (id: string) => Promise<void>
-  activateSession: (id: string) => Promise<void>
+  activateSession: (id: string) => Promise<boolean>
   rewind: (m: Message) => Promise<void>
   goTo: (tab: number, sub: number) => void
   attachClipboard: () => void

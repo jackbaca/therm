@@ -1066,6 +1066,38 @@ describe("app", () => {
     t.destroy()
   })
 
+  test("fork undo failure closes the branch without activating it", async () => {
+    const gw = new MockGateway({
+      "session.branch": () => ({ session_id: "broken-branch", title: "broken" }),
+      "session.undo": () => { throw new Error("branch undo failed") },
+    })
+    const t = await mount({ gw })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("seed q") })
+    act(() => t.keys.pressEnter())
+    await t.settle()
+    act(() => {
+      gw.push({ type: "message.start" })
+      gw.push({ type: "message.complete", payload: { text: "re: seed q", usage: { input: 1, output: 1, total: 2 } } })
+    })
+    await until(t, () => t.frame().includes("re: seed q"))
+
+    const rows = t.frame().split("\n")
+    const y = rows.findIndex(l => l.includes("seed q") && !l.includes("re:") && !l.includes("┇"))
+    await act(async () => { await t.mouse.click(4, y) })
+    await until(t, () => t.frame().includes("Message Actions"))
+    act(() => t.keys.pressArrow("down"))
+    act(() => t.keys.pressArrow("down"))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("branch undo failed"))
+
+    expect(gw.last("session.activate")).toBeUndefined()
+    expect(gw.last("session.close")?.params.session_id).toBe("broken-branch")
+    expect(t.frame()).not.toContain("forked →")
+    t.destroy()
+  })
+
   test("queue: Enter while streaming stacks; drains one per idle; <leader>u flushes", async () => {
     const t = await mount()
     await until(t, () => t.frame().includes("Ready"))
