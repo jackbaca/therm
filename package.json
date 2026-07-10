@@ -46,6 +46,10 @@
     "web-tree-sitter": "0.25.10",
     "yaml": "^2.8.4"
   },
+  "overrides": {
+    "@opentui/core": "0.4.3",
+    "@opentui/react": "0.4.3"
+  },
   "devDependencies": {
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
