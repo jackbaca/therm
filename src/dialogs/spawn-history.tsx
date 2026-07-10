@@ -1,6 +1,7 @@
 import type { Gateway } from "../context/gateway"
 import type { DialogContext } from "../ui/dialog"
 import { DialogSelect } from "../ui/dialog-select"
+import { openAlert } from "./alert"
 import type { SpawnTreeEntry, SpawnTreeSnapshot, SpawnSubagent } from "../context/wire"
 import { useTheme } from "../theme"
 import { dur, when, fmt, trunc } from "../ui/fmt"
@@ -71,12 +72,13 @@ export function openSpawnHistory(dialog: DialogContext, gw: Gateway, sessionId: 
           }))}
           onSelect={opt => {
             const entry = entries.find(e => e.path === opt.value)!
+            dialog.replace(<box width={40} height={3}><text>Loading spawn tree…</text></box>)
             gw.request<SpawnTreeSnapshot>("spawn_tree.load", { path: entry.path })
               .then(snap => dialog.replace(<SnapshotView entry={entry} snap={snap} />))
-              .catch(() => dialog.clear())
+              .catch(e => openAlert(dialog, "Spawn history", e instanceof Error ? e.message : String(e)))
           }}
         />,
       )
     })
-    .catch(() => dialog.clear())
+    .catch(e => openAlert(dialog, "Spawn history", e instanceof Error ? e.message : String(e)))
 }
