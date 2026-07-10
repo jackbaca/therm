@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { act } from "react"
 import { mount, mountNode, until, type Harness } from "./harness"
 import { usePlugins } from "../src/plugins/runtime"
 import type { HermPlugin, HermPluginApi } from "../src/plugins/types"
@@ -50,6 +51,31 @@ describe("PluginProvider", () => {
     }
     await using t = await mountNode(<Host />, { width: 60, height: 10, plugins: [p] })
     await until(t, () => t.frame().includes("routes:Files"))
+  })
+
+  test("plugin routes receive live content focus", async () => {
+    let api: HermPluginApi | undefined
+    const plugin: HermPlugin = {
+      id: "focus-route",
+      tui(value) {
+        api = value
+        value.route.register([{
+          name: "FocusRoute",
+          render: ctx => <text>{ctx.focused ? "route focused" : "route blurred"}</text>,
+        }])
+      },
+    }
+    await using t = await mount({ plugins: [plugin] })
+    await until(t, () => api !== undefined)
+    await act(async () => { await Bun.sleep(50) })
+    await t.settle()
+    act(() => api!.route.navigate("FocusRoute"))
+    await until(t, () => t.frame().includes("route focused"))
+
+    act(() => t.keys.pressTab())
+    await act(async () => { await Bun.sleep(50) })
+    act(() => t.keys.pressTab())
+    await until(t, () => t.frame().includes("route blurred"))
   })
 
   test("failing tui() is isolated — later plugins still activate", async () => {

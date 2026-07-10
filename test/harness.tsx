@@ -144,7 +144,8 @@ type Opts = {
 /** Mount the full <App> under a test renderer with a MockGateway. */
 export async function mount(opts: Opts = {}): Promise<Harness> {
   const gw = opts.gw ?? new MockGateway(opts.handlers)
-  return render(<App gateway={gw} launch={opts.launch ?? { mode: "new", splash: false }} keyOverrides={opts.keyOverrides} />, gw, opts)
+  return render(<App gateway={gw} launch={opts.launch ?? { mode: "new", splash: false }}
+    keyOverrides={opts.keyOverrides} plugins={opts.plugins} />, gw, opts)
 }
 
 /** Mount an arbitrary subtree wrapped in all providers (for component tests). */

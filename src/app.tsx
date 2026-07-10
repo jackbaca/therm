@@ -57,8 +57,15 @@ import { VoiceIndicator } from "./voice/Indicator"
 import { sessionCapabilities } from "./app/sessionCapabilities"
 import { useGitBranch } from "./utils/git"
 import { undo as undoTurns } from "./app/undo"
+import type { HermPlugin } from "./plugins/types"
 
-type AppProps = { initialTheme?: string; gateway?: Gateway; launch?: Launch; keyOverrides?: Record<string, string> }
+type AppProps = {
+  initialTheme?: string
+  gateway?: Gateway
+  launch?: Launch
+  keyOverrides?: Record<string, string>
+  plugins?: ReadonlyArray<HermPlugin>
+}
 
 const BUSY_RE = /session busy|waiting for model response/i
 
@@ -69,7 +76,7 @@ export const App = (props: AppProps) => (
         <KeysProvider overrides={props.keyOverrides}>
           <DialogProvider>
             <CommandProvider>
-              <PluginProvider>
+              <PluginProvider plugins={props.plugins}>
                 <BackgroundProvider>
                   <AppInner launch={props.launch ?? { mode: "new" }} />
                 </BackgroundProvider>
@@ -891,7 +898,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
                                            setSub={eikSub} />
         default: {
           const r = extra[tab - TABS.length]
-          return r ? r.render() : null
+          return r ? r.render({ focused: contentFocused }) : null
         }
       }
     })()
