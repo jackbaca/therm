@@ -425,6 +425,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     const prev = sidRef.current
     summoned.current = true
     setSplash(true)
+    setReady(false)
     gw.setSession("")
     try {
       const r = await session.create()
@@ -437,7 +438,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       sessionStart.current = Date.now()
       if (prev) void session.close(prev, { preserveBackground: true })
     } catch (err) {
-      if (prev) gw.setSession(prev)
+      if (prev) { gw.setSession(prev); setReady(true) }
       setSplash(false)
       summoned.current = false
       dispatch({ kind: "system", text: `Failed to create session: ${err instanceof Error ? err.message : String(err)}` })
@@ -606,6 +607,7 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     newSession, switchSession, activateSession, rewind, goTo, attachClipboard, voiceToggle: voice.toggle,
   })
   const send = useCallback(async (raw: string) => {
+    if (creating.current) return
     // Bare exit/quit/:q — pass through as literals so a
     // reflex `exit⏎` works without the leading slash.
     if (["exit", "quit", ":q", ":q!", ":wq"].includes(raw.trim()))
