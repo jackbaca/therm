@@ -35,3 +35,26 @@ test("spawn snapshot failure stays visible", async () => {
   await until(t, () => t.frame().includes("spawn snapshot unavailable"))
   t.destroy()
 })
+
+test("spawn snapshot replaces its loading state", async () => {
+  const t = await mountNode(<Host />, {
+    handlers: {
+      "spawn_tree.list": () => ({ entries: [{
+        path: "/tmp/spawn.json", session_id: "sid", count: 1,
+        label: "one agent", finished_at: Date.now() / 1000,
+      }] }),
+      "spawn_tree.load": () => ({
+        started_at: 10,
+        finished_at: 12,
+        subagents: [{
+          subagent_id: "sub-1", goal: "inspect gateway", status: "completed",
+          depth: 0, tool_count: 2, started_at: 10, finished_at: 12,
+        }],
+      }),
+    },
+  })
+  await until(t, () => t.frame().includes("one agent"))
+  t.keys.pressEnter()
+  await until(t, () => t.frame().includes("inspect gateway"))
+  t.destroy()
+})
