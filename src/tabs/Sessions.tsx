@@ -1087,7 +1087,7 @@ export const Sessions = memo((props: Props) => {
       {showDetailPanel && searching && results[searchSel]
         ? <SearchDetail result={results[searchSel]} />
         : showDetailPanel && !searching && visible[sel]?.row
-          ? <Detail row={visible[sel].row}
+          ? <Detail key={visible[sel].row.id} row={visible[sel].row}
               lineage={io.lineage} peek={io.peek} onSwitch={lineageSwitch} />
           : null}
     </box>
