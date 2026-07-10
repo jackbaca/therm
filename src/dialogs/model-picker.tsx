@@ -6,7 +6,7 @@
 // routes through `_apply_model_switch`, so we send one request rather
 // than a provider/model pair.
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useRef } from "react"
 import type { ParsedKey } from "@opentui/core"
 import { useDialog } from "../ui/dialog"
 import { DialogSelect, type SelectOption } from "../ui/dialog-select"
@@ -70,15 +70,19 @@ const ModelPickerDialog = (props: Props) => {
   const [provider, setProvider] = useState<string | null>(null)
   const [setupProvider, setSetupProvider] = useState<ModelOptionProvider | null>(null)
   const [global, setGlobal] = useState(false)
+  const seq = useRef(0)
 
   const load = useCallback(async (force = false, quiet = false) => {
+    const id = ++seq.current
     try {
       const next = await props.gw.request<ModelOptionsResponse>("model.options", force
         ? { refresh: true, include_unconfigured: true }
         : { include_unconfigured: true })
+      if (seq.current !== id) return null
       setData(d => force || !d ? next : d)
       return next
     } catch (e) {
+      if (seq.current !== id) return null
       if (!quiet) toast.show({ variant: "error", message: e instanceof Error ? e.message : String(e) })
       const empty = { providers: [] }
       setData(d => d ?? empty)
@@ -91,7 +95,10 @@ const ModelPickerDialog = (props: Props) => {
     void load(true)
   }, [load, toast])
 
-  useEffect(() => { void load(Boolean(props.refresh)) }, [load, props.refresh])
+  useEffect(() => {
+    void load(Boolean(props.refresh))
+    return () => { seq.current++ }
+  }, [load, props.refresh])
 
   const apply = useCallback((model: string, prov: string) => {
     if (props.onApply) return void props.onApply(prov, model)
@@ -226,8 +233,8 @@ const ModelPickerDialog = (props: Props) => {
       current={provider === data.provider ? data.model : undefined}
       onSelect={(o) => {
         if (o.value === REFRESH) return refresh()
-        if (provider) apply(o.value, provider)
         dialog.clear()
+        if (provider) apply(o.value, provider)
       }}
       onKey={onKey}
       placeholder="Search models..."

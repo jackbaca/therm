@@ -18,7 +18,7 @@ import type { Message, Usage } from "../types/message"
 
 /** session.compress response shape. `messages` is compacted server context;
  *  the live chat transcript intentionally stays visually unchanged. */
-export type CompressResult = {
+type CompressResult = {
   status?: "compressed" | "skipped" | "preview" | "unsupported"
   removed?: number
   before_messages?: number
@@ -130,7 +130,7 @@ export function useSession(): SessionOps {
     try {
       const res = await gw.request<Agents>("agents.list")
       return res.processes?.some(p => p.status === "running") ?? false
-    } catch { return false }
+    } catch { return true }
   }, [gw])
 
   const close = useCallback(async (sid: string, opts?: Close) => {
@@ -173,25 +173,22 @@ export function useSession(): SessionOps {
   }, [create, resume])
 
   const interrupt = useCallback(async () => {
-    try { await gw.request("session.interrupt") } catch {}
+    await gw.request("session.interrupt")
   }, [gw])
 
   const branch = useCallback(async (name?: string) => {
-    try {
-      const res = await gw.request<{ session_id?: string }>("session.branch", name ? { name } : {})
-      return res.session_id ?? null
-    } catch { return null }
+    const res = await gw.request<{ session_id?: string }>("session.branch", name ? { name } : {})
+    return res.session_id ?? null
   }, [gw])
 
   const compress = useCallback(async (arg = ""): Promise<CompressResult | null> => {
     const raw = arg.trim()
     const params = raw ? { raw_args: raw, focus_topic: raw } : {}
-    try { return await gw.request<CompressResult>("session.compress", params) }
-    catch { return null }
+    return gw.request<CompressResult>("session.compress", params)
   }, [gw])
 
   const undo = useCallback(async () => {
-    try { await gw.request("session.undo") } catch {}
+    await gw.request("session.undo")
   }, [gw])
 
   return useMemo(

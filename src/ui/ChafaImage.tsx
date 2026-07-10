@@ -4,28 +4,41 @@
 // to re-expand. Any render failure (chafa missing, file gone, timeout)
 // silently degrades to the plain MediaChip — no error chrome in the stream.
 
-import { memo, useMemo, useState } from "react"
+import { memo, useEffect, useState } from "react"
 import type { MouseEvent } from "@opentui/core"
 import { useTheme } from "../theme"
 import { openFile } from "../utils/open-file"
-import { renderChafa, hex, chafaBin } from "../utils/chafa"
+import { renderChafa, hex, chafaBin, type Rendered } from "../utils/chafa"
 import { strategy } from "../utils/terminal-image"
 import { MediaChip } from "../components/chat/MediaChip"
 
 const basename = (p: string) => p.split(/[/\\]/).pop() || p
 
-type Props = { path: string; width?: number; bare?: boolean }
+type Props = {
+  path: string
+  width?: number
+  bare?: boolean
+  chafa?: boolean
+  load?: (path: string, width: number) => Promise<Rendered>
+}
 
-export const ChafaImage = memo(({ path, width, bare }: Props) => {
+export const ChafaImage = memo(({ path, width, bare, chafa, load = renderChafa }: Props) => {
   const theme = useTheme().theme
   const [collapsed, setCollapsed] = useState(false)
+  const [result, setResult] = useState<Rendered | null>(null)
   const w = Math.max(20, Math.min(80, width ?? 60))
-  const bin = chafaBin()
-  const preview = strategy(path, bin !== null)
-  const result = useMemo(
-    () => preview.kind === "chafa" ? renderChafa(path, w) : null,
-    [path, w, preview.kind],
-  )
+  const preview = strategy(path, chafa ?? chafaBin() !== null)
+
+  useEffect(() => {
+    let live = true
+    setResult(null)
+    if (preview.kind !== "chafa") return () => { live = false }
+    void load(path, w).then(
+      value => { if (live) setResult(value) },
+      err => { if (live) setResult({ err: err instanceof Error ? err.message : String(err) }) },
+    )
+    return () => { live = false }
+  }, [path, w, preview.kind, load])
 
   if (preview.kind !== "chafa" || !result || "err" in result) return <MediaChip path={path} bare={bare} />
 

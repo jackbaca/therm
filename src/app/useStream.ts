@@ -38,6 +38,8 @@ type Ctx = {
   setStatus: (s: string) => void
   setSkin: (s: SkinState) => void
   setErrorPulse: (v: boolean) => void
+  onVoiceStatus: (state: string) => void
+  onVoiceTranscript: (text: string, noSpeechLimit: boolean) => void
   settle: () => void
   start: () => void
 }
@@ -91,8 +93,11 @@ export function useStream(c: Ctx) {
   }, [])
 
   const sync = useCallback((ms = 0) => {
-    const run = () => gw.request<{ title?: string; session_key?: string }>("session.title")
+    const sid = ctx.current.sidRef.current
+    if (!sid) return
+    const run = () => gw.request<{ title?: string; session_key?: string }>("session.title", { session_id: sid })
       .then(r => {
+        if (ctx.current.sidRef.current !== sid) return
         ctx.current.setTitle(r.title ?? "")
         if (r.session_key) preferences.set("lastSessionId", r.session_key)
       })
@@ -139,6 +144,13 @@ export function useStream(c: Ctx) {
           x.sessionStart.current = Date.now()
           if (r.messages.length) x.dispatch({ kind: "load", messages: r.messages })
           if (r.note) toast.show({ variant: "info", message: r.note })
+        }).catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err)
+          x.setReady(false)
+          x.setStarting(false)
+          x.setStatus(`session boot failed: ${msg}`)
+          x.setErrorPulse(true)
+          x.dispatch({ kind: "system", text: `Failed to start session: ${msg}` })
         })
       },
       onSessionInfo: (si) => {
@@ -189,10 +201,17 @@ export function useStream(c: Ctx) {
       },
       onStatus: (text) => x.setStatus(text),
       onSessionTitle: retitle,
-      onApprovalRemembered: () => {
-        void gw.request("approval.respond", { choice: "always" }).catch(() => {})
+      onApprovalRemembered: (fallback) => {
+        const sid = x.sidRef.current
+        void gw.request("approval.respond", { choice: "always" }).catch((err: Error) => {
+          if (ctx.current.sidRef.current !== sid) return
+          x.dispatch(fallback)
+          toast.show({ variant: "error", message: err.message })
+        })
       },
       onSkin: (s) => x.setSkin(deriveSkin(s)),
+      onVoiceStatus: x.onVoiceStatus,
+      onVoiceTranscript: x.onVoiceTranscript,
       notices: toast,
     })
     if (!action) return
@@ -232,8 +251,11 @@ export function useStream(c: Ctx) {
     const d = deltas.current
     if (d.timer) { clearTimeout(d.timer); d.timer = null }
     d.text = ""; d.think = ""
-    ctx.current.session.interrupt()
-  }, [])
+    void ctx.current.session.interrupt().catch((err: Error) => {
+      interrupted.current = false
+      toast.show({ variant: "error", message: err.message })
+    })
+  }, [toast])
 
   return { interrupted, doInterrupt }
 }

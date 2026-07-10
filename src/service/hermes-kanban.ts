@@ -24,8 +24,8 @@
 //   unlink/edit/dispatch). kanban_db.py owns the state machine —
 //   run closure, recompute_ready, notify-sub fanout.
 //
-//   Field edits (title/body/priority) → direct bun:sqlite writes in
-//   a BEGIN IMMEDIATE txn, mirroring plugins/kanban/dashboard/
+//   Field edits (title/body/priority) → worker-backed bun:sqlite writes
+//   in a BEGIN IMMEDIATE txn, mirroring plugins/kanban/dashboard/
 //   plugin_api.py PATCH /tasks/:id. Every raw write appends a
 //   matching task_events row inside the same txn so the audit
 //   trail and dashboard live feed stay intact. This pattern is
@@ -34,9 +34,10 @@
 //   create-time-only.
 
 import { Database } from "bun:sqlite"
-import { existsSync, readdirSync, statSync, openSync, readSync, closeSync, readFileSync, fstatSync } from "node:fs"
+import { existsSync, readdirSync, statSync, openSync, readSync, closeSync, readFileSync } from "node:fs"
 import { relative as pathRelative, resolve as pathResolve } from "node:path"
 import { hermesPath } from "./hermes-home"
+import { patchAt, writePragmas, resetWrites, internals as writeInternals, type PatchFields } from "./kanban-write"
 
 // Order matches the CLI's status enumeration so columns line up
 // L→R with `hermes kanban list`. 'scheduled' (upstream e3823657d)
@@ -231,41 +232,6 @@ export const sortDiags = (ds: Diag[]): Diag[] =>
 
 const DEFAULT = "default"
 const SLUG = /^[a-z0-9][a-z0-9_-]{0,63}$/
-const DEFAULT_BUSY_TIMEOUT_MS = 120_000
-const BUSY_RETRIES = 5
-const BUSY_BUDGET_MS = 5_000
-const BUSY_MIN_MS = 20
-const BUSY_MAX_MS = 150
-
-const busyTimeoutMs = (): number => {
-  const raw = (process.env.HERMES_KANBAN_BUSY_TIMEOUT_MS ?? "").trim()
-  if (!raw) return DEFAULT_BUSY_TIMEOUT_MS
-  const n = Number(raw)
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_BUSY_TIMEOUT_MS
-}
-
-const isBusy = (err: unknown): boolean => {
-  const msg = String((err as Error)?.message ?? err).toLowerCase()
-  return msg.includes("database is locked") || msg.includes("database is busy")
-}
-
-const nap = () => {
-  const ms = BUSY_MIN_MS + Math.random() * (BUSY_MAX_MS - BUSY_MIN_MS)
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
-}
-
-// SQLite already waits up to busy_timeout per exec. Only add retries when
-// that timeout is short enough to keep the combined wait within one budget.
-const boundary = (conn: Pick<Database, "exec">, sql: "BEGIN IMMEDIATE" | "COMMIT") => {
-  const attempts = Math.max(1, Math.min(BUSY_RETRIES + 1, Math.ceil(BUSY_BUDGET_MS / busyTimeoutMs())))
-  for (let i = 0; i < attempts; i++) {
-    try { conn.exec(sql); return }
-    catch (err) {
-      if (!isBusy(err) || i === attempts - 1) throw err
-      nap()
-    }
-  }
-}
 
 /** Shared Hermes root for kanban paths — mirrors upstream
  *  hermes_cli/kanban_db.py::kanban_home(). HERMES_KANBAN_HOME wins
@@ -294,11 +260,9 @@ const resolve = (): string => {
 
 let slug = resolve()
 
-/** Two cached handles per board slug: [ro, rw]. `null` = open attempted
- *  and failed (no DB yet); `undefined` = not yet attempted. `ro` is
- *  opened RW-no-create (gh#29) and used only for SELECTs; `rw` runs
- *  the WAL/foreign_keys pragmas and serves patches. */
-type Handles = { ro: Database | null; rw: Database | null }
+/** Cached read handle per board. Writes live in kanban-write so the worker
+ *  bundle does not pull every reader and parser into its hot path. */
+type Handles = { ro: Database | null }
 const handles = new Map<string, Handles>()
 const errors = new Map<string, BoardError>()
 
@@ -336,7 +300,7 @@ const attachmentRelPath = (s: string, path: string | null): string | null =>
 const pair = (s: string): Handles => {
   const cached = handles.get(s)
   if (cached) return cached
-  const next: Handles = { ro: null, rw: null }
+  const next: Handles = { ro: null }
   handles.set(s, next)
   return next
 }
@@ -400,42 +364,12 @@ const dbOf = (s: string): Database | null => {
   return h.ro
 }
 
-/** Open (or return) a read-write handle for `s`. WAL mode matches the
- *  dispatcher so readers and this writer can coexist. Returns null if
- *  the DB file doesn't exist yet (create via `hermes kanban init` or
- *  the first CLI create). */
-const rwOf = (s: string): Database | null => {
-  const h = pair(s)
-  if (h.rw) return h.rw
-  const path = dbPath(s)
-  if (!existsSync(path)) return null
-  const hdr = headerError(path)
-  if (hdr) { errors.set(s, hdr); return null }
-  try {
-    const db = new Database(path)
-    db.exec(`PRAGMA busy_timeout=${busyTimeoutMs()}`)
-    try { db.exec("PRAGMA journal_mode=WAL") } catch {}
-    db.exec([
-      "PRAGMA synchronous=FULL",
-      "PRAGMA wal_autocheckpoint=100",
-      "PRAGMA secure_delete=ON",
-      "PRAGMA cell_size_check=ON",
-      "PRAGMA foreign_keys=ON",
-    ].join(";"))
-    h.rw = db
-    errors.delete(s)
-    return db
-  } catch (e) {
-    errors.set(s, boardErr(isCorrupt(e) ? "corrupt" : "unreadable", path, String((e as Error).message ?? e)))
-    return null
-  }
-}
-
 /** Close every cached handle and re-resolve the active board.
  *  Call after a profile rehome, board create, or test seeding. */
 export const resetKanban = () => {
-  for (const h of handles.values()) { h.ro?.close(); h.rw?.close() }
+  for (const h of handles.values()) h.ro?.close()
   handles.clear()
+  resetWrites()
   errors.clear()
   slug = resolve()
 }
@@ -764,78 +698,7 @@ export function assignees(s: string = slug): string[] {
 // "verbs for status, raw for fields" split is enough.
 
 export function kanbanWritePragmas(s: string = slug): Record<string, string | number | null> | null {
-  const conn = rwOf(s)
-  if (!conn) return null
-  const read = (sql: string): string | number | null => {
-    const row = conn.query(sql).get() as Record<string, unknown> | null
-    const val = Object.values(row ?? {})[0]
-    return typeof val === "string" || typeof val === "number" ? val : null
-  }
-  return {
-    journal_mode: read("PRAGMA journal_mode"),
-    synchronous: read("PRAGMA synchronous"),
-    wal_autocheckpoint: read("PRAGMA wal_autocheckpoint"),
-    busy_timeout: read("PRAGMA busy_timeout"),
-    secure_delete: read("PRAGMA secure_delete"),
-    cell_size_check: read("PRAGMA cell_size_check"),
-    foreign_keys: read("PRAGMA foreign_keys"),
-  }
-}
-
-function checkFileLength(conn: Database) {
-  try {
-    const row = conn.query("PRAGMA database_list").get() as Record<string, unknown> | null
-    const path = String(row?.file ?? row?.[2] ?? "")
-    if (!path) return
-    const pageRow = conn.query("PRAGMA page_size").get() as Record<string, unknown> | null
-    const pageSize = Number(Object.values(pageRow ?? {})[0])
-    if (!pageSize) return
-    const fd = openSync(path, "r")
-    try {
-      const buf = Buffer.alloc(4)
-      if (readSync(fd, buf, 0, 4, 28) < 4) return
-      const headerPages = buf.readUInt32BE(0)
-      if (!headerPages) return
-      const actualPages = Math.floor(fstatSync(fd).size / pageSize)
-      if (actualPages < headerPages)
-        throw new Error(
-          `torn-extend detected: page count mismatch on ${path}: ` +
-          `header claims ${headerPages} pages, file has ${actualPages} pages`,
-        )
-    } finally { closeSync(fd) }
-  } catch (err) {
-    if (err instanceof Error && err.message.startsWith("torn-extend detected")) throw err
-  }
-}
-
-/** Wrap `fn` in a BEGIN IMMEDIATE txn on `conn`. Mirrors
- *  kanban_db.write_txn — IMMEDIATE takes the reserved lock up front so
- *  concurrent writers fail fast instead of racing mid-txn. */
-function writeTxn<T>(conn: Database, fn: () => T): T {
-  boundary(conn, "BEGIN IMMEDIATE")
-  const out = (() => {
-    try { return fn() }
-    catch (err) {
-      try { conn.exec("ROLLBACK") } catch {}
-      throw err
-    }
-  })()
-  try {
-    boundary(conn, "COMMIT")
-  } catch (err) {
-    try { conn.exec("ROLLBACK") } catch {}
-    throw err
-  }
-  checkFileLength(conn)
-  return out
-}
-
-const now = () => Math.floor(Date.now() / 1000)
-
-export type PatchFields = {
-  title?: string
-  body?: string | null
-  priority?: number
+  return writePragmas(kanbanRoot(), s)
 }
 
 /** Apply `patch` to task `id` on board `s`. Returns true on success,
@@ -843,48 +706,9 @@ export type PatchFields = {
  *  title, DB error). Mirrors the dashboard's PATCH /tasks/:id write
  *  discipline: one txn per field group, matching event kind. */
 export function patchTask(s: string, id: string, patch: PatchFields): boolean {
-  const conn = rwOf(s)
-  if (!conn) return false
-
-  const exists = conn.query("SELECT 1 FROM tasks WHERE id = ?").get(id) as unknown
-  if (!exists) return false
-
-  // Priority first (dashboard orders it this way; each field is its
-  // own sub-txn so partial failures surface per-field).
-  if (patch.priority !== undefined) {
-    const p = Math.max(0, Math.min(9, Math.floor(patch.priority)))
-    writeTxn(conn, () => {
-      conn.query("UPDATE tasks SET priority = ? WHERE id = ?").run(p, id)
-      conn.query(
-        "INSERT INTO task_events (task_id, run_id, kind, payload, created_at) " +
-        "VALUES (?, NULL, 'reprioritized', ?, ?)",
-      ).run(id, JSON.stringify({ priority: p }), now())
-    })
-  }
-
-  if (patch.title !== undefined || patch.body !== undefined) {
-    const sets: string[] = []
-    const vals: Array<string | null> = []
-    if (patch.title !== undefined) {
-      const t = patch.title.trim()
-      if (!t) throw new Error("title cannot be empty")
-      sets.push("title = ?"); vals.push(t)
-    }
-    if (patch.body !== undefined) {
-      sets.push("body = ?"); vals.push(patch.body)
-    }
-    vals.push(id)
-    writeTxn(conn, () => {
-      conn.query(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`).run(...vals)
-      conn.query(
-        "INSERT INTO task_events (task_id, run_id, kind, payload, created_at) " +
-        "VALUES (?, NULL, 'edited', NULL, ?)",
-      ).run(id, now())
-    })
-  }
-
-  return true
+  return patchAt(kanbanRoot(), s, id, patch)
 }
+export type { PatchFields } from "./kanban-write"
 // Kept for callers that don't care about multi-board (rehome, tests).
 
 export const board = () => boardOf(slug)
@@ -897,6 +721,6 @@ export const tailLog = (id: string, bytes?: number) => tailLogOf(slug, id, bytes
 export const q = (s: string): string =>
   /^[A-Za-z0-9._\/:+=-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`
 
-export const internals = { writeTxn }
+export const internals = writeInternals
 
 export * as Kanban from "./hermes-kanban"

@@ -1,7 +1,7 @@
 import { existsSync } from "fs"
 
-export type PreviewKind = "chafa" | "chip"
-export type PreviewReason = "chafa-supported" | "no-renderer" | "missing" | "unsupported" | "remote"
+type PreviewKind = "chafa" | "chip"
+type PreviewReason = "chafa-supported" | "no-renderer" | "missing" | "unsupported" | "remote"
 export type PreviewStrategy = { kind: PreviewKind; reason: PreviewReason }
 
 const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp"])
@@ -11,7 +11,7 @@ export function image(path: string): boolean {
   return IMAGE_EXT.has((path.split(/[?#]/)[0].split(".").pop() ?? "").toLowerCase())
 }
 
-export function remote(path: string): boolean {
+function remote(path: string): boolean {
   return URL_RE.test(path)
 }
 

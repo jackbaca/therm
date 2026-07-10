@@ -5,7 +5,7 @@ import { mountNode, until, MockGateway } from "./harness"
 import { Sessions, fold } from "../src/tabs/Sessions"
 import type { SessionHit } from "../src/service/hermes-home"
 import type { SessionRow } from "../src/service/hermes-home"
-import type { PeekMsg } from "../src/service/sessions-db"
+import type { LineageInfo, PeekMsg } from "../src/service/sessions-db"
 import * as prefs from "../src/context/preferences"
 
 const ROWS = [
@@ -464,6 +464,58 @@ describe("Sessions tab", () => {
     t.destroy()
   })
 
+  test("search failure renders inside the tab", async () => {
+    const gw = new MockGateway({ "session.list": () => ({ sessions: ROWS }) })
+    const search = async () => { throw new Error("search exploded") }
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, search }} />, { gw })
+    await until(t, () => t.frame().includes("Sessions (2)"))
+
+    await act(async () => { await t.keys.typeText("/") })
+    await t.settle()
+    await act(async () => { await t.keys.typeText("needle") })
+    await until(t, () => t.frame().includes("search exploded"))
+    expect(t.frame()).toContain("Search Results")
+    t.destroy()
+  })
+
+  test("successful search clears the previous search error", async () => {
+    const gw = new MockGateway({ "session.list": () => ({ sessions: ROWS }) })
+    const search = async (query: string) => {
+      if (query === "needle") throw new Error("old search error")
+      return [{ session_id: "fresh", title: "Fresh result", snippet: "ok", role: "user", source: "tui", model: null, started_at: 1 }]
+    }
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, search }} />, { gw })
+    await until(t, () => t.frame().includes("Sessions (2)"))
+    await act(async () => { await t.keys.typeText("/") })
+    await t.settle()
+    await act(async () => { await t.keys.typeText("needle") })
+    await until(t, () => t.frame().includes("old search error"))
+    await act(async () => { await t.keys.typeText("2") })
+    await until(t, () => t.frame().includes("Fresh result"))
+    expect(t.frame()).not.toContain("old search error")
+    t.destroy()
+  })
+
+  test("failed search invalidates previous actionable results", async () => {
+    const gw = new MockGateway({ "session.list": () => ({ sessions: ROWS }) })
+    const search = async (query: string) => {
+      if (query === "ab") throw new Error("new search failed")
+      return [{ session_id: "stale", title: "Stale result", snippet: "old", role: "user", source: "tui", model: null, started_at: 1 }]
+    }
+    let switched = ""
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, search }} onSwitch={id => { switched = id }} />, { gw })
+    await until(t, () => t.frame().includes("Sessions (2)"))
+    await act(async () => { await t.keys.typeText("/") }); await t.settle()
+    await act(async () => { await t.keys.typeText("a") })
+    await until(t, () => t.frame().includes("Stale result"))
+    await act(async () => { await t.keys.typeText("b") })
+    await until(t, () => t.frame().includes("new search failed"))
+    expect(t.frame()).not.toContain("Stale result")
+    act(() => t.keys.pressEnter()); await t.settle()
+    expect(switched).toBe("")
+    t.destroy()
+  })
+
   test("d confirms then deletes via session.delete RPC and reloads", async () => {
     let listed = ROWS
     const gw = new MockGateway({
@@ -509,6 +561,21 @@ describe("Sessions tab", () => {
     t.destroy()
   })
 
+  test("current session cannot enter local-delete fallback when live listing is unavailable", async () => {
+    let local = 0
+    const gw = new MockGateway({ "session.list": () => ({ sessions: ROWS }) })
+    const t = await mountNode(
+      <Sessions focused currentId="sid-a" io={{ ...NOIO, remove: () => (local++, true) }} />,
+      { gw },
+    )
+    await until(t, () => t.frame().includes("Sessions (2)"))
+    await act(async () => { await t.keys.typeText("d") })
+    await t.settle()
+    expect(t.frame()).not.toContain("Delete Session?")
+    expect(local).toBe(0)
+    t.destroy()
+  })
+
   test("session.delete unavailable falls back to io.remove", async () => {
     const deleted: string[] = []
     let listed = ROWS
@@ -529,6 +596,38 @@ describe("Sessions tab", () => {
     await until(t, () => t.frame().includes("Sessions (1)"))
 
     expect(deleted).toEqual(["sid-a"])
+    t.destroy()
+  })
+
+  test("session.delete safety failure does not fall back to direct deletion", async () => {
+    const gw = new MockGateway({
+      "session.list": () => ({ sessions: ROWS }),
+      "session.delete": () => { throw new Error("could not enumerate active sessions") },
+    })
+    let local = 0
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, remove: () => (local++, true) }} />, { gw })
+    await until(t, () => t.frame().includes("Sessions (2)"))
+    await act(async () => { await t.keys.typeText("d") })
+    await act(async () => { await t.keys.typeText("y") })
+    await until(t, () => t.frame().includes("could not enumerate active sessions"))
+
+    expect(local).toBe(0)
+    expect(t.frame()).toContain("Sessions (2)")
+    t.destroy()
+  })
+
+  test("session.delete timeout fails closed because server outcome is unknown", async () => {
+    const gw = new MockGateway({
+      "session.list": () => ({ sessions: ROWS }),
+      "session.delete": () => { throw new Error("timeout: session.delete") },
+    })
+    let local = 0
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, remove: () => (local++, true) }} />, { gw })
+    await until(t, () => t.frame().includes("Sessions (2)"))
+    await act(async () => { await t.keys.typeText("d") })
+    await act(async () => { await t.keys.typeText("y") })
+    await until(t, () => t.frame().includes("timeout: session.delete"))
+    expect(local).toBe(0)
     t.destroy()
   })
 
@@ -768,6 +867,73 @@ describe("Sessions tab — tree expansion", () => {
     if (pid === "pid") return [SUB1, SUB2]
     return []
   }
+
+  test("subagent query failure stays inside the tab error boundary", async () => {
+    const gw = new MockGateway({ "session.list": () => ({ sessions: [PARENT, OTHER] }) })
+    const io = {
+      ...NOIO,
+      list: listWithSubs,
+      subagents: async () => { throw new Error("children exploded") },
+    }
+    const t = await mountNode(<Sessions focused io={io} />, { gw, width: 140, height: 30 })
+    await until(t, () => t.frame().includes("children exploded"))
+    expect(t.frame()).toContain("Parent with subs")
+    t.destroy()
+  })
+
+  test("subagent detail reads use bounded concurrency", async () => {
+    const rows = Array.from({ length: 20 }, (_, i) => detail({
+      id: `parent-${i}`,
+      sessionSource: "tui",
+      title: `Parent ${i}`,
+      message_count: 1,
+      subagent_count: 1,
+    }))
+    let active = 0
+    let peak = 0
+    let calls = 0
+    const io = {
+      ...NOIO,
+      list: () => rows,
+      subagents: async () => {
+        calls++
+        active++
+        peak = Math.max(peak, active)
+        await Bun.sleep(5)
+        active--
+        return []
+      },
+    }
+    const t = await mountNode(<Sessions focused io={io} />)
+    await until(t, () => calls === rows.length && active === 0)
+    expect(peak).toBeLessThanOrEqual(8)
+    t.destroy()
+  })
+
+  test("late list results cannot replace a newer refresh", async () => {
+    const stale = [detail({ id: "stale", sessionSource: "tui", title: "Stale session", message_count: 2 })]
+    const fresh = [detail({ id: "fresh", sessionSource: "tui", title: "Fresh session", message_count: 2 })]
+    let release!: () => void
+    let calls = 0
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const list = async () => {
+      calls++
+      if (calls === 1) { await gate; return stale }
+      return fresh
+    }
+    const gw = new MockGateway({ "session.list": () => ({ sessions: [] }) })
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, list }} />, { gw, width: 140 })
+    await until(t, () => calls === 1)
+
+    await act(async () => { await t.keys.typeText("r") })
+    await until(t, () => t.frame().includes("Fresh session"))
+    release()
+    await gate
+    await t.settle()
+    expect(t.frame()).toContain("Fresh session")
+    expect(t.frame()).not.toContain("Stale session")
+    t.destroy()
+  })
 
   test("wide detail mode expands subagents inline with Space, not in the detail pane", async () => {
     const gw = new MockGateway({ "session.list": () => ({ sessions: [PARENT, OTHER] }) })
@@ -1051,6 +1217,35 @@ describe("Sessions tab — lineage block", () => {
     t.destroy()
   })
 
+  test("late lineage response cannot replace the selected session", async () => {
+    let release!: (info: LineageInfo) => void
+    const first = new Promise<LineageInfo>(resolve => { release = resolve })
+    const rows = [
+      detail({ id: "a", sessionSource: "tui", title: "A", message_count: 1 }),
+      detail({ id: "b", sessionSource: "tui", title: "B", message_count: 1 }),
+    ]
+    const lineage = (id: string) => id === "a" ? first : Promise.resolve({ continuesFrom: { id: "b-root", title: "B root" } })
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, list: () => rows, lineage }} />, { width: 200, height: 40 })
+    await until(t, () => t.frame().includes("Sessions (2)"))
+    act(() => t.keys.pressArrow("down"))
+    await until(t, () => t.frame().includes("B root"))
+
+    release({ continuesFrom: { id: "a-root", title: "stale A root" } })
+    await first
+    await t.settle()
+    expect(t.frame()).toContain("B root")
+    expect(t.frame()).not.toContain("stale A root")
+    t.destroy()
+  })
+
+  test("lineage failure stays visible in the detail pane", async () => {
+    const rows = [detail({ id: "a", sessionSource: "tui", title: "A", message_count: 1 })]
+    const lineage = async () => { throw new Error("lineage unavailable") }
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, list: () => rows, lineage }} />, { width: 200, height: 40 })
+    await until(t, () => t.frame().includes("lineage unavailable"))
+    t.destroy()
+  })
+
   test("clicking ← continues from switches to predecessor session", async () => {
     const gw = new MockGateway({ "session.list": () => ({ sessions: [PARENT_CONT] }) })
     const list = (): SessionRow[] => [
@@ -1180,6 +1375,32 @@ describe("Sessions tab — transcript peek", () => {
     await until(t, () => t.frame().includes("(no local transcript)"))
     expect(calls).toContain("sid-b")
     expect(t.frame()).not.toContain("alpha content here")
+    t.destroy()
+  })
+
+  test("late peek response cannot replace the selected session", async () => {
+    let release!: (rows: PeekMsg[]) => void
+    const first = new Promise<PeekMsg[]>(resolve => { release = resolve })
+    const gw = new MockGateway({ "session.list": () => ({ sessions: ROWS }) })
+    const peek = (sid: string) => sid === "sid-a" ? first : Promise.resolve([pm("user", "beta content")])
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, peek }} />, { gw, width: 200, height: 50 })
+    await until(t, () => t.frame().includes("Sessions (2)"))
+    act(() => t.keys.pressArrow("down"))
+    await until(t, () => t.frame().includes("beta content"))
+
+    release([pm("user", "stale alpha content")])
+    await first
+    await t.settle()
+    expect(t.frame()).toContain("beta content")
+    expect(t.frame()).not.toContain("stale alpha content")
+    t.destroy()
+  })
+
+  test("peek failure stays visible in the detail pane", async () => {
+    const gw = new MockGateway({ "session.list": () => ({ sessions: ROWS }) })
+    const peek = async () => { throw new Error("transcript unavailable") }
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, peek }} />, { gw, width: 200, height: 50 })
+    await until(t, () => t.frame().includes("transcript unavailable"))
     t.destroy()
   })
 

@@ -92,6 +92,62 @@ describe("python", () => {
 })
 
 describe("GatewayClient", () => {
+  test("synchronous spawn failure reports exit without throwing", () => {
+    const prev = Bun.spawn
+    ;(Bun as unknown as { spawn: typeof Bun.spawn }).spawn = (() => {
+      throw new Error("spawn exploded")
+    }) as typeof Bun.spawn
+    const gw = new GatewayClient()
+    let exits = 0
+    gw.on("exit", () => { exits++ })
+    gw.drain()
+    try {
+      expect(() => gw.start()).not.toThrow()
+      expect(exits).toBe(1)
+      expect(gw.tail()).toContain("spawn exploded")
+    } finally {
+      ;(Bun as unknown as { spawn: typeof Bun.spawn }).spawn = prev
+    }
+  })
+
+  test("startup timeout terminates the wedged gateway", async () => {
+    const spawn = Bun.spawn
+    const clock = globalThis.setTimeout
+    let kills = 0
+    let done!: (code: number) => void
+    const exited = new Promise<number>(resolve => { done = resolve })
+    const proc = {
+      stdin: { write() { return 0 } },
+      stdout: null,
+      stderr: null,
+      exited,
+      exitCode: null as number | null,
+      kill() {
+        kills++
+        this.exitCode = 1
+        done(1)
+      },
+    }
+    ;(Bun as unknown as { spawn: typeof Bun.spawn }).spawn = (() => proc as never) as typeof Bun.spawn
+    const fast = (handler: () => void, ms?: number) => clock(handler, ms === 15_000 ? 0 : ms)
+    globalThis.setTimeout = fast as unknown as typeof setTimeout
+    const gw = new GatewayClient()
+    let exits = 0
+    gw.on("exit", () => { exits++ })
+    gw.drain()
+    try {
+      gw.start()
+      await Bun.sleep(20)
+      expect(gw.tail()).toContain("timed out")
+      expect(kills).toBe(1)
+      expect(exits).toBe(1)
+    } finally {
+      gw.kill()
+      globalThis.setTimeout = clock
+      ;(Bun as unknown as { spawn: typeof Bun.spawn }).spawn = spawn
+    }
+  })
+
   test("passes Python source root to gateway child env", () => {
     const prev = Bun.spawn
     const root = tmp()
@@ -180,6 +236,84 @@ describe("GatewayClient", () => {
       await expect(gw.request("paste.collapse", { text: "a\udc9d", nested: ["💝"] })).resolves.toEqual({ ok: true })
       expect(JSON.parse(frame.trim()).params).toEqual({ text: "a�", nested: ["💝"] })
       expect(gw.tail()).toContain("[wire] sanitized invalid unicode for paste.collapse: $.params.text:1")
+    } finally {
+      gw.kill()
+      ;(Bun as unknown as { spawn: typeof Bun.spawn }).spawn = prev
+    }
+  })
+
+  test("explicit restart rejects requests owned by the old process", async () => {
+    const prev = Bun.spawn
+    const procs: Array<{ exitCode: number | null; kill: () => void }> = []
+    ;(Bun as unknown as { spawn: typeof Bun.spawn }).spawn = (() => {
+      let done!: (code: number) => void
+      const exited = new Promise<number>(resolve => { done = resolve })
+      const proc = {
+        stdin: { write() { return 0 } },
+        stdout: null,
+        stderr: null,
+        exited,
+        exitCode: null as number | null,
+        kill() {
+          if (this.exitCode !== null) return
+          this.exitCode = 0
+          done(0)
+        },
+      }
+      procs.push(proc)
+      return proc as never
+    }) as typeof Bun.spawn
+
+    const gw = new GatewayClient()
+    try {
+      gw.start()
+      const old = gw.request("test.pending").then(
+        () => "resolved",
+        (e: Error) => e.message,
+      )
+      gw.start()
+      expect(await Promise.race([old, Bun.sleep(20).then(() => "pending")]))
+        .toBe("gateway restarted")
+      expect(procs).toHaveLength(2)
+    } finally {
+      gw.kill()
+      ;(Bun as unknown as { spawn: typeof Bun.spawn }).spawn = prev
+    }
+  })
+
+  test("restart drops trailing events from the superseded process", async () => {
+    const prev = Bun.spawn
+    const enc = new TextEncoder()
+    const controls: ReadableStreamDefaultController<Uint8Array>[] = []
+    ;(Bun as unknown as { spawn: typeof Bun.spawn }).spawn = (() => {
+      const stdout = new ReadableStream<Uint8Array>({ start: control => { controls.push(control) } })
+      return {
+        stdin: { write() { return 0 } },
+        stdout,
+        stderr: null,
+        exited: new Promise<null>(() => {}),
+        exitCode: null,
+        kill() {},
+      } as never
+    }) as typeof Bun.spawn
+
+    const gw = new GatewayClient()
+    const seen: string[] = []
+    gw.on("event", event => {
+      if (event.type === "status.update") seen.push(event.payload.text)
+    })
+    gw.drain()
+    try {
+      gw.start()
+      gw.start()
+      controls[0].enqueue(enc.encode(JSON.stringify({
+        method: "event", params: { type: "status.update", payload: { kind: "info", text: "stale" } },
+      }) + "\n"))
+      controls[1].enqueue(enc.encode(JSON.stringify({
+        method: "event", params: { type: "status.update", payload: { kind: "info", text: "fresh" } },
+      }) + "\n"))
+      await Bun.sleep(0)
+      expect(seen).toEqual(["fresh"])
     } finally {
       gw.kill()
       ;(Bun as unknown as { spawn: typeof Bun.spawn }).spawn = prev

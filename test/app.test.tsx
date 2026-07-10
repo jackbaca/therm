@@ -683,7 +683,7 @@ describe("app", () => {
   })
 
   test("/theme light|dark sets theme mode locally", async () => {
-    await using h = await tmpHome({ prefs: { theme: "tokyonight", themeMode: "dark" } })
+    await using _home = await tmpHome({ prefs: { theme: "tokyonight", themeMode: "dark" } })
     await using t = await mount()
     await until(t, () => t.frame().includes("Ready"))
 
@@ -749,6 +749,19 @@ describe("app", () => {
     expect(t.gw.last("session.resume")).toBeUndefined()
     expect(t.frame()).toContain("branch seed")
     expect(t.frame()).not.toContain("Failed to resume")
+    t.destroy()
+  })
+
+  test("/branch surfaces the gateway failure", async () => {
+    const gw = new MockGateway({
+      "session.branch": () => { throw new Error("branch exploded") },
+    })
+    const t = await mount({ gw })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("/branch") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("branch exploded"))
     t.destroy()
   })
 
@@ -972,6 +985,72 @@ describe("app", () => {
     t.destroy()
   })
 
+  test("/compress surfaces gateway failure", async () => {
+    const gw = new MockGateway({
+      "session.compress": () => { throw new Error("compress exploded") },
+    })
+    const t = await mount({ gw })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("/compress") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("compress exploded"))
+    t.destroy()
+  })
+
+  test("failed /undo does not create a redo snapshot", async () => {
+    const gw = new MockGateway({
+      "session.undo": () => { throw new Error("undo exploded") },
+    })
+    const t = await mount({ gw })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("seed") })
+    act(() => t.keys.pressEnter())
+    await t.settle()
+    act(() => {
+      gw.push({ type: "message.start" })
+      gw.push({ type: "message.complete", payload: { text: "reply", usage: { input: 1, output: 1, total: 2 } } })
+    })
+    await until(t, () => t.frame().includes("reply") && t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("/undo") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("Undo last turn?"))
+    await act(async () => { await t.keys.typeText("y") })
+    await until(t, () => t.frame().includes("undo exploded"))
+    expect(gw.last("session.history")).toBeUndefined()
+
+    await act(async () => { await t.keys.typeText("/redo") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("nothing to redo"))
+    t.destroy()
+  })
+
+  test("/retry does not resubmit when rewind fails", async () => {
+    const gw = new MockGateway({
+      "session.undo": () => { throw new Error("retry rewind exploded") },
+    })
+    const t = await mount({ gw })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("seed") })
+    act(() => t.keys.pressEnter())
+    await t.settle()
+    act(() => {
+      gw.push({ type: "message.start" })
+      gw.push({ type: "message.complete", payload: { text: "reply", usage: { input: 1, output: 1, total: 2 } } })
+    })
+    await until(t, () => t.frame().includes("reply") && t.frame().includes("Ready"))
+    const before = gw.calls.filter(call => call.method === "prompt.submit").length
+
+    await act(async () => { await t.keys.typeText("/retry") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("retry rewind exploded"))
+    expect(gw.calls.filter(call => call.method === "prompt.submit")).toHaveLength(before)
+    t.destroy()
+  })
+
 
   test("click user message → action menu → Rewind → N×session.undo → composer seeded", async () => {
     // History after rewind: server-authoritative via session.history.
@@ -1063,6 +1142,38 @@ describe("app", () => {
     expect(t.gw.last("session.activate")?.params.session_id).toBe("branch-sid")
     // Composer seeded.
     expect(t.frame()).toContain("> seed q")
+    t.destroy()
+  })
+
+  test("fork undo failure closes the branch without activating it", async () => {
+    const gw = new MockGateway({
+      "session.branch": () => ({ session_id: "broken-branch", title: "broken" }),
+      "session.undo": () => { throw new Error("branch undo failed") },
+    })
+    const t = await mount({ gw })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("seed q") })
+    act(() => t.keys.pressEnter())
+    await t.settle()
+    act(() => {
+      gw.push({ type: "message.start" })
+      gw.push({ type: "message.complete", payload: { text: "re: seed q", usage: { input: 1, output: 1, total: 2 } } })
+    })
+    await until(t, () => t.frame().includes("re: seed q"))
+
+    const rows = t.frame().split("\n")
+    const y = rows.findIndex(l => l.includes("seed q") && !l.includes("re:") && !l.includes("┇"))
+    await act(async () => { await t.mouse.click(4, y) })
+    await until(t, () => t.frame().includes("Message Actions"))
+    act(() => t.keys.pressArrow("down"))
+    act(() => t.keys.pressArrow("down"))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("branch undo failed"))
+
+    expect(gw.last("session.activate")).toBeUndefined()
+    expect(gw.last("session.close")?.params.session_id).toBe("broken-branch")
+    expect(t.frame()).not.toContain("forked →")
     t.destroy()
   })
 
@@ -1361,6 +1472,29 @@ describe("app", () => {
     expect(t.gw.last("prompt.submit")?.params.text).toBe("branch is OUT<git rev-parse> ok")
     // Transcript shows the expanded form, not the raw template.
     expect(t.frame()).not.toContain("{!git")
+    t.destroy()
+  })
+
+  test("failed interrupt reopens the stream gate", async () => {
+    const t = await mount({ handlers: {
+      "session.interrupt": () => { throw new Error("interrupt exploded") },
+    }})
+    await until(t, () => t.frame().includes("Ready"))
+    act(() => {
+      t.gw.push({ type: "message.start" })
+      t.gw.push({ type: "message.delta", payload: { text: "before " } })
+    })
+    await until(t, () => t.frame().includes("Generating"))
+
+    act(() => t.keys.pressEscape()); await t.settle()
+    act(() => t.keys.pressEscape())
+    await until(t, () => t.frame().includes("interrupt exploded"))
+
+    act(() => {
+      t.gw.push({ type: "message.delta", payload: { text: "continued" } })
+      t.gw.push({ type: "message.complete", payload: { text: "before continued", usage: { input: 1, output: 1, total: 2 } } })
+    })
+    await until(t, () => t.frame().includes("before continued"))
     t.destroy()
   })
 

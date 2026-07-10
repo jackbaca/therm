@@ -10,7 +10,7 @@ type Renderer = {
   currentFocusedRenderable: Renderable | null
 }
 
-export function yank(renderer: Renderer, toast?: Toast): boolean {
+function yank(renderer: Renderer, toast?: Toast): boolean {
   const text = renderer.getSelection()?.getSelectedText()
   if (!text) return false
   void copyText(text, toast)

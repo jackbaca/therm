@@ -116,7 +116,7 @@ export async function copy(text: string): Promise<void> {
   }
 }
 
-export function copied(toast: ToastContext, message = "Copied to clipboard"): void {
+function copied(toast: ToastContext, message = "Copied to clipboard"): void {
   toast.show({ key: "clipboard.copy", variant: "success", message })
 }
 

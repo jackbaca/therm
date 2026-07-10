@@ -24,6 +24,30 @@ const navTo = async (t: H, cfg: Record<string, unknown>, key: string) => {
 describe("Config tab", () => {
   afterEach(() => { delete process.env.HERMES_MANAGED })
 
+  test("load failure surfaces the gateway error", async () => {
+    const gw = new MockGateway({ "config.get": () => { throw new Error("config unavailable") } })
+    const t = await mountNode(<Config focused />, { gw, width: 160, height: 48 })
+    await until(t, () => t.frame().includes("config unavailable"))
+    t.destroy()
+  })
+
+  test("late initial load cannot erase a local draft", async () => {
+    let resolve!: (value: unknown) => void
+    const gw = new MockGateway({ "config.get": () => new Promise(done => { resolve = done }) })
+    const t = await mountNode(<Config focused />, { gw, width: 160, height: 48 })
+    await until(t, () => t.frame().includes("general"))
+    await navTo(t, {}, "terminal.container_persistent")
+    await act(async () => { await t.keys.typeText(" ") })
+    await until(t, () => t.frame().includes("1 unsaved"))
+
+    resolve({ config: { terminal: { container_persistent: false } } })
+    await act(async () => { await Bun.sleep(0) })
+    await t.settle()
+    expect(t.frame()).toContain("1 unsaved")
+    expect(t.frame()).toContain("✓ ON")
+    t.destroy()
+  })
+
   test("every schema key renders; defaults shown with empty user config", async () => {
     const gw = new MockGateway({ "config.get": () => ({ config: {} }) })
     const t = await mountNode(<Config focused />, { gw, width: 160, height: 48 })
@@ -124,6 +148,7 @@ describe("Config tab", () => {
 
   test("toggle dirties; Ctrl+S → cli.exec; restart-tier opens confirm", async () => {
     let cfg: Record<string, unknown> = { terminal: { container_persistent: false } }
+    const restarts: string[] = []
     const gw = new MockGateway({
       "config.get": () => ({ config: cfg }),
       "cli.exec": (p) => {
@@ -133,6 +158,7 @@ describe("Config tab", () => {
         return { blocked: false, code: 0, output: "✓" }
       },
     })
+    gw.on("restart", mode => { restarts.push(mode) })
     const t = await mountNode(<Config focused />, { gw, width: 160, height: 48 })
     await until(t, () => t.frame().includes("general"))
     await navTo(t, cfg, "terminal.container_persistent")
@@ -152,9 +178,34 @@ describe("Config tab", () => {
 
     await until(t, () => t.frame().includes("need a gateway restart"))
     expect(t.frame()).toContain("interrupts any running turn")
-    await act(async () => { await t.keys.typeText("n") })
+    await act(async () => { await t.keys.typeText("y") })
+    await until(t, () => restarts.length === 1)
+    expect(restarts).toEqual(["resume"])
     await t.settle()
     expect(t.frame()).not.toContain("unsaved")
+    t.destroy()
+  })
+
+  test("readback failure after save surfaces without losing the draft", async () => {
+    const cfg = { terminal: { container_persistent: false } }
+    let gets = 0
+    const gw = new MockGateway({
+      "config.get": () => {
+        if (gets++ === 0) return { config: cfg }
+        throw new Error("readback unavailable")
+      },
+      "cli.exec": () => ({ blocked: false, code: 0, output: "✓" }),
+    })
+    const t = await mountNode(<Config focused />, { gw, width: 160, height: 48 })
+    await until(t, () => t.frame().includes("general"))
+    await navTo(t, cfg, "terminal.container_persistent")
+    await act(async () => { await t.keys.typeText(" ") })
+    await until(t, () => t.frame().includes("1 unsaved"))
+    act(() => t.keys.pressKey("s", { ctrl: true }))
+    await until(t, () => t.frame().includes("Write 1 change to config.yaml?"))
+    await act(async () => { await t.keys.typeText("y") })
+    await until(t, () => t.frame().includes("readback unavailable"))
+    expect(t.frame()).toContain("1 unsaved")
     t.destroy()
   })
 
@@ -166,6 +217,37 @@ describe("Config tab", () => {
     await until(t, () => t.frame().includes("No changes"))
     expect(t.frame()).not.toContain("Write")
     expect(gw.last("cli.exec")).toBeUndefined()
+    t.destroy()
+  })
+
+  test("same-frame boolean toggles preserve the original draft", async () => {
+    const cfg = { terminal: { container_persistent: false } }
+    const gw = new MockGateway({ "config.get": () => ({ config: cfg }) })
+    const t = await mountNode(<Config focused />, { gw, width: 160, height: 48 })
+    await until(t, () => t.frame().includes("general"))
+    await navTo(t, cfg, "terminal.container_persistent")
+
+    act(() => {
+      void t.keys.typeText(" ")
+      void t.keys.typeText(" ")
+    })
+    await t.settle()
+    expect(t.frame()).not.toContain("unsaved")
+    t.destroy()
+  })
+
+  test("same-frame edit and save reads the live draft", async () => {
+    const cfg = { terminal: { container_persistent: false } }
+    const gw = new MockGateway({ "config.get": () => ({ config: cfg }) })
+    const t = await mountNode(<Config focused />, { gw, width: 160, height: 48 })
+    await until(t, () => t.frame().includes("general"))
+    await navTo(t, cfg, "terminal.container_persistent")
+    act(() => {
+      void t.keys.typeText(" ")
+      t.keys.pressKey("s", { ctrl: true })
+    })
+    await until(t, () => t.frame().includes("Write 1 change to config.yaml?"))
+    expect(t.frame()).not.toContain("No changes")
     t.destroy()
   })
 

@@ -75,8 +75,8 @@ export type SlashCtx = {
 
   newSession: () => Promise<void>
   switchSession: (id: string) => Promise<void>
-  activateSession: (id: string) => Promise<void>
-  rewind: (m: Message) => Promise<void>
+  activateSession: (id: string) => Promise<boolean>
+  rewind: (m: Message) => Promise<boolean>
   goTo: (tab: number, sub: number) => void
   attachClipboard: () => void
   voiceToggle: (action: string, sid: string) => Promise<void>
@@ -208,7 +208,10 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
       return
     }
     toast.show({ variant: "info", message: "Compressing session…" })
-    const r = await ctx.current.session.compress(raw)
+    const r = await ctx.current.session.compress(raw).catch((err: Error) => {
+      toast.show({ variant: "error", message: err.message })
+      return null
+    })
     if (!r) return
     if (r.info) ctx.current.setInfo(r.info)
     const out = r.lines?.length ? r.lines : r.message ? [r.message] : []
@@ -245,9 +248,11 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
 
   const branch = useCallback((name?: string) => {
     const x = ctx.current
-    x.session.branch(name?.trim() || undefined).then(id => id
-      ? void x.activateSession(id)
-      : toast.show({ variant: "error", message: "branch failed" }))
+    void x.session.branch(name?.trim() || undefined)
+      .then(id => id
+        ? void x.activateSession(id)
+        : toast.show({ variant: "error", message: "branch failed" }))
+      .catch((err: Error) => toast.show({ variant: "error", message: err.message }))
   }, [toast])
 
   const run = useCallback((c: SlashCommand, arg = "") => {
@@ -336,11 +341,14 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
               // message onward (user + assistant[+tool] run).
               const msgs = x.turnRef.current.messages
               const at = msgs.map(m => m.role).lastIndexOf("user")
-              if (at >= 0) x.undone.current.push(msgs.slice(at))
-              x.session.undo().then(() =>
-                gw.request<{ messages: TranscriptMessage[] }>("session.history")
-                  .then(r => x.dispatch({ kind: "load", messages: transcriptToMessages(r.messages ?? []) }))
-                  .catch(() => {}))
+              const tail = at >= 0 ? msgs.slice(at) : []
+              x.session.undo()
+                .then(() => {
+                  if (tail.length) x.undone.current.push(tail)
+                  return gw.request<{ messages: TranscriptMessage[] }>("session.history")
+                })
+                .then(r => x.dispatch({ kind: "load", messages: transcriptToMessages(r.messages ?? []) }))
+                .catch((err: Error) => toast.show({ variant: "error", message: err.message }))
             })
           return
         case "redo": {
@@ -353,7 +361,7 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
         case "retry": {
           const last = [...x.turnRef.current.messages].reverse().find(m => m.role === "user")
           if (!last) { toast.show({ variant: "info", message: "nothing to retry" }); return }
-          void x.rewind(last).then(() => x.sendRef.current(msgText(last)))
+          void x.rewind(last).then(ok => { if (ok) x.sendRef.current(msgText(last)) })
           return
         }
         case "model":

@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeAll, afterEach, spyOn } from "bun:test"
 import { act } from "react"
 import { Database } from "bun:sqlite"
-import { mkdirSync, writeFileSync, rmSync, chmodSync } from "node:fs"
+import { mkdirSync, writeFileSync, rmSync, chmodSync, renameSync } from "node:fs"
 import { join } from "node:path"
 import { mountNode, MockGateway, until } from "./harness"
 import { hermesPath } from "../src/service/hermes-home"
@@ -12,6 +12,7 @@ import {
 } from "../src/service/hermes-kanban"
 import { parseDispatchResult, dispatchFailures, dispatchVariant, dispatchDetails } from "../src/service/kanban-dispatch"
 import { Kanban } from "../src/tabs/Kanban"
+import { patchAt, resetWrites } from "../src/service/kanban-write"
 
 const now = Math.floor(Date.now() / 1000)
 
@@ -1477,10 +1478,69 @@ describe("patchTask direct writes", () => {
     expect(read("t4")!.priority).toBe(0)
   })
 
+  test("kanban worker facade mirrors the service write contract", async () => {
+    const { patch } = await import("../src/io/kanban")
+    expect(await patch("default", "t4", { priority: 6 })).toBe(true)
+    expect(read("t4")!.priority).toBe(6)
+    expect(await patch("default", "missing-task", { priority: 6 })).toBe(false)
+  })
+
+  test("real kanban worker patches the sandbox board", async () => {
+    const prev = process.env.HERM_IO_INLINE
+    process.env.HERM_IO_INLINE = ""
+    // @ts-expect-error Bun query-string specifier creates a fresh module instance.
+    const fresh = await import("../src/io/kanban?worker") as typeof import("../src/io/kanban")
+    try {
+      expect(await fresh.patch("default", "t4", { priority: 8 })).toBe(true)
+      expect(read("t4")!.priority).toBe(8)
+    } finally {
+      fresh.close()
+      if (prev === undefined) delete process.env.HERM_IO_INLINE
+      else process.env.HERM_IO_INLINE = prev
+    }
+  })
+
+  test("write handle reopens when a board database is replaced", () => {
+    const root = hermesPath("kanban-replace")
+    const path = join(root, "kanban.db")
+    const old = `${path}.old`
+    mkdirSync(root, { recursive: true })
+    const seed = (priority: number) => {
+      const db = new Database(path, { create: true })
+      schema(db)
+      db.query("INSERT INTO tasks (id, title, status, priority, created_at) VALUES (?, ?, ?, ?, ?)")
+        .run("replace-me", "Replace me", "ready", priority, now)
+      db.close()
+    }
+    try {
+      seed(0)
+      expect(patchAt(root, "default", "replace-me", { priority: 1 })).toBe(true)
+      renameSync(path, old)
+      seed(0)
+
+      expect(patchAt(root, "default", "replace-me", { priority: 7 })).toBe(true)
+      const db = new Database(path)
+      expect((db.query("SELECT priority FROM tasks WHERE id = ?").get("replace-me") as { priority: number }).priority).toBe(7)
+      db.close()
+    } finally {
+      resetWrites()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   test("empty title rejected, unknown id returns false", async () => {
     const { patchTask } = await import("../src/service/hermes-kanban")
     expect(() => patchTask("default", "t4", { title: "   " })).toThrow(/empty/)
     expect(patchTask("default", "does-not-exist", { title: "x" })).toBe(false)
+  })
+
+  test("combined patch rolls back priority when title validation fails", () => {
+    const before = read("t4")!.priority
+    const count = events("t4").length
+    expect(() => patchAt(process.env.HERMES_HOME!, "default", "t4", { priority: 8, title: "   " }))
+      .toThrow(/empty/)
+    expect(read("t4")!.priority).toBe(before)
+    expect(events("t4")).toHaveLength(count)
   })
 
   const retries = () => {
@@ -1804,6 +1864,30 @@ describe("Kanban diagnostics UI", () => {
     const slug = m?.[1] ?? "default"
     return JSON.stringify(byBoard[slug] ?? [])
   }
+
+  test("diagnostics refreshes serialize and collapse to the latest request", async () => {
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const gw = new MockGateway({
+      "shell.exec": async p => {
+        if (/\bdiagnostics\b/.test(p.command as string)) await gate
+        return { stdout: "[]", stderr: "", code: 0 }
+      },
+    })
+    const t = await mountNode(<Kanban focused />, { gw, width: 180, height: 44 })
+    const count = listBoards().length
+    const calls = () => gw.calls.filter(c => c.method === "shell.exec" && /\bdiagnostics\b/.test(String(c.params.command))).length
+    await until(t, () => calls() === count)
+
+    await act(async () => { await t.keys.typeText("rr") })
+    await t.settle()
+    expect(calls()).toBe(count)
+
+    release()
+    await until(t, () => calls() === count * 2)
+    expect(calls()).toBe(count * 2)
+    t.destroy()
+  })
 
   test("Card prefixes severity glyph; SidePane renders Diagnostics block + suggested action", async () => {
     const fixture = {

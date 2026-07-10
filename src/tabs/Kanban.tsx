@@ -3,11 +3,12 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/react"
 import type { BorderSides, MouseEvent, ScrollBoxRenderable } from "@opentui/core"
 import {
   boardStateOf, detailOf, tailLogOf, assignees, q, STATUSES,
-  currentBoard, listBoards, resetKanban, patchTask,
-  parseDiagnostics, maxSeverity, sortDiags,
+  currentBoard, listBoards, resetKanban,
+  maxSeverity,
   type Task, type Status, type Detail, type Board, type BlockKind,
-  type Diag, type Severity, type BoardError,
+  type Diag, type Severity, type BoardError, type PatchFields,
 } from "../service/hermes-kanban"
+import { patch as patchTask } from "../io/kanban"
 import { useKeys } from "../keys"
 import { useTheme } from "../theme"
 import { useGateway } from "../context/gateway"
@@ -21,19 +22,19 @@ import { openTextPrompt } from "../dialogs/text-prompt"
 import { openCreateTask } from "../dialogs/new-task"
 import { TabShell } from "../ui/shell"
 import { HintBar } from "../ui/hint"
-import { KVBlock } from "../ui/kv"
 import { ago, trunc } from "../ui/fmt"
 import { load as loadPrefs, set as setPref, type KanbanPrefs } from "../context/preferences"
 import { parseDispatchResult, dispatchFailures, dispatchGuarded, dispatchVariant, dispatchDetails } from "../service/kanban-dispatch"
 import { FileLink } from "../components/ui/FileLink"
 import type { Source } from "../service/hermes-home"
+import { useKanbanDiagnostics } from "./kanban-diagnostics"
 
 // Operator surface for every kanban board under ~/.hermes/.
 //
 // Boards stack vertically; each is a collapsible section (▾/▸
 // header + filter-chip bar + capped-height row of status columns).
 // Reads are sidecar SQLite per board. Writes split by kind:
-//   - title/body/priority: direct bun:sqlite (patchTask) inside a
+//   - title/body/priority: worker-backed bun:sqlite inside a
 //     BEGIN IMMEDIATE txn + task_events row, mirroring dashboard
 //     plugin_api PATCH /tasks/:id.
 //   - status transitions / assign / link / edit / comment / dispatch:
@@ -117,15 +118,6 @@ const pass = (t: Task, m: Mask) =>
   admits(m.who, t.assignee ?? null as unknown as string)
   && admits(m.pri, t.priority)
 
-/** Index parsed diagnostic rows by task_id for O(1) lookup from the
- *  card renderer. Empty rows are stripped so maxSeverity() on an
- *  absent map entry is always null. */
-const indexDiags = (rows: ReturnType<typeof parseDiagnostics>): Map<string, Diag[]> => {
-  const out = new Map<string, Diag[]>()
-  for (const r of rows)
-    if (r.diagnostics.length > 0) out.set(r.task_id, sortDiags(r.diagnostics))
-  return out
-}
 // Masks + open-set round-trip through ~/.config/herm/tui.json under
 // the `kanban` key. Keyed by slug. Maps/Sets flatten to entry arrays
 // for JSON.
@@ -713,12 +705,8 @@ export const Kanban = memo((props: { focused?: boolean }) => {
   const [data, setData] = useState<Map<string, ReturnType<typeof boardStateOf>>>(
     () => new Map(boards.map(b => [b.slug, boardStateOf(b.slug)])),
   )
-  // diag[slug][taskId] = Diag[]. Shape keeps card lookup O(1) and
-  // lets the SidePane pull the current task's diagnostics without a
-  // second fetch. Missing slug / missing taskId both mean "none".
-  const [diags, setDiags] = useState<Map<string, Map<string, Diag[]>>>(
-    () => new Map(),
-  )
+  const diagnostics = useKanbanDiagnostics(gw)
+  const diags = diagnostics.data
   const [masks, setMasks] = useState<Map<string, Mask>>(() =>
     maskFromPrefs(loadPrefs().kanban?.masks))
   const [open, setOpen] = useState<Set<string>>(() => {
@@ -750,20 +738,8 @@ export const Kanban = memo((props: { focused?: boolean }) => {
     setData(new Map(bs.map(b => [b.slug, boardStateOf(b.slug)])))
     setPane(p => p?.kind === "detail"
       ? (d => d ? { ...p, d } : null)(detailOf(p.slug, p.d.id)) : p)
-    // Diagnostics: one shell.exec per board. Compute in parallel; any
-    // per-board failure (CLI absent, board not initialized) falls back
-    // to "no diags" for that slug rather than blocking the others. A
-    // single request object is built per-board so stale fetches from a
-    // previous `load()` can't clobber newer results — `setDiags`
-    // replaces the map atomically per call.
-    Promise.all(bs.map(b =>
-      gw.request<Sh>("shell.exec",
-          { command: `hermes kanban --board ${q(b.slug)} diagnostics --json` })
-        .then(r => r.code === 0 ? parseDiagnostics(r.stdout) : [])
-        .catch(() => [] as ReturnType<typeof parseDiagnostics>)
-        .then(rows => [b.slug, indexDiags(rows)] as const),
-    )).then(pairs => setDiags(new Map(pairs)))
-  }, [gw])
+    void diagnostics.refresh(bs)
+  }, [diagnostics.refresh])
   useEffect(load, [load])
 
   // Persist masks + open set whenever either changes.
@@ -897,17 +873,17 @@ export const Kanban = memo((props: { focused?: boolean }) => {
       }).catch((e: Error) => void toast.show({ variant: "error", message: trunc(e.message, 120) }))
   }, [gw, toast, load])
 
-  // Direct bun:sqlite patch — title/body/priority only. Mirrors
-  // dashboard PATCH /tasks/:id. Refreshes on success (no shell round-trip).
-  const patchDirect = useCallback((id: string, p: Parameters<typeof patchTask>[2], ok: string) => {
-    try {
-      if (!patchTask(at, id, p))
-        return void toast.show({ variant: "error", message: `no such task: ${id}` })
+  const writes = useRef(Promise.resolve())
+  const patchDirect = useCallback((id: string, p: PatchFields, ok: string) => {
+    const board = at
+    writes.current = writes.current.then(async () => {
+      if (!await patchTask(board, id, p))
+        throw new Error(`no such task: ${id}`)
       toast.show({ variant: "success", message: ok })
       load()
-    } catch (e) {
-      toast.show({ variant: "error", message: trunc((e as Error).message, 120) })
-    }
+    }).catch((e: Error) => {
+      toast.show({ variant: "error", message: trunc(e.message, 120) })
+    })
   }, [at, toast, load])
   // enterTop/enterBottom land on the first/last reachable tier of
   // the target section so ↑↓ read as one continuous vertical walk.
