@@ -99,6 +99,15 @@ describe("analytics()", () => {
 // ─── Analytics tab ───────────────────────────────────────────────────
 
 describe("Analytics tab", () => {
+  test("query failure renders the raw error instead of rejecting globally", async () => {
+    cache.clear()
+    const load = () => Promise.reject(new Error("analytics exploded"))
+    const t = await mountNode(<Analytics focused load={load} />)
+    await until(t, () => t.frame().includes("analytics exploded"))
+    expect(t.frame()).not.toContain("aggregating 7d")
+    t.destroy()
+  })
+
   test("open dialog owns period keys", async () => {
     cache.clear()
     const t = await mountNode(<AnalyticsWithDialog />)
