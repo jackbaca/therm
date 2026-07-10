@@ -122,37 +122,37 @@ export function patchAt(root: string, board: string, id: string, patch: PatchFie
   if (!db) return false
   if (!db.query("SELECT 1 FROM tasks WHERE id = ?").get(id)) return false
 
-  if (patch.priority !== undefined) {
-    const priority = Math.max(0, Math.min(9, Math.floor(patch.priority)))
-    writeTxn(db, () => {
+  const priority = patch.priority === undefined
+    ? undefined
+    : Math.max(0, Math.min(9, Math.floor(patch.priority)))
+  const sets: string[] = []
+  const vals: Array<string | null> = []
+  if (patch.title !== undefined) {
+    const title = patch.title.trim()
+    if (!title) throw new Error("title cannot be empty")
+    sets.push("title = ?")
+    vals.push(title)
+  }
+  if (patch.body !== undefined) {
+    sets.push("body = ?")
+    vals.push(patch.body)
+  }
+  if (priority === undefined && sets.length === 0) return true
+
+  writeTxn(db, () => {
+    if (priority !== undefined) {
       db.query("UPDATE tasks SET priority = ? WHERE id = ?").run(priority, id)
       db.query(
         "INSERT INTO task_events (task_id, run_id, kind, payload, created_at) VALUES (?, NULL, 'reprioritized', ?, ?)",
       ).run(id, JSON.stringify({ priority }), Math.floor(Date.now() / 1000))
-    })
-  }
-
-  if (patch.title !== undefined || patch.body !== undefined) {
-    const sets: string[] = []
-    const vals: Array<string | null> = []
-    if (patch.title !== undefined) {
-      const title = patch.title.trim()
-      if (!title) throw new Error("title cannot be empty")
-      sets.push("title = ?")
-      vals.push(title)
     }
-    if (patch.body !== undefined) {
-      sets.push("body = ?")
-      vals.push(patch.body)
-    }
-    vals.push(id)
-    writeTxn(db, () => {
-      db.query(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`).run(...vals)
+    if (sets.length > 0) {
+      db.query(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`).run(...vals, id)
       db.query(
         "INSERT INTO task_events (task_id, run_id, kind, payload, created_at) VALUES (?, NULL, 'edited', NULL, ?)",
       ).run(id, Math.floor(Date.now() / 1000))
-    })
-  }
+    }
+  })
   return true
 }
 

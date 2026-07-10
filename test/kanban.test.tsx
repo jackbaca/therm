@@ -1534,6 +1534,15 @@ describe("patchTask direct writes", () => {
     expect(patchTask("default", "does-not-exist", { title: "x" })).toBe(false)
   })
 
+  test("combined patch rolls back priority when title validation fails", () => {
+    const before = read("t4")!.priority
+    const count = events("t4").length
+    expect(() => patchAt(process.env.HERMES_HOME!, "default", "t4", { priority: 8, title: "   " }))
+      .toThrow(/empty/)
+    expect(read("t4")!.priority).toBe(before)
+    expect(events("t4")).toHaveLength(count)
+  })
+
   const retries = () => {
     const prev = process.env.HERMES_KANBAN_BUSY_TIMEOUT_MS
     process.env.HERMES_KANBAN_BUSY_TIMEOUT_MS = "1"
