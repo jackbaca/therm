@@ -212,6 +212,15 @@ const STATUS = (over: Partial<DelegationStatus> = {}): DelegationStatus => ({
 })
 
 describe("Agents tab", () => {
+  test("delegation load failure is visible", async () => {
+    const gw = new MockGateway({
+      "delegation.status": () => { throw new Error("delegation unavailable") },
+    })
+    const t = await mountNode(<Agents focused sessionId="test-sid" />, { gw, width: 200 })
+    await until(t, () => t.frame().includes("delegation unavailable"))
+    t.destroy()
+  })
+
   test("late delegation poll cannot replace a newer snapshot", async () => {
     let release!: () => void
     let calls = 0

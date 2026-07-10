@@ -313,6 +313,7 @@ export const Agents = memo((props: Props) => {
   const [pSel, setPSel] = useState(0)
   const [dSel, setDSel] = useState(0)
   const [err, setErr] = useState("")
+  const [delegErr, setDelegErr] = useState("")
   const delegGen = useRef(0)
 
   const active = preorder(deleg?.active ?? [])
@@ -363,8 +364,11 @@ export const Agents = memo((props: Props) => {
         if (delegGen.current !== current) return
         setDeleg(r)
         setNow(Date.now() / 1000)
+        setDelegErr("")
       })
-      .catch(() => {})
+      .catch(e => {
+        if (delegGen.current === current) setDelegErr(e instanceof Error ? e.message : String(e))
+      })
   }, [gw])
 
   useEffect(loadDeleg, [loadDeleg])
@@ -718,7 +722,7 @@ export const Agents = memo((props: Props) => {
       {/* ── Delegation ── */}
       {showDeleg ? (
       <TabShell title={`Delegation (${active.length})`}
-                focus={pane === "deleg"} grow={2}>
+                focus={pane === "deleg"} grow={2} error={delegErr}>
         <box height={1} flexDirection="row" marginBottom={1}>
           <box flexShrink={0} paddingX={1}
                backgroundColor={deleg?.paused ? theme.warning : theme.backgroundElement}
