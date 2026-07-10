@@ -152,9 +152,11 @@ export class GatewayClient extends EventEmitter {
     this.buf = []
     this.exit = undefined
 
-    if (this.proc) {
+    const previous = this.proc
+    if (previous) {
+      this.proc = null
       this.fail(new Error("gateway restarted"))
-      try { this.proc.kill() } catch {}
+      try { previous.kill() } catch {}
     }
 
     if (this.timer) clearTimeout(this.timer)
@@ -188,8 +190,9 @@ export class GatewayClient extends EventEmitter {
     this.proc = proc
 
     // Read stdout lines — Bun returns ReadableStream
-    if (this.proc.stdout) {
-      lines(this.proc.stdout as ReadableStream<Uint8Array>, raw => {
+    if (proc.stdout) {
+      lines(proc.stdout as ReadableStream<Uint8Array>, raw => {
+        if (this.proc !== proc) return
         try {
           this.dispatch(JSON.parse(raw))
         } catch {
@@ -201,8 +204,9 @@ export class GatewayClient extends EventEmitter {
     }
 
     // Read stderr lines
-    if (this.proc.stderr) {
-      lines(this.proc.stderr as ReadableStream<Uint8Array>, raw => {
+    if (proc.stderr) {
+      lines(proc.stderr as ReadableStream<Uint8Array>, raw => {
+        if (this.proc !== proc) return
         const line = raw.trim()
         if (!line) return
         this.log(line)

@@ -242,4 +242,43 @@ describe("GatewayClient", () => {
       ;(Bun as unknown as { spawn: typeof Bun.spawn }).spawn = prev
     }
   })
+
+  test("restart drops trailing events from the superseded process", async () => {
+    const prev = Bun.spawn
+    const enc = new TextEncoder()
+    const controls: ReadableStreamDefaultController<Uint8Array>[] = []
+    ;(Bun as unknown as { spawn: typeof Bun.spawn }).spawn = (() => {
+      const stdout = new ReadableStream<Uint8Array>({ start: control => { controls.push(control) } })
+      return {
+        stdin: { write() { return 0 } },
+        stdout,
+        stderr: null,
+        exited: new Promise<null>(() => {}),
+        exitCode: null,
+        kill() {},
+      } as never
+    }) as typeof Bun.spawn
+
+    const gw = new GatewayClient()
+    const seen: string[] = []
+    gw.on("event", event => {
+      if (event.type === "status.update") seen.push(event.payload.text)
+    })
+    gw.drain()
+    try {
+      gw.start()
+      gw.start()
+      controls[0].enqueue(enc.encode(JSON.stringify({
+        method: "event", params: { type: "status.update", payload: { kind: "info", text: "stale" } },
+      }) + "\n"))
+      controls[1].enqueue(enc.encode(JSON.stringify({
+        method: "event", params: { type: "status.update", payload: { kind: "info", text: "fresh" } },
+      }) + "\n"))
+      await Bun.sleep(0)
+      expect(seen).toEqual(["fresh"])
+    } finally {
+      gw.kill()
+      ;(Bun as unknown as { spawn: typeof Bun.spawn }).spawn = prev
+    }
+  })
 })
