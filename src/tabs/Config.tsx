@@ -161,6 +161,8 @@ export const Config = memo((props: { focused?: boolean }) => {
   const toast = useToast();
   const dialog = useDialog();
   const [raw, setRaw] = useState<Record<string, unknown>>({});
+  const rawRef = useRef(raw);
+  rawRef.current = raw;
   const [original, setOriginal] = useState<Record<string, unknown>>({});
   const [yaml, setYaml] = useState("");
   const [mode, setMode] = useState<"form" | "yaml">("form");
@@ -184,7 +186,8 @@ export const Config = memo((props: { focused?: boolean }) => {
       .then(res => {
         if (loads.current !== gen) return;
         const parsed = res.config ?? {};
-        setRaw(structuredClone(parsed));
+        rawRef.current = structuredClone(parsed);
+        setRaw(rawRef.current);
         setOriginal(structuredClone(parsed));
         setYaml(yamlStringify(parsed));
         setErr({});
@@ -233,8 +236,9 @@ export const Config = memo((props: { focused?: boolean }) => {
 
   const update = (key: string, val: unknown) => {
     loads.current++;
-    const next = structuredClone(raw);
+    const next = structuredClone(rawRef.current);
     setNested(next, key, val);
+    rawRef.current = next;
     setRaw(next);
     setYaml(yamlStringify(next));
   };
@@ -470,7 +474,10 @@ export const Config = memo((props: { focused?: boolean }) => {
     const matched = handleListKey(keys, key, {
       count, setSel: setCursor, ...follow.opts,
       onRefresh: () => { load(); toast.show({ variant: "info", message: "Reloaded", duration: 1000 }) },
-      onToggle: writable && f?.type === "boolean" ? () => update(f.key, !f.value) : undefined,
+      onToggle: writable && f?.type === "boolean" ? () => {
+        const value = getNested(rawRef.current, f.key);
+        update(f.key, !(value === undefined ? f.value : value));
+      } : undefined,
       onActivate: f && writable && (f.type === "string" || f.type === "number")
         ? () => { setEditing(true); setBuf(String(f.value ?? "")) }
         : undefined,
@@ -478,7 +485,8 @@ export const Config = memo((props: { focused?: boolean }) => {
     if (matched || !f || !writable) return;
 
     if (f.type === "select" && f.options) {
-      const idx = f.options.indexOf(String(f.value));
+      const value = getNested(rawRef.current, f.key);
+      const idx = f.options.indexOf(String(value === undefined ? f.value : value));
       if (key.raw === "l" || key.raw === "]") {
         update(f.key, f.options[(idx + 1) % f.options.length]);
         return;
