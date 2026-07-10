@@ -96,6 +96,43 @@ describe("rehome", () => {
     }
   })
 
+  test("invalidate replaces an in-flight slice read", async () => {
+    rehome(A)
+    writeFileSync(join(A, "SOUL.md"), "soul-before")
+    const real = Bun.file
+    let release!: () => void
+    let calls = 0
+    const gate = new Promise<void>(resolve => { release = resolve })
+    ;(Bun as unknown as { file: typeof Bun.file }).file = ((path: string) => {
+      const file = real(path)
+      if (path !== join(A, "SOUL.md") || calls++ > 0) return file
+      return new Proxy(file, {
+        get(target, key, receiver) {
+          if (key === "text") return async () => {
+            const text = await target.text()
+            await gate
+            return text
+          }
+          return Reflect.get(target, key, receiver)
+        },
+      })
+    }) as typeof Bun.file
+
+    try {
+      const stale = home.ensure("soul")
+      await Bun.sleep(0)
+      writeFileSync(join(A, "SOUL.md"), "soul-after")
+      home.invalidate("soul")
+      const fresh = home.ensure("soul")
+      release()
+      await fresh
+      await stale
+      expect(home.get("soul")?.content).toBe("soul-after")
+    } finally {
+      ;(Bun as unknown as { file: typeof Bun.file }).file = real
+    }
+  })
+
   test("clears analytics cache", async () => {
     const { cache } = await import("../src/service/hermes-analytics")
     cache.set(7, { days: 7 } as never)

@@ -162,6 +162,7 @@ export class HomeStore {
   private inflight = new Map<SliceKey, Promise<unknown>>()
   private watchers = new Map<SliceKey, FSWatcher[]>()
   private debounce = new Map<SliceKey, ReturnType<typeof setTimeout>>()
+  private rev = new Map<SliceKey, number>()
   private gen = 0
 
   /** Current value, or undefined if not yet loaded. Stable ref until changed. */
@@ -188,13 +189,14 @@ export class HomeStore {
 
     const slice = SLICES[k]
     const gen = this.gen
+    const rev = this.rev.get(k) ?? 0
     const p = (async () => {
       const deps: Partial<HomeState> = {}
       for (const d of slice.deps ?? []) {
         (deps as Record<SliceKey, unknown>)[d] = await this.ensure(d)
       }
       const v = await slice.read(deps)
-      if (gen !== this.gen) return v
+      if (gen !== this.gen || rev !== (this.rev.get(k) ?? 0)) return v
       this.data[k] = v
       this.startWatch(k, slice.watch)
       this.notify(k)
@@ -214,7 +216,9 @@ export class HomeStore {
    */
   invalidate(k: SliceKey): void {
     if (!(k in this.data) && !this.inflight.has(k)) return
+    this.rev.set(k, (this.rev.get(k) ?? 0) + 1)
     delete this.data[k]
+    this.inflight.delete(k)
     if (this.subs.get(k)?.size) void this.ensure(k)
     for (const dep of DEPENDENTS.get(k) ?? []) this.invalidate(dep)
   }
@@ -235,6 +239,7 @@ export class HomeStore {
     this.debounce.clear()
     this.subs.clear()
     this.inflight.clear()
+    this.rev.clear()
     this.data = {}
   }
 
@@ -248,6 +253,7 @@ export class HomeStore {
     this.watchers.clear()
     this.debounce.clear()
     this.inflight.clear()
+    this.rev.clear()
     this.data = {}
     for (const k of this.subs.keys())
       if (this.subs.get(k)?.size) void this.ensure(k)
