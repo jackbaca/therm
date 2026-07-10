@@ -752,6 +752,19 @@ describe("app", () => {
     t.destroy()
   })
 
+  test("/branch surfaces the gateway failure", async () => {
+    const gw = new MockGateway({
+      "session.branch": () => { throw new Error("branch exploded") },
+    })
+    const t = await mount({ gw })
+    await until(t, () => t.frame().includes("Ready"))
+
+    await act(async () => { await t.keys.typeText("/branch") })
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.frame().includes("branch exploded"))
+    t.destroy()
+  })
+
   test("sidebar title stays unset until a session title exists", async () => {
     const t = await mount()
     await until(t, () => t.frame().includes("Ready"))

@@ -177,10 +177,8 @@ export function useSession(): SessionOps {
   }, [gw])
 
   const branch = useCallback(async (name?: string) => {
-    try {
-      const res = await gw.request<{ session_id?: string }>("session.branch", name ? { name } : {})
-      return res.session_id ?? null
-    } catch { return null }
+    const res = await gw.request<{ session_id?: string }>("session.branch", name ? { name } : {})
+    return res.session_id ?? null
   }, [gw])
 
   const compress = useCallback(async (arg = ""): Promise<CompressResult | null> => {

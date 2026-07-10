@@ -248,9 +248,11 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
 
   const branch = useCallback((name?: string) => {
     const x = ctx.current
-    x.session.branch(name?.trim() || undefined).then(id => id
-      ? void x.activateSession(id)
-      : toast.show({ variant: "error", message: "branch failed" }))
+    void x.session.branch(name?.trim() || undefined)
+      .then(id => id
+        ? void x.activateSession(id)
+        : toast.show({ variant: "error", message: "branch failed" }))
+      .catch((err: Error) => toast.show({ variant: "error", message: err.message }))
   }, [toast])
 
   const run = useCallback((c: SlashCommand, arg = "") => {
