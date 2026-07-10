@@ -5,7 +5,7 @@ import { mountNode, until, MockGateway } from "./harness"
 import { Sessions, fold } from "../src/tabs/Sessions"
 import type { SessionHit } from "../src/service/hermes-home"
 import type { SessionRow } from "../src/service/hermes-home"
-import type { PeekMsg } from "../src/service/sessions-db"
+import type { LineageInfo, PeekMsg } from "../src/service/sessions-db"
 import * as prefs from "../src/context/preferences"
 
 const ROWS = [
@@ -1176,6 +1176,27 @@ describe("Sessions tab — lineage block", () => {
     expect(t.frame()).not.toContain("Lineage")
     expect(t.frame()).not.toContain("continues from")
     expect(t.frame()).not.toContain("compressed to")
+    t.destroy()
+  })
+
+  test("late lineage response cannot replace the selected session", async () => {
+    let release!: (info: LineageInfo) => void
+    const first = new Promise<LineageInfo>(resolve => { release = resolve })
+    const rows = [
+      detail({ id: "a", sessionSource: "tui", title: "A", message_count: 1 }),
+      detail({ id: "b", sessionSource: "tui", title: "B", message_count: 1 }),
+    ]
+    const lineage = (id: string) => id === "a" ? first : Promise.resolve({ continuesFrom: { id: "b-root", title: "B root" } })
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, list: () => rows, lineage }} />, { width: 200, height: 40 })
+    await until(t, () => t.frame().includes("Sessions (2)"))
+    act(() => t.keys.pressArrow("down"))
+    await until(t, () => t.frame().includes("B root"))
+
+    release({ continuesFrom: { id: "a-root", title: "stale A root" } })
+    await first
+    await t.settle()
+    expect(t.frame()).toContain("B root")
+    expect(t.frame()).not.toContain("stale A root")
     t.destroy()
   })
 

@@ -263,8 +263,19 @@ const Detail = memo((props: {
   // Lineage is an off-thread worker round-trip (sub-ms query, ~1 ms
   // total). Loaded on row change, not every render.
   const [info, setInfo] = useState<LineageInfo>({})
+  const [lineageErr, setLineageErr] = useState("")
+  const lineageGen = useRef(0)
   useEffect(() => {
-    void Promise.resolve(props.lineage(r.id)).then(setInfo)
+    const current = ++lineageGen.current
+    setInfo({})
+    setLineageErr("")
+    void Promise.resolve(props.lineage(r.id))
+      .then(next => { if (lineageGen.current === current) setInfo(next) })
+      .catch(e => {
+        if (lineageGen.current === current)
+          setLineageErr(e instanceof Error ? e.message : String(e))
+      })
+    return () => { lineageGen.current++ }
   }, [r.id, props.lineage])
   const hasLineage = info.continuesFrom || info.compressedTo || subs > 0
   const go = (sid: string) => () => props.onSwitch?.(sid)
@@ -325,6 +336,7 @@ const Detail = memo((props: {
               </box>
             ) : null}
           </> : null}
+          {lineageErr ? <box height={1}><text fg={theme.error}>{lineageErr}</text></box> : null}
           {!d ? <>
             <box height={1} />
             <box height={1}><text fg={theme.textMuted}>(no local detail — state.db mismatch)</text></box>
