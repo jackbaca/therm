@@ -59,6 +59,43 @@ describe("rehome", () => {
     expect(seen).toEqual(["soul-a", "soul-b"])
   })
 
+  test("late old-home reads cannot overwrite the new profile", async () => {
+    rehome(A)
+    const real = Bun.file
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    ;(Bun as unknown as { file: typeof Bun.file }).file = ((path: string) => {
+      const file = real(path)
+      if (path !== join(A, "SOUL.md")) return file
+      return new Proxy(file, {
+        get(target, key, receiver) {
+          if (key === "text") return async () => { await gate; return target.text() }
+          return Reflect.get(target, key, receiver)
+        },
+      })
+    }) as typeof Bun.file
+
+    try {
+      const seen: string[] = []
+      home.subscribe("soul", () => {
+        const soul = home.get("soul")
+        if (soul) seen.push(soul.content)
+      })
+      const old = home.ensure("soul")
+      await Bun.sleep(0)
+      rehome(B)
+      await home.ensure("soul")
+      expect(home.get("soul")?.content).toBe("soul-b")
+
+      release()
+      await old
+      expect(home.get("soul")?.content).toBe("soul-b")
+      expect(seen.at(-1)).toBe("soul-b")
+    } finally {
+      ;(Bun as unknown as { file: typeof Bun.file }).file = real
+    }
+  })
+
   test("clears analytics cache", async () => {
     const { cache } = await import("../src/service/hermes-analytics")
     cache.set(7, { days: 7 } as never)

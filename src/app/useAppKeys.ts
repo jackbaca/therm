@@ -232,7 +232,7 @@ export function useAppKeys(o: Opts) {
         }
         c?.set(out)
         o.setFocusRegion("input")
-      })
+      }).catch((e: Error) => o.onNotice(e.message))
       return
     }
 

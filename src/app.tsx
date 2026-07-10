@@ -253,6 +253,20 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   // emits "exit" → errorPulse via the listener below.
   const [errorPulse, setErrorPulse] = useState(false)
 
+  useEffect(() => {
+    const exit = (code: number | null) => {
+      const text = `gateway exited${code === null ? "" : ` (${code})`}`
+      gw.setSession("")
+      setReady(false)
+      setStarting(false)
+      setStatus(text)
+      setErrorPulse(true)
+      dispatch({ kind: "system", text })
+    }
+    gw.on("exit", exit)
+    return () => { gw.off("exit", exit) }
+  }, [gw])
+
   const agentState: AvatarState = errorPulse
     ? "error"
     : turn.toolActive ? "working"

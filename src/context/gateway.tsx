@@ -39,11 +39,14 @@ export const GatewayProvider = ({ client, children }: { client?: Gateway; childr
     const onEvent = (ev: GatewayEvent) => {
       if (ev.type === "gateway.ready" || ev.type === "session.info") setReady(true)
     }
+    const onExit = () => setReady(false)
     c.on("event", onEvent)
+    c.on("exit", onExit)
     c.start()
     c.drain()
     return () => {
       c.off("event", onEvent)
+      c.off("exit", onExit)
       c.removeAllListeners()
       c.kill()
     }

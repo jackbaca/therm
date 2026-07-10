@@ -185,4 +185,43 @@ describe("GatewayClient", () => {
       ;(Bun as unknown as { spawn: typeof Bun.spawn }).spawn = prev
     }
   })
+
+  test("explicit restart rejects requests owned by the old process", async () => {
+    const prev = Bun.spawn
+    const procs: Array<{ exitCode: number | null; kill: () => void }> = []
+    ;(Bun as unknown as { spawn: typeof Bun.spawn }).spawn = (() => {
+      let done!: (code: number) => void
+      const exited = new Promise<number>(resolve => { done = resolve })
+      const proc = {
+        stdin: { write() { return 0 } },
+        stdout: null,
+        stderr: null,
+        exited,
+        exitCode: null as number | null,
+        kill() {
+          if (this.exitCode !== null) return
+          this.exitCode = 0
+          done(0)
+        },
+      }
+      procs.push(proc)
+      return proc as never
+    }) as typeof Bun.spawn
+
+    const gw = new GatewayClient()
+    try {
+      gw.start()
+      const old = gw.request("test.pending").then(
+        () => "resolved",
+        (e: Error) => e.message,
+      )
+      gw.start()
+      expect(await Promise.race([old, Bun.sleep(20).then(() => "pending")]))
+        .toBe("gateway restarted")
+      expect(procs).toHaveLength(2)
+    } finally {
+      gw.kill()
+      ;(Bun as unknown as { spawn: typeof Bun.spawn }).spawn = prev
+    }
+  })
 })

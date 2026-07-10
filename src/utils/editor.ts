@@ -16,20 +16,24 @@ export async function editInEditor(renderer: CliRenderer, seed: string, suffix =
 
   renderer.suspend()
   renderer.currentRenderBuffer.clear()
-  const parts = cmd.split(" ")
-  const proc = Bun.spawn([...parts, path], {
-    stdin: "inherit", stdout: "inherit", stderr: "inherit",
-  })
-  await proc.exited
-  const text = await Bun.file(path).text().catch(() => "")
-  rm(path, { force: true }).catch(() => {})
-  // Across the await the renderer may have been torn down (headless
-  // tests destroy it while the spawned editor is still running).
-  // resume()/currentRenderBuffer.clear() are raw FFI calls against a
-  // pointer that destroy() already freed — use-after-free → SIGSEGV.
-  if (renderer.isDestroyed) return text.trim() || undefined
-  renderer.currentRenderBuffer.clear()
-  renderer.resume()
-  renderer.requestRender()
-  return text.trim() || undefined
+  try {
+    const argv = process.platform === "win32"
+      ? ["cmd.exe", "/d", "/s", "/c", `${cmd} "${path.replaceAll('"', '""')}"`]
+      : ["/bin/sh", "-c", `exec ${cmd} "$1"`, "herm-editor", path]
+    const proc = Bun.spawn(argv, {
+      stdin: "inherit", stdout: "inherit", stderr: "inherit",
+    })
+    const code = await proc.exited
+    if (code !== 0) throw new Error(`editor exited ${code}`)
+    const text = await Bun.file(path).text().catch(() => "")
+    return text.trim() || undefined
+  } finally {
+    await rm(path, { force: true }).catch(() => {})
+    // destroy() frees the native buffer pointer; never resume a dead renderer.
+    if (!renderer.isDestroyed) {
+      renderer.currentRenderBuffer.clear()
+      renderer.resume()
+      renderer.requestRender()
+    }
+  }
 }

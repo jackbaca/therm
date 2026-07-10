@@ -162,6 +162,7 @@ export class HomeStore {
   private inflight = new Map<SliceKey, Promise<unknown>>()
   private watchers = new Map<SliceKey, FSWatcher[]>()
   private debounce = new Map<SliceKey, ReturnType<typeof setTimeout>>()
+  private gen = 0
 
   /** Current value, or undefined if not yet loaded. Stable ref until changed. */
   get<K extends SliceKey>(k: K): HomeState[K] | undefined {
@@ -186,19 +187,23 @@ export class HomeStore {
     if (hit) return hit as Promise<HomeState[K]>
 
     const slice = SLICES[k]
+    const gen = this.gen
     const p = (async () => {
       const deps: Partial<HomeState> = {}
       for (const d of slice.deps ?? []) {
         (deps as Record<SliceKey, unknown>)[d] = await this.ensure(d)
       }
       const v = await slice.read(deps)
+      if (gen !== this.gen) return v
       this.data[k] = v
       this.startWatch(k, slice.watch)
       this.notify(k)
       return v
-    })().finally(() => this.inflight.delete(k))
+    })()
 
     this.inflight.set(k, p)
+    const clear = () => { if (this.inflight.get(k) === p) this.inflight.delete(k) }
+    void p.then(clear, clear)
     return p
   }
 
@@ -223,6 +228,7 @@ export class HomeStore {
 
   /** Dispose all watchers and timers. Tests must call this. */
   close(): void {
+    this.gen++
     for (const ws of this.watchers.values()) for (const w of ws) w.close()
     for (const t of this.debounce.values()) clearTimeout(t)
     this.watchers.clear()
@@ -236,6 +242,7 @@ export class HomeStore {
    *  hermesPath(). Subscribers survive — every slice with listeners is
    *  re-ensured, so mounted tabs repaint with the new profile's data. */
   reset(): void {
+    this.gen++
     for (const ws of this.watchers.values()) for (const w of ws) w.close()
     for (const t of this.debounce.values()) clearTimeout(t)
     this.watchers.clear()

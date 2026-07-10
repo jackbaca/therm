@@ -153,6 +153,7 @@ export class GatewayClient extends EventEmitter {
     this.exit = undefined
 
     if (this.proc) {
+      this.fail(new Error("gateway restarted"))
       try { this.proc.kill() } catch {}
     }
 
