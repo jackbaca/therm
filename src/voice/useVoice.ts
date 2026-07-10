@@ -60,7 +60,13 @@ export function useVoice(gw: GwRpc, sys: (text: string) => void): VoiceApi {
         action,
         session_id: sid,
       })
-      if (r.enabled !== undefined) setEnabled(r.enabled)
+      if (r.enabled !== undefined) {
+        setEnabled(r.enabled)
+        if (!r.enabled) {
+          setRecording(false)
+          setProcessing(false)
+        }
+      }
       if (r.tts !== undefined) setTts(r.tts)
       if (r.record_key) setRecordKeyRaw(r.record_key)
       const label = formatVoiceRecordKey(parseVoiceRecordKey(r.record_key))

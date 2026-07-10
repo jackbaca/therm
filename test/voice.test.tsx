@@ -29,3 +29,28 @@ test("failed voice stop restores recording state", async () => {
   expect(t.frame()).toContain("recording:true")
   expect(messages.at(-1)).toBe("voice error: stop exploded")
 })
+
+test("turning voice off clears the active recording state", async () => {
+  let api: VoiceApi | undefined
+  const rpc = async <T,>(method: string, params: Record<string, unknown>): Promise<T> => {
+    if (method === "voice.toggle")
+      return { enabled: params.action !== "off", tts: false, record_key: "ctrl+b" } as T
+    if (method === "voice.record") return { status: "recording" } as T
+    throw new Error(`unexpected ${method}`)
+  }
+  const Probe = () => {
+    api = useVoice(rpc, () => {})
+    return <text>{`enabled:${api.state.enabled} recording:${api.state.recording}`}</text>
+  }
+  await using t = await mountNode(<Probe />)
+
+  await act(async () => { await api!.toggle("on", "sid") })
+  await t.settle()
+  await act(async () => { await api!.record("sid") })
+  await t.settle()
+  expect(t.frame()).toContain("enabled:true recording:true")
+
+  await act(async () => { await api!.toggle("off", "sid") })
+  await t.settle()
+  expect(t.frame()).toContain("enabled:false recording:false")
+})
