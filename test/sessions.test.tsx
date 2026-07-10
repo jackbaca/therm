@@ -1200,6 +1200,14 @@ describe("Sessions tab — lineage block", () => {
     t.destroy()
   })
 
+  test("lineage failure stays visible in the detail pane", async () => {
+    const rows = [detail({ id: "a", sessionSource: "tui", title: "A", message_count: 1 })]
+    const lineage = async () => { throw new Error("lineage unavailable") }
+    const t = await mountNode(<Sessions focused io={{ ...NOIO, list: () => rows, lineage }} />, { width: 200, height: 40 })
+    await until(t, () => t.frame().includes("lineage unavailable"))
+    t.destroy()
+  })
+
   test("clicking ← continues from switches to predecessor session", async () => {
     const gw = new MockGateway({ "session.list": () => ({ sessions: [PARENT_CONT] }) })
     const list = (): SessionRow[] => [
