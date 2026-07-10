@@ -36,6 +36,8 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
   const renderer = useRenderer()
   const toast = useToast()
   const [stack, setStack] = useState<Entry[]>([])
+  const stackRef = useRef<ReadonlyArray<Entry>>(stack)
+  stackRef.current = stack
   const gate = useRef(false)
   const gen = useRef(0)
   const prev = useRef<Renderable | null>(null)
@@ -116,8 +118,8 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
   })
 
   const value = useMemo<DialogContext>(
-    () => ({ replace, clear, stack, open }),
-    [replace, clear, stack, open])
+    () => ({ replace, clear, get stack() { return stackRef.current }, open }),
+    [replace, clear, open])
   const top = stack[stack.length - 1]
 
   return (
