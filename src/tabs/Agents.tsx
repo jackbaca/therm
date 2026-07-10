@@ -452,19 +452,26 @@ export const Agents = memo((props: Props) => {
   // overwrites config.yaml. When the active profile is updated, the
   // gateway stops mid-command; follow with the same rehome path as
   // Switch so herm re-attaches under the refreshed profile.
-  const pUpdate = useCallback((p: ProfileInfo, force: boolean) => {
+  const pUpdate = useCallback(async (p: ProfileInfo, force: boolean) => {
     const cmd = `hermes profile update ${p.name} -y${force ? " --force-config" : ""}`
     toast.show({ variant: "info", message: `Updating '${p.name}'…` })
-    sh(cmd)
-      .then(() => {
-        toast.show({ variant: "success", message: `Updated '${p.name}'` })
-        if (p.is_active && props.onSwitchProfile) {
-          props.onSwitchProfile(p.path, p.name)
-          return
-        }
-        loadProfiles()
-      })
-      .catch((e: Error) => toast.show({ variant: "error", message: e.message }))
+    try {
+      await sh(cmd)
+      toast.show({ variant: "success", message: `Updated '${p.name}'` })
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err))
+      if (!p.is_active || !props.onSwitchProfile) {
+        toast.show({ variant: "error", message: error.message })
+        return
+      }
+      if (!/gateway (?:exited|restarted)/i.test(error.message))
+        toast.show({ variant: "error", message: error.message })
+    }
+    if (p.is_active && props.onSwitchProfile) {
+      props.onSwitchProfile(p.path, p.name)
+      return
+    }
+    loadProfiles()
   }, [sh, toast, loadProfiles, props.onSwitchProfile])
 
   const pEnter = useCallback((i: number) => {
