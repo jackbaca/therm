@@ -727,6 +727,9 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   useEffect(() => {
     plugins.bind(goTo, () => all[tab]?.name)
   }, [plugins, goTo, all, tab])
+  useEffect(() => {
+    if (tab >= all.length) goToTab(CHAT_TAB)
+  }, [tab, all.length, goToTab])
   const subCount = SUB_TABS[tab]?.length ?? 0
   const cycleSub = useCallback((dir: -1 | 1) => {
     const labels = SUB_TABS[tab]

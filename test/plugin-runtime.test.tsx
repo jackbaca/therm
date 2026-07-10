@@ -103,6 +103,30 @@ describe("PluginProvider", () => {
     expect(t.frame()).toContain("Ready")
   })
 
+  test("removing the active plugin route returns to Chat", async () => {
+    let api: HermPluginApi | undefined
+    let remove: (() => void) | undefined
+    const plugin: HermPlugin = {
+      id: "short-route",
+      tui(value) {
+        api = value
+        remove = value.route.register([{
+          name: "ShortRoute",
+          render: () => <text>short route body</text>,
+        }])
+      },
+    }
+    await using t = await mount({ plugins: [plugin] })
+    await until(t, () => api !== undefined && remove !== undefined)
+    await act(async () => { await Bun.sleep(50) })
+    act(() => api!.route.navigate("ShortRoute"))
+    await until(t, () => t.frame().includes("short route body"))
+
+    act(() => remove!())
+    await until(t, () => api!.route.current === "Chat")
+    expect(t.frame()).not.toContain("short route body")
+  })
+
   test("failing tui() is isolated — later plugins still activate", async () => {
     const bad: HermPlugin = { id: "bad", tui() { throw new Error("nope") } }
     await using t = await mountNode(<Host />, {
