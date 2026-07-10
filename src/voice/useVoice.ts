@@ -4,7 +4,7 @@
 
 import { useState, useCallback, useMemo } from "react"
 import type { VoiceState, VoiceToggleResponse, VoiceRecordResponse } from "./types"
-import { parseVoiceRecordKey, formatVoiceRecordKey, DEFAULT_VOICE_KEY } from "./platform"
+import { parseVoiceRecordKey, formatVoiceRecordKey } from "./platform"
 
 /** Shape of the gateway client's `request` method — subset needed for voice. */
 type GwRpc = <T>(method: string, params: Record<string, unknown>) => Promise<T>

@@ -683,7 +683,7 @@ describe("app", () => {
   })
 
   test("/theme light|dark sets theme mode locally", async () => {
-    await using h = await tmpHome({ prefs: { theme: "tokyonight", themeMode: "dark" } })
+    await using _home = await tmpHome({ prefs: { theme: "tokyonight", themeMode: "dark" } })
     await using t = await mount()
     await until(t, () => t.frame().includes("Ready"))
 

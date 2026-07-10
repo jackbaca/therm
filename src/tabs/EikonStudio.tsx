@@ -41,7 +41,7 @@ import { listEikons } from "../components/avatar/eikon"
 import * as prefs from "../context/preferences"
 import { eikon } from "../service/eikon"
 import type { ParsedEikon } from "../components/avatar/eikon"
-import { W, H, FPS0, caps, thumb, cached, resetCache, prewarm, T0,
+import { W, H, FPS0, caps, thumb, cached, resetCache, prewarm,
          type Rasterizer, type KnobDef, type Spatial, type Tone, type Flip, type Frame } from "../utils/eikon-render"
 import { knobs, STATES, type Session } from "../utils/eikon-knobs"
 import type { AvatarState } from "../components/avatar/states"
@@ -1339,6 +1339,3 @@ export const EikonStudio = memo((props: {
     </box>
   )
 })
-
-// Used by tests and app.tsx to render even when unfocused.
-export default EikonStudio

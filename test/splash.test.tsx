@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterAll } from "bun:test"
+import { describe, test, expect, afterAll } from "bun:test"
 import { act } from "react"
 import { mount, until } from "./harness"
 import { openStateDb } from "./fixtures/state-db"
