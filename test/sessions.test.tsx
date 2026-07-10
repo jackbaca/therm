@@ -843,6 +843,35 @@ describe("Sessions tab — tree expansion", () => {
     t.destroy()
   })
 
+  test("subagent detail reads use bounded concurrency", async () => {
+    const rows = Array.from({ length: 20 }, (_, i) => detail({
+      id: `parent-${i}`,
+      sessionSource: "tui",
+      title: `Parent ${i}`,
+      message_count: 1,
+      subagent_count: 1,
+    }))
+    let active = 0
+    let peak = 0
+    let calls = 0
+    const io = {
+      ...NOIO,
+      list: () => rows,
+      subagents: async () => {
+        calls++
+        active++
+        peak = Math.max(peak, active)
+        await Bun.sleep(5)
+        active--
+        return []
+      },
+    }
+    const t = await mountNode(<Sessions focused io={io} />)
+    await until(t, () => calls === rows.length && active === 0)
+    expect(peak).toBeLessThanOrEqual(8)
+    t.destroy()
+  })
+
   test("late list results cannot replace a newer refresh", async () => {
     const stale = [detail({ id: "stale", sessionSource: "tui", title: "Stale session", message_count: 2 })]
     const fresh = [detail({ id: "fresh", sessionSource: "tui", title: "Fresh session", message_count: 2 })]

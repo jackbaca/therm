@@ -723,7 +723,11 @@ export const Sessions = memo((props: Props) => {
     let kidsError = ""
     try {
       const parents = final.filter(row => (row.detail?.subagent_count ?? 0) > 0)
-      const children = await Promise.all(parents.map(row => io.subagents(row.id)))
+      const children: SessionRow[][] = []
+      for (let i = 0; i < parents.length; i += 8) {
+        children.push(...await Promise.all(parents.slice(i, i + 8).map(row => io.subagents(row.id))))
+        if (gen.current !== current) return
+      }
       if (gen.current !== current) return
       const next = new Map(parents.map((row, i) => [row.id, children[i].map(toRow)]))
       setKids(next)
