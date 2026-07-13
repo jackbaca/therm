@@ -97,7 +97,7 @@ describe("eikon headless CLI", () => {
     expect(EIKON_CLI_USAGE).toContain("herm eikon delist <name|id>")
   })
 
-  test("install passes name/media options, emits json, and can skip activation", async () => {
+  test("install passes name/media options and emits json", async () => {
     const calls: Array<{ source: string; opts: { name?: string; media?: boolean } }> = []
     const c = capture()
     const d = deps({
@@ -107,7 +107,7 @@ describe("eikon headless CLI", () => {
       },
     })
 
-    expect(await handleEikonCli(["eikon", "install", "ares", "--name", "war", "--no-source", "--no-use", "--json"], d, c.io)).toBe(0)
+    expect(await handleEikonCli(["eikon", "install", "ares", "--name", "war", "--no-source", "--json"], d, c.io)).toBe(0)
 
     expect(calls).toEqual([{ source: "ares", opts: { name: "war", media: false } }])
     expect(JSON.parse(c.stdout())).toEqual({ ok: true, name: "war", n: 0, bytes: 0, sources: {}, active: null })
@@ -119,6 +119,12 @@ describe("eikon headless CLI", () => {
 
     expect(await handleEikonCli(["eikon", "install", "ares", "--json"], d, c.io)).toBe(0)
 
+    expect(JSON.parse(c.stdout()).active).toBeNull()
+  })
+
+  test("released --no-use install option remains accepted", async () => {
+    const c = capture()
+    expect(await handleEikonCli(["eikon", "install", "ares", "--no-use", "--json"], deps(), c.io)).toBe(0)
     expect(JSON.parse(c.stdout()).active).toBeNull()
   })
 
@@ -225,11 +231,13 @@ describe("eikon headless CLI", () => {
     })
   })
 
-  test("peek and list expose machine-readable json", async () => {
+  test("released peek alias exposes machine-readable source metadata", async () => {
     const p = capture()
     expect(await handleEikonCli(["eikon", "peek", "ares", "--json"], deps(), p.io)).toBe(0)
     expect(JSON.parse(p.stdout())).toEqual({ ok: true, source: "ares", n: 2, bytes: 2048 })
+  })
 
+  test("list exposes machine-readable installed state", async () => {
     const l = capture()
     expect(await handleEikonCli(["eikon", "list", "--json"], deps({ getActive: () => "ares" }), l.io)).toBe(0)
     expect(JSON.parse(l.stdout())).toEqual({

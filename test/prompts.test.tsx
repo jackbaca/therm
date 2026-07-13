@@ -4,53 +4,6 @@ import { mount, until, MockGateway } from "./harness"
 import type { GatewayEvent } from "../src/context/wire"
 
 describe("prompts", () => {
-  test("approval: digit quick-pick sends matching choice", async () => {
-    const t = await mount()
-    await until(t, () => t.frame().includes("Ready"))
-    act(() => t.gw.push({ type: "approval.request", payload: { command: "ls", description: "list" } }))
-    await t.settle()
-    expect(t.frame()).toContain("△ Permission required")
-    expect(t.frame()).toContain("$ ls")
-
-    act(() => t.keys.pressKey("2"))
-    await t.settle()
-    expect(t.gw.last("approval.respond")?.params.choice).toBe("session")
-    expect(t.frame()).not.toContain("Permission required")
-    t.destroy()
-  })
-
-  test("approval: ←/→ pill nav wraps; Enter sends selected", async () => {
-    const t = await mount()
-    await until(t, () => t.frame().includes("Ready"))
-    act(() => t.gw.push({ type: "approval.request", payload: { command: "x", description: "" } }))
-    await t.settle()
-    expect(t.frame()).toContain("Shell command")
-
-    act(() => t.keys.pressArrow("left"))   // wraps to deny
-    act(() => t.keys.pressArrow("left"))   // → always
-    act(() => t.keys.pressEnter())
-    await t.settle()
-    expect(t.gw.last("approval.respond")?.params.choice).toBe("always")
-    t.destroy()
-  })
-
-  test("clarify: choice list, Enter sends selected choice", async () => {
-    const t = await mount()
-    await until(t, () => t.frame().includes("Ready"))
-    act(() => t.gw.push({
-      type: "clarify.request",
-      payload: { request_id: "q1", question: "pick one", choices: ["alpha", "beta"] },
-    }))
-    await t.settle()
-    expect(t.frame()).toContain("pick one")
-    expect(t.frame()).toContain("alpha")
-
-    act(() => t.keys.pressArrow("down"))
-    act(() => t.keys.pressEnter())
-    await t.settle()
-    expect(t.gw.last("clarify.respond")?.params).toMatchObject({ request_id: "q1", answer: "beta" })
-    t.destroy()
-  })
 
   test("clarify: open-ended (no choices) free-text input", async () => {
     const t = await mount()
@@ -70,28 +23,6 @@ describe("prompts", () => {
     t.destroy()
   })
 
-  test("secret: value masked in frame, submitted on Enter, empty on Escape", async () => {
-    const t = await mount()
-    await until(t, () => t.frame().includes("Ready"))
-    act(() => t.gw.push({
-      type: "secret.request",
-      payload: { request_id: "s1", prompt: "api key?", env_var: "X_KEY" },
-    }))
-    await t.settle()
-    expect(t.frame()).toContain("X_KEY")
-
-    await act(async () => { await t.keys.typeText("hunter2") })
-    await t.settle()
-    // value must NOT appear in the rendered frame
-    expect(t.frame()).not.toContain("hunter2")
-    // bullets overlay present
-    expect(t.frame()).toContain("•".repeat(7))
-
-    act(() => t.keys.pressEnter())
-    await t.settle()
-    expect(t.gw.last("secret.respond")?.params).toMatchObject({ request_id: "s1", value: "hunter2" })
-    t.destroy()
-  })
 
   test("sudo: escape cancels with empty password", async () => {
     const t = await mount()

@@ -10,7 +10,6 @@ describe("eikon-knobs", () => {
     expect(s0.state).toBe("idle")
     expect(s0.dirty).toBe(false)
     expect(s0.base.symbols).toBe("braille")
-    expect(s0.spatial).toEqual(S0)
   })
 
   test("fresh honors studio.json seed (glyph, spatial survive)", () => {

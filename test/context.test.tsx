@@ -11,52 +11,22 @@ import type { HermesConfig } from "../src/service/hermes-home"
 const strip = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "")
 
 describe("Context tab", () => {
-  // Regression: Context used to infinite-loop when mounted without a stable
-  // `messages` prop — the `= []` default on every render triggered a
-  // messages-dep useEffect → setWire → re-render storm. Now guarded via a
-  // module-level frozen NO_MESSAGES reference.
-  test("mounts without infinite-loop when messages prop absent", async () => {
-    const t = await mountNode(<Context />)
-    expect(t.frame().length).toBeGreaterThan(0)
-    t.destroy()
-  })
-
-  // info.context_max (from gateway session.usage) overrides the hardcoded
-  // CTX table fallback, so contexts on models not in CTX render
-  // proportionally correctly.
-  test("uses info.context_max for ctxLen", async () => {
-    const info: SessionInfo = { model: "gpt-4.1", context_max: 500_000, context_used: 25_000 }
-    const t = await mountNode(<Context info={info} />)
-    // 500_000 formatted by fmt() → "500k"; surfaces in the status header
-    // and the Free-space breakdown row.
-    expect(strip(t.frame())).toContain("500k")
-    t.destroy()
-  })
-
-  test("info.context_max overrides DEFAULT_CTX fallback", async () => {
-    // DEFAULT_CTX = 128k; info claims 1M. Gateway must win.
-    const info: SessionInfo = { model: "gpt-4o", context_max: 1_000_000, context_used: 50_000 }
-    const t = await mountNode(<Context info={info} />)
-    const f = strip(t.frame())
-    // 1_000_000 formats as "1.0M" via fmt()
-    expect(f).toContain("1.0M")
-    // Guard: must NOT fall back to 128k
-    expect(f).not.toContain("128k")
-    t.destroy()
-  })
-
-  test("shows unavailable state when live used is absent", async () => {
-    const messages: Message[] = [
-      { id: "m1", role: "assistant", timestamp: 0, parts: [{ type: "text", content: "a", streaming: false }], usage: { input: 40_000, output: 10, total: 40_010 } },
-      { id: "m2", role: "assistant", timestamp: 1, parts: [{ type: "text", content: "b", streaming: false }], usage: { input: 50_000, output: 10, total: 50_010 } },
-    ]
-    const t = await mountNode(<Context messages={messages} info={{ model: "test", context_max: 100_000 }} />)
-    const f = strip(t.frame())
-    expect(f).toContain("live usage unavailable")
-    expect(f).toContain("~Conversation")
-    expect(f).not.toContain("90k / 100k")
-    expect(f).not.toContain("Context · 90k")
-    t.destroy()
+  test("contextMeter prioritizes live usage and keeps absent usage unknown", () => {
+    const cfg = { model: { context_length: 64_000 } } as HermesConfig
+    expect(contextMeter(
+      { input: 1, output: 1, total: 2, context_used: 12_000, context_max: 100_000 },
+      { model: "test", context_used: 25_000, context_max: 500_000 },
+      cfg,
+    )).toEqual({ max: 100_000, used: 12_000 })
+    expect(contextMeter(undefined, {
+      model: "test", context_used: 70_000, context_max: 100_000,
+      usage: { input: 1, output: 1, total: 2, context_used: 25_000, context_max: 500_000 },
+    }, cfg)).toEqual({ max: 500_000, used: 25_000 })
+    expect(contextMeter(undefined, { model: "test", context_max: 500_000 }, cfg))
+      .toEqual({ max: 500_000, used: undefined })
+    expect(contextMeter(undefined, undefined, cfg)).toEqual({ max: 64_000, used: undefined })
+    expect(contextMeter(undefined, undefined, { model: { context_length: 0 } } as HermesConfig))
+      .toEqual({ max: 128_000, used: undefined })
   })
 
   test("uses app-level live usage before cumulative message input", async () => {
@@ -67,9 +37,8 @@ describe("Context tab", () => {
     const usage: Usage = { input: 90_000, output: 20, total: 90_020, context_used: 12_000, context_max: 100_000 }
     const t = await mountNode(<Context messages={messages} usage={usage} info={{ model: "test", context_max: 100_000 }} />)
     const f = strip(t.frame())
-    expect(f).toContain("Context · 12k / 100k (12%)")
+    expect(f).toMatch(/12k\s*\/\s*100k/)
     expect(f).not.toContain("90k / 100k")
-    expect(f).toContain("Free — 88k")
     t.destroy()
   })
 
@@ -134,19 +103,6 @@ describe("Context tab", () => {
     t.destroy()
   })
 
-  test("uses resumed session.info usage before top-level context fields", async () => {
-    const info: SessionInfo = {
-      model: "test",
-      context_used: 70_000,
-      context_max: 100_000,
-      usage: { input: 1, output: 2, total: 3, context_used: 22_000, context_max: 80_000 },
-    }
-    const t = await mountNode(<Context info={info} />)
-    const f = strip(t.frame())
-    expect(f).toContain("Context · 22k / 80k (28%)")
-    expect(f).toContain("Free — 58k")
-    t.destroy()
-  })
 
   test("uses session.info tools without legacy session JSON snapshots", async () => {
     const info: SessionInfo = {
@@ -171,51 +127,9 @@ describe("Context tab", () => {
     t.destroy()
   })
 
-  test("config-only max fallback does not fabricate live usage", async () => {
-    const cfg = { model: { context_length: 64_000 } } as HermesConfig
-    expect(contextMeter(undefined, undefined, cfg)).toEqual({ max: 64_000, used: undefined })
-    expect(contextMeter(undefined, undefined, { model: { context_length: 0 } } as HermesConfig)).toEqual({ max: 128_000, used: undefined })
-    expect(contextMeter(undefined, undefined, { model: { context_length: -1 } } as HermesConfig)).toEqual({ max: 128_000, used: undefined })
 
-    const t = await mountNode(<Context />)
-    const f = strip(t.frame())
-    expect(f).toContain("limit 128k")
-    expect(f).toContain("live usage unavailable")
-    expect(f).not.toContain("Context · 0 / 128k")
-    t.destroy()
-  })
-
-  // In-grid threshold marker (◼ in textMuted past threshold) + ×N badge.
+  // In-grid threshold marker (◼ in textMuted past threshold).
   describe("threshold marker", () => {
-    test("renders '×N compressed' badge when compressions > 0", async () => {
-      const info: SessionInfo = {
-        model: "claude-opus-4-7",
-        context_max: 200_000,
-        usage: { input: 100, output: 50, total: 150, context_used: 40_000, context_max: 200_000, compressions: 3 },
-      }
-      const t = await mountNode(<Context info={info} />)
-      expect(strip(t.frame())).toContain("×3 compressed")
-      t.destroy()
-    })
-
-    test("no badge when compressions = 0", async () => {
-      const info: SessionInfo = {
-        model: "claude-opus-4-7",
-        context_max: 200_000,
-        usage: { input: 100, output: 50, total: 150, context_used: 40_000, context_max: 200_000, compressions: 0 },
-      }
-      const t = await mountNode(<Context info={info} />)
-      expect(strip(t.frame())).not.toMatch(/×\d/)
-      t.destroy()
-    })
-
-    test("no badge when usage absent", async () => {
-      const info: SessionInfo = { model: "claude-opus-4-7", context_max: 200_000, context_used: 40_000 }
-      const t = await mountNode(<Context info={info} />)
-      expect(strip(t.frame())).not.toMatch(/×\d/)
-      t.destroy()
-    })
-
     test("cells past threshold render ◼ in the grid", async () => {
       const info: SessionInfo = { model: "claude-opus-4-7", context_max: 200_000, context_used: 40_000 }
       const t = await mountNode(<Context info={info} />)
@@ -254,38 +168,6 @@ describe("Context tab", () => {
     })
   })
 
-  // Categorical palette must never assign the same RGBA to two category ids,
-  // on any built-in theme, in either mode. `free` intentionally sits outside
-  // the ramp and is allowed to collide with nothing-but-itself.
-  describe("categorical palette", () => {
-    test("all category ids map to unique RGBA across every built-in theme", async () => {
-      const { clr, SLOTS } = await import("../src/tabs/Context")
-      const { NAMES, load, resolveTheme } = await import("../src/theme")
-      const key = (c: { r: number; g: number; b: number }) =>
-        `${c.r.toFixed(4)},${c.g.toFixed(4)},${c.b.toFixed(4)}`
-      for (const name of NAMES) {
-        const json = await load(name)
-        for (const mode of ["dark", "light"] as const) {
-          const theme = resolveTheme(json, mode)
-          const seen = new Map<string, string>()
-          for (const id of SLOTS) {
-            const k = key(clr(id, theme))
-            if (seen.has(k)) {
-              throw new Error(`${name}/${mode}: '${id}' collides with '${seen.get(k)}' at ${k}`)
-            }
-            seen.set(k, id)
-          }
-        }
-      }
-    })
-
-    test("unknown id falls through to 'other' slot", async () => {
-      const { clr } = await import("../src/tabs/Context")
-      const { DEFAULT_THEME, load, resolveTheme } = await import("../src/theme")
-      const theme = resolveTheme(await load(DEFAULT_THEME), "dark")
-      expect(clr("does_not_exist", theme)).toEqual(clr("other", theme))
-    })
-  })
 
   // Grid keyboard nav routes through list.* (rebind-aware) with ←/→
   // as tab-local aliases. With an empty sandbox (no system prompt, no

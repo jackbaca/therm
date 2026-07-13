@@ -51,10 +51,51 @@ describe("control.isDangerous — guards the intended tabs by name, not hardcode
     expect(isDangerous(e, "space", false)).toBe(false)
   })
 
-  test("Unknown tab index returns false (no crash)", () => {
-    expect(isDangerous(99, "return", false)).toBe(false)
-    expect(isDangerous(-1, "return", false)).toBe(false)
+})
+
+test("/key and /keys fail closed unless safe=false explicitly bypasses the guard", async () => {
+  const injected: string[] = []
+  setBridge({
+    tab: () => idx("Chat"),
+    setTab: () => {},
+    send: async () => {},
+    ready: () => true,
+    streaming: () => false,
+    messages: () => 0,
+    session: () => "sid",
+    input: () => "",
+    setInput: () => {},
+    focusRegion: () => "input",
+    setFocusRegion: () => {},
+    renderer: () => ({ keyInput: { processParsedKey: (key: { name: string }) => { injected.push(key.name); return true } } }),
+    logs: () => "",
+    plugin: async () => true,
+    push: () => {},
   })
+  const post = (path: string, body: unknown) => internals.handle(new Request(`http://localhost${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  }))
+
+  const blocked = await post("/key", { name: "return" })
+  expect(blocked.status).toBe(403)
+  expect(injected).toEqual([])
+
+  const bypassed = await post("/key", { name: "return", safe: false })
+  expect(bypassed.status).toBe(200)
+  expect(injected).toEqual(["return"])
+
+  const sequence = await post("/keys", { keys: [{ name: "return" }, { name: "x" }] })
+  const result = await sequence.json() as { results: Array<{ key: string; blocked?: boolean; injected: boolean; handled: boolean }> }
+  expect(result.results).toEqual([
+    { key: "return", injected: false, handled: false, blocked: true },
+    { key: "x", injected: true, handled: true },
+  ])
+  expect(injected).toEqual(["return", "x"])
+
+  await post("/keys", { keys: [{ name: "return" }], safe: false })
+  expect(injected).toEqual(["return", "x", "return"])
 })
 
 describe("control.isLoopback — loopback hostname detection", () => {
@@ -92,12 +133,6 @@ describe("control.warningFor — exposure warning decision", () => {
     expect(w!.message).toContain("CONTROL_BIND=127.0.0.1")
   })
 
-  test("non-standard external IP also warns", () => {
-    const w = warningFor(true, "192.168.1.5", 8080)
-    expect(w).not.toBe(null)
-    expect(w!.host).toBe("192.168.1.5")
-    expect(w!.port).toBe(8080)
-  })
 })
 
 test("POST /send waits for the bridge acknowledgement", async () => {

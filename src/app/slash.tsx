@@ -108,7 +108,7 @@ function partial(arg: string) {
   return { on: false, keep: 2, focus: text }
 }
 
-function preview(arg: string, msgs: Message[]): string[] | null {
+export function compressPreview(arg: string, msgs: Message[]): string[] | null {
   const f = flags(arg)
   if (f.aggressive && !f.preview) return [AGGRESSIVE]
   if (!f.preview) return null
@@ -200,7 +200,7 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
   // transcript visually stable, matching auto-compression.
   const runCompress = useCallback(async (arg = "") => {
     const raw = arg.trim()
-    const pv = preview(raw, ctx.current.turnRef.current.messages)
+    const pv = compressPreview(raw, ctx.current.turnRef.current.messages)
     if (pv) {
       ctx.current.dispatch({ kind: "system", text: pv.join("\n") })
       toast.show({ variant: pv.length === 1 ? "warning" : "info",

@@ -8,7 +8,7 @@ import { measureText, type ASCIIFontName } from "@opentui/core"
 import type { BoxRenderable } from "@opentui/core"
 import { useTheme } from "../theme"
 import { frame } from "./splash-art"
-import { randomTip, splitTip } from "../service/tips"
+import { tips } from "../service/tips"
 import { VERSION } from "../app/launch"
 
 export type SplashInfo = {
@@ -60,7 +60,7 @@ export function Splash(p: SplashProps) {
 
   const { lines, inner } = useMemo(() => frame(box.w, box.h), [box.w, box.h])
   const font = useMemo(() => pickFont(inner.w), [inner.w])
-  const [tip, setTip] = useState(() => randomTip())
+  const [tip, setTip] = useState(() => tips.randomTip())
 
   const behind = p.info?.behind
   const count = behind == null || behind < 0 ? null : behind === 0 ? "up to date" : `${behind} behind`
@@ -123,9 +123,9 @@ export function Splash(p: SplashProps) {
           {inner.h >= 14 ? (
             <box position="absolute" bottom={0} left={0} right={0}
                  flexDirection="column" alignItems="center"
-                 onMouseDown={() => setTip(t => randomTip(t))}>
+                 onMouseDown={() => setTip(t => tips.randomTip(t))}>
               <text wrapMode="word">
-                {splitTip(clip(tip, inner.w * 2)).map((s, i) =>
+                {tips.splitTip(clip(tip, inner.w * 2)).map((s, i) =>
                   <span key={i} fg={s.hl ? theme.accent : theme.textMuted}>{s.t}</span>,
                 )}
               </text>

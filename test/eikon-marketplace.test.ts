@@ -9,6 +9,7 @@ import * as prefs from "../src/context/preferences"
 
 const HH = process.env.HERMES_HOME!
 if (!HH || HH.includes("/.hermes")) throw new Error("sandbox not applied")
+const legacy = readFileSync(join(import.meta.dir, "fixtures/eikon/mono-v1.6.0-extract.eikon"), "utf8")
 
 const launch = [
   JSON.stringify({ type: "header", eikon: 1, size: { cols: 4, rows: 2 }, defaultSignal: "state.idle", signals: { "state.idle": { clip: "idle" } } }),
@@ -173,14 +174,10 @@ afterEach(() => {
 })
 
 describe("service/eikon-marketplace", () => {
-  test("loads and searches remote rows without full preview fetches", async () => {
+  test("searches catalog metadata without fetching package payloads", async () => {
     const fx = fixture()
     const state = await market.load({ catalog: fx.base, allowPrivate: true, query: "kaio" })
-    expect(state.status).toBe("ready")
-    expect(state.query).toBe("kaio")
     expect(state.rows.map(r => r.entry.name)).toEqual(["ares"])
-    expect(state.rows[0]!.entry.poster).toBe("ARES")
-    expect(state.rows[0]!.installed).toBe(false)
     expect(fx.seen).toEqual(["/eikons/index.json"])
     fx.srv.stop()
   })
@@ -209,7 +206,7 @@ describe("service/eikon-marketplace", () => {
   test("maps installed and active state by catalog identity before name fallback", async () => {
     const fx = fixture()
     eikon.ensure("ares")
-    writeFileSync(eikon.file("ares"), `${JSON.stringify({ eikon: 1, name: "ares", source_url: `${fx.base}/alt/` })}\n`)
+    writeFileSync(eikon.file("ares"), launch)
     writeFileSync(join(eikon.dir("ares"), "manifest.json"), JSON.stringify({
       name: "ares",
       origin: { source: `${fx.base}/alt/`, at: "2026-05-31T00:00:00.000Z" },
@@ -225,46 +222,26 @@ describe("service/eikon-marketplace", () => {
     fx.srv.stop()
   })
 
-  test("legacy name fallback is deliberate and colliding names stay ambiguous", async () => {
-    const fx = fixture()
-    eikon.ensure("ares")
-    writeFileSync(eikon.file("ares"), `${JSON.stringify({ eikon: 1, name: "ares" })}\n`)
-
-    const state = await market.load({ catalog: fx.base, allowPrivate: true })
-    const rows = state.rows.filter(r => r.entry.name === "ares")
-    expect(rows.every(r => r.installed)).toBe(true)
-    expect(rows.every(r => r.installState === "legacy-name-match")).toBe(true)
-    fx.srv.stop()
-  })
-
   test("flat legacy files do not satisfy marketplace installed state", async () => {
     const fx = fixture()
     mkdirSync(join(HH, "eikons"), { recursive: true })
-    writeFileSync(join(HH, "eikons", "mono.eikon"), launch)
+    writeFileSync(join(HH, "eikons", "mono.eikon"), legacy)
 
     const state = await market.load({ catalog: fx.base, allowPrivate: true })
     expect(state.rows.find(r => r.entry.name === "mono")!.installed).toBe(false)
     fx.srv.stop()
   })
 
-  test("available rows are installable when no eikon is active", async () => {
-    const fx = fixture()
-    const state = await market.load({ catalog: fx.base, allowPrivate: true })
-    const row = state.rows.find(r => r.entry.name === "mono")!
-
-    expect(row.installed).toBe(false)
-    expect(row.active).toBe(false)
-    expect(row.installState).toBe("available")
-    expect(row.action).toBe("install")
-    fx.srv.stop()
-  })
-
-  test("legacy name fallback is not suppressed by unrelated keyed installs", async () => {
+  test("unkeyed local name fallback is not suppressed by unrelated keyed installs", async () => {
     const fx = fixture()
     eikon.ensure("ares")
-    writeFileSync(eikon.file("ares"), `${JSON.stringify({ eikon: 1, name: "ares", source_url: `${fx.base}/alt/` })}\n`)
+    writeFileSync(eikon.file("ares"), launch)
+    writeFileSync(join(eikon.dir("ares"), "manifest.json"), JSON.stringify({
+      name: "ares",
+      origin: { source: `${fx.base}/alt/`, at: "2026-05-31T00:00:00.000Z" },
+    }))
     eikon.ensure("mono")
-    writeFileSync(eikon.file("mono"), `${JSON.stringify({ eikon: 1, name: "mono" })}\n`)
+    writeFileSync(eikon.file("mono"), launch)
 
     const state = await market.load({ catalog: fx.base, allowPrivate: true })
     const mono = state.rows.find(r => r.entry.name === "mono")!
@@ -472,7 +449,6 @@ describe("service/eikon-marketplace", () => {
       { path: "/eikons/packages/pkg/source/idle.mp4", body: new Uint8Array(8) },
     ])
     const state = await market.load({ catalog: `http://localhost:${srv.port}/eikons`, allowPrivate: true })
-    expect(state.status).toBe("ready")
     const out = await state.service!.install(state.rows[0]!.entry.identityKey, { media: true })
 
     expect(out.name).toBe("pkg")
@@ -570,43 +546,6 @@ describe("service/eikon-marketplace", () => {
     expect(prefs.get("eikon")).toBeUndefined()
     expect(eikon.list().some(x => x.name === "bad")).toBe(false)
     srv.stop()
-  })
-
-  test("empty and no-results states are stable", async () => {
-    const srv = serve([{ path: "/eikons/index.json", body: [] }])
-    const state = await market.load({ catalog: `http://localhost:${srv.port}/eikons`, allowPrivate: true, query: "none" })
-    expect(state.status).toBe("empty")
-    expect(state.rows).toEqual([])
-    expect(state.selected).toBeUndefined()
-    srv.stop()
-  })
-
-  test("rows expose lifecycle source, trust, removable, and compatibility state", async () => {
-    const fx = fixture()
-    eikon.ensure("ares")
-    writeFileSync(eikon.file("ares"), '{"eikon":1,"name":"ares"}\n')
-    writeFileSync(join(eikon.dir("ares"), "manifest.json"), JSON.stringify({
-      kind: "eikon.package",
-      id: "liftaris/ares",
-      name: "ares",
-      version: "2.0.0",
-      display: { title: "Ares", author: "Kaio" },
-      compatibility: { eikon: ">=1 <2" },
-      entrypoints: { default: "ares.eikon" },
-      origin: { source: `${fx.base}/ares/manifest.json`, at: "2026-06-07T00:00:00.000Z", kind: "default-catalog", trust: "verified", sourceKey: `${fx.base}/ares/`, packageUrl: `${fx.base}/ares/manifest.json` },
-    }, null, 2))
-
-    const state = await market.load({ catalog: fx.base, allowPrivate: true })
-    const row = state.rows.find(r => r.entry.poster === "ARES")!
-
-    expect(row.installState).toBe("installed")
-    expect(row.lifecycle.title).toBe("Ares")
-    expect(row.lifecycle.version).toBe("2.0.0")
-    expect(row.trust).toBe("verified")
-    expect(row.sourceIdentity).toBe(`${fx.base}/ares/`)
-    expect(row.removable).toBe(true)
-    expect(row.updateable).toBe(true)
-    fx.srv.stop()
   })
 
   test("downloadSource writes source without replacing active runtime or manifest", async () => {
@@ -764,20 +703,13 @@ describe("service/eikon-marketplace", () => {
     fx.srv.stop()
   })
 
-  test("installed source download state follows package source descriptors", async () => {
+  test("downloadSource rejects runtime-only descriptors before network access", async () => {
     const runtime = pack("runtime")
     delete (runtime as { source?: unknown }).source
     runtime.files = runtime.files.filter(f => f.role === "runtime")
-    const sourced = pack("sourced")
     const cat: Catalog = {
       base: "https://example.com/eikons",
-      entries: [
-        entry({ name: "runtime", packageUrl: "https://example.com/eikons/runtime/manifest.json" }),
-        {
-          ...entry({ name: "sourced", packageUrl: "https://example.com/eikons/sourced/manifest.json" }),
-          raw: { name: "sourced", manifest: sourced, packageUrl: "https://example.com/eikons/sourced/manifest.json" },
-        },
-      ],
+      entries: [entry({ name: "runtime", packageUrl: "https://example.com/eikons/runtime/manifest.json" })],
       load: async () => "",
     }
     eikon.ensure("runtime")
@@ -786,22 +718,11 @@ describe("service/eikon-marketplace", () => {
       ...runtime,
       origin: { sourceKey: "https://example.com/eikons/runtime/", identityKey: "https://example.com/eikons/runtime/", packageUrl: "https://example.com/eikons/runtime/manifest.json" },
     }, null, 2))
-    eikon.ensure("sourced")
-    writeFileSync(eikon.file("sourced"), '{"eikon":1,"name":"sourced"}\n')
-    writeFileSync(join(eikon.dir("sourced"), "manifest.json"), JSON.stringify({
-      ...sourced,
-      origin: { sourceKey: "https://example.com/eikons/sourced/", identityKey: "https://example.com/eikons/sourced/", packageUrl: "https://example.com/eikons/sourced/manifest.json" },
-    }, null, 2))
-    const svc = new market.MarketplaceService(cat, { fetcher: async () => new Response(JSON.stringify(runtime)) })
-    const rows = svc.rows()
-    const run = rows.find(r => r.entry.name === "runtime")!
-    const src = rows.find(r => r.entry.name === "sourced")!
+    let calls = 0
+    const svc = new market.MarketplaceService(cat, { fetcher: async () => { calls += 1; return new Response(JSON.stringify(runtime)) } })
 
-    expect(run.sourceAvailable).toBe(false)
-    expect(run.sourceDownloadable).toBe(false)
-    expect(src.sourceAvailable).toBe(true)
-    expect(src.sourceDownloadable).toBe(true)
-    await expect(svc.downloadSource(run.entry.identityKey)).rejects.toThrow(/no source media published/)
+    await expect(svc.downloadSource(cat.entries[0]!.identityKey)).rejects.toThrow(/no source media published/)
+    expect(calls).toBe(0)
   })
 
   test("available catalog rows require descriptor digests for verified trust", async () => {

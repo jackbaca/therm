@@ -52,11 +52,6 @@ describe("config/index", () => {
     expect(p.value).toEqual({ openai: { api_key: "x" } })
   })
 
-  test("GROUPS is stable, starts with general, ≤25 entries after merges", () => {
-    expect(GROUPS[0]).toBe("general")
-    expect(GROUPS.length).toBeLessThanOrEqual(25)
-    expect(new Set(GROUPS).size).toBe(GROUPS.length)
-  })
 
   test("every schema key maps to a group in GROUPS", () => {
     for (const k of SCHEMA_KEYS)

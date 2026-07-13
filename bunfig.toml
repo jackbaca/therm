@@ -8,4 +8,6 @@ disable = false
 save = true
 
 [test]
+# Process-global HERMES_HOME/profile fixtures require Bun's serial default.
+# Do not enable global concurrent tests; inject roots before parallelizing.
 preload = ["./test/preload.ts"]

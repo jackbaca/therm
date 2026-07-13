@@ -29,13 +29,18 @@ describe("Rollback dialog", () => {
     t.destroy()
   })
 
-  test("disabled → shows notice", async () => {
+  test("disabled checkpoints withhold diff and restore RPCs", async () => {
     const gw = new MockGateway({
       "rollback.list": () => ({ enabled: false, checkpoints: [] }),
     })
     const t = await mountNode(<Host />, { gw })
-    await until(t, () => t.frame().includes("Checkpoints disabled"))
-    expect(t.frame()).toContain("Enable checkpoints")
+    await until(t, () => gw.last("rollback.list") !== undefined)
+    act(() => t.keys.pressEnter())
+    await act(async () => { await t.keys.typeText("r") })
+    await act(async () => { await t.keys.typeText("y") })
+    await t.settle()
+    expect(gw.last("rollback.diff")).toBeUndefined()
+    expect(gw.last("rollback.restore")).toBeUndefined()
     t.destroy()
   })
 
@@ -136,20 +141,23 @@ describe("Rollback dialog", () => {
     t.destroy()
   })
 
-  test("Esc in diff view returns to list", async () => {
+  test("Esc in diff view restores list navigation", async () => {
     const gw = new MockGateway({
       "rollback.list": () => ({ enabled: true, checkpoints: POINTS }),
       "rollback.diff": () => ({ stat: "stat", diff: "@@ -1 +1 @@\n-a\n+b" }),
     })
     const t = await mountNode(<Host />, { gw })
-    await until(t, () => t.frame().includes("2 checkpoints"))
+    await until(t, () => gw.last("rollback.list") !== undefined)
 
     act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("[r] restore"))
+    await until(t, () => gw.calls.filter(c => c.method === "rollback.diff").length === 1)
 
     act(() => t.keys.pressEscape())
-    await until(t, () => t.frame().includes("2 checkpoints"))
-    expect(t.frame()).toContain("write parser")
+    await t.settle()
+    act(() => t.keys.pressArrow("down"))
+    act(() => t.keys.pressEnter())
+    await until(t, () => gw.calls.filter(c => c.method === "rollback.diff").length === 2)
+    expect(gw.last("rollback.diff")?.params.hash).toBe(POINTS[1].hash)
     t.destroy()
   })
 })

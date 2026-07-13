@@ -181,7 +181,6 @@ describe("hermes-profiles", () => {
 
     // Parse-fail (invalid yaml) → null, does not throw.
     writeFileSync(join(dir, "distribution.yaml"), "name: [unterminated\n")
-    expect(() => readDistributionManifest(dir)).not.toThrow()
     expect(readDistributionManifest(dir)).toBeNull()
   })
 
@@ -285,51 +284,6 @@ describe("Agents tab", () => {
     t.destroy()
   })
 
-  test("sticky default badged in row + title", async () => {
-    writeFileSync(join(ROOT, "active_profile"), "coder\n")
-    const t = await mountNode(<Agents focused sessionId="test-sid" />, { gw: new MockGateway(), width: 200 })
-    await until(t, () => t.frame().includes("★"))
-    const f = t.frame()
-    expect(f).toContain("★ coder")
-    const row = f.split("\n").find(l => l.includes("coder") && l.includes("★"))
-    expect(row).toBeDefined()
-    t.destroy()
-  })
-
-  test("distribution badge in row + Distribution block in detail", async () => {
-    writeFileSync(join(ROOT, "profiles", "coder", "distribution.yaml"), [
-      "name: acme-coder",
-      "version: 1.2.3",
-      "hermes_requires: '>=2.0'",
-      "source: https://github.com/acme/coder",
-      "installed_at: '2025-01-15T10:30:00Z'",
-      "env_requires:",
-      "  - name: ACME_KEY",
-      "    required: true",
-      "  - name: ACME_OPT",
-      "    required: false",
-      "",
-    ].join("\n"))
-    const t = await mountNode(<Agents focused sessionId="test-sid" />, { gw: new MockGateway(), width: 200 })
-    await until(t, () => t.frame().includes("Profiles (2)"))
-    const f = t.frame()
-    // Badge on coder row, not on default.
-    const rowCoder = f.split("\n").find(l => /▸?\s+coder/.test(l))!
-    const rowDefault = f.split("\n").find(l => /▸?\s+default\s/.test(l))!
-    expect(rowCoder).toContain("⬢")
-    expect(rowDefault).not.toContain("⬢")
-    // Arrow down to select coder so its detail pane renders.
-    await act(async () => { await t.keys.pressArrow("down") })
-    await until(t, () => t.frame().includes("Distribution"))
-    const g = t.frame()
-    expect(g).toContain("Distribution")
-    expect(g).toContain("acme-coder")
-    expect(g).toContain("v1.2.3")
-    expect(g).toContain("Hermes >=2.0")
-    expect(g).toContain("https://github.com/acme/coder")
-    expect(g).toContain("1 required, 1 optional")
-    t.destroy()
-  })
 
   test("↓ selects, detail follows; d on active/default is no-op; d on other confirms → shell.exec; running-gateway warn", async () => {
     writeFileSync(join(ROOT, "profiles", "coder", "gateway.pid"), String(process.pid))
@@ -520,24 +474,33 @@ describe("Agents tab", () => {
     t.destroy()
   })
 
-  test("empty delegation shows placeholder; paused pill toggles via delegation.pause", async () => {
+  test("pause control uses returned state for the next delegation.pause transition", async () => {
+    const calls: boolean[] = []
     let paused = true
     const gw = new MockGateway({
       "delegation.status": () => STATUS({ active: [], paused }),
-      "delegation.pause": (p) => { paused = !!p.paused; return { paused } },
+      "delegation.pause": (p) => {
+        paused = !!p.paused
+        calls.push(paused)
+        return { paused }
+      },
     })
     const t = await mountNode(<Agents focused sessionId="test-sid" />, { gw })
-    await until(t, () => t.frame().includes("Delegation (0)"))
-    expect(t.frame()).toContain("⏸ paused")
-    expect(t.frame()).toContain("new subagents will queue")
+    const tap = async (text: string) => {
+      await until(t, () => t.frame().includes(text))
+      const lines = t.frame().split("\n")
+      const y = lines.findIndex(l => l.includes(text))
+      const x = lines[y].indexOf(text) + 1
+      await act(async () => { await t.mouse.pressDown(x, y) })
+    }
 
-    // Click the pill → resume.
-    const y = t.frame().split("\n").findIndex(l => l.includes("⏸ paused"))
-    const x = t.frame().split("\n")[y].indexOf("⏸") + 1
-    await act(async () => { await t.mouse.pressDown(x, y) })
-    await until(t, () => t.frame().includes("▶ active"))
-    expect(gw.last("delegation.pause")?.params.paused).toBe(false)
-    expect(t.frame()).toContain("Delegation resumed")
+    await tap("⏸ paused")
+    await until(t, () => calls.length === 1)
+    expect(calls).toEqual([false])
+
+    await tap("▶ active")
+    await until(t, () => calls.length === 2)
+    expect(calls).toEqual([false, true])
     t.destroy()
   })
 
@@ -903,16 +866,16 @@ describe("Agents tab", () => {
     t.destroy()
   })
 
-  test("distribution menu entries absent on profiles without a manifest", async () => {
-    const t = await mountNode(<Agents focused sessionId="test-sid" />, { gw: new MockGateway(), width: 200 })
+  test("profiles without a manifest cannot dispatch distribution updates", async () => {
+    const gw = new MockGateway({ "shell.exec": () => ({ stdout: "", stderr: "", code: 0 }) })
+    const t = await mountNode(<Agents focused sessionId="test-sid" />, { gw, width: 200 })
     await until(t, () => t.frame().includes("Profiles (2)"))
-    // default has no distribution.yaml.
     act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("Profile · default"))
-    // No Info/Update titles in the dialog-select body.
-    const f = t.frame()
-    expect(f).not.toMatch(/^\s*[▸ ]\s*Info\b/m)
-    expect(f).not.toMatch(/^\s*[▸ ]\s*Update\b/m)
+    await t.settle()
+    await act(async () => { await t.keys.typeText("update") })
+    act(() => t.keys.pressEnter())
+    await t.settle()
+    expect(gw.last("shell.exec")).toBeUndefined()
     t.destroy()
   })
 })

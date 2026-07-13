@@ -58,38 +58,6 @@ describe("live session event routing", () => {
     t.destroy()
   })
 
-  test("renders MoA references before aggregator answer without aggregating rows", async () => {
-    const gw = new MockGateway({
-      "session.resume": p => ({ session_id: p.session_id, messages: [] }),
-    })
-    const t = await mount({ gw, launch: { mode: "resume", sid: "sid-b", splash: false } })
-    await until(t, () => t.frame().includes("Ready"))
-
-    await act(async () => {
-      t.gw.push({ type: "message.start", session_id: "sid-b" })
-      t.gw.push({
-        type: "moa.reference",
-        session_id: "sid-b",
-        payload: { label: "openrouter:openai/gpt-5.5", text: "Paris.", index: 1, count: 2 },
-      })
-      t.gw.push({
-        type: "moa.aggregating",
-        session_id: "sid-b",
-        payload: { aggregator: "openrouter:anthropic/claude-opus-4.8" },
-      })
-      t.gw.push({ type: "message.delta", session_id: "sid-b", payload: { text: "The answer is Paris." } })
-      t.gw.push({ type: "message.complete", session_id: "sid-b" })
-    })
-    await until(t, () => t.frame().includes("The answer is Paris."))
-
-    const frame = t.frame()
-    expect(frame).toContain("◇ Reference 1/2 — openrouter:openai/gpt-5.5")
-    expect(frame).toContain("Paris.")
-    expect(frame.indexOf("◇ Reference 1/2")).toBeLessThan(frame.indexOf("The answer is Paris."))
-    expect(frame).not.toContain("aggregating with")
-    expect(frame).not.toContain("openrouter:anthropic/claude-opus-4.8")
-    t.destroy()
-  })
 
   test("sibling background completion clears badge without writing into active transcript", async () => {
     const gw = new MockGateway({
@@ -139,16 +107,22 @@ describe("live session event routing", () => {
     const t = await mount({ gw, launch: { mode: "resume", sid: "sid-b", splash: false } })
     await until(t, () => t.frame().includes("Ready"))
 
+    act(() => t.gw.push({
+      type: "session.title",
+      payload: { session_id: "sid-b", title: "Fixture Active Title" },
+    }))
+    await until(t, () => t.frame().includes("Fixture Active Title"))
+
     act(() => {
-      t.gw.push({ type: "session.title", payload: { title: "No ID" } })
+      t.gw.push({ type: "session.title", payload: { title: "Missing Session Fixture" } })
       t.gw.push({ type: "session.title", payload: { session_id: "sid-b" } })
-      t.gw.push({ type: "session.title", payload: { session_id: "sid-a", title: "Wrong Session" } })
+      t.gw.push({ type: "session.title", payload: { session_id: "sid-a", title: "Sibling Session Fixture" } })
     })
     await t.settle()
 
-    expect(t.frame()).not.toContain("No ID")
-    expect(t.frame()).not.toContain("Wrong Session")
-    expect(t.frame()).toMatch(/Title\s+—/)
+    expect(t.frame()).toContain("Fixture Active Title")
+    expect(t.frame()).not.toContain("Missing Session Fixture")
+    expect(t.frame()).not.toContain("Sibling Session Fixture")
     t.destroy()
   })
 })

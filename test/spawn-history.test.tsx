@@ -22,8 +22,9 @@ test("spawn history list failure stays visible", async () => {
 
 test("closing the loading dialog prevents a late list from reopening it", async () => {
   let resolve!: (value: unknown) => void
+  let late!: Promise<unknown>
   const t = await mountNode(<Host />, {
-    handlers: { "spawn_tree.list": () => new Promise(done => { resolve = done }) },
+    handlers: { "spawn_tree.list": () => late = new Promise(done => { resolve = done }) },
   })
   await t.settle()
   t.keys.pressEscape()
@@ -32,7 +33,7 @@ test("closing the loading dialog prevents a late list from reopening it", async 
     path: "/tmp/late.json", session_id: "sid", count: 1,
     label: "late tree", finished_at: Date.now() / 1000,
   }] })
-  await new Promise(done => setTimeout(done, 20))
+  await late
   await t.settle()
   expect(t.frame()).not.toContain("late tree")
   t.destroy()

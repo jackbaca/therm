@@ -1,0 +1,31 @@
+{
+  "started_at": "2026-04-30T12:00:00Z",
+  "duration_seconds": 12.5,
+  "model": "test-model",
+  "provider": "test-provider",
+  "auto_transitions": {},
+  "counts": {
+    "before": 50,
+    "after": 42,
+    "delta": -8,
+    "archived_this_run": 8,
+    "added_this_run": 1,
+    "consolidated_this_run": 3,
+    "pruned_this_run": 0,
+    "state_transitions": 0,
+    "cron_jobs_rewritten": 0,
+    "tool_calls_total": 0
+  },
+  "tool_call_counts": {},
+  "archived": ["archived-one"],
+  "consolidated": [],
+  "pruned": [],
+  "pruned_names": [],
+  "added": ["added-one"],
+  "state_transitions": [],
+  "cron_rewrites": {},
+  "llm_final": "",
+  "llm_summary": "redacted summary",
+  "llm_error": null,
+  "tool_calls": []
+}

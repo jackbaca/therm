@@ -1,35 +1,26 @@
-import { test, expect, beforeAll, afterAll } from "bun:test"
-import { mkdirSync, writeFileSync, chmodSync, rmSync } from "node:fs"
+import { test, expect, beforeEach, afterEach } from "bun:test"
+import { existsSync, mkdirSync, writeFileSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import { gen } from "../src/service/eikon-gen"
+import { generator } from "./fixture/eikon"
 
-// HERMES_HOME is a tmpdir (preload). Drop a fake hermes-agent install
-// whose venv python echoes a provider-shaped JSON so generate() can be
-// tested end-to-end without any real API.
-const HH = process.env.HERMES_HOME!
-const ROOT = join(HH, "hermes-agent")
-const BIN = join(ROOT, "venv", "bin")
-const PY = join(BIN, "python")
-const ASSET = join(HH, "gen-out.png")
+let fx: ReturnType<typeof generator>
+beforeEach(() => { fx = generator() })
+afterEach(() => fx[Symbol.dispose]())
 
-beforeAll(() => {
-  mkdirSync(BIN, { recursive: true })
-  writeFileSync(ASSET, new Uint8Array([137, 80, 78, 71]))
-  // Fake python: last arg is the -c body; echo args to a sidecar and
-  // emit a success JSON pointing at ASSET. Lets us assert the exact
-  // tool-module call embedded in the -c string.
-  writeFileSync(PY,
-    `#!/usr/bin/env bash\n` +
-    `printf '%s\\n' "$@" > "${join(HH, "gen-argv")}"\n` +
-    `echo '{"success": true, "image": "${ASSET}"}'\n`)
-  chmodSync(PY, 0o755)
+test("generator fixture removes partial setup after failure", () => {
+  const root = fx.root
+  const asset = fx.asset
+  expect(() => generator(() => { throw new Error("fixture setup failed") }))
+    .toThrow("fixture setup failed")
+  expect(existsSync(root)).toBe(false)
+  expect(existsSync(asset)).toBe(false)
 })
-afterAll(() => rmSync(ROOT, { recursive: true, force: true }))
 
 test("generate(image) spawns venv python against image_generation_tool and returns local path", async () => {
   const out = await gen.generate("image", "a wise owl", { aspect: "square" })
-  expect("path" in out && out.path).toBe(ASSET)
-  const argv = await Bun.file(join(HH, "gen-argv")).text()
+  expect("path" in out && out.path).toBe(fx.asset)
+  const argv = await Bun.file(fx.argv).text()
   expect(argv).toContain("image_generation_tool")
   expect(argv).toContain("_handle_image_generate")
   expect(argv).toContain("a wise owl")
@@ -39,50 +30,46 @@ test("generate(image) spawns venv python against image_generation_tool and retur
 test("generate(video) embeds duration + image_url seed in the -c body", async () => {
   const out = await gen.generate("video", "owl blinks", { seconds: 3, seed: "/tmp/base.png" })
   expect("path" in out).toBe(true)
-  const argv = await Bun.file(join(HH, "gen-argv")).text()
+  const argv = await Bun.file(fx.argv).text()
   expect(argv).toContain("video_generation_tool")
   expect(argv).toContain('"duration":3')
   expect(argv).toContain('"image_url":"/tmp/base.png"')
 })
 
 test("generate parses error shape", async () => {
-  writeFileSync(PY,
-    `#!/usr/bin/env bash\necho '{"success": false, "error": "no FAL_KEY"}'\n`)
-  chmodSync(PY, 0o755)
+  fx.script(`#!/usr/bin/env bash\necho '{"success": false, "error": "no FAL_KEY"}'\n`)
   const out = await gen.generate("image", "x", {})
   expect("err" in out && out.err).toBe("no FAL_KEY")
 })
 
 test("probe() reads check_*_requirements", async () => {
-  writeFileSync(PY,
+  fx.script(
     `#!/usr/bin/env bash\n` +
-    `printf '%s\\n' "$@" > "${join(HH, "gen-argv")}"\n` +
+    `printf '%s\\n' "$@" > "${fx.argv}"\n` +
     `echo '{"image": true, "video": false}'\n`)
-  chmodSync(PY, 0o755)
   const c = await gen.probe()
   expect(c).toEqual({ image: true, video: false })
-  const argv = await Bun.file(join(HH, "gen-argv")).text()
+  const argv = await Bun.file(fx.argv).text()
   expect(argv).toContain("check_image_generation_requirements")
   expect(argv).toContain("check_video_generation_requirements")
 })
 
 test("dotenv keys reach the child process so providers see API keys", async () => {
-  // Fake python echoes whatever env keys are present so we can assert.
-  writeFileSync(PY,
+  // The fake rejects unless the child receives the exact dotenv value.
+  fx.script(
     `#!/usr/bin/env bash\n` +
-    `echo "FAKE_GEN_KEY=$FAKE_GEN_KEY"\n` +
-    `echo '{"success": true, "image": "${ASSET}"}'\n`)
-  chmodSync(PY, 0o755)
-  writeFileSync(join(HH, ".env"), 'FAKE_GEN_KEY="reached-the-child"\n')
+    `if [[ "$FAKE_GEN_KEY" != "reached-the-child" ]]; then exit 42; fi\n` +
+    `echo '{"success": true, "image": "${fx.asset}"}'\n`)
+  writeFileSync(join(fx.home, ".env"), 'FAKE_GEN_KEY="reached-the-child"\n')
   const out = await gen.generate("image", "x", {})
   expect("path" in out).toBe(true)
 })
 
 test("missing fallback python degrades instead of rejecting", async () => {
-  rmSync(ROOT, { recursive: true, force: true })
-  mkdirSync(ROOT, { recursive: true })
+  rmSync(fx.root, { recursive: true, force: true })
+  mkdirSync(fx.root, { recursive: true })
   const old = process.env.PATH
-  process.env.PATH = join(HH, "empty-path")
+  process.env.PATH = join(fx.home, "empty-path")
   mkdirSync(process.env.PATH, { recursive: true })
   try {
     expect(await gen.probe()).toEqual({ image: false, video: false })
@@ -95,7 +82,7 @@ test("missing fallback python degrades instead of rejecting", async () => {
 })
 
 test("probe() returns false/false when hermes-agent install absent", async () => {
-  rmSync(ROOT, { recursive: true, force: true })
+  rmSync(fx.root, { recursive: true, force: true })
   const c = await gen.probe()
   expect(c).toEqual({ image: false, video: false })
 })

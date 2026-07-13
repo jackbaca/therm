@@ -1,0 +1,21 @@
+{
+  "session_id": "20260509_002407_e8b6e4",
+  "model": "test-model",
+  "base_url": "https://example.invalid/v1",
+  "platform": "tui",
+  "session_start": "2026-05-09T00:24:07+00:00",
+  "last_updated": "2026-05-09T00:25:00+00:00",
+  "system_prompt": "redacted",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "terminal",
+        "description": "run commands",
+        "parameters": { "type": "object", "properties": {} }
+      }
+    }
+  ],
+  "message_count": 0,
+  "messages": []
+}

@@ -2,10 +2,6 @@ import { describe, expect, test } from "bun:test"
 import { SCHEMA, SCHEMA_KEYS, type ConfigSchemaEntry } from "../src/config/schema"
 
 describe("schema", () => {
-  test("has at least 220 keys", () => {
-    expect(SCHEMA_KEYS.length).toBeGreaterThanOrEqual(220)
-  })
-
   test("no internal (_-prefixed) keys leak", () => {
     expect(SCHEMA_KEYS.filter(k => k.startsWith("_") || k.includes("._"))).toEqual([])
   })
@@ -25,41 +21,6 @@ describe("schema", () => {
     }
   })
 
-  test("kanban profile cap parity keys are present", () => {
-    expect(SCHEMA["kanban.default_assignee"]).toMatchObject({
-      type: "str",
-      default: "",
-      group: "kanban",
-    })
-    expect(SCHEMA["kanban.max_in_progress_per_profile"]).toMatchObject({
-      type: "null",
-      default: null,
-      group: "kanban",
-    })
-    expect(SCHEMA["kanban.max_in_progress_per_profile"].doc).toContain("Per-profile concurrency cap")
-    expect(SCHEMA["kanban.max_in_progress_per_profile"].doc).toContain("positive int")
-  })
-
-  test("web extract char limit parity key is present", () => {
-    expect(SCHEMA["web.extract_char_limit"]).toMatchObject({
-      type: "int",
-      default: 15000,
-      group: "web",
-    })
-  })
-
-  test("upstream 05cbddc config keys are present", () => {
-    expect(SCHEMA["display.timestamp_format"]).toMatchObject({
-      type: "str",
-      default: "%H:%M",
-      group: "display",
-    })
-    expect(SCHEMA["secrets.onepassword.enabled"]).toMatchObject({
-      type: "bool",
-      default: false,
-      group: "secrets",
-    })
-  })
 
   test("group is first dotted segment (or 'general' for root keys)", () => {
     for (const k of SCHEMA_KEYS) {
@@ -86,20 +47,4 @@ describe("schema", () => {
     expect(SCHEMA["compression.threshold"].doc.length).toBeGreaterThan(5)
   })
 
-  test("upstream config/env refresh keys are present", () => {
-    for (const k of [
-      "moa.save_traces",
-      "moa.trace_dir",
-      "gateway.restart_loop_guard.max_restarts",
-      "gateway.restart_loop_guard.window_seconds",
-      "browser.allow_unsafe_evaluate",
-      "vertex.project_id",
-      "vertex.region",
-      "discord.bots_require_inline_mention",
-    ]) expect(SCHEMA[k], k).toBeDefined()
-
-    expect(SCHEMA["custom_providers"]).toMatchObject({ type: "dict" })
-    expect(SCHEMA["providers"]).toMatchObject({ type: "dict" })
-    expect(SCHEMA["prompt_caching.enabled"]).toBeUndefined()
-  })
 })

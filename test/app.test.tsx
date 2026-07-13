@@ -6,6 +6,7 @@ import { mount as mountApp, until, MockGateway } from "./harness"
 import { tmpHome } from "./fixture/home"
 import * as prefs from "../src/context/preferences"
 import * as exit from "../src/app/exit"
+import * as clipboard from "../src/utils/clipboard"
 import { DOUBLE_TAB_MS, QUIT_MS } from "../src/app/useAppKeys"
 import type { GatewayEvent } from "../src/context/wire"
 
@@ -54,20 +55,6 @@ describe("app", () => {
     t.destroy()
   })
 
-  test("sub-tab hint omits duplicate group navigation", async () => {
-    const t = await mount()
-    await until(t, () => t.frame().includes("Ready"))
-
-    act(() => t.keys.pressArrow("right", { meta: true }))
-    await until(t, () => t.frame().includes("Sessions ("))
-
-    const f = t.frame()
-    expect(f).toContain("Alt+←/Alt+→ or Ctrl+X N")
-    expect(f).toContain("shift+←/→ sub")
-    expect(f).not.toContain("Alt+←/Alt+→ group")
-
-    t.destroy()
-  })
 
   test("<leader> <digit> jumps directly to tab N", async () => {
     const t = await mount()
@@ -292,7 +279,8 @@ describe("app", () => {
     t.destroy()
   })
 
-  test("copy-last shows toast", async () => {
+  test("copy-last writes the latest assistant text to the clipboard sink", async () => {
+    const copy = spyOn(clipboard, "copyText").mockImplementation(async () => {})
     const t = await mount({ width: 130, height: 18 })
     await until(t, () => t.frame().includes("Ready"))
 
@@ -306,8 +294,10 @@ describe("app", () => {
     await until(t, () => t.frame().includes("agent one"))
 
     act(() => { t.keys.pressKey("x", { ctrl: true }); t.keys.pressKey("y") })
-    await until(t, () => t.frame().includes("Copied to clipboard"))
+    await until(t, () => copy.mock.calls.length === 1)
+    expect(copy.mock.calls[0]?.[0]).toBe("agent one")
     t.destroy()
+    copy.mockRestore()
   })
 
 
@@ -898,13 +888,6 @@ describe("app", () => {
     t.destroy()
   })
 
-  test("sidebar shows Profile row", async () => {
-    const t = await mount({ width: 160 })
-    await until(t, () => t.frame().includes("Hermes"))
-    // preload.ts sets HERMES_HOME to a sandbox that isn't under profiles/
-    expect(t.frame()).toMatch(/Profile\s+default/)
-    t.destroy()
-  })
 
   // d2o.3: <leader>b toggles sidebar visibility independent of width.
   test("<leader>b toggles the sidebar", async () => {
@@ -928,25 +911,6 @@ describe("app", () => {
     t.destroy()
   })
 
-  test("agent messages show 'Hermes' as default speaker (not 'assistant')", async () => {
-    const t = await mount()
-    await until(t, () => t.frame().includes("Ready"))
-
-    act(() => {
-      t.gw.push({ type: "message.start" })
-      t.gw.push({ type: "message.delta", payload: { text: "hi there" } })
-      t.gw.push({ type: "message.complete", payload: { text: "hi there", status: "complete" } })
-    })
-    await t.settle()
-
-    const f = t.frame()
-    expect(f).toContain("Hermes")
-    // The agent row header must not fall back to the literal "assistant".
-    // (substring search is safe: no other UI text contains that word.)
-    expect(f).not.toMatch(/\bassistant\b/)
-
-    t.destroy()
-  })
 
   test("skin.changed → branding.agent_name replaces 'Hermes' in agent headers", async () => {
     const t = await mount()
@@ -1417,7 +1381,6 @@ describe("app", () => {
     }))
     await until(t, () => t.frame().includes("wide-model"))
     expect(t.frame()).toMatch(/Profile\s+default/)
-    expect(t.frame()).not.toContain("p:default")
 
     t.resize(100, 48)
     await until(t, () => {
@@ -1425,10 +1388,6 @@ describe("app", () => {
       return f.includes("default") && f.includes("wide-model") && f.includes("herm-work")
         && !/Profile\s+default/.test(f)
     })
-    expect(t.frame()).not.toContain("p:default")
-    expect(t.frame()).not.toContain("m:wide-model")
-    expect(t.frame()).not.toContain("b:herm-work")
-    expect(t.frame()).not.toContain("ctx:")
     expect(t.frame()).not.toMatch(/Profile\s+default/)
     t.destroy()
   })

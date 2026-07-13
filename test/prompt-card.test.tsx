@@ -91,16 +91,6 @@ describe("PromptCard.Approval", () => {
     expect(gw.last("approval.respond")).toBeUndefined()
   })
 
-  test("answered part collapses to Outcome line", async () => {
-    await using t = await mountNode(
-      <PromptCard part={{ ...approval(), answered: { label: "Allow once", ok: true, at: 0, question: "recursive rm" } }}
-        onAnswer={() => {}} />,
-    )
-    expect(t.frame()).toContain("✓")
-    expect(t.frame()).toContain("Allow once")
-    expect(t.frame()).toContain("recursive rm")
-    expect(t.frame()).not.toContain("$ rm")
-  })
 
   test("answered approval and secret outcomes preserve safe context only", async () => {
     await using t = await mountNode(

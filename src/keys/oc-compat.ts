@@ -46,8 +46,8 @@ type OcFile = { keybinds?: Record<string, string> }
 
 /** File candidates, lowest→highest precedence (global, project, dot-dir).
  *  Legacy `opencode.json` is last — oc already warns it's deprecated. */
-const ocPaths = (cwd = process.cwd()): string[] => [
-  join(homedir(), ".config", "opencode", "tui.json"),
+const ocPaths = (cwd = process.cwd(), home = homedir()): string[] => [
+  join(home, ".config", "opencode", "tui.json"),
   join(cwd, "tui.json"),
   join(cwd, ".opencode", "tui.json"),
   join(cwd, "opencode.json"),
@@ -68,10 +68,10 @@ export type OcImport = {
 /** Merge all discovered oc files, translate, return the override record
  *  to write into `preferences.keys`. `"none"` passes through (chord.ts
  *  parses it to []). */
-export const loadOcKeybinds = (cwd?: string): OcImport => {
+export const loadOcKeybinds = (cwd?: string, home?: string): OcImport => {
   const merged: Record<string, string> = {}
   const sources: string[] = []
-  for (const p of ocPaths(cwd)) {
+  for (const p of ocPaths(cwd, home)) {
     const kb = read(p)
     if (Object.keys(kb).length === 0) continue
     Object.assign(merged, kb)

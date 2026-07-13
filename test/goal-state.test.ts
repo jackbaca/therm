@@ -8,7 +8,11 @@ describe("sessions-db/goalState", () => {
     const put = (sid: string, j: unknown) =>
       db.run("INSERT OR REPLACE INTO state_meta (key, value) VALUES (?, ?)",
         [`goal:${sid}`, JSON.stringify(j)])
-    put("g-none", { goal: "ship it", status: "active", turn_count: 2 })
+    put("g-none", {
+      goal: "ship it", status: "active", turns_used: 2, max_turns: 20,
+      created_at: "2026-05-07T00:00:00Z", last_turn_at: null,
+      last_verdict: null, last_reason: null, paused_reason: null,
+    })
     put("g-subs", {
       goal: "ship it", status: "active",
       subgoals: ["  add tests  ", "", 42, null, "update docs"],
@@ -20,10 +24,10 @@ describe("sessions-db/goalState", () => {
     resetDb()
   })
 
-  test("absent subgoals field → undefined (back-compat)", () => {
+  test("v2026.5.7 goal rows without subgoals remain readable", () => {
     const g = goalState("g-none")
     expect(g?.goal).toBe("ship it")
-    expect(g?.turn_count).toBe(2)
+    expect(g?.status).toBe("active")
     expect(g?.subgoals).toBeUndefined()
   })
 

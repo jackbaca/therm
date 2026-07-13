@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test"
-import { mkdirSync, writeFileSync } from "fs"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { mkdirSync, rmSync, writeFileSync } from "fs"
 import { join } from "path"
 import { act } from "react"
 import { mount, until, MockGateway } from "./harness"
@@ -23,6 +23,13 @@ const local = (name: string) => {
   mkdirSync(join(configDir(), "themes"), { recursive: true })
   writeFileSync(join(configDir(), "themes", `${name}.json`), JSON.stringify(base, null, 2))
 }
+
+const clear = () => {
+  rmSync(join(process.env.HERMES_HOME!, "skins"), { recursive: true, force: true })
+  rmSync(join(configDir(), "themes"), { recursive: true, force: true })
+}
+beforeEach(clear)
+afterEach(clear)
 
 describe("/skin", () => {
   test("with arg: writes gateway config, applies theme, clears eikon pref", async () => {

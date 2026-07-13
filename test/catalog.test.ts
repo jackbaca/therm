@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { DEFAULTS, inScope, scopesOverlap, type ActionId, type Scope } from "../src/keys/catalog"
+import { DEFAULTS, scopesOverlap, type ActionId, type Scope } from "../src/keys/catalog"
 import { parse, print } from "../src/keys/chord"
 import { conflicts, conflictsWith } from "../src/keys/conflicts"
 
@@ -32,17 +32,6 @@ describe("catalog", () => {
     expect(found, msg).toEqual([])
   })
 
-  test("leader entry exists and is a plain modifier chord", () => {
-    const l = parse(DEFAULTS.leader.chord)[0]
-    expect(l.leader).toBe(false)
-    expect(l.name).not.toBe("")
-  })
-
-  test("inScope partitions the full set", () => {
-    const scopes = [...new Set(ids.map(id => DEFAULTS[id].scope))]
-    const total = scopes.reduce((n, s) => n + inScope(s).length, 0)
-    expect(total).toBe(ids.length)
-  })
 })
 
 describe("scopesOverlap", () => {

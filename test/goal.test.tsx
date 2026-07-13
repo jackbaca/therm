@@ -82,7 +82,7 @@ const Host = (p: { seconds: number; out: { v?: boolean } }) => {
     void openCountdown(dialog, {
       title: "Goal complete — suspending",
       body: "ship it",
-      action: "→ systemctl suspend",
+      action: "COUNTDOWN_ACTION_SENTINEL",
       seconds: p.seconds,
     }).then(ok => { p.out.v = ok })
   }, [])
@@ -101,9 +101,7 @@ describe("countdown dialog", () => {
   test("any key cancels before fire", async () => {
     const out: { v?: boolean } = {}
     const t = await mountNode(<Host seconds={10} out={out} />)
-    await until(t, () => t.frame().includes("systemctl suspend"))
-    expect(t.frame()).toContain("10s")
-    expect(t.frame()).toContain("press any key to cancel")
+    await until(t, () => t.frame().includes("COUNTDOWN_ACTION_SENTINEL"))
     await act(async () => { await t.keys.typeText("x") })
     await until(t, () => out.v !== undefined)
     expect(out.v).toBe(false)
@@ -124,6 +122,7 @@ describe("/goal slash routing", () => {
     const slashes: string[] = []
     const dispatches: Array<{ name: string; arg: string }> = []
     const submits: string[] = []
+    const notice = "GOAL_NOTICE_SENTINEL_47"
     const gw = new MockGateway({
       "slash.exec": (p) => {
         slashes.push(String(p.command))
@@ -132,7 +131,7 @@ describe("/goal slash routing", () => {
       "command.dispatch": (p) => {
         dispatches.push({ name: String(p.name), arg: String(p.arg ?? "") })
         return p.arg
-          ? { type: "send", notice: "⊙ Goal set (20-turn budget): x", message: String(p.arg) }
+          ? { type: "send", notice, message: String(p.arg) }
           : { type: "exec", output: "No active goal." }
       },
       "prompt.submit": (p) => { submits.push(String(p.text)); return {} },
@@ -147,16 +146,18 @@ describe("/goal slash routing", () => {
     expect(slashes[0]).toBe("/goal ship it")
     expect(dispatches[0]).toEqual({ name: "goal", arg: "ship it" })
     expect(submits[0]).toBe("ship it")
-    // notice rendered as a system line before the kickoff.
-    expect(t.frame()).toContain("⊙ Goal set")
+    expect(gw.calls.filter(c => ["slash.exec", "command.dispatch", "prompt.submit"].includes(c.method)).map(c => c.method))
+      .toEqual(["slash.exec", "command.dispatch", "prompt.submit"])
+    expect(t.frame()).toContain(notice)
     t.destroy()
   })
 
   test("verbs → {type: exec, output}; no prompt.submit", async () => {
     const submits: string[] = []
+    const output = "GOAL_EXEC_OUTPUT_SENTINEL_29"
     const gw = new MockGateway({
       "slash.exec": () => { throw new Error("pending-input command") },
-      "command.dispatch": () => ({ type: "exec", output: "⏸ Goal paused: x" }),
+      "command.dispatch": () => ({ type: "exec", output }),
       "prompt.submit": (p) => { submits.push(String(p.text)); return {} },
     })
     const t = await mount({ gw, width: 140, height: 30 })
@@ -167,7 +168,7 @@ describe("/goal slash routing", () => {
     // pause "); second dispatches.
     act(() => t.keys.pressEnter()); await t.settle()
     act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("⏸ Goal paused"))
+    await until(t, () => t.frame().includes(output))
     expect(submits.length).toBe(0)
     t.destroy()
   })

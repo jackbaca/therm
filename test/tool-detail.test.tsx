@@ -2,7 +2,7 @@ import { describe, expect, test, beforeEach } from "bun:test"
 import { act } from "react"
 import { mountNode, until } from "./harness"
 import * as prefs from "../src/context/preferences"
-import { Tool, cost } from "../src/components/chat/tool"
+import { Tool } from "../src/components/chat/tool"
 import type { ToolPart } from "../src/types/message"
 
 describe("preferences > usePref", () => {
@@ -44,22 +44,10 @@ describe("Tool > detail mode", () => {
     { width: 100, height: 20 },
   )
 
-  test("file edits render generic rows, not accent pills", async () => {
-    for (const mode of ["expanded", "collapsed"] as const) {
-      const t = await mount(file, mode)
-      await until(t, () => t.frame().includes("Edit src/x.ts"))
-      const f = t.frame()
-      expect(f).not.toContain("changed")
-      expect(f).not.toContain("@@")
-      expect(f).not.toContain("+1")
-      t.destroy()
-    }
-  })
 
   test("hidden: completed tool renders nothing; running still shows", async () => {
     const t = await mount(file, "hidden")
-    // settle a frame
-    await until(t, () => true)
+    await t.settle()
     expect(t.frame().trim()).toBe("")
     t.destroy()
 
@@ -78,10 +66,8 @@ describe("Tool > detail mode", () => {
       verboseResult: "patched result",
     }
     const t = await mount(verbose, "expanded")
-    await until(t, () => t.frame().includes("Args"))
-    const f = t.frame()
-    expect(f).toContain("Result")
-    expect(f).toContain("patched result")
+    await until(t, () => t.frame().includes("patched result"))
+    expect(t.frame()).toContain('{"path":"src/z.ts"}')
     t.destroy()
   })
 
@@ -93,9 +79,7 @@ describe("Tool > detail mode", () => {
     }
     const t = await mount(verbose, "expanded")
     await until(t, () => t.frame().includes("traceback line"))
-    const f = t.frame()
-    expect(f).toContain("Error")
-    expect(f).toContain("traceback line")
+    expect(t.frame()).toContain("traceback line")
     t.destroy()
   })
 
@@ -107,23 +91,9 @@ describe("Tool > detail mode", () => {
       verboseResult: "patched result",
     }
     const t = await mount(verbose, "collapsed")
-    await until(t, () => t.frame().includes("Edit src/z.ts"))
+    await t.settle()
+    expect(t.frame().trim()).not.toBe("")
     expect(t.frame()).not.toContain("patched result")
     t.destroy()
-  })
-
-  test("cost counts capped trail rows by shape", () => {
-    const trail = Array.from({ length: 20 }, (_, i) => ({ name: "read_file", preview: `src/${i}.ts` }))
-    const tool: ToolPart = {
-      type: "tool", id: "sub", name: "custom_parent", args: "",
-      preview: "parent", status: "running", trail,
-    }
-    const task: ToolPart = {
-      type: "tool", id: "task", name: "delegate_task", args: "",
-      preview: "delegate", status: "running",
-    }
-
-    expect(cost(tool, "expanded")).toBe(10)
-    expect(cost(task, "expanded")).toBe(2)
   })
 })

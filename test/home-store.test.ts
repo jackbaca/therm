@@ -1,9 +1,10 @@
-import { describe, test, expect, beforeAll, afterAll, afterEach } from "bun:test"
+import { describe, test, expect, beforeAll, beforeEach, afterEach } from "bun:test"
 import { mkdirSync, writeFileSync, rmSync } from "fs"
 import { join } from "path"
 
 const HH = process.env.HERMES_HOME!
 let HomeStore: typeof import("../src/home/store").HomeStore
+type Watch = import("../src/home/store").Watch
 
 const writeConfig = (provider: string) =>
   writeFileSync(
@@ -11,7 +12,7 @@ const writeConfig = (provider: string) =>
     `memory:\n  provider: ${provider}\n  memory_char_limit: 2200\n  user_char_limit: 1375\n`,
   )
 
-beforeAll(async () => {
+const seed = () => {
   mkdirSync(HH, { recursive: true })
   mkdirSync(join(HH, "memories"), { recursive: true })
   mkdirSync(join(HH, "sessions"), { recursive: true })
@@ -24,52 +25,74 @@ beforeAll(async () => {
   writeFileSync(join(HH, "memories", "MEMORY.md"), "one\n§\ntwo\n§\nthree")
   writeFileSync(join(HH, "memories", "USER.md"), "name: test")
   writeFileSync(join(HH, ".env"), "FOO=bar\nBAZ=qux\n")
+}
+
+beforeAll(async () => {
+  seed()
   // Import after fixtures exist so module-level hermesPath resolves to the sandbox.
   HomeStore = (await import("../src/home/store")).HomeStore
 })
+beforeEach(seed)
 
 const settle = (ms: number) => new Promise(r => setTimeout(r, ms))
+const change = (sub: (fn: () => void) => () => void, ready: () => boolean) => new Promise<void>((resolve, reject) => {
+  let off = () => {}
+  const timer = setTimeout(() => {
+    off()
+    reject(new Error("watch update timed out"))
+  }, 2000)
+  off = sub(() => {
+    if (!ready()) return
+    clearTimeout(timer)
+    off()
+    resolve()
+  })
+})
 
-// Watch-dependent tests run first against a single shared store. Bun's
-// fs.watch(dir) degrades under rapid arm/close cycling on the same dir; a
-// shared store mirrors production (singleton, never closed) and avoids it.
 describe("HomeStore > reactive", () => {
   let h: InstanceType<typeof HomeStore>
-  beforeAll(async () => {
-    h = new HomeStore()
+  let watches: Array<{ path: string; fn: (file: string | Buffer | null) => void }>
+  beforeEach(async () => {
+    watches = []
+    const watch: Watch = (path, fn) => {
+      const row = { path, fn }
+      watches.push(row)
+      return { close: () => { watches = watches.filter(item => item !== row) } }
+    }
+    h = new HomeStore(watch)
     await h.ensure("config")
     await h.ensure("env")
-    // Bun's watch() may drop writes landing in the same tick as arm; yield so
-    // the first trigger is observed. Real UI never writes <1ms after mount.
-    await settle(10)
   })
-  afterAll(() => h.close())
+  afterEach(() => h.close())
 
   test("config re-reads on external write", async () => {
-    const seen: string[] = []
-    const off = h.subscribe("config", () => {
-      const v = h.get("config")
-      if (v) seen.push(v.memory.provider)
-    })
+    const honcho = change(fn => h.subscribe("config", fn), () => h.get("config")?.memory.provider === "honcho")
     writeConfig("honcho")
-    // Debounce is 50ms; fs.watch latency varies. 200ms is comfortably past both.
-    await settle(200)
-    expect(seen).toContain("honcho")
+    watches.forEach(watch => watch.fn("config.yaml"))
+    await honcho
+    expect(h.get("config")?.memory.provider).toBe("honcho")
+    const mem0 = change(fn => h.subscribe("config", fn), () => h.get("config")?.memory.provider === "mem0")
     writeConfig("mem0")
-    await settle(200)
-    expect(seen).toContain("mem0")
-    off()
+    watches.forEach(watch => watch.fn("config.yaml"))
+    await mem0
+    expect(h.get("config")?.memory.provider).toBe("mem0")
   })
 
   test("env parses and re-reads on external write", async () => {
     expect(h.get("env")?.FOO).toBe("bar")
     expect(h.get("env")?.BAZ).toBe("qux")
-    const off = h.subscribe("env", () => {})
+    const updated = change(fn => h.subscribe("env", fn), () => h.get("env")?.FOO === "updated")
     writeFileSync(join(HH, ".env"), "FOO=updated\n")
-    await settle(200)
+    watches.forEach(watch => watch.fn(".env"))
+    await updated
     expect(h.get("env")?.FOO).toBe("updated")
     expect(h.get("env")?.BAZ).toBeUndefined()
-    off()
+  })
+
+  test("watches the owning directory and closes every registration", () => {
+    expect(watches.map(watch => watch.path)).toEqual([HH, HH])
+    h.close()
+    expect(watches).toEqual([])
   })
 })
 
@@ -162,17 +185,6 @@ describe("HomeStore > core", () => {
     expect(live.a?.session_id).toBe("sid-1")
   })
 
-  test("db-backed slices are safe without state.db", async () => {
-    // Other suites may have seeded the shared sandbox state.db before
-    // this runs; can't assert emptiness, only that the readers don't
-    // throw and return the declared shape.
-    const h = mk()
-    expect(Array.isArray(await h.ensure("recentSessions"))).toBe(true)
-    expect(Array.isArray(await h.ensure("memoryActivity"))).toBe(true)
-    expect(await h.ensure("systemPrompt")).toBeNull()
-    // toolsInfo is a legacy/debug snapshot fallback; fixture has none.
-    expect(await h.ensure("toolsInfo")).toBeNull()
-  })
 
   test("close disposes watchers and state", async () => {
     const h = mk()

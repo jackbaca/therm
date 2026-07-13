@@ -1,9 +1,9 @@
-import { describe, test, expect, beforeAll, afterEach, spyOn } from "bun:test"
+import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test"
 import { act } from "react"
 import { Database } from "bun:sqlite"
-import { mkdirSync, writeFileSync, rmSync, chmodSync, renameSync } from "node:fs"
+import { mkdirSync, writeFileSync, readFileSync, rmSync, chmodSync, renameSync } from "node:fs"
 import { join } from "node:path"
-import { mountNode, MockGateway, until } from "./harness"
+import { mountNode as mountHarness, MockGateway, until } from "./harness"
 import { hermesPath } from "../src/service/hermes-home"
 import {
   board, boardOf, detail, detailOf, assignees, tailLog, q, resetKanban,
@@ -13,119 +13,20 @@ import {
 import { parseDispatchResult, dispatchFailures, dispatchVariant, dispatchDetails } from "../src/service/kanban-dispatch"
 import { Kanban } from "../src/tabs/Kanban"
 import { patchAt, resetWrites } from "../src/service/kanban-write"
+import { clear as clearKanban, schema, seed as seedKanban } from "./fixture/kanban"
+
+const mountNode: typeof mountHarness = (node, opts = {}) => mountHarness(node, {
+  ...opts,
+  handlers: {
+    "shell.exec": () => ({ stdout: "", stderr: "", code: 0 }),
+    ...opts.handlers,
+  },
+})
 
 const now = Math.floor(Date.now() / 1000)
 
-const schema = (db: Database) => {
-  db.run(`CREATE TABLE IF NOT EXISTS tasks (
-    id TEXT PRIMARY KEY, title TEXT, body TEXT, assignee TEXT,
-    status TEXT, priority INTEGER DEFAULT 0, tenant TEXT,
-    block_kind TEXT, block_recurrences INTEGER DEFAULT 0,
-    created_at INTEGER, started_at INTEGER, completed_at INTEGER,
-    result TEXT, last_spawn_error TEXT, worker_pid INTEGER,
-    workspace_kind TEXT, workspace_path TEXT,
-    skills TEXT, max_runtime_seconds INTEGER
-  )`)
-  db.run(`CREATE TABLE IF NOT EXISTS task_links (
-    parent_id TEXT, child_id TEXT, PRIMARY KEY (parent_id, child_id))`)
-  db.run(`CREATE TABLE IF NOT EXISTS task_comments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT,
-    author TEXT, body TEXT, created_at INTEGER)`)
-  // Append-only audit tables. kanban_db.py writes to these on every
-  // write; herm reads them for the detail pane's Runs/Events sections
-  // and the patchTask event-row sibling INSERTs.
-  db.run(`CREATE TABLE IF NOT EXISTS task_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT, run_id INTEGER,
-    kind TEXT, payload TEXT, created_at INTEGER)`)
-  db.run(`CREATE TABLE IF NOT EXISTS task_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT, profile TEXT,
-    status TEXT, outcome TEXT, started_at INTEGER, ended_at INTEGER,
-    summary TEXT, error TEXT, worker_pid INTEGER)`)
-  db.run(`CREATE TABLE IF NOT EXISTS task_attachments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT,
-    filename TEXT, stored_path TEXT, content_type TEXT,
-    size INTEGER, uploaded_by TEXT, created_at INTEGER)`)
-}
-
-
-const cleanupHazardBoards = () => {
-  for (const slug of ["bad", "missing", "old", "quarantined", "ui_bad", "unreadable"])
-    rmSync(hermesPath(`kanban/boards/${slug}`), { recursive: true, force: true })
-  rmSync(hermesPath("kanban.db.corrupt.20260527_010204.bak"), { force: true })
-  try {
-    const db = new Database(hermesPath("kanban.db"))
-    db.run("UPDATE tasks SET block_kind = NULL, block_recurrences = 0")
-    db.close()
-  } catch {}
-  resetKanban()
-}
-
-afterEach(() => cleanupHazardBoards())
-
-beforeAll(() => {
-  delete process.env.HERMES_KANBAN_BOARD
-  mkdirSync(hermesPath("."), { recursive: true })
-  mkdirSync(hermesPath("profiles/researcher"), { recursive: true })
-  mkdirSync(hermesPath("profiles/writer"), { recursive: true })
-  mkdirSync(hermesPath("kanban/logs"), { recursive: true })
-  // Scrub boards from prior failed runs before seeding.
-  rmSync(hermesPath("kanban/boards"), { recursive: true, force: true })
-  rmSync(hermesPath("kanban/current"), { force: true })
-  writeFileSync(hermesPath("kanban/logs/t2.log"), "boot\nstep 1\nstep 2\n")
-  const db = new Database(hermesPath("kanban.db"), { create: true })
-  schema(db)
-  const ins = db.prepare(
-    `INSERT OR REPLACE INTO tasks (id, title, body, assignee, status,
-       priority, created_at, started_at, completed_at, result, worker_pid)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  )
-  ins.run("t1", "research cost", "Compare infra costs", "researcher",
-    "ready", 3, now - 3600, null, null, null, null)
-  ins.run("t2", "research perf", null, "researcher",
-    "running", 3, now - 1800, now - 60, null, null, 4242)
-  ins.run("t3", "synthesize", "merge findings", "analyst",
-    "todo", 2, now - 900, null, null, null, null)
-  ins.run("t4", "draft memo", null, "writer",
-    "done", 1, now - 7200, now - 7100, now - 7000, "memo.md written", null)
-  ins.run("t5", "need decision", "rate limit keying", "researcher",
-    "blocked", 2, now - 600, now - 500, null, null, null)
-  ins.run("t0", "one-liner idea", null, null,
-    "triage", 0, now - 200, null, null, null, null)
-  db.run("INSERT INTO task_links (parent_id, child_id) VALUES ('t1','t3'),('t2','t3')")
-  db.run("INSERT INTO task_comments (task_id, author, body, created_at) VALUES (?,?,?,?)",
-    ["t1", "kaio", "check AWS reserved pricing too", now - 1000])
-  mkdirSync(hermesPath("kanban/attachments/t1"), { recursive: true })
-  const defaultBlob = hermesPath("kanban/attachments/t1/spec.pdf")
-  writeFileSync(defaultBlob, "pdf bytes")
-  db.run(`INSERT INTO task_attachments
-    (task_id, filename, stored_path, content_type, size, uploaded_by, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ["t1", "spec.pdf", defaultBlob, "application/pdf", 9, "kaio", now - 900])
-  db.close()
-
-  // Second board with its own DB + log dir, and board.json metadata.
-  mkdirSync(hermesPath("kanban/boards/atm10/logs"), { recursive: true })
-  writeFileSync(hermesPath("kanban/boards/atm10/board.json"),
-    JSON.stringify({ display_name: "ATM10 Server" }))
-  writeFileSync(hermesPath("kanban/boards/atm10/logs/m1.log"), "mod boot\n")
-  const db2 = new Database(hermesPath("kanban/boards/atm10/kanban.db"), { create: true })
-  schema(db2)
-  db2.run(
-    `INSERT INTO tasks (id, title, status, priority, created_at)
-     VALUES ('m1', 'upgrade forge', 'ready', 1, ?)`, [now - 100],
-  )
-  mkdirSync(hermesPath("kanban/boards/atm10/attachments/m1"), { recursive: true })
-  const boardBlob = hermesPath("kanban/boards/atm10/attachments/m1/modpack.txt")
-  writeFileSync(boardBlob, "modpack")
-  db2.run(`INSERT INTO task_attachments
-    (task_id, filename, stored_path, content_type, size, uploaded_by, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ["m1", "modpack.txt", boardBlob, "text/plain", 7, "kaio", now - 50])
-  db2.close()
-  // Third board — empty, exercises collapsed-by-default + empty-last sort.
-  mkdirSync(hermesPath("kanban/boards/zeta"), { recursive: true })
-  resetKanban()
-})
+beforeEach(() => seedKanban(now))
+afterEach(() => clearKanban())
 
 describe("hermes-kanban readers", () => {
   test("board() groups by status, sorted by priority desc", () => {
@@ -157,11 +58,7 @@ describe("hermes-kanban readers", () => {
 
     mkdirSync(hermesPath("kanban/boards/old"), { recursive: true })
     const old = new Database(hermesPath("kanban/boards/old/kanban.db"), { create: true })
-    old.run(`CREATE TABLE tasks (
-      id TEXT PRIMARY KEY, title TEXT, body TEXT, assignee TEXT,
-      status TEXT, priority INTEGER DEFAULT 0, created_at INTEGER,
-      started_at INTEGER, completed_at INTEGER
-    )`)
+    old.exec(readFileSync(join(import.meta.dir, "fixtures/kanban/v2026.6.19-tasks.sql"), "utf8"))
     old.run("INSERT INTO tasks (id, title, status, priority, created_at) VALUES ('old1', 'legacy board', 'ready', 1, ?)", [now])
     old.close()
     resetKanban()
@@ -1752,10 +1649,10 @@ describe("Kanban preferences round-trip", () => {
 // Workspace/Skills. The label is shortened to fit the detail pane's
 // 10-col label track (upstream CLI uses "max-retries", 11 chars, which
 // overflows). Schema-tolerance (selectCol → NULL AS max_retries) is
-// covered implicitly by every other test in this file: their beforeAll
+// covered implicitly by every other test in this file: their fixture
 // schema has no such column, and they all still pass.
 describe("max_retries parity", () => {
-  beforeAll(() => {
+  beforeEach(() => {
     mkdirSync(hermesPath("kanban/boards/mxr"), { recursive: true })
     const db = new Database(hermesPath("kanban/boards/mxr/kanban.db"), { create: true })
     schema(db)
@@ -1995,7 +1892,7 @@ describe("Kanban diagnostics UI", () => {
 // (stale → last_heartbeat_at). All additive nullable columns; herm's
 // selectCol() tolerates absence so prior-version DBs still load.
 describe("scheduled status + new fields parity", () => {
-  beforeAll(() => {
+  beforeEach(() => {
     mkdirSync(hermesPath("kanban/boards/sched"), { recursive: true })
     const db = new Database(hermesPath("kanban/boards/sched/kanban.db"), { create: true })
     schema(db)
@@ -2060,10 +1957,9 @@ describe("scheduled status + new fields parity", () => {
     const t = await mountNode(<Kanban focused />, { width: 200, height: 60 })
     try {
       await until(t, () => /▾\s+sched/.test(t.frame()))
-      // Tab through heads (default → atm10 → mxr → sched). Then ↓↓
+      // Tab through heads (default → atm10 → sched). Then ↓↓
       // head → filter → grid. Tab/goBoard resets col=0, so →→ to
       // scheduled (col 2: triage, todo, scheduled).
-      act(() => t.keys.pressTab()); await t.settle()
       act(() => t.keys.pressTab()); await t.settle()
       act(() => t.keys.pressTab()); await t.settle()
       await until(t, () => /▾\s+sched/.test(t.frame()))
@@ -2094,7 +1990,6 @@ describe("scheduled status + new fields parity", () => {
     try {
       await until(t, () => /\[dep\]\s+delayed follow-up/.test(t.frame()))
       expect(t.frame()).toMatch(/\[cap×3\]\s+vanilla/)
-      act(() => t.keys.pressTab()); await t.settle()
       act(() => t.keys.pressTab()); await t.settle()
       act(() => t.keys.pressTab()); await t.settle()
       act(() => t.keys.pressArrow("down")); await t.settle()

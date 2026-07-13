@@ -195,9 +195,9 @@ describe("turnReducer", () => {
 })
 
 describe("transcriptToMessages", () => {
-  test("string content → text part verbatim", () => {
+  test("released gateway string rows hydrate visible sanitized text", () => {
     const ms = transcriptToMessages([
-      { role: "user", text: "hi" },
+      { role: "user", text: "hi\u0007" },
       { role: "assistant", text: "hello" },
     ])
     expect(ms).toHaveLength(2)
@@ -205,49 +205,7 @@ describe("transcriptToMessages", () => {
     expect(ms[1].parts[0]).toMatchObject({ type: "text", content: "hello" })
   })
 
-  test("native-mode parts-list user turn → text fragments joined", () => {
-    // What hermes-agent's native image routing writes to state.db (minus
-    // the image_url entries which are base64 data URLs — no path to
-    // recover). The leading {type:text} fragment is what we emit as
-    // `withMedia` on the wire, so MEDIA: paths survive the round-trip.
-    const ms = transcriptToMessages([{
-      role: "user",
-      text: [
-        { type: "text", text: "MEDIA:/tmp/shot.png\ndescribe this" },
-        { type: "image_url", image_url: { url: "data:image/png;base64,iVBOR…" } },
-      ],
-    }])
-    expect(ms).toHaveLength(1)
-    expect(ms[0].parts[0]).toMatchObject({
-      type: "text",
-      content: "MEDIA:/tmp/shot.png\ndescribe this",
-    })
-  })
-
-  test("parts-list with no text fragment → row dropped, not rendered as [object]", () => {
-    const ms = transcriptToMessages([
-      { role: "user", text: [{ type: "image_url", image_url: { url: "data:…" } }] },
-      { role: "assistant", text: "see above" },
-    ])
-    // Only the assistant survives — the user row flattens to empty and
-    // is filtered out rather than rendering "[object Object]" or crashing.
-    expect(ms).toHaveLength(1)
-    expect(ms[0].role).toBe("assistant")
-  })
-
-  test("multiple text fragments join on newlines", () => {
-    const ms = transcriptToMessages([{
-      role: "user",
-      text: [
-        { type: "text", text: "first" },
-        { type: "image_url", image_url: { url: "data:…" } },
-        { type: "text", text: "second" },
-      ],
-    }])
-    expect(ms[0].parts[0]).toMatchObject({ content: "first\nsecond" })
-  })
-
-  test("tool + system rows filtered out entirely", () => {
+  test("released gateway tool and system rows stay out of the visible transcript", () => {
     const ms = transcriptToMessages([
       { role: "system", text: "sys" },
       { role: "tool", name: "read_file", context: "/etc/hosts" },

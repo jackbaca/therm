@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -9,11 +9,22 @@ import { knobs } from "../src/utils/eikon-knobs"
 import { native, caps, type Rasterizer } from "../src/utils/eikon-render"
 import { parseEikon, parseEikonFile } from "../src/components/avatar/eikon"
 import * as prefs from "../src/context/preferences"
+import { eikons } from "./fixture/eikon"
 
 const HH = process.env.HERMES_HOME!
 if (!HH || HH.includes("/.hermes")) throw new Error("sandbox not applied")
+const legacy = readFileSync(join(import.meta.dir, "fixtures/eikon/mono-v1.6.0-extract.eikon"), "utf8")
+const legacyUrl = (JSON.parse(legacy.split("\n")[0]) as { source_url: string }).source_url
+const current = [
+  JSON.stringify({ type: "header", eikon: 1, size: { cols: 1, rows: 1 }, defaultSignal: "state.idle", signals: { "state.idle": { clip: "idle" } } }),
+  JSON.stringify({ type: "clip", name: "idle", fps: 1, frameCount: 1, loopFrom: 0 }),
+  JSON.stringify({ type: "frame", clip: "idle", index: 0, rows: ["."] }),
+].join("\n") + "\n"
 const digest = (data: string | Uint8Array) => `sha256:${createHash("sha256").update(data).digest("hex")}`
 const wire = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+let fx: ReturnType<typeof eikons>
+beforeEach(() => { fx = eikons() })
+afterEach(() => fx[Symbol.dispose]())
 
 describe("service/eikon: layout", () => {
   test("ensure creates folder form", () => {
@@ -34,7 +45,7 @@ describe("service/eikon: layout", () => {
 
   test("sourceStatus discovers media and honors draft tombstones", () => {
     eikon.ensure("status")
-    writeFileSync(eikon.file("status"), JSON.stringify({ eikon: 1, name: "status", source_url: "http://x/status/" }) + "\n")
+    writeFileSync(eikon.file("status"), current)
     writeFileSync(join(eikon.sourceDir("status"), "base.png"), "b")
     writeFileSync(join(eikon.sourceDir("status"), "thinking.png"), "t")
 
@@ -48,7 +59,7 @@ describe("service/eikon: layout", () => {
     expect(inherited.inherited).toBe(true)
     expect(inherited.removed).toBe(true)
     const removed = eikon.sourceStatus("status", "thinking", { sources: { thinking: null, base: null } })
-    expect(removed.kind).toBe("downloadable")
+    expect(removed.kind).toBe("baked")
     expect(removed.path).toBeUndefined()
   })
 
@@ -84,16 +95,16 @@ describe("service/eikon: layout", () => {
     expect(prefs.get("eikon")).toBe("nous")
   })
 
-  test("list returns folder-form only; legacy header source_url is a fallback", () => {
-    writeFileSync(eikon.file("foo"), JSON.stringify({ eikon: 1, name: "foo", source_url: "http://x/foo/" }) + "\n")
-    eikon.ensure("bar"); writeFileSync(eikon.file("bar"), '{"eikon":1,"name":"bar"}\n')
+  test("list returns folder-form installs only", () => {
+    eikon.ensure("foo")
+    writeFileSync(eikon.file("foo"), current)
+    eikon.ensure("bar"); writeFileSync(eikon.file("bar"), current)
     writeFileSync(join(HH, "eikons", "flat.eikon"), "{}")
     const xs = eikon.list()
     const names = xs.map(x => x.name)
     expect(names).toContain("foo"); expect(names).toContain("bar")
     expect(names).not.toContain("flat")
-    expect(xs.find(x => x.name === "foo")!.hasSource).toBe(true)
-    expect(xs.find(x => x.name === "foo")!.sourceUrl).toBe("http://x/foo/")
+    expect(xs.find(x => x.name === "foo")!.hasSource).toBe(false)
   })
 })
 
@@ -130,7 +141,7 @@ describe("service/eikon: save", () => {
     const png = join(HH, "eikons", "pack", "source", "base.png")
     spawnSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "lavfi",
       "-i", "color=gray:s=16x16", "-frames:v", "1", "-y", png])
-    writeFileSync(eikon.file("pack"), JSON.stringify({ eikon: 1, name: "pack", source_url: "http://x/pack/" }) + "\n")
+    writeFileSync(eikon.file("pack"), legacy)
     const s = knobs.fresh("pack", native, eikon.readStudio("pack"))
     s.sources = { base: "base.png" }
     const out = await eikon.save(s)
@@ -142,8 +153,8 @@ describe("service/eikon: save", () => {
     expect(doc.states.size).toBe(6)
     expect(eikon.header(out)!.source_url).toBeUndefined()
     const man = JSON.parse(readFileSync(join(eikon.dir("pack"), "manifest.json"), "utf8"))
-    expect(man.origin.source).toBe("http://x/pack/")
-    expect(eikon.list().find(x => x.name === "pack")!.sourceUrl).toBe("http://x/pack/")
+    expect(man.origin.source).toBe(legacyUrl)
+    expect(eikon.list().find(x => x.name === "pack")!.sourceUrl).toBe(legacyUrl)
   })
 
   test("save with no source writes glyph placeholder frames", async () => {
@@ -200,8 +211,10 @@ describe("service/eikon: fetchSource", () => {
     expect(eikon.list().find(x => x.name === "remix")!.manifest!.origin).toEqual(man.origin)
     expect(man.license).toBeUndefined()
     expect(man.provenance).toBeUndefined()
-    // peekSource memoized — second call same Promise.
-    expect(eikon.peekSource(url)).toBe(eikon.peekSource(url))
+    // peekSource memoized — second call returns the first Promise.
+    const first = eikon.peekSource(url)
+    const second = eikon.peekSource(url)
+    expect(first).toBe(second)
     srv.stop()
   })
 
@@ -279,20 +292,6 @@ describe("service/eikon: fetchSource", () => {
     srv.stop()
   })
 
-  test("source-only {files:[]} manifest is rejected outside migration tooling", async () => {
-    const srv = Bun.serve({
-      port: 0,
-      fetch(req) {
-        const u = new URL(req.url)
-        if (u.pathname.endsWith("manifest.json"))
-          return Response.json({ name: "legacy", files: ["base.png", "thinking.png"] })
-        return new Response(png)
-      },
-    })
-    const url = `http://localhost:${srv.port}/y/`
-    await expect(eikon.fetchSource(url)).rejects.toThrow(/eikon\.package/)
-    srv.stop()
-  })
 
   test("installPackage honors the supplied fetcher instead of global fetch", async () => {
     const seen: string[] = []
@@ -468,15 +467,6 @@ describe("service/eikon: lifecycle", () => {
     expect(info.updateable).toBe(true)
   })
 
-  test("legacy source_url is read as unverified unknown metadata", async () => {
-    eikon.ensure("legacy")
-    writeFileSync(eikon.file("legacy"), JSON.stringify({ eikon: 1, name: "legacy", source_url: "http://x/legacy/" }) + "\n")
-    writeFileSync(join(eikon.dir("legacy"), "manifest.json"), JSON.stringify({ name: "legacy" }))
-    const info = eikon.lifecycle("legacy")
-    expect(info.source.kind).toBe("unknown")
-    expect(info.source.origin).toBe("http://x/legacy/")
-    expect(info.trust).toBe("unverified")
-  })
 
   test("list tolerates corrupt installed manifests", () => {
     eikon.ensure("corrupt")
@@ -555,7 +545,7 @@ describe("service/eikon: lifecycle", () => {
   test("remove deletes flat legacy eikon files", () => {
     mkdirSync(join(HH, "eikons"), { recursive: true })
     const old = join(HH, "eikons", "liftaris.eikon")
-    writeFileSync(old, '{"eikon":1,"name":"liftaris"}\n')
+    writeFileSync(old, legacy)
     prefs.set("eikon", "liftaris")
 
     expect(eikon.baked("liftaris")).toBe(old)
@@ -568,5 +558,3 @@ describe("service/eikon: lifecycle", () => {
     expect(prefs.get("eikon")).toBeUndefined()
   })
 })
-
-afterAll(() => { void HH })

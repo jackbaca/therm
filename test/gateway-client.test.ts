@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from "fs"
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test"
+import * as fs from "fs"
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs"
 import { delimiter, join, resolve } from "path"
 import { tmpdir } from "os"
 import { GatewayClient, gatewayUrl, hermesAgentRoot, python, websocketUrl } from "../src/context/gateway-client"
@@ -78,22 +79,18 @@ describe("hermesAgentRoot", () => {
   })
 
   test("falls back to FHS path when home path doesn't exist", () => {
-    withEnv("HERMES_AGENT_ROOT", undefined, () => {
-      withEnv("HOME", tmp(), () => {
-        // HOME is set to a tmp dir that has no .hermes/hermes-agent
-        // so the function falls through to the FHS path check
-        const root = hermesAgentRoot()
-        // If /usr/local/lib/hermes-agent doesn't exist on this machine,
-        // it returns the (non-existent) home path — which is expected
-        // behavior. The important part is the FHS path is checked.
-        if (existsSync("/usr/local/lib/hermes-agent")) {
-          expect(root).toBe("/usr/local/lib/hermes-agent")
-        } else {
-          // No FHS path either — returns home path as default
-          expect(root).toContain("hermes-agent")
-        }
+    const home = tmp()
+    const exists = spyOn(fs, "existsSync").mockImplementation(path => path === "/usr/local/lib/hermes-agent")
+    try {
+      withEnv("HERMES_AGENT_ROOT", undefined, () => {
+        withEnv("HOME", home, () => {
+          expect(hermesAgentRoot()).toBe("/usr/local/lib/hermes-agent")
+        })
       })
-    })
+    } finally {
+      exists.mockRestore()
+      rmSync(home, { recursive: true, force: true })
+    }
   })
 })
 

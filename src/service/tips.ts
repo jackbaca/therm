@@ -38,18 +38,21 @@ export function splitTip(tip: string): TipPart[] {
 
 let cache: string[] | null = null
 
+export function parseTips(src: string): string[] {
+  const body = src.split(/^TIPS\s*=\s*\[/m)[1]?.split(/^\]/m)[0] ?? ""
+  const tips: string[] = []
+  for (const line of body.split("\n")) {
+    const m = line.match(/^\s+"((?:[^"\\]|\\.)*)",?\s*$/)
+    if (m) tips.push(m[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\"))
+  }
+  return tips
+}
+
 export function loadTips(): string[] {
   if (cache) return cache
   try {
     const src = readFileSync(join(hermesAgentRoot(), "hermes_cli", "tips.py"), "utf8")
-    const body = src.split(/^TIPS\s*=\s*\[/m)[1]?.split(/^\]/m)[0] ?? ""
-    // Each tip is a double-quoted single-line string literal. Pull the
-    // inner text, unescape \" and \\, drop comments/blank lines.
-    const tips: string[] = []
-    for (const line of body.split("\n")) {
-      const m = line.match(/^\s+"((?:[^"\\]|\\.)*)",?\s*$/)
-      if (m) tips.push(m[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\"))
-    }
+    const tips = parseTips(src)
     cache = tips.length > 10 ? tips : FALLBACK
   } catch {
     cache = FALLBACK
@@ -58,10 +61,13 @@ export function loadTips(): string[] {
 }
 
 /** Random tip; never the same twice in a row. */
-export function randomTip(prev?: string): string {
-  const t = loadTips()
+export function randomTip(prev?: string, rng = Math.random, t = loadTips()): string {
   if (t.length < 2) return t[0] ?? ""
-  let pick = t[Math.floor(Math.random() * t.length)]
-  while (pick === prev) pick = t[Math.floor(Math.random() * t.length)]
-  return pick
+  const first = Math.floor(rng() * t.length)
+  if (t[first] !== prev) return t[first]
+  return t[(first + 1 + Math.floor(rng() * (t.length - 1))) % t.length]
 }
+
+export const resetTips = () => { cache = null }
+
+export * as tips from "./tips"

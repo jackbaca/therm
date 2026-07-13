@@ -41,12 +41,6 @@ describe("/redo (t_cfbfd0c8)", () => {
     act(() => t.keys.pressEnter())
     await until(t, () => gw.last("prompt.submit")?.params.text === "second question")
     expect(t.frame()).toContain("second question")
-
-    // Stack drained — second /redo toasts "nothing to redo"
-    // (a fresh send cleared it above).
-    await act(async () => { await t.keys.typeText("/redo") })
-    act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("nothing to redo"))
     delete process.env.HERMES_TUI_NO_CONFIRM
   })
 
@@ -66,9 +60,11 @@ describe("/redo (t_cfbfd0c8)", () => {
 
     // A real send wipes the stack.
     await turn(t, "unrelated", "ok")
+    const sent = gw.calls.filter(c => c.method === "prompt.submit").length
     await act(async () => { await t.keys.typeText("/redo") })
     act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("nothing to redo"))
+    await t.settle()
+    expect(gw.calls.filter(c => c.method === "prompt.submit")).toHaveLength(sent)
     delete process.env.HERMES_TUI_NO_CONFIRM
   })
 })

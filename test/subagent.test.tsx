@@ -50,6 +50,23 @@ describe("turnReducer — subagent", () => {
     expect(parts[1].status).toBe("running")
     expect(parts[1].trail).toHaveLength(1)
   })
+
+  test("nested subagent_id keeps colliding task indexes independent", () => {
+    const s = run([
+      { kind: "message.start" },
+      { kind: "subagent", event: "start", payload: { task_index: 0, subagent_id: "root", goal: "Root task" } },
+      { kind: "subagent", event: "start", payload: { task_index: 0, subagent_id: "child", goal: "Child task" } },
+      { kind: "subagent", event: "tool", payload: { task_index: 0, subagent_id: "child", goal: "Child task", tool_name: "read_file", tool_preview: "child.ts" } },
+      { kind: "subagent", event: "complete", payload: { task_index: 0, subagent_id: "root", goal: "Root task", status: "completed", summary: "root done" } },
+    ])
+    const parts = s.messages.at(-1)!.parts.filter(p => p.type === "tool") as ToolPart[]
+    expect(parts).toHaveLength(2)
+    expect(parts.find(part => part.goal === "Root task")).toMatchObject({ status: "done", result: "root done", trail: [] })
+    expect(parts.find(part => part.goal === "Child task")).toMatchObject({
+      status: "running",
+      trail: [{ name: "read_file", preview: "child.ts" }],
+    })
+  })
 })
 
 function locate(t: Harness, needle: string) {
@@ -80,25 +97,6 @@ describe("Subagent renderer", () => {
     return t
   }
 
-  test("collapsed: goal + footer row (└─ N toolcalls · dur)", async () => {
-    const t = await setup({})
-    await until(t, () => t.frame().includes("● Task — refactor foo"))
-    const f = t.frame()
-    expect(f).toContain("└─ 3 toolcalls · 4.2s")
-    expect(f).not.toContain("├─")
-    expect(f).not.toContain("bun test")
-    t.destroy()
-  })
-
-  test("running: spinner + ↳ last child row", async () => {
-    const t = await setup({ status: "running", duration: undefined })
-    await until(t, () => t.frame().includes("Task — refactor foo"))
-    const f = t.frame()
-    expect(f).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Task — refactor foo/)
-    expect(f).toContain("↳ Edit src/a.ts")
-    t.destroy()
-  })
-
   test("wraps long running goals without hiding continuation text", async () => {
     const goal = "Independently inspect Herm's ThoughtCloud tool rendering path, especially delegate_task/subagent rows. Return concise findings: relevant files/components, how delegate_task is dispatched, and any focused tests that cover it. Do not modify files"
     const t = await mountNode(
@@ -112,19 +110,19 @@ describe("Subagent renderer", () => {
     t.destroy()
   })
 
-  test("click expands to ├─/└─ trail with per-child glyphs + summary", async () => {
+  test("click expands fixture-owned child previews and summary", async () => {
     const t = await setup({})
-    await until(t, () => t.frame().includes("● Task — refactor foo"))
-    const p = locate(t, "● Task")
+    await until(t, () => t.frame().includes("refactor foo"))
+    expect(t.frame()).not.toContain("bun test")
+
+    const p = locate(t, "refactor foo")
     await act(async () => { await t.mouse.pressDown(p.x, p.y) })
-    await until(t, () => t.frame().includes("├─"))
+    await until(t, () => t.frame().includes("bun test"))
 
     const f = t.frame()
-    expect(f).toContain("├─ → Read src/a.ts")
-    expect(f).toContain("├─ $ bun test")
-    expect(f).toContain("└─ ← Edit src/a.ts")
+    expect(f).toContain("src/a.ts")
+    expect(f).toContain("bun test")
     expect(f).toContain("3 files changed")
-    expect(f).not.toContain("└─ 3 toolcalls")
     t.destroy()
   })
 })

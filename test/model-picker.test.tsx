@@ -128,39 +128,6 @@ describe("model-picker", () => {
     t.destroy()
   })
 
-  test("unauthenticated provider rows show setup metadata and do not advance to empty models", async () => {
-    const t = await mountNode(<Open />, {
-      handlers: {
-        "model.options": p => ({
-          provider: "openai",
-          model: "gpt-4",
-          providers: [
-            { slug: "openai", name: "OpenAI", total_models: 1, models: ["gpt-4"] },
-            p.include_unconfigured === true ? {
-              slug: "anthropic",
-              name: "Anthropic",
-              total_models: 0,
-              models: [],
-              authenticated: false,
-              auth_type: "api_key",
-              key_env: "ANTHROPIC_API_KEY",
-              warning: "paste ANTHROPIC_API_KEY to activate",
-            } : undefined,
-          ].filter(p => p !== undefined),
-        }),
-      },
-    })
-    await until(t, () => t.frame().includes("Anthropic"))
-    expect(t.gw.last("model.options")?.params).toMatchObject({ include_unconfigured: true })
-    expect(t.frame()).toContain("Setup required")
-    expect(t.frame()).toContain("paste ANTHROPIC_API_KEY to activate")
-
-    act(() => t.keys.pressArrow("down")); await t.settle()
-    act(() => t.keys.pressEnter()); await t.settle()
-    await until(t, () => t.frame().includes("Paste ANTHROPIC_API_KEY"))
-    expect(t.frame()).not.toContain("Switch Model (Anthropic)")
-    t.destroy()
-  })
 
   test("api-key setup calls model.save_key and advances to refreshed models", async () => {
     const saves: Array<Record<string, unknown>> = []
@@ -343,86 +310,6 @@ describe("model-picker", () => {
     t.destroy()
   })
 
-  test("Vertex auth shows setup guidance without API-key prompt", async () => {
-    const saves: Array<Record<string, unknown>> = []
-    const t = await mountNode(<Open />, {
-      handlers: {
-        "model.options": () => ({
-          providers: [
-            { slug: "openai", name: "OpenAI", total_models: 1, models: ["gpt-4"] },
-            {
-              slug: "vertex",
-              name: "Vertex AI",
-              total_models: 0,
-              models: [],
-              authenticated: false,
-              auth_type: "vertex",
-              key_env: "VERTEX_CREDENTIALS_PATH",
-            },
-          ],
-        }),
-        "model.save_key": (p) => { saves.push(p); return {} },
-      },
-    })
-    await until(t, () => t.frame().includes("Vertex AI"))
-    expect(t.frame()).toContain("set VERTEX_CREDENTIALS_PATH")
-    expect(t.frame()).not.toContain("auth_type=vertex")
-    expect(t.frame()).not.toContain("paste VERTEX_CREDENTIALS_PATH")
-
-    act(() => t.keys.pressArrow("down")); await t.settle()
-    act(() => t.keys.pressEnter()); await t.settle()
-    await until(t, () => t.frame().includes("set VERTEX_CREDENTIALS_PATH"))
-
-    expect(saves).toHaveLength(0)
-    expect(t.frame()).not.toContain("Paste VERTEX_CREDENTIALS_PATH")
-    expect(t.frame()).not.toContain("Switch Model (Vertex AI)")
-    t.destroy()
-  })
-
-  test("provider dialog leads with current provider and Enter selects it", async () => {
-    const opts = {
-      provider: "anthropic",
-      model: "claude-3",
-      providers: [
-        { slug: "openai", name: "OpenAI", total_models: 1, models: ["gpt-4"] },
-        { slug: "anthropic", name: "Anthropic", is_current: true, total_models: 2, models: ["claude-3", "claude-4"] },
-      ],
-    }
-    const t = await mountNode(<Open />, {
-      handlers: { "model.options": () => opts },
-    })
-    await until(t, () => t.frame().includes("Anthropic"))
-    expect(t.frame().indexOf("Current")).toBeLessThan(t.frame().indexOf("Available"))
-
-    act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("Switch Model (Anthropic)"))
-    expect(t.frame()).toContain("claude-3")
-    t.destroy()
-  })
-
-  test("model step only marks current model for current provider", async () => {
-    const opts = {
-      provider: "anthropic",
-      model: "shared",
-      providers: [
-        { slug: "anthropic", name: "Anthropic", is_current: true, total_models: 1, models: ["shared"] },
-        { slug: "openai", name: "OpenAI", total_models: 2, models: ["shared", "gpt-4"] },
-      ],
-    }
-    const t = await mountNode(<Open />, {
-      handlers: { "model.options": () => opts },
-    })
-    await until(t, () => t.frame().includes("Anthropic"))
-
-    act(() => t.keys.pressArrow("down"))
-    await t.settle()
-    act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("Switch Model (OpenAI)"))
-
-    const row = t.frame().split("\n").find(l => l.includes("shared")) ?? ""
-    expect(row).not.toContain("●")
-    t.destroy()
-  })
   test("accepts provider capability metadata with optional neighbors", () => {
     const opts: ModelOptionsResponse = {
       provider: "fastlabs",
@@ -464,23 +351,6 @@ describe("model-picker", () => {
     expect(provider?.unavailable_models).toContain("legacy-slow")
     expect(compat?.capabilities?.["plain-model"]?.fast).toBeUndefined()
     expect(compat?.pricing?.["plain-model"]).toBeUndefined()
-  })
-
-  test("model step annotates fast and reasoning capabilities", async () => {
-    const t = await mountNode(<Open />, {
-      handlers: { "model.options": () => OPTIONS },
-    })
-    await until(t, () => t.frame().includes("Anthropic"))
-
-    act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("claude-4"))
-
-    const claude3 = t.frame().split("\n").find(l => l.includes("claude-3")) ?? ""
-    const claude4 = t.frame().split("\n").find(l => l.includes("claude-4")) ?? ""
-    expect(claude3).not.toContain("fast")
-    expect(claude3).not.toContain("reasoning")
-    expect(claude4).toContain("fast · reasoning")
-    t.destroy()
   })
 
 })

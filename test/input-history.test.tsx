@@ -1,13 +1,15 @@
-import { describe, expect, test, beforeEach } from "bun:test"
+import { afterEach, describe, expect, test, beforeEach } from "bun:test"
 import { act } from "react"
 import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "fs"
 import { join } from "path"
 import { mountNode } from "./harness"
 import { useInputHistory, type HistEntry } from "../src/app/useInputHistory"
 import type { FilePart } from "../src/app/parts"
+import { tmpHome } from "./fixture/home"
 
-const dir = process.env.HERM_CONFIG_DIR!
-const file = join(dir, "history")
+const dir = () => process.env.HERM_CONFIG_DIR!
+const file = () => join(dir(), "history")
+let home: Awaited<ReturnType<typeof tmpHome>>
 
 type Hook = ReturnType<typeof useInputHistory>
 
@@ -24,18 +26,20 @@ async function setup() {
 }
 
 describe("useInputHistory", () => {
-  beforeEach(() => {
-    rmSync(file, { force: true })
+  beforeEach(async () => {
+    home = await tmpHome()
+    rmSync(file(), { force: true })
   })
+  afterEach(async () => { await home[Symbol.asyncDispose]() })
 
-  test("loads legacy raw-string entries from disk — ↑ recalls newest-last", async () => {
-    mkdirSync(dir, { recursive: true })
-    writeFileSync(file, "old\nmid\nnew\n")
+  test("loads released raw and NUL-encoded entries newest-first", async () => {
+    mkdirSync(dir(), { recursive: true })
+    writeFileSync(file(), "old\nmulti\0line\nnew\n")
     const s = await setup()
     act(() => s.hook().up())
     expect(s.val()).toBe("new")
     act(() => s.hook().up())
-    expect(s.val()).toBe("mid")
+    expect(s.val()).toBe("multi\nline")
     act(() => s.hook().up())
     expect(s.val()).toBe("old")
     s.t.destroy()
@@ -48,7 +52,7 @@ describe("useInputHistory", () => {
     act(() => s.hook().push("b"))
     act(() => s.hook().push("a"))
     await s.t.settle()
-    expect(readFileSync(file, "utf-8")).toBe(
+    expect(readFileSync(file(), "utf-8")).toBe(
       `{"input":"a"}\n{"input":"b"}\n{"input":"a"}\n`,
     )
     act(() => s.hook().up())
@@ -68,7 +72,7 @@ describe("useInputHistory", () => {
     const s = await setup()
     act(() => s.hook().push({ input: "@file:src/x.ts here", parts: [part] }))
     await s.t.settle()
-    const line = readFileSync(file, "utf-8").trim()
+    const line = readFileSync(file(), "utf-8").trim()
     const parsed = JSON.parse(line)
     expect(parsed.input).toBe("@file:src/x.ts here")
     expect(parsed.parts).toHaveLength(1)
@@ -79,7 +83,7 @@ describe("useInputHistory", () => {
   })
 
   test("missing file → empty history, ↑ is a no-op", async () => {
-    expect(existsSync(file)).toBe(false)
+    expect(existsSync(file())).toBe(false)
     const s = await setup()
     act(() => s.hook().up())
     expect(s.val()).toBe("")
@@ -87,13 +91,13 @@ describe("useInputHistory", () => {
   })
 
   test("cap at 500 — rewrites file when exceeded", async () => {
-    mkdirSync(dir, { recursive: true })
+    mkdirSync(dir(), { recursive: true })
     const lines = Array.from({ length: 500 }, (_, i) => `m${i}`)
-    writeFileSync(file, lines.join("\n") + "\n")
+    writeFileSync(file(), lines.join("\n") + "\n")
     const s = await setup()
     act(() => s.hook().push("over"))
     await s.t.settle()
-    const out = readFileSync(file, "utf-8").split("\n").filter(Boolean).map(l => JSON.parse(l).input)
+    const out = readFileSync(file(), "utf-8").split("\n").filter(Boolean).map(l => JSON.parse(l).input)
     expect(out.length).toBe(500)
     expect(out[0]).toBe("m1")
     expect(out[499]).toBe("over")

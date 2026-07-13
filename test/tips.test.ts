@@ -1,9 +1,9 @@
 import { describe, test, expect } from "bun:test"
-import { loadTips, splitTip, randomTip } from "../src/service/tips"
+import { tips } from "../src/service/tips"
 
 describe("tips", () => {
   test("loadTips parses hermes_cli/tips.py into a flat string list", () => {
-    const t = loadTips()
+    const t = tips.loadTips()
     expect(t.length).toBeGreaterThan(10)
     // Every entry is a single non-empty line (source is one string per line).
     for (const tip of t) {
@@ -13,12 +13,11 @@ describe("tips", () => {
     // Corpus contains slash-command tips (structural, not pinned to a
     // specific command — upstream rewords entries).
     expect(t.some(s => /^\/[a-z]+ /.test(s))).toBe(true)
-    // Escaped quotes round-trip.
-    expect(t.some(s => s.includes('/title "my project"'))).toBe(true)
+
   })
 
   test("splitTip highlights /slash, @ref, keybind, `code`, quoted", () => {
-    const p = splitTip('Use /model or Ctrl+G to edit `foo.ts` with @file:bar and "baz".')
+    const p = tips.splitTip('Use /model or Ctrl+G to edit `foo.ts` with @file:bar and "baz".')
     const hl = p.filter(x => x.hl).map(x => x.t)
     expect(hl).toEqual(["/model", "Ctrl+G", "foo.ts", "@file:bar", '"baz"'])
     // Reassembly covers whole input (modulo stripped backticks).
@@ -27,12 +26,27 @@ describe("tips", () => {
   })
 
   test("splitTip on plain text yields single non-highlight part", () => {
-    const p = splitTip("nothing special here")
+    const p = tips.splitTip("nothing special here")
     expect(p).toEqual([{ t: "nothing special here", hl: false }])
   })
 
-  test("randomTip avoids immediate repeat", () => {
-    const first = randomTip()
-    for (let i = 0; i < 20; i++) expect(randomTip(first)).not.toBe(first)
+  test("parseTips extracts escaped one-line literals", () => {
+    const src = `TIPS = [\n    "one",\n    "quote: \\"two\\"",\n]\n`
+    expect(tips.parseTips(src)).toEqual(["one", 'quote: "two"'])
   })
+
+  test("randomTip deterministically avoids the previous value", () => {
+    expect(tips.randomTip(undefined, () => 0, ["a", "b", "c"])).toBe("a")
+    expect(tips.randomTip("a", () => 0, ["a", "b", "c"])).toBe("b")
+    expect(tips.randomTip("only", () => 0, ["only"])).toBe("only")
+  })
+
+  test("resetTips drops the cached corpus", () => {
+    const first = tips.loadTips()
+    tips.resetTips()
+    const second = tips.loadTips()
+    expect(second).toEqual(first)
+    expect(second).not.toBe(first)
+  })
+
 })

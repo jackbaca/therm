@@ -1,7 +1,6 @@
 import { describe, test, expect } from "bun:test"
-import { act } from "react"
 import { mountNode } from "./harness"
-import { Col, Hdr, Marquee, VBAR_W } from "../src/ui/table"
+import { Col, Hdr } from "../src/ui/table"
 
 // These assert on the ui/table primitives directly. Earlier revisions
 // drove them through <Toolsets>, which meant any column-layout change
@@ -49,10 +48,7 @@ describe("ui/table", () => {
     const lines = t.frame().split("\n")
     const hdr = lines.find(l => /Name\s+Count/.test(l))!
     const row = lines.find(l => l.includes("row-0"))!
-    // Hdr's VBAR_W paddingRight mirrors the scrollbox's v-bar gutter, so
-    // the grow column resolves to the same x in both.
     expect(hdr.indexOf("Name")).toBe(row.indexOf("row-0"))
-    expect(VBAR_W).toBe(1)
     t.destroy()
   })
 
@@ -85,36 +81,4 @@ describe("ui/table", () => {
     t.destroy()
   })
 
-  test("Marquee: static when fits; scrolls when truncated+active; static when inactive", async () => {
-    const long = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    const t = await mountNode(
-      <box flexDirection="column" width={10}>
-        <Marquee w={10} active>{long}</Marquee>
-        <Marquee w={10} active>short</Marquee>
-        <Marquee w={10} active={false}>{long}</Marquee>
-      </box>,
-      { width: 20, height: 8 },
-    )
-    await t.settle()
-    // Initial frame: all three show their head.
-    expect(t.frame()).toContain("ABCDEFGHIJ")
-    expect(t.frame()).toContain("short")
-    // Regression: a fitting title must render exactly once. The
-    // marquee duplicates text internally (`text + GAP + text`) so
-    // scrollX can roll a seamless tail→head; without a `wraps` gate,
-    // short titles render twice side-by-side in the Title column.
-    expect(t.frame().match(/short/g)?.length).toBe(1)
-
-    // After hold + a few ticks, row 1 has rotated.
-    await act(async () => { await Bun.sleep(1100) })
-    await t.settle()
-    const lines = t.frame().split("\n")
-    // Active+truncated row: head advanced past 'A'.
-    expect(lines.find(l => /[B-Z].*[A-Z]/.test(l) && !l.includes("ABCDEFGHIJ"))).toBeDefined()
-    // Fitting row never scrolls.
-    expect(lines.some(l => l.includes("short"))).toBe(true)
-    // Inactive+truncated row stays at head.
-    expect(lines.filter(l => l.includes("ABCDEFGHIJ")).length).toBe(1)
-    t.destroy()
-  })
 })

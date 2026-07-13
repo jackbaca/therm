@@ -1,7 +1,9 @@
-import { describe, test, expect, beforeAll, afterAll, spyOn } from "bun:test"
+import { describe, test, expect, beforeAll, beforeEach, afterAll, spyOn } from "bun:test"
+import { act, createElement } from "react"
 import { mkdirSync, mkdtempSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
+import { mountNode, until } from "./harness"
 
 // rehome() mutates module singletons (process.env, hermes-home cell,
 // sessions-db path, the `home` store). Snapshot the sandbox home the
@@ -23,11 +25,13 @@ describe("rehome", () => {
   let home: typeof import("../src/home/store").home
 
   beforeAll(async () => {
-    seed(A, "soul-a")
-    seed(B, "soul-b")
     rehome = (await import("../src/home/rehome")).rehome
     hermesPath = (await import("../src/service/hermes-home")).hermesPath
     home = (await import("../src/home/store")).home
+  })
+  beforeEach(() => {
+    seed(A, "soul-a")
+    seed(B, "soul-b")
   })
 
   afterAll(() => rehome(ORIG))
@@ -152,15 +156,19 @@ describe("rehome", () => {
   })
 
   test("preferences.reload notifies usePref subscribers", async () => {
-    // HERM_CONFIG_DIR pins configDir() in tests, so path-rebind can't be
-    // asserted here — verify the listener fires. In production (no
-    // HERM_CONFIG_DIR) configDir() follows HERMES_HOME via paths.ts.
     const prefs = await import("../src/context/preferences")
-    let n = 0
-    const off = (prefs as unknown as { subscribe: (l: () => void) => () => void })
-      .subscribe?.(() => { n++ })
-    prefs.reload()
-    if (off) { expect(n).toBe(1); off() }
-    else expect(prefs.load()).toBeDefined() // reload didn't throw
+    let rev = -1
+    const Probe = () => {
+      rev = prefs.useRev()
+      const theme = prefs.usePref("theme") ?? "default"
+      return createElement("text", null, `revision:${rev} theme:${theme}`)
+    }
+    rehome(A)
+    await using t = await mountNode(createElement(Probe))
+    const before = rev
+
+    act(() => rehome(B))
+    await until(t, () => rev === before + 1 && t.frame().includes(`revision:${before + 1}`))
+    expect(rev).toBe(before + 1)
   })
 })

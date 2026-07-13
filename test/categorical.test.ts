@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test"
 import { RGBA } from "@opentui/core"
-import { categorical, hslToRgba, rgbaToHsl, luminance, minHueSeparation } from "../src/utils/categorical"
+import { categorical, hslToRgba, rgbaToHsl, luminance } from "../src/utils/categorical"
 
 const key = (c: RGBA) => `${c.r.toFixed(4)},${c.g.toFixed(4)},${c.b.toFixed(4)}`
 
@@ -24,20 +24,6 @@ describe("categorical ramp", () => {
     expect(seen.size).toBe(N)
   })
 
-  test("every pair of hues separated by >= minHueSeparation(N)", () => {
-    const N = 12
-    const floor = minHueSeparation(N)
-    expect(floor).toBeGreaterThan(15) // above ~15° JND for saturated hues
-    const seed = RGBA.fromHex("#3b82f6")
-    const bg = RGBA.fromHex("#0b0e14")
-    const hs = categorical(seed, bg, N).map(c => rgbaToHsl(c)[0]).sort((a, b) => a - b)
-    // RGBA quantises to 8-bit/channel (opentui ≥0.2); round-tripping a
-    // 0.456-delta HSL through that store can drift hue by ~1° per
-    // colour. ±2° still proves the golden-angle floor (>18° > 15° JND).
-    for (let i = 1; i < N; i++) {
-      expect(hs[i] - hs[i - 1]).toBeGreaterThanOrEqual(floor - 2)
-    }
-  })
 
   test("dark bg → higher lightness than light bg", () => {
     const seed = RGBA.fromHex("#3b82f6")

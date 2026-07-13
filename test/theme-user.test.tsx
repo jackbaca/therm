@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
@@ -21,6 +21,10 @@ const writeTheme = (name: string, menu?: string) => {
     : base
   writeFileSync(join(dir, `${name}.json`), JSON.stringify(json, null, 2))
 }
+
+const clear = () => rmSync(join(configDir(), "themes"), { recursive: true, force: true })
+beforeEach(clear)
+afterEach(clear)
 
 function Probe(props: { seen: (v: { names: readonly string[]; mode: string }) => void }) {
   const theme = useTheme()

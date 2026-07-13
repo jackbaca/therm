@@ -6,6 +6,8 @@
 import { describe, expect, test } from "bun:test"
 import { act } from "react"
 import { mount, until, MockGateway } from "./harness"
+import { compressPreview } from "../src/app/slash"
+import type { Message } from "../src/types/message"
 
 const preCompactMessages = [
   { role: "user" as const, text: "draft the rfc" },
@@ -31,6 +33,10 @@ const longMessages = [
   { role: "user" as const, text: "u5" },
   { role: "assistant" as const, text: "a5" },
 ]
+const previewMessages: Message[] = longMessages.map((message, i) => ({
+  id: String(i), role: message.role, timestamp: i,
+  parts: [{ type: "text", content: message.text, streaming: false }],
+}))
 
 const mkGw = () => new MockGateway({
   "commands.catalog": () => ({
@@ -61,6 +67,17 @@ const run = async (t: Awaited<ReturnType<typeof mount>>) => {
 }
 
 describe("/compress", () => {
+  test("preview argument table stays local", () => {
+    expect(compressPreview("topic", previewMessages)).toBeNull()
+    expect(compressPreview("--preview", previewMessages)).not.toBeNull()
+    expect(compressPreview("--dry-run", previewMessages))
+      .toEqual(compressPreview("--preview", previewMessages))
+    expect(compressPreview("here 3 --preview", previewMessages)?.join("\n"))
+      .toContain("4 of 10")
+    expect(compressPreview("--aggressive", previewMessages)?.join("\n"))
+      .toContain("not supported")
+  })
+
   test("preserves visible transcript when rpc returns compacted messages", async () => {
     const gw = mkGw()
     const t = await mount({ gw, launch: { mode: "resume", sid: "pre-sid", splash: false } })
@@ -144,22 +161,9 @@ describe("/compress", () => {
     t.destroy()
   })
 
-  test("/compact aliases to /compress", async () => {
-    const gw = mkGw()
-    const t = await mount({ gw, launch: { mode: "resume", sid: "pre-sid", splash: false } })
-    await until(t, () => t.frame().includes("draft the rfc"))
 
-    await act(async () => { await t.keys.typeText("/compact project notes") })
-    act(() => t.keys.pressEnter())
-    await until(t, () => t.gw.last("session.compress") !== undefined)
-
-    expect(t.gw.last("session.compress")?.params.raw_args).toBe("project notes")
-    expect(t.gw.last("slash.exec")).toBeUndefined()
-    expect(t.frame()).not.toContain("Ink-TUI command")
-    t.destroy()
-  })
-
-  test("preview and dry-run are no-mutation previews", async () => {
+  test("preview is a no-mutation shell path", async () => {
+    const expected = compressPreview("--preview", previewMessages)![1]
     const gw = new MockGateway({
       "commands.catalog": () => ({ pairs: [["/compress", "compress transcript"]] }),
       "session.resume": () => ({ session_id: "pre-sid", messages: longMessages }),
@@ -172,53 +176,11 @@ describe("/compress", () => {
     await act(async () => { t.gw.calls.length = 0 })
     await act(async () => { await t.keys.typeText("/compress --preview") })
     act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("Preview — no changes made."))
+    await until(t, () => t.frame().includes(expected))
 
     expect(t.gw.last("session.compress")).toBeUndefined()
-    expect(t.frame()).toContain("Would compress 10 of 10 message(s)")
-    await act(async () => { await t.keys.typeText("/compress --dry-run") })
-    act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().split("Preview — no changes made.").length > 2)
-    expect(t.gw.last("session.compress")).toBeUndefined()
-    t.destroy()
-  })
-
-  test("here preview preserves upstream boundary semantics", async () => {
-    const gw = new MockGateway({
-      "commands.catalog": () => ({ pairs: [["/compress", "compress transcript"]] }),
-      "session.resume": () => ({ session_id: "pre-sid", messages: longMessages }),
-      "session.create": () => ({ session_id: "pre-sid" }),
-    })
-    const t = await mount({ gw, launch: { mode: "resume", sid: "pre-sid", splash: false }, height: 80 })
-    await until(t, () => t.frame().includes("u1"))
-
-    await act(async () => { t.gw.calls.length = 0 })
-    await act(async () => { await t.keys.typeText("/compress here 3 --preview") })
-    act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("Boundary: keeping the last 3 exchange(s)"))
-
-    expect(t.frame()).toContain("Would compress 4 of 10 message(s)")
-    expect(t.frame()).toContain("(6 message(s)) verbatim")
-    expect(t.gw.last("session.compress")).toBeUndefined()
-    t.destroy()
-  })
-
-  test("aggressive is unsupported, not a focus topic", async () => {
-    const gw = new MockGateway({
-      "commands.catalog": () => ({ pairs: [["/compress", "compress transcript"]] }),
-      "session.resume": () => ({ session_id: "pre-sid", messages: longMessages }),
-      "session.create": () => ({ session_id: "pre-sid" }),
-      "session.compress": () => { throw new Error("aggressive must not mutate") },
-    })
-    const t = await mount({ gw, launch: { mode: "resume", sid: "pre-sid", splash: false }, height: 80 })
-    await until(t, () => t.frame().includes("u1"))
-
-    await act(async () => { t.gw.calls.length = 0 })
-    await act(async () => { await t.keys.typeText("/compress --aggressive") })
-    act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("--aggressive is not supported"))
-
-    expect(t.gw.last("session.compress")).toBeUndefined()
+    expect(t.gw.last("prompt.submit")).toBeUndefined()
+    expect(t.frame()).toContain("u1")
     t.destroy()
   })
 })

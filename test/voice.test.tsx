@@ -40,22 +40,23 @@ test("turning voice off clears the active recording state", async () => {
   }
   const Probe = () => {
     api = useVoice(rpc, () => {})
-    return <text>{`enabled:${api.state.enabled} recording:${api.state.recording}`}</text>
+    return <text>{`enabled:${api.state.enabled} recording:${api.state.recording} processing:${api.state.processing}`}</text>
   }
   await using t = await mountNode(<Probe />)
 
   await act(async () => { await api!.toggle("on", "sid") })
   await t.settle()
   await act(async () => { await api!.record("sid") })
+  act(() => api!.setProcessing(true))
   await t.settle()
-  expect(t.frame()).toContain("enabled:true recording:true")
+  expect(t.frame()).toContain("enabled:true recording:true processing:true")
 
   await act(async () => { await api!.toggle("off", "sid") })
   await t.settle()
-  expect(t.frame()).toContain("enabled:false recording:false")
+  expect(t.frame()).toContain("enabled:false recording:false processing:false")
 })
 
-test("record presses serialize while the gateway request is pending", async () => {
+ test("record presses serialize while the gateway request is pending", async () => {
   let api: VoiceApi | undefined
   let release!: () => void
   let records = 0
@@ -135,11 +136,12 @@ test("late record failure cannot revive voice after toggle off", async () => {
   await act(async () => { await api!.record("sid") })
   await t.settle()
 
-  act(() => { void api!.record("sid") })
+  let stop!: Promise<void>
+  act(() => { stop = api!.record("sid") })
   expect(stops).toBe(1)
   await act(async () => { await api!.toggle("off", "sid") })
   fail(new Error("late stop failure"))
-  await act(async () => { await Bun.sleep(20) })
+  await act(async () => { await stop })
   await t.settle()
   expect(t.frame()).toContain("enabled:false recording:false")
 })
@@ -156,14 +158,24 @@ test("gateway voice events drive the indicator and submit transcripts", async ()
   await until(t, () => t.gw.last("prompt.submit")?.params.text === "spoken prompt")
 })
 
-test("no-speech limit disables voice without submitting", async () => {
-  await using t = await mount()
+test("no-speech limit disables recording and withholds submission", async () => {
+  await using t = await mount({ handlers: {
+    "voice.toggle": () => ({ enabled: true, tts: false, record_key: "ctrl+b" }),
+    "voice.record": p => ({ status: p.action === "start" ? "recording" : "idle" }),
+  } })
   await until(t, () => t.frame().includes("Ready"))
+  await act(async () => { await t.keys.typeText("/voice on") })
+  act(() => t.keys.pressEnter())
+  await until(t, () => t.gw.last("voice.toggle") !== undefined)
   act(() => t.gw.push({ type: "voice.status", payload: { state: "listening" } }))
-  await until(t, () => t.frame().includes("recording"))
+  await t.settle()
+  act(() => t.gw.push({ type: "voice.status", payload: { state: "transcribing" } }))
+  await t.settle()
   act(() => t.gw.push({ type: "voice.transcript", payload: { no_speech_limit: true } }))
-  await until(t, () => t.frame().includes("voice: disabled after repeated silence"))
-  expect(t.frame()).not.toContain("recording")
+  await t.settle()
+  act(() => t.keys.pressKey("b", { ctrl: true }))
+  await t.settle()
+  expect(t.gw.last("voice.record")).toBeUndefined()
   expect(t.gw.last("prompt.submit")).toBeUndefined()
 })
 
@@ -186,20 +198,22 @@ test("old record completion cannot unlock a newer pending request", async () => 
   await using t = await mountNode(<Probe />)
   await act(async () => { await api!.toggle("on", "sid") })
   await t.settle()
-  act(() => { void api!.record("sid") })
+  let oldCall!: Promise<void>
+  act(() => { oldCall = api!.record("sid") })
 
   act(() => api!.reset())
   await act(async () => { await api!.toggle("on", "sid") })
   await t.settle()
-  act(() => { void api!.record("sid") })
+  let freshCall!: Promise<void>
+  act(() => { freshCall = api!.record("sid") })
   expect(records).toBe(2)
 
   failOld(new Error("old request ended"))
-  await act(async () => { await Bun.sleep(20) })
+  await act(async () => { await oldCall })
   act(() => { void api!.record("sid") })
   expect(records).toBe(2)
   finishNew({ status: "recording" })
-  await t.settle()
+  await act(async () => { await freshCall })
 })
 
 test("voice status reports missing provider details", async () => {

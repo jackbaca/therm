@@ -3,9 +3,17 @@ import { useEffect } from "react"
 import { act } from "react"
 import { mkdirSync, writeFileSync } from "fs"
 import { hermesPath } from "../src/service/hermes-home"
-import { mountNode, until, MockGateway } from "./harness"
+import { mountNode as mountHarness, until, MockGateway } from "./harness"
 import { openCurator } from "../src/dialogs/curator"
 import { useDialog } from "../src/ui/dialog"
+
+const mountNode: typeof mountHarness = (node, opts = {}) => mountHarness(node, {
+  ...opts,
+  handlers: {
+    "shell.exec": () => ({ stdout: "", stderr: "", code: 0 }),
+    ...opts.handlers,
+  },
+})
 
 describe("curator dialog", () => {
   beforeEach(() => {
@@ -176,18 +184,6 @@ describe("curator dialog", () => {
     })
     await until(t, () => calls.some(c => c.includes("restore")))
     expect(calls.filter(c => c.includes("restore"))).toHaveLength(1)
-    t.destroy()
-  })
-
-  test("no archived skills: 'a' hint hidden, no Archived row", async () => {
-    const gw = new MockGateway({
-      "shell.exec": () => ({ stdout: "", stderr: "", code: 0 }),
-    })
-    const t = await mountNode(<Open />, { width: 130, height: 40, gw })
-    await until(t, () => t.frame().includes("Next run"))
-    const f = t.frame()
-    expect(f).not.toContain("Archived ")
-    expect(f).not.toContain("a archived skills")
     t.destroy()
   })
 

@@ -138,7 +138,8 @@ describe("approval memory", () => {
     expect(t.frame()).not.toContain("$ rm -rf /tmp/stale")
     await act(async () => { await t.keys.typeText("fresh message") })
     act(() => t.keys.pressEnter())
-    await until(t, () => gw.last("prompt.submit")?.params.text === "fresh message")
+    await t.settle(); await t.settle()
+    expect(gw.last("prompt.submit")?.params.text).toBe("fresh message")
     t.destroy()
   })
 

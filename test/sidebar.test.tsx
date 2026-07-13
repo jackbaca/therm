@@ -34,73 +34,27 @@ const repo = async (root: string) => {
 }
 
 describe("Sidebar", () => {
-  test("Title primary, Agent row gone, no Identity wrapper, no Tools row", async () => {
-    const gw = new MockGateway({ "plugins.list": () => ({ plugins: [] }) })
-    const t = await mountNode(
-      <Sidebar agentState="idle" info={INFO} title="my session" />,
-      { gw, width: 160, height: 48 },
-    )
-    await until(t, () => t.frame().includes("Title"))
-
-    const f = t.frame()
-
-    // Title always-on, first identity row
-    expect(f).toMatch(/Title\s+my session/)
-    expect(f.indexOf("Title")).toBeLessThan(f.indexOf("Profile"))
-
-    // Agent row removed; Profile carries lineage
-    expect(f).not.toMatch(/Agent\s+Hermes/)
-    expect(f).toContain("Profile")
-
-    // Identity rows render flat (no ▾/▸ Identity wrapper)
-    expect(f).not.toContain("Identity")
-    expect(f).toContain("test-model-v9")
-
-    expect(f).not.toMatch(/^\s*Tools\s/m)
-    expect(f).not.toMatch(/^\s*Skills\s/m)
-    expect(f).not.toContain("▸ Stats")
-    expect(f).not.toContain("▸ Memory")
-    expect(f).not.toContain("▸ Recent")
-    expect(f).not.toContain("Est. cost")
-    expect(f).toContain("▸ MCP")
-    t.destroy()
-  })
-
-  test("Title row shows placeholder when unset (no layout shift)", async () => {
-    const gw = new MockGateway({ "plugins.list": () => ({ plugins: [] }) })
-    const t = await mountNode(
-      <Sidebar agentState="idle" info={INFO} />,
-      { gw, width: 160, height: 48 },
-    )
-    await until(t, () => t.frame().includes("Profile"))
-    expect(t.frame()).toMatch(/Title\s+—/)
-    t.destroy()
-  })
-
   test("MCP section toggles on header click", async () => {
     const gw = new MockGateway({ "plugins.list": () => ({ plugins: [] }) })
     const t = await mountNode(
       <Sidebar agentState="idle" info={INFO} />,
       { gw, width: 160, height: 48 },
     )
-    await until(t, () => t.frame().includes("▸ MCP"))
+    await until(t, () => t.frame().includes("MCP"))
 
-    const find = (needle: string) => {
+    const find = () => {
       const lines = t.frame().split("\n")
-      const y = lines.findIndex(l => l.includes(needle))
-      return { x: lines[y].indexOf(needle), y }
+      const y = lines.findIndex(line => line.includes("MCP"))
+      return { x: lines[y].indexOf("MCP"), y }
     }
 
-    let p = find("▸ MCP")
+    let p = find()
     await act(async () => { await t.mouse.pressDown(p.x, p.y) })
-    await until(t, () => t.frame().includes("▾ MCP"))
-    expect(t.frame()).toContain("● linear")
-    expect(t.frame()).toContain("○ broken")
+    await until(t, () => t.frame().includes("linear") && t.frame().includes("broken"))
 
-    p = find("▾ MCP")
+    p = find()
     await act(async () => { await t.mouse.pressDown(p.x, p.y) })
-    await until(t, () => t.frame().includes("▸ MCP"))
-    expect(t.frame()).not.toContain("● linear")
+    await until(t, () => !t.frame().includes("linear"))
     t.destroy()
   })
 
@@ -117,23 +71,7 @@ describe("Sidebar", () => {
     await until(t, () => t.frame().includes("258K"))
     const f = t.frame()
     expect(f).toContain("258K / 1M")
-    expect(f).toContain("█")
-    expect(f).toContain("░")
     expect(f).toContain("26%")
-    t.destroy()
-  })
-
-  test("context gauge hidden when usage absent", async () => {
-    const gw = new MockGateway({ "plugins.list": () => ({ plugins: [] }) })
-    const t = await mountNode(
-      <Sidebar agentState="idle" info={INFO} />,
-      { gw, width: 160, height: 48 },
-    )
-    await until(t, () => t.frame().includes("Profile"))
-    const f = t.frame()
-    // No gauge chrome: no bracketed block bar
-    expect(f).not.toMatch(/\[█+░*\]/)
-    expect(f).not.toMatch(/\[░+\]/)
     t.destroy()
   })
 

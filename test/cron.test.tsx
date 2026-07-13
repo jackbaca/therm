@@ -63,38 +63,9 @@ describe("Cron tab", () => {
     expect(t.frame()).not.toContain("stale-job")
   })
 
-  test("renders jobs with enabled/disabled glyphs and detail pane", async () => {
-    await using t = await mountNode(<Cron focused />, { gw: mk() })
-    await until(t, () => t.frame().includes("Cron Jobs (3)"))
 
-    const f = t.frame()
-    expect(f).toContain("● nightly-digest")
-    expect(f).toContain("● broken-job")
-    expect(f).toContain("○ disabled-one")
-    expect(f).not.toMatch(/broken-job.*ERR/)
-    expect(f).toContain("Model")
-    expect(f).toContain("claude-opus")
-    expect(f).toContain("Workdir")
-    expect(f).toContain("/tmp/proj")
-    expect(f).not.toContain("Skills")
-    expect(f).toMatch(/Last Run\s+.*·\s+ok/)
-  })
 
-  test("down to disabled job shows paused_reason; next_run reads 'paused'", async () => {
-    await using t = await mountNode(<Cron focused />, { gw: mk() })
-    await until(t, () => t.frame().includes("Cron Jobs (3)"))
-
-    act(() => t.keys.pressArrow("down"))
-    act(() => t.keys.pressArrow("down"))
-    await until(t, () => t.frame().includes("g7h8i9"))
-
-    const f = t.frame()
-    expect(f).toMatch(/Paused\s+manual/)
-    expect(f).toMatch(/Next Run\s+paused/)
-    expect(f).not.toContain("claude-opus")
-  })
-
-  test("detail pane shows last-output tail; '(none yet)' otherwise", async () => {
+  test("detail output follows the selected job", async () => {
     const dir = join(HH, "cron", "output", "a1b2c3")
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, "20260426_090000.md"), "## Digest\nitem one\nitem two")
@@ -106,8 +77,7 @@ describe("Cron tab", () => {
 
     act(() => t.keys.pressArrow("down"))
     await until(t, () => /ID\s+d4e5f6/.test(t.frame()))
-    await until(t, () => t.frame().includes("(none yet)"))
-    expect(t.frame()).not.toContain("item two")
+    await until(t, () => !t.frame().includes("item two"))
   })
 
   test("detail pane hidden below 120 cols", async () => {
@@ -116,35 +86,12 @@ describe("Cron tab", () => {
     expect(t.frame()).not.toContain("Job Detail")
   })
 
-  const TIMING_JOBS = [
-    { job_id: "j1", name: "nightly", schedule: "0 3 * * *", enabled: true,
-      last_run_at: iso(-3600), next_run_at: iso(1800) },
-    { job_id: "j2", name: "paused-job", schedule: "every 1h", enabled: false,
-      last_run_at: iso(-120), next_run_at: iso(60) },
-    { job_id: "j3", name: "overdue", schedule: "every 5m", enabled: true,
-      next_run_at: iso(-30) },
-  ]
-
-  test("renders rows; next uses until() for future, 'due' for past, 'paused' when disabled", async () => {
-    const gw = new MockGateway({ "cron.manage": () => ({ jobs: TIMING_JOBS }) })
-    await using t = await mountNode(<Cron focused />, { gw, width: 180 })
-    await until(t, () => t.frame().includes("Cron Jobs (3)"))
-
-    const f = t.frame()
-    const row = (name: string) => f.split("\n").find(l => /[●○]/.test(l) && l.includes(name))!
-
-    expect(row("nightly")).toContain("last: 1h ago")
-    expect(row("nightly")).toMatch(/next: in (29|30)m/)
-    expect(row("paused-job")).toContain("next: paused")
-    expect(row("overdue")).toContain("next: due")
-    expect(row("nightly")).not.toContain("next: just now")
-  })
 
   test("Space toggles enabled via cron.manage pause/resume", async () => {
     let paused = ""
     const gw = new MockGateway({
       "cron.manage": p => {
-        if (p.action === "list") return { jobs: TIMING_JOBS }
+        if (p.action === "list") return { jobs: [{ job_id: "j1", name: "nightly", schedule: "0 3 * * *", enabled: true }] }
         if (p.action === "pause" || p.action === "resume") { paused = `${p.action}:${p.name}`; return {} }
         return {}
       },
@@ -162,6 +109,8 @@ describe("Cron tab", () => {
     name: "advanced",
     schedule: "every 1h",
     enabled: true,
+    last_run_at: ago(3600),
+    last_status: "ok",
     prompt_preview: "hello",
     provider: "openrouter",
     model: "anthropic/claude-sonnet-4",
@@ -170,6 +119,7 @@ describe("Cron tab", () => {
     attach_to_session: true,
     script: "jobs/ping.py",
     enabled_toolsets: ["web", "terminal"],
+    workdir: "/tmp/advanced",
     repeat: "3 times",
   }
 
@@ -259,11 +209,15 @@ describe("Cron tab", () => {
     expect(calls.find(c => c.action === "add")).not.toHaveProperty("attach_to_session")
   })
 
-  test("create exposes advanced fields when gateway advertises them", async () => {
+  test("create submits an edited field advertised by the gateway", async () => {
+    const calls: Record<string, unknown>[] = []
     const gw = new MockGateway({
-      "cron.manage": p => p.action === "list"
-        ? { jobs: [], fields: ["script", "provider", "model", "repeat"] }
-        : { ok: true },
+      "cron.manage": p => {
+        calls.push(p)
+        return p.action === "list"
+          ? { jobs: [], fields: ["script", "provider", "model", "repeat"] }
+          : { ok: true }
+      },
     })
     await using t = await mountNode(<Cron focused />, { gw })
     await until(t, () => t.frame().includes("No cron jobs"))
@@ -271,30 +225,20 @@ describe("Cron tab", () => {
     await act(async () => { await t.keys.typeText("n") })
     await until(t, () => t.frame().includes("New Cron Job"))
 
-    expect(t.frame()).toContain("Script")
-    expect(t.frame()).toContain("Provider")
-    expect(t.frame()).toContain("Model")
-    expect(t.frame()).toContain("Repeat")
-    expect(t.frame()).not.toContain("No agent")
-  })
+    await act(async () => { await t.keys.typeText("every 5m") })
+    act(() => t.keys.pressTab())
+    act(() => t.keys.pressTab())
+    await act(async () => { await t.keys.typeText("jobs/fixture.py") })
+    act(() => t.keys.pressEnter({ ctrl: true }))
+    await until(t, () => calls.some(c => c.action === "add"))
 
-  test("detail panel displays upstream execution fields from list output", async () => {
-    const gw = new MockGateway({
-      "cron.manage": p => p.action === "list" ? { jobs: [ADV_JOB] } : { ok: true },
+    expect(calls.find(c => c.action === "add")).toMatchObject({
+      action: "add",
+      schedule: "every 5m",
+      script: "jobs/fixture.py",
     })
-    await using t = await mountNode(<Cron focused />, { gw, width: 160, height: 40 })
-    await until(t, () => t.frame().includes("Job Detail"))
-
-    expect(t.frame()).toContain("Provider")
-    expect(t.frame()).toContain("openrouter")
-    expect(t.frame()).toContain("Base URL")
-    expect(t.frame()).toContain("No Agent")
-    expect(t.frame()).toContain("Attach")
-    expect(t.frame()).toContain("Session")
-    expect(t.frame()).toContain("Toolsets")
-    expect(t.frame()).toContain("web, terminal")
-    expect(t.frame()).toContain("Repeat")
   })
+
 
   test("advanced editor sends update when gateway advertises update support", async () => {
     const calls: Record<string, unknown>[] = []

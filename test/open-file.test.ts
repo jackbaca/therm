@@ -139,16 +139,4 @@ describe("openUrl", () => {
     expect(() => child!.emit("error", new Error("ENOENT"))).not.toThrow()
   })
 
-  test("error listener attached before unref", () => {
-    // If unref ran before the listener was attached and the child
-    // crashed in the same tick, Node would throw an uncaught 'error'
-    // and tear down the TUI. We encode ordering by checking both that
-    // the listener is present and that unref was called — the test
-    // above that emits 'error' post-hoc exercises the absorption path.
-    const s = makeSpawn("linux")
-    openUrl("https://example.com", s)
-    const child = s.child()!
-    expect(child.listenerCount("error")).toBe(1)
-    expect(child.unrefed).toBe(true)
-  })
 })

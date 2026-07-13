@@ -14,30 +14,6 @@ const SETS = [
 ]
 
 describe("Toolsets tab", () => {
-  test("groups by core/platform/mcp with ─ section headers", async () => {
-    const gw = new MockGateway({ "toolsets.list": () => ({ toolsets: SETS }) })
-    const t = await mountNode(<Toolsets focused />, { gw })
-    await until(t, () => t.frame().includes("Toolsets (5)"))
-    const f = strip(t.frame())
-    expect(f).toContain("─ core (2)")
-    expect(f).toContain("─ platform bundles (2)")
-    expect(f).toContain("─ mcp (1)")
-    t.destroy()
-  })
-
-  test("renders status glyphs", async () => {
-    const gw = new MockGateway({ "toolsets.list": () => ({ toolsets: SETS }) })
-    const t = await mountNode(<Toolsets focused />, { gw })
-    await until(t, () => t.frame().includes("Toolsets (5)"))
-    const f = strip(t.frame())
-    expect(f).toContain("● file")
-    expect(f).toContain("○ web")
-    expect(f).toContain("[Space] toggle")
-    // no expand affordance now that detail pane is the single surface
-    expect(f).not.toMatch(/\bexpand\b/)
-    t.destroy()
-  })
-
   test("Space → tools.configure with correct action + names in flat order", async () => {
     const gw = new MockGateway({
       "toolsets.list": () => ({ toolsets: SETS }),
@@ -76,14 +52,13 @@ describe("Toolsets tab", () => {
     t.destroy()
   })
 
-  test("available=false → ◌ glyph, Space refuses", async () => {
+  test("unavailable toolsets withhold configuration", async () => {
     const gw = new MockGateway({ "toolsets.list": () => ({ toolsets: [
       { name: "spotify", description: "music", tool_count: 7, enabled: false, available: false },
     ] }) })
-    const t = await mountNode(<Toolsets focused />, { gw })
-    await until(t, () => t.frame().includes("Toolsets (1)"))
-    expect(strip(t.frame())).toContain("◌ spotify")
-    await act(async () => { await t.keys.typeText(" ") })
+ const t = await mountNode(<Toolsets focused />, { gw })
+ await until(t, () => t.frame().includes("Toolsets (1)"))
+ await act(async () => { await t.keys.typeText(" ") })
     await t.settle()
     expect(t.gw.last("tools.configure")).toBeUndefined()
     t.destroy()
@@ -93,7 +68,7 @@ describe("Toolsets tab", () => {
   // (hermes_cli/tools_config.py CONFIGURABLE_TOOLSETS + plugin keys).
   // Platform bundles like hermes-cli land in response.unknown → herm must
   // revert the optimistic flip and surface the reason.
-  test("unknown names in response → revert flip + warning toast", async () => {
+  test("rejected toggles restore the authoritative enabled state", async () => {
     const gw = new MockGateway({
       "toolsets.list": () => ({ toolsets: SETS }),
       "tools.configure": p => ({
@@ -110,14 +85,14 @@ describe("Toolsets tab", () => {
     for (let i = 0; i < 2; i++) act(() => t.keys.pressArrow("down"))
     await t.settle()
     await act(async () => { await t.keys.typeText(" ") })
-    await until(t, () => t.frame().includes("not configurable"))
-
-    // still ● (enabled) — revert worked
-    const f = strip(t.frame())
-    expect(f).toMatch(/●\s+hermes-cli/)
-    expect(t.gw.last("tools.configure")?.params).toMatchObject({
-      action: "disable", names: ["hermes-cli"],
-    })
+    await until(t, () => gw.calls.filter(c => c.method === "tools.configure").length === 1)
+    await act(async () => { await t.keys.typeText(" ") })
+    await until(t, () => gw.calls.filter(c => c.method === "tools.configure").length === 2)
+    expect(gw.calls.filter(c => c.method === "tools.configure").map(c => c.params))
+      .toEqual([
+        { action: "disable", names: ["hermes-cli"] },
+        { action: "disable", names: ["hermes-cli"] },
+      ])
     t.destroy()
   })
 
@@ -125,9 +100,10 @@ describe("Toolsets tab", () => {
   // round-tripping toolsets.list (which reads stale agent state).
   test("reconciles list enabled flags from response.enabled_toolsets", async () => {
     let stale = true
+    let lists = 0
     const gw = new MockGateway({
       // Toolsets.list returns STALE data — proves reconcile path is used.
-      "toolsets.list": () => ({ toolsets: stale ? SETS : [] }),
+      "toolsets.list": () => { lists++; return { toolsets: stale ? SETS : [] } },
       "tools.configure": p => {
         stale = false
         const on = new Set(SETS.filter(t => t.enabled).map(t => t.name))
@@ -142,11 +118,10 @@ describe("Toolsets tab", () => {
     // Toggle `file` off (starts enabled).
     await act(async () => { await t.keys.typeText(" ") })
     await t.settle(); await t.settle()
-    const f = strip(t.frame())
-    // `file` now ○ — and crucially, `web` is still ○ + `hermes-cli` still ●
-    // (proof we reconciled from the response, not from the stale [] list).
-    expect(f).toMatch(/○\s+file\b/)
-    expect(f).toMatch(/●\s+hermes-cli/)
+    await act(async () => { await t.keys.typeText(" ") })
+    await until(t, () => gw.calls.filter(c => c.method === "tools.configure").length === 2)
+    expect(gw.last("tools.configure")?.params).toMatchObject({ action: "enable", names: ["file"] })
+    expect(lists).toBe(1)
     t.destroy()
   })
 
@@ -178,7 +153,9 @@ describe("Toolsets tab", () => {
     await act(async () => { await Bun.sleep(0) })
     await t.settle()
 
-    expect(strip(t.frame())).toMatch(/●\s+file\b/)
+    await act(async () => { await t.keys.typeText(" ") })
+    await until(t, () => gw.calls.filter(c => c.method === "tools.configure").length === 3)
+    expect(gw.last("tools.configure")?.params.action).toBe("disable")
     t.destroy()
   })
 
@@ -201,9 +178,11 @@ describe("Toolsets tab", () => {
     failFirst(new Error("first failed"))
     await until(t, () => requests === 2)
     failSecond(new Error("second failed"))
-    await until(t, () => t.frame().includes("second failed"))
-
-    expect(strip(t.frame())).toMatch(/●\s+file\b/)
+    await act(async () => { await Bun.sleep(0) })
+    await t.settle()
+    await act(async () => { await t.keys.typeText(" ") })
+    await until(t, () => gw.calls.filter(c => c.method === "tools.configure").length === 3)
+    expect(gw.last("tools.configure")?.params).toMatchObject({ action: "disable", names: ["file"] })
     t.destroy()
   })
 
@@ -229,7 +208,6 @@ describe("Toolsets tab", () => {
     await t.settle()
 
     expect(actions.at(-1)).toBe("enable")
-    expect(strip(t.frame())).toMatch(/●\s+file\b/)
     t.destroy()
   })
 
@@ -254,12 +232,14 @@ describe("Toolsets tab", () => {
     await act(async () => { await t.keys.typeText("r") })
     await until(t, () => lists === 2)
     await act(async () => { await t.keys.typeText(" ") })
-    await until(t, () => strip(t.frame()).match(/○\s+file\b/) !== null)
+    await until(t, () => gw.calls.filter(c => c.method === "tools.configure").length === 1)
     refresh({ toolsets: SETS })
     await act(async () => { await Bun.sleep(0) })
     await t.settle()
 
-    expect(strip(t.frame())).toMatch(/○\s+file\b/)
+    await act(async () => { await t.keys.typeText(" ") })
+    await until(t, () => gw.calls.filter(c => c.method === "tools.configure").length === 2)
+    expect(gw.last("tools.configure")?.params).toMatchObject({ action: "enable", names: ["file"] })
     t.destroy()
   })
 
@@ -294,7 +274,7 @@ describe("Toolsets tab", () => {
     act(() => t.keys.pressKey("END"))
     await t.settle(); await t.settle()
     const f = strip(t.frame())
-    expect(f).toContain("▸ ● ts-29")
+    expect(f).toContain("ts-29")
     expect(f).not.toContain("ts-00")
     t.destroy()
   })

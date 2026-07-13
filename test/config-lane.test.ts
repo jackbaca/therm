@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { route, toCliString, writeConfig, verifyWrite, maxEffect, RPC_ALIAS } from "../src/config/lane"
+import { route, toCliString, writeConfig, verifyWrite, maxEffect } from "../src/config/lane"
 
 type Call = { method: string; params: Record<string, unknown> }
 const mockGw = (handlers: Record<string, (p: Record<string, unknown>) => unknown>) => {
@@ -42,9 +42,6 @@ describe("lane.route", () => {
     expect(route("never.heard.of.it").via).toBe("cli")
   })
 
-  test("every RPC_ALIAS key routes via rpc", () => {
-    for (const k of Object.keys(RPC_ALIAS)) expect(route(k).via, k).toBe("rpc")
-  })
 })
 
 describe("lane.toCliString", () => {

@@ -1,133 +1,10 @@
 import { describe, expect, test } from "bun:test"
 import { act } from "react"
 import { mountNode, until, type Harness } from "./harness"
+import { turnReducer, initialTurn, type Action } from "../src/app/turnReducer"
 import { MessageList } from "../src/components/chat/MessageList"
-import { Tool } from "../src/components/chat/tool"
-import { isDiff } from "../src/components/chat/DiffBlock"
 import { splitContent } from "../src/components/chat/MediaChip"
-import { turnReducer, initialTurn } from "../src/app/turnReducer"
-import { spec } from "../src/components/chat/tool/preview"
-import type { Message, ToolPart } from "../src/types/message"
-
-// Fixture mirrors the wire: tool.start gives a preview string (via
-// _tool_ctx → build_tool_preview, ≤80ch), tool.complete gives summary
-// + optional inline_diff. No raw args JSON, no stdout body.
-const turn: Message[] = [
-  {
-    id: "u1", role: "user", timestamp: 0,
-    parts: [{ type: "text", content: "run the build", streaming: false }],
-  },
-  {
-    id: "a1", role: "assistant", timestamp: 0, model: "test-model",
-    usage: { input: 12, output: 34, total: 46 }, duration: 250,
-    parts: [
-      { type: "text", content: "On it.", streaming: false },
-      {
-        type: "tool", id: "t1", name: "terminal", args: "",
-        preview: "bun run build", status: "done", duration: 87,
-        result: "Completed in 0.1s",
-      },
-      {
-        type: "tool", id: "t2", name: "read_file", args: "",
-        preview: "src/index.tsx", status: "done", duration: 12,
-      },
-    ],
-  },
-]
-
-async function tool(part: ToolPart, w = 100) {
-  const t: Harness = await mountNode(
-    <box flexDirection="column" width="100%" height="100%"><Tool tool={part} /></box>,
-    { width: w, height: 30 },
-  )
-  await t.settle()
-  return t
-}
-
-function locate(t: Harness, needle: string) {
-  const rows = t.frame().split("\n")
-  const y = rows.findIndex(l => l.includes(needle))
-  return { x: rows[y].indexOf(needle), y }
-}
-
-describe("MessageList", () => {
-  test("markdown image links render as media, not alt text", () => {
-    expect(splitContent("![base](/tmp/owl.png)")).toEqual([{ media: "/tmp/owl.png" }])
-    expect(splitContent("see ![base](/tmp/owl.png) now")).toEqual([
-      { md: "see " }, { media: "/tmp/owl.png" }, { md: " now" },
-    ])
-    expect(splitContent("```md\n![base](/tmp/owl.png)\n```")).toEqual([
-      { code: "![base](/tmp/owl.png)", lang: "md" },
-    ])
-  })
-
-  test("message.complete does not append duplicate final text", () => {
-    const s = turnReducer(turnReducer(initialTurn, { kind: "message.delta", chunk: "Keep, regenerate, or adjust?" }), {
-      kind: "message.complete", text: "Keep, regenerate, or adjust?\n",
-    })
-    const msg = s.messages[0]
-    expect(msg.parts).toHaveLength(1)
-    expect(msg.parts[0]).toMatchObject({ type: "text", content: "Keep, regenerate, or adjust?", streaming: false })
-  })
-
-  test("renders message chrome + header + trail badge; body is text-only", async () => {
-    const t: Harness = await mountNode(
-      <box flexDirection="column" width="100%" height="100%">
-        <MessageList messages={turn} streaming={false} />
-      </box>,
-      { width: 120, height: 30 },
-    )
-    await until(t, () => t.frame().includes("On it."))
-    const f = t.frame()
-
-    expect(f).toContain("run the build")
-    expect(f).toContain("▁")
-    expect(f).toContain("▔")
-    // Agent header: "Hermes · <tokens> · <duration>" (model is shown
-    // in the sidebar/status bar, not in message headers).
-    expect(f).toContain("Hermes · 12→34 tok · 250ms")
-    // trail badge (right-aligned), not inline tool bodies
-    expect(f).toContain("terminal · read_file")
-    expect(f).not.toContain("$ bun run build")
-    t.destroy()
-  })
-
-})
-
-describe("tool/inline", () => {
-  test("terminal + read_file render trail rows", async () => {
-    let t = await tool(turn[1].parts[1] as ToolPart)
-    await until(t, () => t.frame().includes("● bun run build"))
-    expect(t.frame()).toContain("87ms")
-    t.destroy()
-
-    t = await tool(turn[1].parts[2] as ToolPart)
-    await until(t, () => t.frame().includes("● Read src/index.tsx"))
-    t.destroy()
-  })
-
-  test("running tool shows pending gerund until preview arrives", async () => {
-    const t = await tool({
-      type: "tool", id: "tr", name: "search_files", args: "",
-      status: "running", startedAt: Date.now(),
-    })
-    await until(t, () => t.frame().includes("~ Searching…"))
-    // braille spinner glyph in place of the icon while running
-    expect(t.frame()).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] ~ Searching…/)
-    t.destroy()
-  })
-
-  test("failed tool row is error-tinted and shows error body", async () => {
-    const t = await tool({
-      type: "tool", id: "te", name: "terminal", args: "",
-      preview: "rm -rf /", status: "error", duration: 5,
-      result: "permission denied",
-    })
-    await until(t, () => t.frame().includes("● rm -rf /"))
-    expect(t.frame()).toContain("permission denied")
-    t.destroy()
-  })
-})
+import type { Message } from "../src/types/message"
 
 const UDIFF = [
   "--- a/foo.ts",
@@ -138,142 +15,156 @@ const UDIFF = [
   "+new line",
 ].join("\n")
 
-describe("tool/file-edit", () => {
-  test("isDiff matches unified headers and hunk markers", () => {
-    expect(isDiff(UDIFF)).toBe(true)
-    expect(isDiff("@@ -1 +1 @@\n-a\n+b")).toBe(true)
-    expect(isDiff("diff --git a/x b/x\n@@ -1 +1 @@")).toBe(true)
-    expect(isDiff("plain text\nno markers")).toBe(false)
-    expect(isDiff("prefix --- a/not-at-line-start")).toBe(false)
-    expect(isDiff(undefined)).toBe(false)
+function locate(t: Harness, needle: string) {
+  const rows = t.frame().split("\n")
+  const y = rows.findIndex(row => row.includes(needle))
+  if (y < 0) throw new Error(`Missing frame token: ${needle}`)
+  return { x: rows[y].indexOf(needle), y }
+}
+
+type Node = {
+  constructor?: { name?: string }
+  width?: number
+  getChildren?: () => Node[]
+  content?: Node
+  viewport?: { width?: number }
+}
+
+function find(node: Node, name: string): Node | undefined {
+  if (node.constructor?.name === name) return node
+  for (const child of node.getChildren?.() ?? []) {
+    const hit = find(child, name)
+    if (hit) return hit
+  }
+}
+
+function reduce(actions: Action[]) {
+  return actions.reduce(turnReducer, initialTurn)
+}
+
+describe("message transcript contracts", () => {
+  test("markdown images route to media without interpreting fenced examples", () => {
+    expect(splitContent([
+      "before ![preview](/tmp/owl.png) after",
+      "```md",
+      "![literal](/tmp/owl.png)",
+      "```",
+    ].join("\n"))).toEqual([
+      { md: "before " },
+      { media: "/tmp/owl.png" },
+      { md: " after" },
+      { code: "![literal](/tmp/owl.png)", lang: "md" },
+    ])
   })
 
-  test("patch renders as generic edit row; no diff body here", async () => {
-    const t = await tool({
-      type: "tool", id: "td", name: "patch", args: "",
-      preview: "src/foo.ts", status: "done", duration: 42, diff: UDIFF,
-    })
-    await until(t, () => t.frame().includes("Edit src/foo.ts"))
-    const f = t.frame()
-    expect(f).not.toContain("changed")
-    // diff body does NOT render in ThoughtCloud — InlineDiff in the
-    // assistant message owns that.
-    expect(f).not.toContain("┃")
-    expect(f).not.toContain("@@")
-    expect(f).not.toContain("+new line")
-    t.destroy()
+  test("trim-equivalent completion cannot duplicate or reorder streamed parts", () => {
+    const state = reduce([
+      { kind: "message.delta", chunk: "before" },
+      { kind: "tool.start", id: "t1", name: "read_file", preview: "src/a.ts" },
+      { kind: "tool.complete", id: "t1", summary: "read src/a.ts" },
+      { kind: "message.delta", chunk: "after" },
+      { kind: "message.complete", text: "after\n" },
+    ])
+    const parts = state.messages[0].parts
+
+    expect(parts.map(part => part.type)).toEqual(["text", "tool", "text"])
+    expect(parts.filter(part => part.type === "text")).toEqual([
+      expect.objectContaining({ content: "before", streaming: false }),
+      expect.objectContaining({ content: "after", streaming: false }),
+    ])
   })
 
-  test("write_file renders generic write row", async () => {
-    const t = await tool({
-      type: "tool", id: "tw", name: "write_file", args: "",
-      preview: "notes/README.md", status: "done", duration: 9,
-    })
-    await until(t, () => t.frame().includes("Write notes/README.md"))
-    expect(t.frame()).not.toContain("changed")
-    expect(t.frame()).not.toContain("┃")
-    t.destroy()
+  test("messages occupy one transcript column in chronological order", async () => {
+    const messages: Message[] = [
+      {
+        id: "first", role: "system", timestamp: 0,
+        parts: [{ type: "text", content: "first-message", streaming: false }],
+      },
+      {
+        id: "second", role: "system", timestamp: 1,
+        parts: [{ type: "text", content: "second-message", streaming: false }],
+      },
+    ]
+    await using t = await mountNode(
+      <box flexDirection="column" width="100%" height="100%">
+        <MessageList messages={messages} streaming={false} />
+      </box>,
+      { width: 72, height: 12 },
+    )
+    await until(t, () => t.frame().includes("second-message"))
+
+    expect(locate(t, "first-message").y).toBeLessThan(locate(t, "second-message").y)
+
+    const root = (t.renderer as unknown as { root: Node }).root
+    const scroll = find(root, "ScrollBoxRenderable")
+    expect(scroll).toBeDefined()
+    expect(scroll?.viewport?.width).toBe(72)
+    expect(scroll?.content?.getChildren?.()).toHaveLength(1)
+
+    const column = scroll?.content?.getChildren?.()[0]
+    expect(column?.width).toBe(scroll?.viewport?.width)
+    expect(column?.getChildren?.()).toHaveLength(messages.length)
   })
 
-  test("file-edit without preview falls back to generic inline row", async () => {
-    const t = await tool({
-      type: "tool", id: "tn", name: "patch", args: "",
-      status: "done", duration: 5, diff: UDIFF,
-    })
-    await until(t, () => t.frame().includes("Edit") && !t.frame().includes("changed"))
-    t.destroy()
-  })
-
-  test("file-edit diff preview falls back to terse edit label", async () => {
-    const t = await tool({
-      type: "tool", id: "td", name: "patch", args: "",
-      preview: UDIFF, status: "done", duration: 5, diff: UDIFF,
-    })
-    await until(t, () => t.frame().includes("Edit"))
-    const f = t.frame()
-    expect(f).not.toContain("--- a/foo.ts")
-    expect(f).not.toContain("@@")
-    expect(f).not.toContain("+new line")
-    t.destroy()
-  })
-
-  test("message diff tab click expands and collapses without picking message", async () => {
+  test("diff controls toggle their body without selecting the message", async () => {
     const picks: Message[] = []
-    const msgs: Message[] = [{
+    const message: Message = {
       id: "a1", role: "assistant", timestamp: 0,
       parts: [
-        { type: "text", content: "patched", streaming: false },
-        { type: "tool", id: "td", name: "patch", args: "",
-          preview: "src/foo.ts", status: "done", duration: 42, diff: UDIFF },
+        { type: "text", content: "selection-target", streaming: false },
+        {
+          type: "tool", id: "td", name: "patch", args: "",
+          preview: "src/foo.ts", status: "done", result: UDIFF,
+        },
       ],
-    }]
-    const t = await mountNode(
+    }
+    await using t = await mountNode(
       <box flexDirection="column" width="100%" height="100%">
-        <MessageList messages={msgs} streaming={false} onPick={m => picks.push(m)} />
+        <MessageList messages={[message]} streaming={false} onPick={msg => picks.push(msg)} />
       </box>,
       { width: 100, height: 18 },
     )
-    await until(t, () => t.frame().includes("foo.ts"))
+    await until(t, () => t.frame().includes("foo.ts") && t.frame().includes("selection-target"))
+
+    const body = locate(t, "selection-target")
+    await act(async () => { await t.mouse.click(body.x, body.y) })
+    expect(picks).toEqual([message])
     expect(t.frame()).not.toContain("+new line")
 
-    const hit = locate(t, "foo.ts")
-    await act(async () => { await t.mouse.click(hit.x, hit.y) })
+    const tab = locate(t, "foo.ts")
+    await act(async () => { await t.mouse.click(tab.x, tab.y) })
     await until(t, () => t.frame().includes("+new line"))
-    expect(picks).toHaveLength(0)
+    expect(picks).toEqual([message])
 
-    const again = locate(t, "foo.ts")
-    await act(async () => { await t.mouse.click(again.x, again.y) })
+    const active = locate(t, "foo.ts")
+    await act(async () => { await t.mouse.click(active.x, active.y) })
     await until(t, () => !t.frame().includes("+new line"))
-    expect(picks).toHaveLength(0)
-    t.destroy()
+    expect(picks).toEqual([message])
   })
-})
 
-describe("ErrorBlock", () => {
-  test("failed turn renders bordered card with head + collapsed body + copy", async () => {
-    const stack = ["RuntimeError: boom", ...Array.from({ length: 10 }, (_, i) => `  at frame${i}`)].join("\n")
-    const msgs: Message[] = [{
-      id: "ae", role: "assistant", timestamp: 0, parts: [], error: stack,
-    }]
-    const t = await mountNode(
+  test("turn errors disclose the full body on demand", async () => {
+    const error = [
+      "RuntimeError: boom",
+      ...Array.from({ length: 10 }, (_, i) => `trace-${i}`),
+    ].join("\n")
+    const message: Message = {
+      id: "failed", role: "assistant", timestamp: 0, parts: [], error,
+    }
+    await using t = await mountNode(
       <box flexDirection="column" width="100%" height="100%">
-        <MessageList messages={msgs} streaming={false} />
+        <MessageList messages={[message]} streaming={false} />
       </box>,
       { width: 100, height: 30 },
     )
-    await until(t, () => t.frame().includes("✗ RuntimeError: boom"))
-    const f = t.frame()
-    expect(f).toContain("┃")
-    expect(f).toContain("copy")
-    expect(f).toContain("at frame0")
-    expect(f).toContain("at frame5")
-    expect(f).not.toContain("at frame6")
-    expect(f).toContain("click to expand")
+    await until(t, () => t.frame().includes("trace-0"))
 
-    const p = locate(t, "at frame0")
-    await act(async () => { await t.mouse.pressDown(p.x, p.y) })
-    await until(t, () => t.frame().includes("at frame9"))
-    t.destroy()
-  })
-})
+    expect(t.frame()).not.toContain("trace-9")
+    const body = locate(t, "trace-0")
+    await act(async () => { await t.mouse.pressDown(body.x, body.y) })
+    await until(t, () => t.frame().includes("trace-9"))
 
-describe("tool/preview spec table", () => {
-  test("every hermes tool has a single-char icon and non-empty pending", () => {
-    const names = [
-      "terminal", "process", "execute_code", "read_file", "write_file",
-      "patch", "search_files", "web_search", "web_extract", "session_search",
-      "browser_navigate", "browser_click", "browser_type", "browser_snapshot",
-      "browser_vision", "vision_analyze", "todo", "memory", "clarify",
-      "skill_view", "skills_list", "skill_manage", "delegate_task", "cronjob",
-      "text_to_speech", "image_generate",
-    ]
-    for (const n of names) {
-      const s = spec(n)
-      expect([...s.icon].length).toBe(1)
-      expect(s.pending.length).toBeGreaterThan(0)
-    }
-    expect(spec("unknown_tool").icon).toBe("⚙")
-    expect(spec("mcp__foo").icon).toBe("◇")
-    expect(spec("subagent[0]").icon).toBe("⊙")
+    const open = locate(t, "trace-0")
+    await act(async () => { await t.mouse.pressDown(open.x, open.y) })
+    await until(t, () => !t.frame().includes("trace-9"))
   })
 })

@@ -21,12 +21,18 @@ describe("mapEvent", () => {
   })
 
   test("session.info counts tools/skills from dict-of-arrays", () => {
-    const r = map({
-      type: "session.info",
-      payload: { model: "m", tools: { a: ["x", "y"], b: ["z"] }, skills: { s: ["k"] } },
-    })
-    expect(r.action).toEqual({ kind: "system", text: "Connected — m · 3 tools · 1 skills" })
-    expect(r.calls.info).toBeDefined()
+    const payload = {
+      model: "MODEL_FIXTURE_SENTINEL",
+      tools: { a: ["x", "y"], b: ["z"] },
+      skills: { s: ["k"] },
+    }
+    const r = map({ type: "session.info", payload })
+    expect(r.calls.info).toEqual([payload])
+    expect(r.action?.kind).toBe("system")
+    if (r.action?.kind !== "system") throw new Error("expected system action")
+    expect(r.action.text).toContain(payload.model)
+    expect(r.action.text).toContain("3")
+    expect(r.action.text).toContain("1")
   })
 
   test("session.info credential_warning → onStatus", () => {
@@ -101,10 +107,10 @@ describe("mapEvent", () => {
   })
 
   test("status.update kind=process is transient status only", () => {
-    const text = "[IMPORTANT: Background process proc_abc completed (exit code 0).\nCommand: bun test\nOutput:\n…long stdout…]"
+    const text = "PROCESS_STATUS_SENTINEL_38"
     const done = map({ type: "status.update", payload: { kind: "process", text } })
     expect(done.action).toBeNull()
-    expect(done.calls.status).toEqual(["proc_abc exited 0 · bun test"])
+    expect(done.calls.status).toEqual([text])
   })
 
   test("notification events route to keyed notice controller", () => {
@@ -132,13 +138,24 @@ describe("mapEvent", () => {
   })
 
   test("formatProcessNotification preserves completion and watch-pattern shapes", () => {
-    expect(formatProcessNotification(
-      "[IMPORTANT: Background process proc_abc completed (exit code 0).\nCommand: bun test\nOutput:\n…long stdout…]",
-    )).toBe("proc_abc exited 0 · bun test")
-    expect(formatProcessNotification(
-      "[IMPORTANT: Background process srv_1 matched watch pattern \"ready\".\nCommand: bun run dev\nMatched output:\nApplication startup complete]",
-    )).toBe("srv_1 matched \"ready\" · bun run dev")
+    const done = formatProcessNotification(
+      "[IMPORTANT: Background process proc_abc completed (exit code 17).\nCommand: bun test owned\nOutput:\nCOMPLETION_OUTPUT_SENTINEL]",
+    )
+    expect(done).toContain("proc_abc")
+    expect(done).toContain("17")
+    expect(done).toContain("bun test owned")
+    expect(done).not.toContain("COMPLETION_OUTPUT_SENTINEL")
+
+    const hit = formatProcessNotification(
+      "[IMPORTANT: Background process srv_1 matched watch pattern \"READY_SENTINEL\".\nCommand: bun run dev owned\nMatched output:\nWATCH_OUTPUT_SENTINEL]",
+    )
+    expect(hit).toContain("srv_1")
+    expect(hit).toContain("READY_SENTINEL")
+    expect(hit).toContain("bun run dev owned")
+    expect(hit).not.toContain("WATCH_OUTPUT_SENTINEL")
     expect(formatProcessNotification("weird shape")).toBe("weird shape")
+    const long = "x".repeat(120)
+    expect(formatProcessNotification(long)).toBe(long.slice(0, 100))
   })
 
   test("gateway.stderr: errorish → nonfatal error (full line, no slice); benign → null", () => {
@@ -176,19 +193,23 @@ describe("mapEvent", () => {
   })
 
   test("moa.reference maps to a visible committed reference block", () => {
-    expect(map({
+    const action = map({
       type: "moa.reference",
-      payload: { label: "openrouter:openai/gpt-5.5", text: "Paris.", index: 1, count: 2 },
-    }).action).toEqual({
-      kind: "reference",
-      text: "◇ Reference 1/2 — openrouter:openai/gpt-5.5\nParis.",
-    })
+      payload: { label: "REFERENCE_LABEL_SENTINEL", text: "REFERENCE_BODY_SENTINEL", index: 3, count: 7 },
+    }).action
+    expect(action?.kind).toBe("reference")
+    if (action?.kind !== "reference") throw new Error("expected reference action")
+    expect(action.text).toContain("REFERENCE_LABEL_SENTINEL")
+    expect(action.text).toContain("REFERENCE_BODY_SENTINEL")
+    expect(action.text).toContain("3")
+    expect(action.text).toContain("7")
   })
 
   test("moa.aggregating is transient status only", () => {
-    const r = map({ type: "moa.aggregating", payload: { aggregator: "openrouter:anthropic/claude-opus-4.8" } })
+    const aggregator = "AGGREGATOR_FIXTURE_SENTINEL"
+    const r = map({ type: "moa.aggregating", payload: { aggregator } })
     expect(r.action).toBeNull()
-    expect(r.calls.status).toEqual(["aggregating with openrouter:anthropic/claude-opus-4.8…"])
+    expect(String(r.calls.status?.[0])).toContain(aggregator)
   })
 
   test("request events return prompt actions (no side callback)", () => {

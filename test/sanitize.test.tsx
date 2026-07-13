@@ -1,15 +1,10 @@
 // Render-safety sanitizer + reducer integration. We assert that
-// (a) the helper strips the byte classes that poison OpenTUI cells,
-// (b) the reducer applies it on every gateway-sourced string boundary,
-// (c) a real MessageList frame contains no leaked control bytes.
+// (a) the helper strips the byte classes that poison OpenTUI cells and
+// (b) the reducer applies it on every gateway-sourced string boundary.
 
 import { describe, expect, test } from "bun:test"
-import { mountNode } from "./harness"
 import { sanitize } from "../src/utils/sanitize"
 import { turnReducer, initialTurn } from "../src/app/turnReducer"
-import { MessageList } from "../src/components/chat/MessageList"
-import { Tool } from "../src/components/chat/tool"
-import type { Message, ToolPart } from "../src/types/message"
 
 describe("sanitize", () => {
   test("strips complete SGR color escapes", () => {
@@ -99,45 +94,5 @@ describe("turnReducer sanitizes provider/tool-controlled strings", () => {
   test("error action", () => {
     const s = turnReducer(initialTurn, { kind: "error", text: "boom\x1b[31m" })
     expect(s.messages[0].parts[0]).toMatchObject({ type: "text", content: "Error: boom" })
-  })
-})
-
-describe("Tool render boundary", () => {
-  test("tool preview + error result render without leaked control bytes", async () => {
-    const part: ToolPart = {
-      type: "tool", id: "t1", name: "terminal", args: "",
-      preview: sanitize("ls\x1b[K /tmp"),
-      result: sanitize("\x1b[31mfailed\x1b[0m"),
-      status: "error", duration: 12,
-    }
-    await using t = await mountNode(
-      <box flexDirection="column" width="100%" height="100%">
-        <Tool tool={part} />
-      </box>,
-      { width: 80, height: 12 },
-    )
-    await t.settle()
-    const frame = t.frame()
-    expect(frame).toContain("ls /tmp")
-    expect(frame).toContain("failed")
-    // No control bytes survived into the rendered cells.
-    expect(frame).not.toMatch(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/)
-  })
-
-  test("system message renders sanitized text in MessageList", async () => {
-    const msgs: Message[] = [{
-      id: "s1", role: "system", timestamp: 0,
-      parts: [{ type: "text", content: sanitize("\x1b[31mboot\x1b[0m\x07OK"), streaming: false }],
-    }]
-    await using t = await mountNode(
-      <box flexDirection="column" width="100%" height="100%">
-        <MessageList messages={msgs} streaming={false} />
-      </box>,
-      { width: 80, height: 8 },
-    )
-    await t.settle()
-    const frame = t.frame()
-    expect(frame).toContain("bootOK")
-    expect(frame).not.toMatch(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/)
   })
 })

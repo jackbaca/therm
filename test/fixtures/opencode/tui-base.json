@@ -1,0 +1,9 @@
+{
+  "keybinds": {
+    "leader": "ctrl+space",
+    "command_list": "ctrl+p",
+    "session_compact": "none",
+    "agent_cycle": "tab",
+    "input_word_forward": "alt+f"
+  }
+}

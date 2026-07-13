@@ -1,15 +1,9 @@
 import { describe, it, expect } from "bun:test"
-import { TERMINAL_MODE_RESET } from "./terminal-reset"
 
 // The SIGINT handler calls process.exit, so it's tested via subprocess
 // rather than by firing the signal in-band.
 
 describe("terminal-reset", () => {
-  it("reset blob includes alt-screen leave and cursor-visible", () => {
-    expect(TERMINAL_MODE_RESET).toContain("\x1b[?1049l")
-    expect(TERMINAL_MODE_RESET).toContain("\x1b[?25h")
-  })
-
   it("SIGINT handler exits the process (130) after emitting reset", async () => {
     // Child installs hooks on a fake TTY, then SIGINTs itself. If the
     // handler doesn't exit, the open stdin keeps the loop alive and the

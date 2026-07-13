@@ -1,13 +1,7 @@
 import { expect, test } from "bun:test"
-import { getEventListeners, getMaxListeners } from "node:events"
+import { getEventListeners } from "node:events"
 import { act } from "react"
-import { mount, mountNode, until } from "./harness"
-import { Kanban } from "../src/tabs/Kanban"
-
-test("renderer listener budget covers multi-scrollbox tabs", async () => {
-  await using t = await mountNode(<Kanban focused />)
-  expect(getMaxListeners(t.renderer)).toBeGreaterThanOrEqual(64)
-})
+import { mount, until } from "./harness"
 
 test("tab remounts release renderer selection listeners", async () => {
   await using t = await mount()

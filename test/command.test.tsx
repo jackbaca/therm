@@ -1,26 +1,23 @@
 import { describe, test, expect } from "bun:test"
-import { act } from "react"
+import { act, useEffect, useState } from "react"
 import { mount, mountNode, until } from "./harness"
 import { useCommand } from "../src/ui/command"
-import { useEffect } from "react"
+
+const status = async (t: Awaited<ReturnType<typeof mountNode>>) => {
+  act(() => t.keys.pressKey("x", { ctrl: true }))
+  await t.settle()
+  await act(async () => { await t.keys.typeText("i") })
+  await t.settle()
+}
 
 describe("Command palette", () => {
-  test("Ctrl+K opens; rows show resolved chord hint from catalog", async () => {
-    const t = await mount({ width: 140, height: 40 })
+  test("shell shortcut opens and Escape closes the palette", async () => {
+    const t = await mount()
     await until(t, () => t.frame().includes("Ready"))
-
     act(() => t.keys.pressKey("k", { ctrl: true }))
     await until(t, () => t.frame().includes("Command Palette"))
-
-    const f = t.frame()
-    // action-backed entries show keys.print(action) right-aligned
-    const help = f.split("\n").find(l => l.includes("Help"))!
-    expect(help).toContain("F1")
-    const theme = f.split("\n").find(l => l.includes("Switch Theme"))!
-    expect(theme).toContain("Ctrl+X T")
-    // description-only entries have no hint
-    const logs = f.split("\n").find(l => l.includes("Gateway Logs"))!
-    expect(logs).not.toMatch(/Ctrl|F\d/)
+    act(() => t.keys.pressEscape())
+    await until(t, () => !t.frame().includes("Command Palette"))
     t.destroy()
   })
 
@@ -53,16 +50,49 @@ describe("Command palette", () => {
     t.destroy()
   })
 
-  test("F1 opens HelpDialog via command registry (e2e through app)", async () => {
-    const t = await mount({ width: 140, height: 40 })
-    await until(t, () => t.frame().includes("Ready"))
+  test("unsubscribe removes a command from action dispatch", async () => {
+    const fired: string[] = []
+    let off = () => {}
+    const Reg = () => {
+      const cmd = useCommand()
+      useEffect(() => {
+        off = cmd.register([{
+          title: "Transient", value: "transient", action: "status.open",
+          onSelect: () => fired.push("transient"),
+        }])
+        return () => off()
+      }, [cmd])
+      return <text>registered</text>
+    }
+    const t = await mountNode(<Reg />)
+    await until(t, () => t.frame().includes("registered"))
 
-    act(() => t.keys.pressKey("F1"))
-    await until(t, () => t.frame().includes("Keyboard Shortcuts"))
-    expect(t.frame()).toContain("leader = Ctrl+X")
-
-    act(() => t.keys.pressEscape())
-    await until(t, () => !t.frame().includes("Keyboard Shortcuts"))
+    await status(t)
+    expect(fired).toEqual(["transient"])
+    off()
+    await status(t)
+    expect(fired).toEqual(["transient"])
     t.destroy()
   })
+
+  test("finite registration churn leaves only the latest action", async () => {
+    const fired: number[] = []
+    const Churn = () => {
+      const cmd = useCommand()
+      const [n, setN] = useState(0)
+      useEffect(() => cmd.register([{
+        title: `Status ${n}`, value: `status-${n}`, action: "status.open",
+        onSelect: () => fired.push(n),
+      }]), [cmd, n])
+      useEffect(() => { if (n < 8) queueMicrotask(() => setN(n + 1)) }, [n])
+      return <text>{String(n)}</text>
+    }
+    const t = await mountNode(<Churn />)
+    await until(t, () => t.frame().trim() === "8")
+
+    await status(t)
+    expect(fired).toEqual([8])
+    t.destroy()
+  })
+
 })

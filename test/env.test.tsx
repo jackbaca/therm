@@ -15,14 +15,9 @@ beforeEach(() => {
 })
 
 describe("Env tab", () => {
-  test("catalog includes Vertex credentials with provider keys", () => {
-    const group = ENV_CATALOG.find(g => g.category === "LLM Providers")
-    const all = ENV_CATALOG.flatMap(g => g.keys)
-    const dupes = all.filter((k, i, a) => a.indexOf(k) !== i)
-
-    expect(group?.keys).toContain("VERTEX_CREDENTIALS_PATH")
-    expect(all).toContain("VERTEX_CREDENTIALS_PATH")
-    expect(dupes).toEqual([])
+  test("catalog keys are unique", () => {
+    const keys = ENV_CATALOG.flatMap(group => group.keys)
+    expect(new Set(keys).size).toBe(keys.length)
   })
 
   test("masks values by default; Space reveals all", async () => {

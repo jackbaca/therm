@@ -1,12 +1,15 @@
 import { describe, expect, test } from "bun:test"
 import { mathify, texToUnicode } from "../src/utils/math-unicode"
 
-// Ported from hermes-agent ui-tui/src/__tests__/mathUnicode.test.ts.
-// Single divergence from upstream: `\boxed` / `\fbox` now emit
+// Imported from Hermes Agent v2026.4.30:
+// ui-tui/src/{lib/mathUnicode.ts,__tests__/mathUnicode.test.ts} at
+// c3d39feb3ab8f0b2e891f1fd6f3bc0476a9845d8 / cb039ac000ed2c1ff00e18a2d9fc40a62673b531.
+// Herm ports ea431664 (core) and e11ebf69 (delimiter gating) shipped in v1.0.0.
+// Deliberate divergence: `\boxed` / `\fbox` emit
 // markdown-level `**X**` instead of U+0001/U+0002 sentinels, because
 // herm feeds the output directly to OpenTUI's <markdown> component
 // which has no split-and-style hook. Boxed tests assert the `**X**`
-// form; every other test is verbatim upstream.
+// form. These are imported direct utility contracts, not compatibility fixtures.
 
 describe("texToUnicode — symbols", () => {
   test("substitutes lowercase Greek", () => {

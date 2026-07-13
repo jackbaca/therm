@@ -17,7 +17,7 @@ test("undo stops at the first rejected turn", async () => {
 })
 
 test("undo targets an explicit branch session", async () => {
-  const gw = new MockGateway()
+  const gw = new MockGateway({ "session.undo": () => ({ removed: 2 }) })
   await undo(gw, 2, "branch-sid")
   expect(gw.calls.filter(c => c.method === "session.undo").map(c => c.params.session_id))
     .toEqual(["branch-sid", "branch-sid"])

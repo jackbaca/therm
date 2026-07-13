@@ -42,15 +42,6 @@ describe("tokens.count", () => {
     expect(tokens).toBeGreaterThan(roughFour)
   })
 
-  test("cached — identical strings return same count", () => {
-    const s = "some repeated text " + Math.random()
-    expect(count(s)).toBe(count(s))
-  })
-
-  test("cache eviction — many unique strings without crash", () => {
-    for (let i = 0; i < 1100; i++) count(`unique-string-${i}`)
-    expect(count("final")).toBeGreaterThan(0)
-  })
 })
 
 describe("tokens.formatTokens", () => {

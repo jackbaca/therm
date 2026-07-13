@@ -82,6 +82,12 @@ type Props = {
   onDirty?: (dirty: boolean) => void
 }
 
+export const resumeHint = (subagents: number | undefined, streaming: boolean) => {
+  const count = typeof subagents === "number" ? subagents : 0
+  if (count < 1 || streaming) return undefined
+  return count === 1 ? "↩ resumes when subagent finishes" : `↩ resumes when ${count} subagents finish`
+}
+
 const MAX_ROWS = 6
 const MAX_PREVIEWS = 2
 
@@ -400,10 +406,7 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     : props.streaming ? (props.status || "Generating...")
     : "Ready"
   const dot = props.ready ? (props.streaming ? theme.warning : theme.success) : theme.error
-  const subagents = typeof props.subagents === "number" ? props.subagents : 0
-  const resume = subagents > 0 && !props.streaming
-    ? subagents === 1 ? "↩ resumes when subagent finishes" : `↩ resumes when ${subagents} subagents finish`
-    : undefined
+  const resume = resumeHint(props.subagents, props.streaming)
 
   // Logical-line row count (wrap-induced growth ignored; yoga sizes the
   // textarea, this only positions the absolute popover above the border).

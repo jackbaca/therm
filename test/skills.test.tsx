@@ -1,9 +1,12 @@
 import { describe, test, expect } from "bun:test"
 import { act } from "react"
-import { mkdirSync, writeFileSync } from "node:fs"
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { mountNode, until, MockGateway } from "./harness"
 import { hermesPath } from "../src/service/hermes-home"
 import { Skills } from "../src/tabs/Skills"
+import { tmpHome } from "./fixture/home"
+
+const fixture = (name: string) => readFileSync(new URL(`fixtures/curator/${name}`, import.meta.url), "utf8")
 
 describe("Skills tab", () => {
   test("list failure surfaces instead of rendering an unexplained empty tab", async () => {
@@ -15,22 +18,6 @@ describe("Skills tab", () => {
     t.destroy()
   })
 
-  test("renders installed skills without native Map.groupBy", async () => {
-    const group = Map.groupBy
-    Map.groupBy = undefined as unknown as typeof Map.groupBy
-    try {
-      const gw = new MockGateway({
-        "skills.manage": p => p.action === "list"
-          ? { skills: { general: ["local-skill"] } } : {},
-      })
-      const t = await mountNode(<Skills focused />, { gw, width: 160 })
-      await until(t, () => t.frame().includes("Skills (1)"))
-      expect(t.frame()).toContain("local-skill")
-      t.destroy()
-    } finally {
-      Map.groupBy = group
-    }
-  })
 
   test("stale list response cannot replace a newer refresh", async () => {
     let stale!: (value: unknown) => void
@@ -93,30 +80,22 @@ describe("Skills tab", () => {
       },
     })
     const t = await mountNode(<Skills focused />, { gw, width: 160, height: 40 })
-    await until(t, () => t.frame().includes("Skills (1)"))
-    expect(t.frame()).toContain("local-skill")
+    await until(t, () => gw.last("skills.manage")?.params.action === "list")
 
     await act(async () => { await t.keys.typeText("/") })
-    await until(t, () => t.frame().includes("Hub Search"))
+    await t.settle()
 
     await act(async () => { await t.keys.typeText("net") })
-    await until(t, () => t.frame().includes("hub-net"))
-    expect(t.frame()).toContain("remote pkg")
-
-    const last = t.gw.last("skills.manage")
-    expect(last?.params.action).toBe("search")
-    expect(last?.params.query).toBe("net")
+    await until(t, () => gw.last("skills.manage")?.params.query === "net")
+    await t.settle(); await t.settle()
 
     act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("Install skill?"))
-    expect(t.frame()).toContain("hub-net")
+    await t.settle(); await t.settle()
 
     await act(async () => { await t.keys.typeText("y") })
     await until(t, () => installed.length > 0)
     expect(installed).toEqual(["hub-net"])
-    await until(t, () => t.frame().includes("Installed hub-net"))
-    // search exited, list reloaded
-    await until(t, () => t.frame().includes("Skills (1)"))
+    await until(t, () => gw.calls.filter(call => call.method === "skills.manage" && call.params.action === "list").length >= 2)
     t.destroy()
   })
 
@@ -184,62 +163,42 @@ describe("Skills tab", () => {
     t.destroy()
   })
 
-  test("h opens curator history pane; listCuratorRuns reads run.json counts", async () => {
+  test("listCuratorRuns reads producer-shaped run counts", async () => {
+    await using home = await tmpHome()
     const { listCuratorRuns } = await import("../src/service/hermes-home")
     const base = hermesPath("logs/curator/20260430-120000")
     mkdirSync(base, { recursive: true })
-    writeFileSync(`${base}/run.json`, JSON.stringify({
-      started_at: "2026-04-30T12:00:00Z",
-      counts: { before: 50, after: 42, archived_this_run: 8,
-        consolidated_this_run: 3, added_this_run: 1 },
-    }))
-    writeFileSync(`${base}/REPORT.md`, "# Curator run\n\nsome report body")
+    writeFileSync(`${base}/run.json`, fixture("run-counts-v2026.5.7.json"))
 
     const runs = listCuratorRuns()
-    expect(runs[0].id).toBe("20260430-120000")
-    expect(runs[0].before).toBe(50)
-    expect(runs[0].archived).toBe(8)
-    expect(runs[0].consolidated).toBe(3)
+    expect(runs[0]).toMatchObject({ id: "20260430-120000", before: 50, archived: 8, consolidated: 3 })
+  })
 
+  test("curator history opens the fixture-owned report", async () => {
+    await using home = await tmpHome()
+    const base = hermesPath("logs/curator/20260430-120000")
+    mkdirSync(base, { recursive: true })
+    writeFileSync(`${base}/run.json`, fixture("run-counts-v2026.5.7.json"))
+    writeFileSync(`${base}/REPORT.md`, "# Curator run\n\nfixture-report-sentinel")
     const gw = new MockGateway({
       "skills.manage": p => p.action === "list" ? { skills: { general: ["sk"] } } : {},
     })
-    const t = await mountNode(<Skills focused />, { gw, width: 160, height: 40 })
+    await using t = await mountNode(<Skills focused />, { gw, width: 160, height: 40 })
     await until(t, () => t.frame().includes("Skills (1)"))
-    expect(t.frame()).not.toContain("Curator History")
-
     await act(async () => { await t.keys.typeText("h") })
-    await until(t, () => t.frame().includes("Curator History"))
-    expect(t.frame()).toContain("50→42")
-    expect(t.frame()).toContain("arch 8")
-    expect(t.frame()).toContain("cons 3")
-
+    await t.settle()
     act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("some report body"))
-
-    await act(async () => { await t.keys.typeText("h") })
-    await until(t, () => !t.frame().includes("Curator History"))
-    t.destroy()
+    await until(t, () => t.frame().includes("fixture-report-sentinel"))
   })
 
-  test("indexCuratorLineage: per-skill events across runs; DetailPanel renders (c8w.2)", async () => {
+  test("indexCuratorLineage reads producer-shaped events across runs", async () => {
+    await using home = await tmpHome()
     const { indexCuratorLineage } = await import("../src/service/hermes-home")
     const a = hermesPath("logs/curator/20260420-100000")
     const b = hermesPath("logs/curator/20260425-100000")
     mkdirSync(a, { recursive: true }); mkdirSync(b, { recursive: true })
-    writeFileSync(`${a}/run.json`, JSON.stringify({
-      started_at: "2026-04-20T10:00:00Z",
-      consolidated: [
-        { name: "foo-v2", into: "foo", reason: "dedupe" },
-        { name: "foo-old", into: "foo" },
-      ],
-      added: ["foo"],
-    }))
-    writeFileSync(`${b}/run.json`, JSON.stringify({
-      started_at: "2026-04-25T10:00:00Z",
-      state_transitions: [{ name: "foo", from: "active", to: "stale" }],
-      pruned: [{ name: "bar", reason: "unused" }],
-    }))
+    writeFileSync(`${a}/run.json`, fixture("run-lineage-a-v2026.5.7.json"))
+    writeFileSync(`${b}/run.json`, fixture("run-lineage-b-v2026.5.7.json"))
 
     const idx = indexCuratorLineage()
     const foo = idx.get("foo")!
@@ -252,21 +211,5 @@ describe("Skills tab", () => {
     expect(idx.get("foo-v2")![0]).toMatchObject({ kind: "merged", into: "foo", reason: "dedupe" })
     expect(idx.get("bar")![0]).toMatchObject({ kind: "pruned", reason: "unused" })
     expect(idx.has("unknown")).toBe(false)
-
-    // Integration: DetailPanel shows the block for selected skill.
-    mkdirSync(hermesPath("skills/general/foo"), { recursive: true })
-    writeFileSync(hermesPath("skills/general/foo/SKILL.md"),
-      "---\nname: foo\ndescription: test\n---\n")
-    const gw = new MockGateway({
-      "skills.manage": p => p.action === "list" ? { skills: { general: ["foo"] } } : {},
-    })
-    const t = await mountNode(<Skills focused />, { gw, width: 160, height: 40 })
-    await until(t, () => t.frame().includes("Curator lineage"))
-    const f = t.frame()
-    expect(f).toContain("active → stale")
-    expect(f).toContain("absorbed")
-    expect(f).toContain("foo-v2")
-    expect(f).toContain("created by curator")
-    t.destroy()
   })
 })

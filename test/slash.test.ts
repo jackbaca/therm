@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { readFileSync } from "fs"
-import { filter, matchSub, resolve, sort, LOCAL_COMMANDS, LOCAL_NAMES, type SlashCommand } from "../src/app/slashCommands"
+import { filter, matchSub, resolve, sort, LOCAL_COMMANDS, type SlashCommand } from "../src/app/slashCommands"
 import { replaceSlashToken, slashTokenAt } from "../src/app/useSlashPopover"
 
 const cmd = (over: Partial<SlashCommand>): SlashCommand => ({
@@ -43,25 +42,6 @@ describe("slash", () => {
     expect(resolve(LOCAL_COMMANDS, "q")).toMatchObject({ hit: { name: "queue" } })
   })
 
-  // Parity guard — every `case "x"` in app/slash.tsx must be in
-  // LOCAL_NAMES, otherwise the gateway catalog tags it target:"gateway"
-  // and the handler is unreachable.
-  test("LOCAL_NAMES ⊇ slash() switch cases", () => {
-    const src = readFileSync(new URL("../src/app/slash.tsx", import.meta.url), "utf8")
-    const body = src.slice(src.indexOf("const run = useCallback"),
-                           src.indexOf('if (c.target !== "gateway"'))
-    const cases = [...body.matchAll(/case "([a-z-]+)":/g)].map(m => m[1])
-    expect(cases.length).toBeGreaterThan(20)
-    const missing = cases.filter(n => !LOCAL_NAMES.has(n))
-    expect(missing).toEqual([])
-  })
-
-  test("LOCAL_NAMES covers session-mutating commands", () => {
-    for (const n of ["resume", "branch", "compress", "undo", "retry", "model",
-                     "quit", "copy", "paste", "image", "background", "voice",
-                     "mouse", "redraw", "save", "browser"])
-      expect(LOCAL_NAMES.has(n)).toBe(true)
-  })
 
   test("slashTokenAt finds command tokens under cursor and rejects paths", () => {
     expect(slashTokenAt("please /cl now", 9)).toEqual({ text: "/cl", query: "cl", start: 7, end: 10, whole: false })

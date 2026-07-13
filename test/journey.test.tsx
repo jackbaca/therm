@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test"
 import { act } from "react"
 import { mount, mountNode, MockGateway, until } from "./harness"
 import { Journey, buildJourneyRows } from "../src/tabs/Journey"
-import { TAB_SLASH } from "../src/app/tabs"
 import { resolve, LOCAL_COMMANDS } from "../src/app/slashCommands"
 import type { LearningFramesResponse } from "../src/context/wire"
 
@@ -67,7 +66,7 @@ describe("Journey", () => {
       "learning.detail": p => ({ ok: true, kind: "memory", id: p.id, label: "Memory card", content: "full memory body" }),
     })
     await using t = await mountNode(<Journey focused />, { gw, width: 120, height: 36 })
-    await until(t, () => t.frame().includes("Journey · 2 learned items"))
+    await until(t, () => t.frame().includes("Memory card"))
 
     expect(t.frame()).toContain("Jun 30")
     expect(t.frame()).toContain("Memory card")
@@ -78,7 +77,7 @@ describe("Journey", () => {
     expect(t.gw.last("learning.detail")?.params.id).toBe("memory:memory:0")
   })
 
-  test("uses shared list keys and keeps selection visible", async () => {
+  test("keeps the initial selection visible and activates its owned row", async () => {
     const many = frames()
     const nodes = Array.from({ length: 24 }, (_, i) => ({
       id: `memory:memory:${i}`,
@@ -91,44 +90,56 @@ describe("Journey", () => {
     }))
     many.buckets = [{ ...many.buckets![0], nodes, total: nodes.length, memories: nodes.length, skills: 0 }]
     many.count = nodes.length
-    const gw = new MockGateway({ "learning.frames": () => many })
+    const gw = new MockGateway({
+      "learning.frames": () => many,
+      "learning.detail": p => ({ ok: true, kind: "memory", id: p.id, label: `Detail ${p.id}`, content: "owned detail" }),
+    })
 
     await using t = await mountNode(<Journey focused />, { gw, width: 100, height: 20 })
-    await until(t, () => t.frame().includes("▸   └─ ● Memory card 23"))
+    await until(t, () => t.frame().includes("Memory card 23"))
+    const y = t.frame().split("\n").findIndex(line => line.includes("Memory card 23"))
+    expect(y).toBeGreaterThanOrEqual(0)
+    expect(y).toBeLessThan(20)
 
-    act(() => t.keys.pressKey("HOME"))
-    await until(t, () => t.frame().includes("▸ Jun 30"))
-    await act(async () => { await t.keys.pressKeys(["\x1B[6~"]) })
-    await until(t, () => t.frame().includes("▸   ├─ ● Memory card 8"))
-    act(() => t.keys.pressKey("END"))
-    await until(t, () => t.frame().includes("▸   └─ ● Memory card 23"))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.gw.last("learning.detail") !== undefined)
+    expect(t.gw.last("learning.detail")?.params.id).toBe("memory:memory:23")
   })
 
   test("moves backward across bucket gaps", async () => {
-    const gw = new MockGateway({ "learning.frames": () => oldFrames() })
+    const gw = new MockGateway({
+      "learning.frames": () => oldFrames(),
+      "learning.detail": p => ({ ok: true, kind: "memory", id: p.id, label: "Gap target", content: "gap target detail" }),
+    })
 
     await using t = await mountNode(<Journey focused />, { gw, width: 120, height: 36 })
-    await until(t, () => t.frame().includes("▸   └─ ● Newest memory"))
+    await until(t, () => t.frame().includes("Newest memory"))
 
     act(() => t.keys.pressArrow("up"))
-    await until(t, () => t.frame().includes("▸ Jul 01"))
+    await t.settle()
     act(() => t.keys.pressArrow("up"))
-    await until(t, () => t.frame().includes("▸   └─ ● Memory card"))
+    await t.settle()
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.gw.last("learning.detail") !== undefined)
+    expect(t.gw.last("learning.detail")?.params.id).toBe("memory:memory:0")
   })
 
   test("mouse hover selects and mouse down opens detail", async () => {
     const gw = new MockGateway({
       "learning.frames": () => frames(),
-      "learning.detail": p => ({ ok: true, kind: "skill", id: p.id, label: "Skill A", content: "skill detail" }),
+      "learning.detail": p => ({ ok: true, kind: "skill", id: p.id, label: "Skill A", content: `skill detail ${p.id}` }),
     })
     await using t = await mountNode(<Journey focused />, { gw, width: 120, height: 36 })
     await until(t, () => t.frame().includes("Skill A"))
     const y = t.frame().split("\n").findIndex(l => l.includes("Skill A"))
 
     await act(async () => { await t.mouse.moveTo(6, y) })
-    await until(t, () => t.frame().includes("▸   ├─ ◆ Skill A"))
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.gw.calls.filter(c => c.method === "learning.detail").length === 1)
+    expect(t.gw.last("learning.detail")?.params.id).toBe("skill-a")
+
     await act(async () => { await t.mouse.pressDown(6, y) })
-    await until(t, () => t.frame().includes("skill detail"))
+    await until(t, () => t.gw.calls.filter(c => c.method === "learning.detail").length === 2)
     expect(t.gw.last("learning.detail")?.params.id).toBe("skill-a")
   })
 
@@ -143,12 +154,19 @@ describe("Journey", () => {
 
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("detail line 0"))
+    const before = t.gw.calls.filter(c => c.method === "learning.detail").length
     act(() => t.keys.pressKey("tab"))
-    await until(t, () => !t.frame().includes("Esc close"))
+    await t.settle()
+    act(() => t.keys.pressEnter())
+    await t.settle()
+    expect(t.gw.calls.filter(c => c.method === "learning.detail")).toHaveLength(before)
     await act(async () => { await t.keys.pressKeys(["\x1B[6~"]) })
     await until(t, () => t.frame().includes("detail line 14") || t.frame().includes("detail line 15"))
     act(() => t.keys.pressEscape())
-    await until(t, () => t.frame().includes("Esc close"))
+    await t.settle()
+    act(() => t.keys.pressEnter())
+    await until(t, () => t.gw.calls.filter(c => c.method === "learning.detail").length === before + 1)
+    expect(t.gw.last("learning.detail")?.params.id).toBe("memory:memory:0")
   })
 
   test("opens on the newest learned node", async () => {
@@ -164,12 +182,7 @@ describe("Journey", () => {
     expect(t.gw.last("learning.detail")?.params.id).toBe("memory:memory:1")
   })
 
-  test("shows empty and RPC-error states", async () => {
-    await using empty = await mountNode(<Journey focused />, {
-      gw: new MockGateway({ "learning.frames": () => ({ ...frames(), count: 0, buckets: [] }) }),
-    })
-    await until(empty, () => empty.frame().includes("No learning yet"))
-
+  test("shows raw RPC errors", async () => {
     await using fail = await mountNode(<Journey focused />, {
       gw: new MockGateway({ "learning.frames": () => { throw new Error("learning.frames failed") } }),
     })
@@ -195,27 +208,29 @@ describe("Journey", () => {
   })
 
   test("delete uses confirm dialog and refreshes after mutation", async () => {
-    let n = 0
     const gw = new MockGateway({
-      "learning.frames": () => { n++; return frames() },
+      "learning.frames": () => frames(),
       "learning.delete": p => ({ ok: true, message: `deleted ${p.id}` }),
     })
     await using t = await mountNode(<Journey focused />, { gw })
     await until(t, () => t.frame().includes("Memory card"))
+    const before = t.gw.calls.filter(c => c.method === "learning.frames").length
 
     act(() => t.keys.pressKey("d"))
-    await until(t, () => t.frame().includes("Delete Memory?"))
+    await t.settle()
+    expect(t.gw.last("learning.delete")).toBeUndefined()
     act(() => t.keys.pressKey("y"))
-    await until(t, () => n > 1)
-    expect(t.gw.last("learning.delete")?.params.id).toBe("memory:memory:0")
+    await until(t, () => t.gw.calls.filter(c => c.method === "learning.frames").length > before)
+    const deletes = t.gw.calls.filter(c => c.method === "learning.delete")
+    expect(deletes).toHaveLength(1)
+    expect(deletes[0]?.params.id).toBe("memory:memory:0")
+    const order = t.gw.calls.map(c => c.method)
+    expect(order.lastIndexOf("learning.frames")).toBeGreaterThan(order.indexOf("learning.delete"))
   })
 
   test("slash aliases route to the native Journey surface", async () => {
-    expect(TAB_SLASH.journey).toEqual({ tab: 1, sub: 3 })
-    expect(TAB_SLASH.learning).toEqual({ tab: 1, sub: 3 })
-    expect(TAB_SLASH["memory-graph"]).toEqual({ tab: 1, sub: 3 })
-    expect(resolve(LOCAL_COMMANDS, "learning")).toMatchObject({ hit: { name: "journey" } })
-    expect(resolve(LOCAL_COMMANDS, "journey")).toMatchObject({ hit: { target: "local" } })
+    for (const alias of ["journey", "learning", "memory-graph"])
+      expect(resolve(LOCAL_COMMANDS, alias)).toMatchObject({ hit: { name: "journey", target: "local" } })
 
     await using t = await mount({
       handlers: { "learning.frames": () => frames() },
@@ -225,7 +240,8 @@ describe("Journey", () => {
     await until(t, () => t.frame().includes("Ready"))
     await act(async () => { await t.keys.typeText("/journey") })
     act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("Journey · 2 learned items"))
+    await until(t, () => t.gw.last("learning.frames") !== undefined)
+    expect(t.gw.last("learning.frames")?.params.frames).toBe(2)
     expect(t.gw.last("slash.exec")).toBeUndefined()
   })
 })

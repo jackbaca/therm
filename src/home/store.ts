@@ -10,7 +10,7 @@
  * utils/hermes-home.ts as they're converted to collectors.
  */
 
-import { watch, existsSync, statSync, type FSWatcher } from "node:fs"
+import { watch, existsSync, statSync } from "node:fs"
 import { dirname, basename } from "node:path"
 import {
   hermesPath,
@@ -155,15 +155,20 @@ const DEPENDENTS: ReadonlyMap<SliceKey, readonly SliceKey[]> = (() => {
 })()
 
 const DEBOUNCE_MS = 50
+type Closer = { close: () => void }
+export type Watch = (path: string, cb: (file: string | Buffer | null) => void) => Closer
+const watchfs: Watch = (path, cb) => watch(path, { persistent: false }, (_ev, file) => cb(file))
 
 export class HomeStore {
   private data: Partial<HomeState> = {}
   private subs = new Map<SliceKey, Set<() => void>>()
   private inflight = new Map<SliceKey, Promise<unknown>>()
-  private watchers = new Map<SliceKey, FSWatcher[]>()
+  private watchers = new Map<SliceKey, Closer[]>()
   private debounce = new Map<SliceKey, ReturnType<typeof setTimeout>>()
   private rev = new Map<SliceKey, number>()
   private gen = 0
+
+  constructor(private watcher: Watch = watchfs) {}
 
   /** Current value, or undefined if not yet loaded. Stable ref until changed. */
   get<K extends SliceKey>(k: K): HomeState[K] | undefined {
@@ -267,7 +272,7 @@ export class HomeStore {
   private startWatch(k: SliceKey, watchFn: Slice<SliceKey>["watch"]): void {
     if (!watchFn || this.watchers.has(k)) return
     const paths = watchFn()
-    const ws: FSWatcher[] = []
+    const ws: Closer[] = []
     const fire = () => {
       const prev = this.debounce.get(k)
       if (prev) clearTimeout(prev)
@@ -299,8 +304,8 @@ export class HomeStore {
       }
       if (!existsSync(dir)) continue
       try {
-        ws.push(watch(dir, { persistent: false }, (_ev, f) => {
-          if (name === null || f === name) fire()
+        ws.push(this.watcher(dir, file => {
+          if (name === null || file?.toString() === name) fire()
         }))
       } catch {
         // Unwatchable (permissions, exotic fs). Slice still works; just not reactive.

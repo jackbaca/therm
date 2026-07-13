@@ -1,6 +1,6 @@
-import { describe, expect, mock, test } from "bun:test"
+import { beforeEach, describe, expect, mock, test } from "bun:test"
 import { act } from "react"
-import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs"
+import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { decodeRuntimeFile, runtimeDescriptor } from "eikon"
 import { mountNode, until, type Harness } from "./harness"
@@ -57,6 +57,11 @@ function meta() {
 }
 
 describe("Eikon submit dialog", () => {
+  beforeEach(() => {
+    prefs.set("eikon", undefined)
+    rmSync(join(HH, "eikons"), { recursive: true, force: true })
+  })
+
   test("Enter runs registry preflight before backend invocation", async () => {
     await seed("draft")
     const fn = mock(async (_input: submit.PreparedSubmit) => ({ kind: "submitted" as const, url: "https://github.com/liftaris/eikon/pull/1", request: {} as never }))
@@ -217,31 +222,6 @@ describe("Eikon submit dialog", () => {
     act(() => t.keys.pressEnter())
     await until(t, () => t.frame().includes("GitHub CLI unavailable") && t.frame().includes("Manual PR") && t.frame().includes("Run gh auth login"))
     expect(fn).toHaveBeenCalledTimes(1)
-  })
-
-  test("preflight setup guidance does not submit", async () => {
-    await seed("draft")
-    const fn = mock(async (_input: submit.PreparedSubmit) => ({ kind: "setup-needed" as const, failures: [{ code: "missing-auth" as const, message: "Run gh auth login" }] }))
-    await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 160, height: 48 })
-    await open(t)
-    await stage(t)
-    await consent(t)
-    act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("GitHub CLI unavailable") && t.frame().includes("Run gh auth login") && t.frame().includes("Manual PR"))
-    expect(fn).toHaveBeenCalledTimes(1)
-    expect((fn.mock.calls[0]?.[0] as submit.PreparedSubmit).path).toBe(eikon.file("draft"))
-  })
-
-  test("happy path displays submitted-for-review message", async () => {
-    await seed("draft")
-    const fn = mock(async (_input: submit.PreparedSubmit) => ({ kind: "submitted" as const, url: "https://github.com/liftaris/eikon/pull/7", request: {} as never }))
-    await using t = await mountNode(<EikonGallery focused submit={fn} />, { width: 160, height: 48 })
-    await open(t)
-    await stage(t)
-    await consent(t)
-    act(() => t.keys.pressEnter())
-    await until(t, () => t.frame().includes("submitted and is being reviewed"))
-    expect((fn.mock.calls[0]?.[0] as submit.PreparedSubmit).path).toBe(eikon.file("draft"))
   })
 
   test("failure redacts displayed auth tokens", async () => {

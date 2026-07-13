@@ -254,15 +254,12 @@ describe("usePlugins controls", () => {
     await until(t, () => t.frame().includes("from-demo"))
   })
 
-  test("single_winner picks highest-order contribution", async () => {
+  test("single_winner renders the first ordered contribution", async () => {
     await using t = await mountNode(<Probe />, {
       width: 50, height: 6,
       plugins: [slot("lo", 10, "lo"), slot("hi", 1, "hi")],
     })
-    // SlotRegistry sorts ascending by order; single_winner takes entries[0].
-    await until(t, () => t.frame().includes("hi") || t.frame().includes("lo"))
-    const frame = t.frame()
-    // Only one of the two should render under single_winner.
-    expect(frame.includes("hi") !== frame.includes("lo")).toBe(true)
+    await until(t, () => t.frame().includes("hi"))
+    expect(t.frame()).not.toContain("lo")
   })
 })

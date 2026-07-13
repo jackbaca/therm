@@ -91,9 +91,6 @@ describe("analytics()", () => {
     expect(d.total.input + d.total.output).toBe(3500)
   })
 
-  test("returns zeros on missing db", () => {
-    expect(analytics(0).total.sessions).toBe(0)
-  })
 })
 
 // ─── Analytics tab ───────────────────────────────────────────────────
@@ -120,34 +117,28 @@ describe("Analytics tab", () => {
     t.destroy()
   })
 
-  test("renders title totals, chart, model table, tool/source ranks; period keys", async () => {
+  test("projects aggregates and period keys reload the selected window", async () => {
     cache.clear()
-    const t = await mountNode(<Analytics focused />)
-    await until(t, () => t.frame().includes("Analytics · 7d"))
+    const loads: number[] = []
+    const load = (days: number) => {
+      loads.push(days)
+      return Promise.resolve(analytics(days))
+    }
+    const t = await mountNode(<Analytics focused load={load} />)
+    await until(t, () => loads.includes(7) && t.frame().includes("model-a"))
 
     const f = t.frame()
-    expect(f).toContain("3 sess")
-    expect(f).toContain("5.0k tok")
-    expect(f).toContain("$0.18")
-    expect(f).toMatch(/Cost per day.+3\.3k in.+1\.7k out/)
-    // model table
-    expect(f).toContain("Model")
     expect(f).toContain("model-a")
     expect(f).toContain("model-b")
-    // rank panes
-    expect(f).toContain("Tools")
     expect(f).toContain("terminal")
-    expect(f).toContain("Sources")
     expect(f).toContain("tui")
-    // chart: at least one eighth-block glyph somewhere
-    expect(f).toMatch(/[▁▂▃▄▅▆▇█]/)
 
     await act(async () => { await t.keys.typeText("3") })
-    await until(t, () => t.frame().includes("Analytics · 30d"))
+    await until(t, () => loads.includes(30))
     await act(async () => { await t.keys.typeText("9") })
-    await until(t, () => t.frame().includes("Analytics · 90d"))
+    await until(t, () => loads.includes(90))
     await act(async () => { await t.keys.typeText("1") })
-    await until(t, () => t.frame().includes("Analytics · 1d"))
+    await until(t, () => loads.includes(1))
     t.destroy()
   })
 

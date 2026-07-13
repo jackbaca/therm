@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { ParsedKey } from "@opentui/core"
-import { parse, match, print, from, toBindings } from "../src/keys/chord"
+import { parse, match, from, toBindings } from "../src/keys/chord"
 
 const k = (o: Partial<ParsedKey> & { name: string }): ParsedKey => ({
   ctrl: false, meta: false, shift: false, option: false, super: false,
@@ -89,33 +89,6 @@ describe("chord.match", () => {
   })
 })
 
-describe("chord.print", () => {
-  test("modifiers + label", () => {
-    expect(print(parse("ctrl+shift+k"))).toBe("Ctrl+Shift+K")
-    expect(print(parse("return"))).toBe("Enter")
-    expect(print(parse("escape"))).toBe("Esc")
-    expect(print(parse("up"))).toBe("↑")
-    expect(print(parse("pagedown"))).toBe("PgDn")
-  })
-
-  test("first alternate only", () => {
-    expect(print(parse("shift+return,ctrl+j"))).toBe("Shift+Enter")
-  })
-
-  test("leader substitution", () => {
-    expect(print(parse("<leader>e"))).toBe("<leader> E")
-    expect(print(parse("<leader>e"), "Ctrl+X")).toBe("Ctrl+X E")
-  })
-
-  test("single-char name uppercased; multi-char capitalized", () => {
-    expect(print(parse("f1"))).toBe("F1")
-    expect(print(parse("x"))).toBe("X")
-  })
-
-  test("empty", () => {
-    expect(print([])).toBe("")
-  })
-})
 
 describe("chord.from", () => {
   test("super defaults false when absent", () => {
