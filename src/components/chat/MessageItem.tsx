@@ -65,6 +65,8 @@ const BOTTOM_RULE = {
   topT: "", bottomT: "", leftT: "", rightT: "", cross: "",
 }
 
+const TABLE = { style: "grid" as const }
+
 // OpenTUI has no onClick; synthesize one from down→up at the same cell
 // so text-selection drags don't fire it.
 function useClick(fn?: () => void) {
@@ -232,7 +234,8 @@ const AssistantMessage = memo(({ message, streaming, prompt, onPick }: {
       return (
         <box key={`${k}-${j}`}>
           <markdown content={mathify(s.md)} fg={theme.markdownText}
-            syntaxStyle={ctx.syntaxStyle} streaming={tail} />
+            syntaxStyle={ctx.syntaxStyle} streaming={tail}
+            internalBlockMode="top-level" tableOptions={TABLE} />
         </box>
       )
     })

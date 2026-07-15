@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { act } from "react"
+import { act, useState } from "react"
+import { TestRecorder } from "@opentui/core/testing"
 import { mountNode, until, type Harness } from "./harness"
 import { turnReducer, initialTurn, type Action } from "../src/app/turnReducer"
 import { MessageList } from "../src/components/chat/MessageList"
@@ -42,6 +43,23 @@ function reduce(actions: Action[]) {
   return actions.reduce(turnReducer, initialTurn)
 }
 
+const SOURCE = "# Heading\n\nThis is **bold** and `code`."
+let stream!: (content: string) => void
+
+function StreamProbe() {
+  const [content, set] = useState(SOURCE)
+  stream = set
+  const message: Message = {
+    id: "stream-probe", role: "assistant", timestamp: 0,
+    parts: [{ type: "text", key: "stream-part", content, streaming: true }],
+  }
+  return (
+    <box flexDirection="column" width="100%" height="100%">
+      <MessageList messages={[message]} streaming />
+    </box>
+  )
+}
+
 describe("message transcript contracts", () => {
   test("markdown images route to media without interpreting fenced examples", () => {
     expect(splitContent([
@@ -55,6 +73,22 @@ describe("message transcript contracts", () => {
       { md: " after" },
       { code: "![literal](/tmp/owl.png)", lang: "md" },
     ])
+  })
+
+  test("streamed assistant headings never expose source markers between highlight passes", async () => {
+    await using t = await mountNode(<StreamProbe />, { width: 80, height: 16 })
+    const recorder = new TestRecorder(t.renderer)
+    recorder.rec()
+
+    for (const suffix of [" stream-one", " stream-two", " stream-three", " stream-four"]) {
+      act(() => stream(SOURCE + suffix))
+      await until(t, () => t.frame().includes(suffix.trim()) && !t.frame().includes("# Heading"))
+    }
+    recorder.stop()
+
+    const frames = recorder.recordedFrames.map(frame => frame.frame)
+    expect(frames.length).toBeGreaterThan(0)
+    expect(frames.some(frame => frame.includes("# Heading"))).toBe(false)
   })
 
   test("trim-equivalent completion cannot duplicate or reorder streamed parts", () => {
