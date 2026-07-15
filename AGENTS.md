@@ -4,6 +4,14 @@
 - This is a TUI app built with OpenTUI React (`@opentui/react`), NOT React DOM. JSX renders to a terminal.
 - Data from `~/.hermes/` carries `source: Source` provenance. Use `<FileLink>` in UI, never hardcode paths.
 
+### OpenTUI product guidance
+
+- OpenTUI is a direct Herm dependency. Before building a custom input, list, selector, scroller, tab strip, code view, markdown view, diff, or layout primitive, inspect the installed OpenTUI component/API and its current docs.
+- Herm is an opinionated Hermes-first interface: expose Hermes logic broadly, but keep the default view minimal and disclose advanced state/actions contextually through selection, detail panes, and dialogs.
+- Hermes Agent source, docs, CLI, TUI, WebUI, RPCs, and events define the feature contract. Herm may use a different UX and should not mechanically port any one Hermes surface.
+- Translate framework examples into correct OpenTUI React patterns. Preserve interaction semantics, not foreign state-management or application architecture.
+- Every new interactive surface follows Herm navigation rules, keyboard/mouse parity, responsive terminal layout, and observable live/headless verification.
+
 ## Style Guide
 
 ### Directory Layout
