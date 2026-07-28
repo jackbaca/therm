@@ -17,9 +17,8 @@
  *                    files; local remove() is the fallback
  *
  * All query functions here share ONE readonly connection and ONE
- * parent→child classification rule. Upstream owns that semantic
- * (hermes_state.py:893-970); if it changes, `kind()` is the only line
- * that moves.
+ * repository-level parent→child relation. Upstream owns that semantic;
+ * if it changes, the SQL helpers around `next()` are the lines that move.
  */
 
 import { Database, type Statement } from "bun:sqlite"
@@ -159,39 +158,63 @@ export interface PeekMsg {
   observed?: number | null
   at: number
 }
-//
-// parent_session_id is overloaded across three unrelated relationships
-// in hermes-agent. The ONLY discriminator is (parent.end_reason,
-// child.started_at vs parent.ended_at):
-//
-//   subagent     — child started while parent was still live
-//                  (parent.ended_at NULL OR child.started_at < it)
-//   continuation — parent.end_reason='compression' AND child started
-//                  at/after parent.ended_at
-//   branch       — parent.end_reason='branched'    AND child started
-//                  at/after parent.ended_at
-//
-// This mirrors hermes_state.py compression-tip walker (:893-926) and
-// list_sessions_rich root filter (:956-971). Every query below derives
-// its WHERE from these three predicates — change the rule here, not
-// per-call. They take the child-table alias because queries variously
-// see the child as the outer `s` or an inner `c`.
+// parent_session_id is overloaded across subagent, compression, branch,
+// and delegate relationships. Current Hermes stores durable branch and
+// delegate markers in model_config, while compression continuation is the
+// best clean child of a compression-ended parent, not a timestamp gate.
 
 export type Kind = "root" | "subagent" | "continuation" | "branch"
 
-const SUB  = (c: string) => `(p.ended_at IS NULL OR ${c}.started_at < p.ended_at)`
-const CONT = (c: string) => `(p.end_reason = 'compression' AND ${c}.started_at >= p.ended_at)`
-const BR   = (c: string) => `(p.end_reason = 'branched'    AND ${c}.started_at >= p.ended_at)`
+const cfg = (c: string, key: "_branched_from" | "_delegate_from") =>
+  `json_extract(COALESCE(${c}.model_config, '{}'), '$.${key}')`
+const branched = (c: string) => `${cfg(c, "_branched_from")} IS NOT NULL`
+const delegated = (c: string) => `${cfg(c, "_delegate_from")} IS NOT NULL`
+const clean = (c: string) =>
+  `COALESCE(${c}.source, '') != 'tool' AND NOT (${branched(c)}) AND NOT (${delegated(c)})`
+const cont = (c: string, p: string) =>
+  `(${p}.ended_at IS NOT NULL AND COALESCE(${p}.end_reason, '') = 'compression' AND ${clean(c)})`
+const branch = (c: string, p: string) =>
+  `(NOT (${delegated(c)}) AND (${branched(c)} OR (` +
+  `${p}.ended_at IS NOT NULL AND COALESCE(${p}.end_reason, '') = 'branched' AND ${c}.started_at >= ${p}.ended_at)))`
+const sub = (c: string, p: string) =>
+  `(NOT (${branch(c, p)}) AND NOT (${cont(c, p)}) AND (` +
+  `${p}.ended_at IS NULL OR ${c}.started_at < ${p}.ended_at OR ` +
+  `COALESCE(${p}.end_reason, '') NOT IN ('compression', 'branched')))`
+const top = (s: string) =>
+  `(${s}.parent_session_id IS NULL OR EXISTS (SELECT 1 FROM sessions p ` +
+  `WHERE p.id = ${s}.parent_session_id AND ${branch(s, "p")}))`
+const listable = (s: string) => `(NOT (${delegated(s)}) AND ${top(s)})`
+const active = (s: string) =>
+  `COALESCE((SELECT MAX(m.timestamp) FROM messages m WHERE m.session_id = ${s}.id), ${s}.started_at)`
+const order = (c: string) =>
+  `CASE WHEN ${c}.end_reason = 'compression' THEN 0 WHEN ${c}.ended_at IS NULL THEN 1 ELSE 2 END ASC, ` +
+  `${active(c)} DESC, ` +
+  `${c}.started_at DESC, ${c}.id DESC`
+const next = (p: string, c = "n") =>
+  `(SELECT ${c}.id FROM sessions ${c} WHERE ${c}.parent_session_id = ${p}.id AND ${cont(c, p)} ` +
+  `ORDER BY ${order(c)} LIMIT 1)`
+
+const marker = (raw: string | null | undefined, key: "_branched_from" | "_delegate_from") => {
+  if (!raw) return false
+  try { return Object.prototype.hasOwnProperty.call(JSON.parse(raw) as object, key) }
+  catch { return false }
+}
 
 /** Classify a child session given its parent. Pure — for tests and
  *  any caller that already has both rows in hand. */
 export const kind = (
   parent: { ended_at: number | null; end_reason: string | null } | null,
-  child: { started_at: number },
+  child: { started_at: number; source?: string | null; model_config?: string | null },
 ): Kind => {
   if (!parent) return "root"
+  if (marker(child.model_config, "_branched_from")) return "branch"
+  if (
+    parent.end_reason === "compression" &&
+    parent.ended_at != null &&
+    child.source !== "tool" &&
+    !marker(child.model_config, "_delegate_from")
+  ) return "continuation"
   if (parent.ended_at == null || child.started_at < parent.ended_at) return "subagent"
-  if (parent.end_reason === "compression") return "continuation"
   if (parent.end_reason === "branched") return "branch"
   return "subagent"
 }
@@ -214,7 +237,7 @@ const COLS = `
   (SELECT MAX(timestamp) FROM messages WHERE session_id = s.id) AS last_active,
   (SELECT COUNT(*) FROM sessions c
    WHERE c.parent_session_id = s.id
-     AND (s.ended_at IS NULL OR c.started_at < s.ended_at)) AS subagent_count`
+     AND ${sub("c", "s")}) AS subagent_count`
 
 type Raw = {
   id: string; source: string; model: string | null; billing_provider: string | null
@@ -270,11 +293,27 @@ export const byId = (id: string): SessionRow | null => {
  *  can have 0 messages when compaction rotated but no turn landed yet. */
 export const lastReal = (): SessionRow | undefined => {
   const hit = q(`
+    WITH RECURSIVE chain(root_id, cur_id) AS (
+      SELECT s.id, s.id FROM sessions s
+      WHERE s.source IN ('tui', 'cli') AND ${listable("s")}
+      UNION ALL
+      SELECT c.root_id, child.id
+      FROM chain c
+      JOIN sessions parent ON parent.id = c.cur_id
+      JOIN sessions child ON child.parent_session_id = c.cur_id
+      WHERE ${cont("child", "parent")}
+    ), stats AS (
+      SELECT c.root_id,
+             MAX(${active("s")}) AS tick,
+             MAX(CASE WHEN s.source IN ('tui', 'cli') AND s.message_count > 0 THEN 1 ELSE 0 END) AS real
+      FROM chain c
+      JOIN sessions s ON s.id = c.cur_id
+      GROUP BY c.root_id
+    )
     SELECT s.id FROM sessions s
-    LEFT JOIN sessions p ON p.id = s.parent_session_id
-    WHERE s.source IN ('tui', 'cli') AND s.message_count > 0
-      AND (s.parent_session_id IS NULL OR ${CONT("s")})
-    ORDER BY s.started_at DESC LIMIT 1
+    JOIN stats st ON st.root_id = s.id
+    WHERE st.real = 1
+    ORDER BY st.tick DESC, s.started_at DESC, s.id DESC LIMIT 1
   `)?.get() as { id: string } | undefined
   if (!hit) return undefined
   return byId(chainTip(hit.id)) ?? undefined
@@ -291,7 +330,7 @@ function walkUp(sid: string): string {
   const step = q(
     `SELECT p.id FROM sessions c
      JOIN sessions p ON p.id = c.parent_session_id
-     WHERE c.id = ? AND ${CONT("c")}`,
+     WHERE c.id = ? AND c.id = ${next("p")}`,
   )
   let cur = sid
   for (let i = 0; i < 100; i++) {
@@ -302,7 +341,7 @@ function walkUp(sid: string): string {
   return cur
 }
 
-/** Root-level sessions, newest-started first, compression chains
+/** Root-level sessions, newest-active first, compression chains
  *  projected to their tip (the resumable end), with lineage_root_id
  *  recording the original root when projection happened. Mirrors
  *  list_sessions_rich.
@@ -313,16 +352,28 @@ function walkUp(sid: string): string {
 export function roots(limit = 30): SessionRow[] {
   const end = perf.mark("io:sessions.roots")
   try {
-    // Root filter: no parent, OR parent link is a branch. Subagents
-    // and continuations are hidden — they surface via children()/
-    // lineage() instead. `p`/`c` aliases satisfy SUB/CONT/BR above.
+    // Root filter: no parent, OR parent link is a branch, excluding
+    // delegate markers. `p`/`c` aliases satisfy SUB/CONT/BR above.
     const raw = (q(
-      `SELECT ${COLS} FROM sessions s
-       WHERE s.parent_session_id IS NULL
-          OR EXISTS (SELECT 1 FROM sessions p
-                     WHERE p.id = s.parent_session_id
-                       AND ${BR("s")})
-       ORDER BY s.started_at DESC
+      `WITH RECURSIVE chain(root_id, cur_id) AS (
+         SELECT s.id, s.id FROM sessions s
+         WHERE ${listable("s")}
+         UNION ALL
+         SELECT c.root_id, child.id
+         FROM chain c
+         JOIN sessions parent ON parent.id = c.cur_id
+         JOIN sessions child ON child.parent_session_id = c.cur_id
+         WHERE ${cont("child", "parent")}
+       ), stats AS (
+         SELECT c.root_id, MAX(${active("s")}) AS tick
+         FROM chain c
+         JOIN sessions s ON s.id = c.cur_id
+         GROUP BY c.root_id
+       )
+       SELECT ${COLS} FROM sessions s
+       LEFT JOIN stats st ON st.root_id = s.id
+       WHERE ${listable("s")}
+       ORDER BY COALESCE(st.tick, s.started_at) DESC, s.started_at DESC, s.id DESC
        LIMIT ?`,
     )?.all(limit) ?? []) as Raw[]
 
@@ -347,7 +398,7 @@ export function children(pid: string): SessionRow[] {
     return ((q(
       `SELECT ${COLS} FROM sessions s
        JOIN sessions p ON p.id = s.parent_session_id
-       WHERE s.parent_session_id = ? AND ${SUB("s")}
+       WHERE s.parent_session_id = ? AND ${sub("s", "p")}
        ORDER BY s.started_at ASC`,
     )?.all(pid) ?? []) as Raw[]).map(r => toRow(r))
   } finally { end() }
@@ -360,13 +411,12 @@ export function lineage(sid: string): LineageInfo {
     const pred = q(
       `SELECT p.id, p.title FROM sessions c
        JOIN sessions p ON p.id = c.parent_session_id
-       WHERE c.id = ? AND ${CONT("c")}`,
+       WHERE c.id = ? AND c.id = ${next("p")}`,
     )?.get(sid) as { id: string; title: string | null } | undefined
     const succ = q(
       `SELECT c.id, c.title FROM sessions c
        JOIN sessions p ON p.id = c.parent_session_id
-       WHERE p.id = ? AND ${CONT("c")}
-       ORDER BY c.started_at DESC LIMIT 1`,
+       WHERE p.id = ? AND c.id = ${next("p")}`,
     )?.get(sid) as { id: string; title: string | null } | undefined
     return {
       ...(pred && { continuesFrom: pred }),
@@ -381,8 +431,7 @@ function tip(sid: string): string {
   const step = q(
     `SELECT c.id FROM sessions c
      JOIN sessions p ON p.id = c.parent_session_id
-     WHERE p.id = ? AND ${CONT("c")}
-     ORDER BY c.started_at DESC LIMIT 1`,
+     WHERE p.id = ? AND c.id = ${next("p")}`,
   )
   let cur = sid
   for (let i = 0; i < 100; i++) {
