@@ -27,12 +27,24 @@ export type GatewayEvent = ({
   | { type: "skin.changed"; payload?: GatewaySkin }
   | { type: "message.start"; payload?: undefined }
   | { type: "message.delta"; payload?: { text?: string; rendered?: string } }
-  | { type: "message.complete"; payload?: { text?: string | null; rendered?: string; reasoning?: string; status?: "complete" | "error" | "interrupted"; usage?: Usage } }
+  | { type: "message.interim"; payload?: { text?: string | null; already_streamed?: boolean } }
+  | { type: "message.complete"; payload?: { text?: string | null; rendered?: string; reasoning?: string; warning?: string; status?: "complete" | "error" | "interrupted"; usage?: Usage; response_previewed?: boolean } }
   | { type: "thinking.delta"; payload?: { text?: string } }
   | { type: "reasoning.delta"; payload?: { text?: string; verbose?: boolean } }
   | { type: "reasoning.available"; payload?: { text?: string; verbose?: boolean } }
   | { type: "moa.reference"; payload?: { label?: string; text?: string; index?: number; count?: number } }
   | { type: "moa.aggregating"; payload?: { aggregator?: string } }
+  | { type: "moa.phase"; payload?: { phase?: string; text?: string } }
+  | { type: "moa.progress"; payload?: { text?: string; level?: string } }
+  | { type: "agent.terminal.output"; payload?: { process_id?: string; text?: string; chunk?: string; stream?: string } }
+  | { type: "terminal.close"; payload?: { process_id?: string } }
+  | { type: "tool.output_risk"; payload?: { tool_id?: string; name?: string; risk?: string; text?: string } }
+  | { type: "billing.step_up.verification"; payload?: { url?: string; message?: string; text?: string } }
+  | { type: "pet.generate.progress"; payload?: { token?: string; count?: number; text?: string } }
+  | { type: "pet.hatch.progress"; payload?: { token?: string; count?: number; text?: string } }
+  | { type: "preview.restart.progress"; payload?: { task_id?: string; level?: string; text?: string } }
+  | { type: "preview.restart.complete"; payload?: { task_id?: string; text?: string } }
+  | { type: "reaction"; payload?: { kind?: string } }
   | { type: "status.update"; payload?: { text?: string; kind?: string } }
   | { type: "notification.show"; payload?: NotificationShowPayload }
   | { type: "notification.clear"; payload?: NotificationClearPayload }
@@ -43,12 +55,14 @@ export type GatewayEvent = ({
   | { type: "clarify.request"; payload: { request_id: string; question: string; choices: string[] | null } }
   | { type: "approval.request"; payload: { command: string; description: string; pattern_keys?: string[] } }
   | { type: "sudo.request"; payload: { request_id: string } }
-  | { type: "secret.request"; payload: { request_id: string; prompt: string; env_var: string } }
+  | { type: "secret.request"; payload: { request_id: string; prompt: string; env_var: string; metadata?: unknown } }
+  | { type: "terminal.read.request"; payload: { request_id: string; start?: number; count?: number } }
   | { type: "background.complete"; payload: { task_id: string; text: string } }
   | { type: "review.summary"; payload?: { text?: string } }
   | { type: "btw.complete"; payload: { text: string } }
   | { type: "browser.progress"; payload?: { message?: string; level?: "info" | "error" } }
   | { type: "voice.status"; payload?: { state?: "idle" | "listening" | "transcribing" } }
+  | { type: "voice.interrupted"; payload?: unknown }
   | { type: "voice.transcript"; payload?: { text?: string; no_speech_limit?: boolean } }
   | { type: "subagent.start"; payload: SubagentPayload }
   | { type: "subagent.thinking"; payload: SubagentPayload }
@@ -68,12 +82,24 @@ export const GATEWAY_EVENT_TYPES = [
   "skin.changed",
   "message.start",
   "message.delta",
+  "message.interim",
   "message.complete",
   "thinking.delta",
   "reasoning.delta",
   "reasoning.available",
   "moa.reference",
   "moa.aggregating",
+  "moa.phase",
+  "moa.progress",
+  "agent.terminal.output",
+  "terminal.close",
+  "tool.output_risk",
+  "billing.step_up.verification",
+  "pet.generate.progress",
+  "pet.hatch.progress",
+  "preview.restart.progress",
+  "preview.restart.complete",
+  "reaction",
   "status.update",
   "notification.show",
   "notification.clear",
@@ -85,11 +111,13 @@ export const GATEWAY_EVENT_TYPES = [
   "approval.request",
   "sudo.request",
   "secret.request",
+  "terminal.read.request",
   "background.complete",
   "review.summary",
   "btw.complete",
   "browser.progress",
   "voice.status",
+  "voice.interrupted",
   "voice.transcript",
   "subagent.start",
   "subagent.thinking",

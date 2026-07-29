@@ -37,6 +37,14 @@ function reference(label: string, text: string, index: number | undefined, count
   return body ? `${head}\n${body}` : head
 }
 
+function shape(v: unknown): string {
+  if (v == null) return "none"
+  if (Array.isArray(v)) return `array(${v.length})`
+  if (typeof v !== "object") return typeof v
+  const keys = Object.keys(v as Record<string, unknown>).slice(0, 8)
+  return keys.length ? `object keys: ${keys.join(", ")}` : "object"
+}
+
 export function formatProcessNotification(text: string): string {
   const body = text.replace(/^\[IMPORTANT: /, "").replace(/\]$/, "")
   const done = body.match(/^Background process (\S+) completed \(exit code (\S+)\)\.\nCommand: (.+?)(?:\n|$)/)
@@ -79,6 +87,13 @@ export function mapEvent(ev: GatewayEvent, side: Side): Action | null {
       return { kind: "message.delta", chunk }
     }
 
+    case "message.interim": {
+      const text = ev.payload?.text ?? ""
+      if (!text && !ev.payload?.already_streamed) return null
+      perf.count("stream:interim")
+      return { kind: "message.interim", text: text || undefined, streamed: ev.payload?.already_streamed }
+    }
+
     case "message.complete": {
       perf.count("stream:done")
       perf.mem("stream-done")
@@ -91,8 +106,8 @@ export function mapEvent(ev: GatewayEvent, side: Side): Action | null {
       if (p?.status === "error")
         return { kind: "error", text: p.text || "request failed — see messages above" }
       if (p?.status === "interrupted")
-        return { kind: "message.complete", text: (p.text || "") + "\n\n*[interrupted]*", usage: p?.usage }
-      return { kind: "message.complete", text: p?.text ?? undefined, usage: p?.usage }
+        return { kind: "message.complete", text: (p.text || "") + "\n\n*[interrupted]*", usage: p?.usage, previewed: p?.response_previewed }
+      return { kind: "message.complete", text: p?.text ?? undefined, usage: p?.usage, previewed: p?.response_previewed }
     }
 
     case "tool.start":
@@ -151,6 +166,20 @@ export function mapEvent(ev: GatewayEvent, side: Side): Action | null {
       return null
     }
 
+    case "agent.terminal.output":
+    case "billing.step_up.verification":
+    case "moa.phase":
+    case "moa.progress":
+    case "pet.generate.progress":
+    case "pet.hatch.progress":
+    case "preview.restart.complete":
+    case "preview.restart.progress":
+    case "reaction":
+    case "terminal.close":
+    case "tool.output_risk":
+    case "voice.interrupted":
+      return null
+
     case "subagent.start":
     case "subagent.thinking":
     case "subagent.tool":
@@ -196,6 +225,10 @@ export function mapEvent(ev: GatewayEvent, side: Side): Action | null {
     case "secret.request":
       return { kind: "prompt", id: ev.payload.request_id,
                req: { variant: "secret", ...ev.payload } }
+
+    case "terminal.read.request":
+      return { kind: "prompt", id: ev.payload.request_id,
+               req: { variant: "terminal-read", ...ev.payload } }
 
     case "background.complete":
       side.onBackground?.(ev.payload.task_id, ev.payload.text)

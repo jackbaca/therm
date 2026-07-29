@@ -31,7 +31,8 @@ export type Action =
   | { kind: "background"; id: string; title?: string; text: string }
   | { kind: "message.start" }
   | { kind: "message.delta"; chunk: string }
-  | { kind: "message.complete"; text?: string; usage?: Usage }
+  | { kind: "message.interim"; text?: string; streamed?: boolean }
+  | { kind: "message.complete"; text?: string; usage?: Usage; previewed?: boolean }
   | { kind: "reference"; text: string }
   | { kind: "tool.start"; id: string; name: string; preview?: string; args?: string }
   | { kind: "tool.progress"; name?: string; preview?: string }
@@ -86,13 +87,26 @@ export function turnReducer(state: TurnState, a: Action): TurnState {
       }
     }
 
+    case "message.interim": {
+      const text = sanitize(a.text)
+      if (!text && !a.streamed) return state
+      return {
+        ...state,
+        hasContent: text ? true : state.hasContent,
+        toolActive: false,
+        messages: a.streamed
+          ? sealLastText(state.messages)
+          : appendPart(state.messages, { type: "text", key: pid(), content: text, streaming: false }, true),
+      }
+    }
+
     case "message.complete":
       return {
         ...state,
         streaming: false,
         hasContent: false,
         toolActive: false,
-        messages: finalize(state.messages, a.text != null ? sanitize(a.text) : undefined, a.usage),
+        messages: finalize(state.messages, a.text != null ? sanitize(a.text) : undefined, a.usage, a.previewed),
       }
 
     case "reference": {
@@ -328,15 +342,21 @@ function appendPart(messages: Message[], part: Part, close: boolean): Message[] 
   )
 }
 
-function finalize(messages: Message[], final?: string, usage?: Usage): Message[] {
+function sealLastText(messages: Message[]): Message[] {
+  const last = messages[messages.length - 1]
+  if (last?.role !== "assistant") return messages
+  return [...messages.slice(0, -1), { ...last, parts: seal(last.parts) }]
+}
+
+function finalize(messages: Message[], final?: string, usage?: Usage, previewed?: boolean): Message[] {
   const last = messages[messages.length - 1]
   if (last?.role === "assistant") {
     const tail = last.parts[last.parts.length - 1]
-    const dup = final && last.parts.some(p => p.type === "text" && sameText(p.content, final))
+    const dup = previewed && final && last.parts.some(p => p.type === "text" && sameText(p.content, final))
     const text = tail?.type === "text" && final && sameText(tail.content, final) ? tail.content : final
     const parts = tail?.type === "text" && tail.streaming
       ? [...last.parts.slice(0, -1), { ...tail, content: text || tail.content, streaming: false }]
-      : final && !dup && !sameText(joinText(last.parts), final)
+      : final && !dup && !(previewed && sameText(joinText(last.parts), final))
         ? [...last.parts, { type: "text" as const, content: final, streaming: false }]
         : seal(last.parts)
     return expirePrompts([...messages.slice(0, -1), { ...last, parts, usage }])
@@ -407,7 +427,8 @@ function promptQuestion(req: PromptReq): string | undefined {
   if (req.variant === "clarify") return req.question
   if (req.variant === "approval") return req.description || "Shell command"
   if (req.variant === "sudo") return "Sudo required"
-  return req.env_var ? `Secret: ${req.env_var}` : "Secret required"
+  if (req.variant === "secret") return req.env_var ? `Secret: ${req.env_var}` : "Secret required"
+  return "Terminal read required"
 }
 
 function upsertThinking(messages: Message[], text: string, final: boolean, verbose?: boolean): Message[] {
