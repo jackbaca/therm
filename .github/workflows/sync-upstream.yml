@@ -1,9 +1,13 @@
 # Absorb upstream (liftaris/herm dev) while protecting the Harlow changes.
 #
-# Two branches carry one commit each on top of upstream/dev:
-#   harlow  -- the SIGUSR2 config-reload patch (also the PR branch upstream)
-#   dev     -- this workflow; the fork's default branch, because GitHub only
-#              fires scheduled workflows from the default branch
+# Three branches carry local commits on top of upstream/dev:
+#   harlow        -- the SIGUSR2 config-reload patch alone. Head of PR
+#                    liftaris/herm#253, so it stays upstreamable: no local-only
+#                    work goes here.
+#   harlow-local  -- harlow plus local carries (Hermes contract cap). This is
+#                    what scripts/install-therm.sh builds and installs.
+#   dev           -- this workflow; the fork's default branch, because GitHub
+#                    only fires scheduled workflows from the default branch
 #
 # Both are rebased rather than merged, so `git log upstream/dev..<branch>` is
 # always exactly our own work: reviewable, trivial to upstream, trivial to drop.
@@ -90,6 +94,46 @@ jobs:
         if: steps.harlow.outputs.changed == 'true'
         run: git push --force-with-lease origin HEAD:harlow
 
+      # ---- harlow-local: what actually gets installed --------------------
+      - name: Rebase harlow-local
+        id: local
+        run: |
+          git checkout -B harlow-local origin/harlow-local
+          before=$(git log --format='%H' "upstream/$UPSTREAM_BRANCH..HEAD" | wc -l)
+          if [ "$before" -eq 0 ]; then
+            echo "::error::harlow-local carries no commits over upstream -- refusing."; exit 1
+          fi
+          if git merge-base --is-ancestor "upstream/$UPSTREAM_BRANCH" HEAD; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          if ! git rebase "upstream/$UPSTREAM_BRANCH"; then
+            git rebase --abort || true
+            echo "::error::harlow-local rebase conflicted; branch left untouched."; exit 1
+          fi
+          after=$(git log --format='%H' "upstream/$UPSTREAM_BRANCH..HEAD" | wc -l)
+          [ "$after" -eq "$before" ] || { echo "::error::commit count $before -> $after"; exit 1; }
+          grep -q 'installReloadSignal()' src/index.tsx \
+            || { echo "::error::index.tsx no longer calls installReloadSignal()"; exit 1; }
+          # Upstream raising its own cap past ours is fine; dropping below the
+          # backend's contract is what breaks prompt submission.
+          grep -qE 'MAX_BACKEND_CONTRACT = ([6-9]|[1-9][0-9])' src/context/backend-contract.ts \
+            || { echo "::error::MAX_BACKEND_CONTRACT fell below 6"; exit 1; }
+
+      - name: Verify harlow-local
+        if: steps.local.outputs.changed == 'true'
+        run: |
+          set -o pipefail
+          bun install --frozen-lockfile
+          bun run typecheck
+          bun test test/reload-signal.test.ts
+          bun test test/sessionCapabilities.test.ts
+          bun test
+
+      - name: Push harlow-local
+        if: steps.local.outputs.changed == 'true'
+        run: git push --force-with-lease origin HEAD:harlow-local
+
       # ---- dev: this workflow -------------------------------------------
       - name: Rebase dev
         id: devbranch
@@ -125,6 +169,7 @@ jobs:
             "Automated upstream sync failed. Affected branches were left untouched." \
             "" \
             "- harlow rebase+guards: \`${{ steps.harlow.outcome }}\`" \
+            "- harlow-local rebase+guards: \`${{ steps.local.outcome }}\`" \
             "- dev rebase+guards: \`${{ steps.devbranch.outcome }}\`" \
             "" \
             "[Run log](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" \
