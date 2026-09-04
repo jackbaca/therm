@@ -1,5 +1,11 @@
 export const MIN_BACKEND_CONTRACT = 4
-export const MAX_BACKEND_CONTRACT = 5
+// Hermes Agent bumped DESKTOP_BACKEND_CONTRACT to 6, and this gate fails closed
+// on anything newer, which blocks prompt submission outright. v6's only change
+// is that plugins.manage list rows carry the canonical registry key and toggles
+// become key-addressed. Herm classifies rpc:plugins.manage as "missing" in
+// src/app/capabilityCoverage.ts -- it has no first-party UI or command for it --
+// so nothing Herm actually calls changed between v5 and v6.
+export const MAX_BACKEND_CONTRACT = 6
 
 export type BackendContractReason = "missing" | "malformed" | "older" | "supported" | "newer"
 
